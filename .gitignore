@@ -10,3 +10,8 @@ accloud/build/
 
 # Qt generated support files
 **/.qt/
+
+# Runtime artifacts
+accloud/logs/*.jsonl
+accloud/session.json
+uc.makeronline.com.har

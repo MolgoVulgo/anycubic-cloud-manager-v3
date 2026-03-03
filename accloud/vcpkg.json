@@ -4,6 +4,7 @@
   "description": "Anycubic Cloud Manager KDE/Linux architecture scaffold",
   "dependencies": [
     "catch2",
-    "gtest"
+    "gtest",
+    "nlohmann-json"
   ]
 }

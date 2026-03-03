@@ -11,6 +11,9 @@ Anycubic Cloud Manager V3 is a tooling/documentation project focused on:
 At the moment, the detailed documentation in `Docs/` is written in French.
 An English translation can be added later.
 
+### Runtime logging reference
+- `Docs/logging_reference.md`
+
 ### Format research note
 The Anycubic format explanation references UVtools analysis and cross-checks it with this repository documentation.
 
@@ -29,6 +32,9 @@ Anycubic Cloud Manager V3 est un projet outillage/documentation axe sur :
 
 ### Langue de la documentation
 Pour le moment, la documentation detaillee dans `Docs/` est en francais.
+
+### Reference logging runtime
+- `Docs/logging_reference.md`
 
 ### Note sur l'explication des formats
 L'explication des formats Anycubic s'appuie sur UVtools et sur les documents de ce depot.

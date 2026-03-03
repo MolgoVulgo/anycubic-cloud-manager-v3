@@ -5,8 +5,13 @@ project(accloud VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 option(ACCLOUD_ENABLE_QT "Enable Qt6/QML frontend target" ON)
+option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
+
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_library(accloud_domain INTERFACE)
 target_include_directories(accloud_domain INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -50,7 +55,7 @@ set(ACCLOUD_INFRA_SOURCES
 
 add_library(accloud_infra OBJECT ${ACCLOUD_INFRA_SOURCES})
 target_include_directories(accloud_infra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(accloud_infra PRIVATE accloud_domain)
+target_link_libraries(accloud_infra PRIVATE accloud_domain nlohmann_json::nlohmann_json)
 
 add_executable(accloud_cli
     app/main.cpp
@@ -59,15 +64,46 @@ add_executable(accloud_cli
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
 
 if(ACCLOUD_ENABLE_QT)
-  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2)
+  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network)
   if(Qt6_FOUND)
+    target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
+    target_link_libraries(accloud_infra PRIVATE Qt6::Network)
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
-    target_sources(accloud_cli PRIVATE app/resources.qrc)
+    target_sources(accloud_cli PRIVATE
+        app/resources.qrc
+        app/CloudBridge.cpp
+        app/CloudBridge.h
+        app/SessionImportBridge.cpp
+        app/SessionImportBridge.h
+    )
     target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2)
   else()
     message(WARNING "Qt6 not found: accloud_cli will build in headless skeleton mode")
+  endif()
+
+  if(ACCLOUD_ENABLE_QML_TESTS)
+    find_package(Qt6 QUIET COMPONENTS QuickTest)
+    if(TARGET Qt6::QuickTest)
+      add_executable(accloud_qml_tests tests/ui/tst_ui_main.cpp)
+      target_link_libraries(accloud_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::QuickControls2)
+      target_compile_definitions(accloud_qml_tests PRIVATE
+          QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml"
+      )
+      add_test(
+        NAME accloud_ui_qml
+        COMMAND accloud_qml_tests -platform offscreen
+      )
+    else()
+      message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
+    endif()
   endif()
 endif()
 
 enable_testing()
 add_test(NAME accloud_smoke COMMAND accloud_cli --smoke)
+
+add_executable(accloud_har_tests
+    tests/cloud/test_har_import.cpp
+)
+target_link_libraries(accloud_har_tests PRIVATE accloud_domain accloud_infra)
+add_test(NAME accloud_har_import COMMAND accloud_har_tests)

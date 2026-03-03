@@ -3,9 +3,16 @@
     <file alias="qml/MainWindow.qml">../ui/qml/MainWindow.qml</file>
     <file alias="qml/pages/CloudLoginPage.qml">../ui/qml/pages/CloudLoginPage.qml</file>
     <file alias="qml/pages/CloudFilesPage.qml">../ui/qml/pages/CloudFilesPage.qml</file>
+    <file alias="qml/pages/PrinterPage.qml">../ui/qml/pages/PrinterPage.qml</file>
+    <file alias="qml/pages/LogPage.qml">../ui/qml/pages/LogPage.qml</file>
     <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
     <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
     <file alias="qml/pages/DebugPage.qml">../ui/qml/pages/DebugPage.qml</file>
+    <file alias="qml/dialogs/SessionSettingsDialog.qml">../ui/qml/dialogs/SessionSettingsDialog.qml</file>
+    <file alias="qml/dialogs/UploadDraftDialog.qml">../ui/qml/dialogs/UploadDraftDialog.qml</file>
+    <file alias="qml/dialogs/PrintDraftDialog.qml">../ui/qml/dialogs/PrintDraftDialog.qml</file>
+    <file alias="qml/dialogs/ViewerDraftDialog.qml">../ui/qml/dialogs/ViewerDraftDialog.qml</file>
+    <file alias="qml/components/Theme.js">../ui/qml/components/Theme.js</file>
     <file alias="qml/components/FileCard.qml">../ui/qml/components/FileCard.qml</file>
     <file alias="qml/components/BusyOverlay.qml">../ui/qml/components/BusyOverlay.qml</file>
     <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>

@@ -7,6 +7,9 @@ This directory materializes the architecture from `Docs/structure_application_ph
 - Photon multi-format drivers (`PWMB`, `PWS`, `PHZ`, `PHOTONS`, `PWSZ`)
 - async jobs, cache, logging, and cloud workflows
 
+Logging reference:
+- `../Docs/logging_reference.md`
+
 ## Build
 
 ```bash
@@ -16,3 +19,26 @@ ctest --preset default --output-on-failure
 ```
 
 When Qt6 is unavailable, the build falls back to a headless skeleton mode.
+
+## Workbench signature config
+
+Workbench API calls use XX-* signature headers with the same defaults as
+`manager_anycubic_cloud`:
+
+```bash
+export ACCLOUD_PUBLIC_APP_ID="<app_id>"
+export ACCLOUD_PUBLIC_APP_SECRET="<app_secret>"
+```
+
+If not overridden, built-in defaults are used:
+- `ACCLOUD_PUBLIC_APP_ID=f9b3528877c94d5c9c5af32245db46ef`
+- `ACCLOUD_PUBLIC_APP_SECRET=0cf75926606049a3937f56b0373b99fb`
+
+Optional overrides:
+- `ACCLOUD_PUBLIC_VERSION` (default: `1.0.0`)
+- `ACCLOUD_PUBLIC_DEVICE_TYPE` (default: `web`)
+- `ACCLOUD_PUBLIC_IS_CN` (default: `2`)
+- `ACCLOUD_REGION` (default: `global`)
+- `ACCLOUD_DEVICE_ID` (default: `manager-anycubic-cloud-dev`)
+- `ACCLOUD_USER_AGENT` (default: `manager-anycubic-cloud/0.1.0`)
+- `ACCLOUD_CLIENT_VERSION` (default: `0.1.0`)

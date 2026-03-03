@@ -1,14 +1,47 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+import "Theme.js" as Theme
 
 Rectangle {
-    color: "#88000000"
-    visible: false
+    id: root
+    objectName: "busyOverlay"
+    property bool running: false
+    property string stage: "Running"
 
-    Column {
+    color: "#66000000"
+    visible: running
+
+    Rectangle {
         anchors.centerIn: parent
-        spacing: 10
-        BusyIndicator { running: parent.parent.visible }
-        Button { text: "Cancel" }
+        width: 280
+        height: 140
+        radius: 14
+        color: Theme.panel
+        border.width: 1
+        border.color: Theme.panelStroke
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 10
+
+            Text {
+                text: root.stage
+                color: Theme.textPrimary
+                font.bold: true
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            BusyIndicator {
+                running: root.running
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Button {
+                text: "Cancel"
+                Layout.alignment: Qt.AlignHCenter
+            }
+        }
     }
 }
