@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.accloud.App</id>
+  <name>accloud</name>
+  <summary>Anycubic Photon and Cloud management toolkit</summary>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>Proprietary</project_license>
+  <description>
+    <p>Initial KDE/Linux application scaffold based on architecture documentation.</p>
+  </description>
+</component>

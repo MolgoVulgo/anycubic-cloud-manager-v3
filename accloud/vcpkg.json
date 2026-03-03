@@ -1,0 +1,9 @@
+{
+  "name": "accloud",
+  "version-string": "0.1.0",
+  "description": "Anycubic Cloud Manager KDE/Linux architecture scaffold",
+  "dependencies": [
+    "catch2",
+    "gtest"
+  ]
+}

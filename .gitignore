@@ -1,0 +1,12 @@
+accloud/build/
+
+# CMake / Ninja
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/build.ninja
+**/.ninja_deps
+**/.ninja_log
+
+# Qt generated support files
+**/.qt/

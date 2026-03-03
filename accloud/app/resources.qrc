@@ -1,0 +1,17 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="qml/MainWindow.qml">../ui/qml/MainWindow.qml</file>
+    <file alias="qml/pages/CloudLoginPage.qml">../ui/qml/pages/CloudLoginPage.qml</file>
+    <file alias="qml/pages/CloudFilesPage.qml">../ui/qml/pages/CloudFilesPage.qml</file>
+    <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
+    <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
+    <file alias="qml/pages/DebugPage.qml">../ui/qml/pages/DebugPage.qml</file>
+    <file alias="qml/components/FileCard.qml">../ui/qml/components/FileCard.qml</file>
+    <file alias="qml/components/BusyOverlay.qml">../ui/qml/components/BusyOverlay.qml</file>
+    <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>
+    <file alias="qml/components/ProgressCard.qml">../ui/qml/components/ProgressCard.qml</file>
+    <file alias="qml/panes/PreviewPane.qml">../ui/qml/panes/PreviewPane.qml</file>
+    <file alias="qml/panes/LayerInspectorPane.qml">../ui/qml/panes/LayerInspectorPane.qml</file>
+    <file alias="qml/panes/Viewer3DPane.qml">../ui/qml/panes/Viewer3DPane.qml</file>
+  </qresource>
+</RCC>
