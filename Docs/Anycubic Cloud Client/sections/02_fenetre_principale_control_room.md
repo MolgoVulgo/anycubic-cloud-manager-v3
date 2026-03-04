@@ -11,7 +11,11 @@ Point d’entrée : exposer les **actions globales** (session, viewer, dialogs) 
 ### Positionnement
 - **Header** en haut (QFrame panel), layout horizontal :
   - colonne gauche : titre + sous-titre
-  - colonne droite : 4 boutons (Session Settings, Print Dialog, 3D Viewer Dialog, Upload Dialog)
+  - colonne droite : 3 boutons (Print Dialog, 3D Viewer Dialog, Upload Dialog)
+- **MenuBar top** :
+  - `Session` : `Details`, `import HAR`
+  - `Parametre` : `session`, `theme`, `rendu 3d`
+  - `?` : `A propos`, `git`
 - **Tabs** sous le header, occupant le reste de la fenêtre.
 
 ### Thème
@@ -21,8 +25,8 @@ Point d’entrée : exposer les **actions globales** (session, viewer, dialogs) 
 
 ### Analyse
 - Conforme au besoin “fenêtre principale centrée Cloud” (accès direct aux fichiers + actions).
+- Les actions session passent par le menu top (plus de bouton `Session Settings` dans le header).
 - Les boutons **Upload Dialog** et **Print Dialog** ouvrent des **dialogs “draft”** (design preview) : risque de confusion avec les actions réelles (upload/print déjà disponibles dans Files tab).
 - Le viewer est accessible globalement (OK) + depuis les cartes fichiers (mieux, car contextuel).
 
 ---
-
