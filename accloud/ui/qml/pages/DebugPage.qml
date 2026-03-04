@@ -13,13 +13,28 @@ Item {
         Button { text: "Open app log" }
         Button { text: "Open http log" }
         Button { text: "Open render3d log" }
-        TextArea {
-            readOnly: true
-            placeholderText: "Structured logs preview"
+        ScrollView {
+            id: debugLogScroll
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: parent.height - 140
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+
+            TextArea {
+                width: Math.max(debugLogScroll.availableWidth, implicitWidth)
+                height: Math.max(debugLogScroll.availableHeight, implicitHeight)
+                readOnly: true
+                placeholderText: "Structured logs preview"
+                background: null
+            }
         }
     }
 }

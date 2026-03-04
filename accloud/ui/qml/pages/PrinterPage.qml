@@ -127,6 +127,15 @@ Item {
                     anchors.margins: 10
                     spacing: 8
                     model: printersModel
+                    clip: true
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        active: true
+                    }
+                    ScrollBar.horizontal: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        active: true
+                    }
 
                     delegate: Rectangle {
                         width: ListView.view.width
@@ -203,15 +212,30 @@ Item {
                         font.bold: true
                     }
 
-                    TextArea {
-                        objectName: "printerPayloadPreview"
+                    ScrollView {
+                        id: printerPayloadScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        readOnly: true
-                        font.family: "JetBrains Mono"
-                        color: Theme.mono
-                        text: "{\n  \"printer\": \"M5S-Line-2\",\n  \"state\": \"PRINTING\",\n  \"file_id\": \"f-2d8e91\",\n  \"progress\": 43,\n  \"remaining_sec\": 10320\n}"
-                        wrapMode: TextEdit.NoWrap
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            active: true
+                        }
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            active: true
+                        }
+
+                        TextArea {
+                            objectName: "printerPayloadPreview"
+                            width: Math.max(printerPayloadScroll.availableWidth, implicitWidth)
+                            height: Math.max(printerPayloadScroll.availableHeight, implicitHeight)
+                            readOnly: true
+                            font.family: "JetBrains Mono"
+                            color: Theme.mono
+                            text: "{\n  \"printer\": \"M5S-Line-2\",\n  \"state\": \"PRINTING\",\n  \"file_id\": \"f-2d8e91\",\n  \"progress\": 43,\n  \"remaining_sec\": 10320\n}"
+                            wrapMode: TextEdit.NoWrap
+                            background: null
+                        }
                     }
                 }
             }

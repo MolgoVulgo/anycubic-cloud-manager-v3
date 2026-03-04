@@ -14,6 +14,11 @@ Le produit réel (au sens “fonctionnel”) se concentre sur :
 - **Printer tab** (état + détails)
 - **Log tab** (tail multi-fichiers + filtres)
 
+### Regle globale overflow/scroll
+- Toute zone dont le contenu peut depasser son conteneur doit exposer un scroll fonctionnel.
+- Concretement: `TextArea`, `ListView`, `ScrollView` doivent definir des `ScrollBar.vertical`/`ScrollBar.horizontal`.
+- Sur l'onglet **Log**, la barre verticale du `TextArea` est forcee visible (`AlwaysOn`) pour le tail live.
+
 ---
 
 ## 1) Thème global (app-wide)
@@ -213,6 +218,7 @@ Observer le runtime en live : tail multi-sources, filtres par niveau/source/comp
 - op_id exact
 - query (contains)
 - Zone de texte : lignes rendues (JSON ou fallback “best-effort”).
+- Scroll du `TextArea`: vertical `AlwaysOn`, horizontal `AsNeeded`.
 
 ### Positionnement
 - Barre filtres en haut (panel)
@@ -227,6 +233,7 @@ Observer le runtime en live : tail multi-sources, filtres par niveau/source/comp
 - Très utile pour l’approche “op_id / req_id / events”.
 - Les sources ne sont pas codées en dur: toute nouvelle source JSONL apparait automatiquement dans le filtre source.
 - Cache 1000 lignes : suffisant pour du live, mais pas pour l’analyse longue (à faire offline sur fichiers).
+- Verification UI: un test QML valide la presence de la scrollbar verticale active sur l'onglet Log.
 
 ---
 

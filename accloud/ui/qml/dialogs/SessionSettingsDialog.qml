@@ -170,16 +170,30 @@ Dialog {
                     border.width: 1
                     border.color: Theme.panelStroke
 
-                    TextArea {
-                        id: resultPanel
-                        objectName: "harImportResultPanel"
+                    ScrollView {
+                        id: resultPanelScroll
                         anchors.fill: parent
                         anchors.margins: 8
-                        readOnly: true
-                        wrapMode: Text.Wrap
-                        text: root.resultDetails
-                        color: Theme.textPrimary
-                        background: null
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            active: true
+                        }
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            active: true
+                        }
+
+                        TextArea {
+                            id: resultPanel
+                            objectName: "harImportResultPanel"
+                            width: Math.max(resultPanelScroll.availableWidth, implicitWidth)
+                            height: Math.max(resultPanelScroll.availableHeight, implicitHeight)
+                            readOnly: true
+                            wrapMode: Text.Wrap
+                            text: root.resultDetails
+                            color: Theme.textPrimary
+                            background: null
+                        }
                     }
                 }
             }

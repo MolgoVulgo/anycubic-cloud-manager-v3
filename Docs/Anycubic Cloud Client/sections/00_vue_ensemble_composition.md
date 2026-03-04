@@ -12,5 +12,8 @@ Le produit réel (au sens “fonctionnel”) se concentre sur :
 - **Printer tab** (état + détails)
 - **Log tab** (tail multi-fichiers + filtres)
 
----
+### Regle globale overflow/scroll
+- Toute zone avec risque de depassement doit avoir des ascenseurs fonctionnels.
+- Standard UI: `TextArea`, `ListView`, `ScrollView` definissent une barre verticale et une barre horizontale (si necessaire).
 
+---

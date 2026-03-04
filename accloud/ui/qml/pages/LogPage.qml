@@ -367,17 +367,11 @@ Item {
             border.width: 1
             border.color: Theme.panelStroke
 
-            TextArea {
-                id: logsArea
-                objectName: "logsTextArea"
+            ScrollView {
+                id: logsScrollView
+                objectName: "logsScrollView"
                 anchors.fill: parent
                 anchors.margins: 10
-                readOnly: true
-                font.family: "JetBrains Mono"
-                color: Theme.mono
-                wrapMode: TextEdit.NoWrap
-                selectByMouse: true
-                placeholderText: "Aucune ligne de log pour les filtres actuels."
                 ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AlwaysOn
                     active: true
@@ -385,6 +379,20 @@ Item {
                 ScrollBar.horizontal: ScrollBar {
                     policy: ScrollBar.AsNeeded
                     active: true
+                }
+
+                TextArea {
+                    id: logsArea
+                    objectName: "logsTextArea"
+                    width: Math.max(logsScrollView.availableWidth, implicitWidth)
+                    height: Math.max(logsScrollView.availableHeight, implicitHeight)
+                    readOnly: true
+                    font.family: "JetBrains Mono"
+                    color: Theme.mono
+                    wrapMode: TextEdit.NoWrap
+                    selectByMouse: true
+                    placeholderText: "Aucune ligne de log pour les filtres actuels."
+                    background: null
                 }
             }
         }

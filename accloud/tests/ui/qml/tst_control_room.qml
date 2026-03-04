@@ -1,4 +1,5 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import QtTest 1.3
 
 TestCase {
@@ -197,13 +198,19 @@ TestCase {
         var componentFilter = findObjectByName(page, "logComponentFilter")
         var eventFilter = findObjectByName(page, "logEventFilter")
         var opIdFilter = findObjectByName(page, "logOpIdFilter")
+        var logsScroll = findObjectByName(page, "logsScrollView")
         var logsArea = findObjectByName(page, "logsTextArea")
 
         verify(sourceFilter !== null)
         verify(componentFilter !== null)
         verify(eventFilter !== null)
         verify(opIdFilter !== null)
+        verify(logsScroll !== null)
         verify(logsArea !== null)
+        verify(logsScroll.ScrollBar.vertical !== null)
+        verify(logsScroll.ScrollBar.horizontal !== null)
+        compare(logsScroll.ScrollBar.vertical.policy, ScrollBar.AlwaysOn)
+        compare(logsScroll.ScrollBar.vertical.active, true)
 
         verify(sourceFilter.find("printer") !== -1)
         verify(componentFilter.find("printer_agent") !== -1)
