@@ -378,6 +378,14 @@ Item {
                 wrapMode: TextEdit.NoWrap
                 selectByMouse: true
                 placeholderText: "Aucune ligne de log pour les filtres actuels."
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AlwaysOn
+                    active: true
+                }
+                ScrollBar.horizontal: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                    active: true
+                }
             }
         }
     }
