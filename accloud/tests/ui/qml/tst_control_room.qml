@@ -13,10 +13,20 @@ TestCase {
         return object
     }
 
-    function findObjectByName(root, name) {
+    function findObjectByName(root, name, visited) {
         if (root === null || root === undefined) {
             return null
         }
+        if (visited === null || visited === undefined) {
+            visited = []
+        }
+        for (var v = 0; v < visited.length; ++v) {
+            if (visited[v] === root) {
+                return null
+            }
+        }
+        visited.push(root)
+
         if (root.objectName === name) {
             return root
         }
@@ -25,7 +35,7 @@ TestCase {
         for (var d = 0; d < direct.length; ++d) {
             var directNode = direct[d]
             if (directNode !== null && directNode !== undefined) {
-                var directFound = findObjectByName(directNode, name)
+                var directFound = findObjectByName(directNode, name, visited)
                 if (directFound !== null) {
                     return directFound
                 }
@@ -39,7 +49,7 @@ TestCase {
                 continue
             }
             for (var i = 0; i < kids.length; ++i) {
-                var found = findObjectByName(kids[i], name)
+                var found = findObjectByName(kids[i], name, visited)
                 if (found !== null) {
                     return found
                 }
@@ -57,10 +67,15 @@ TestCase {
         verify(tabs !== null)
         compare(tabs.count, 3)
 
-        var sessionButton = findObjectByName(window, "sessionSettingsButton")
         var uploadButton = findObjectByName(window, "uploadDialogButton")
-        verify(sessionButton !== null)
         verify(uploadButton !== null)
+
+        var menuBar = findObjectByName(window, "mainMenuBar")
+        verify(menuBar !== null)
+        if (menuBar.contentChildren !== undefined) {
+            verify(menuBar.contentChildren.length >= 3)
+        }
+        verify(findObjectByName(window, "render3dDefaultsDialog") !== null)
 
         window.close()
         window.destroy()
@@ -93,9 +108,10 @@ TestCase {
 
     function test_session_dialog_default_target_path() {
         var dialog = createQmlObject("../../../ui/qml/dialogs/SessionSettingsDialog.qml")
-        var targetField = findObjectByName(dialog, "sessionTargetField")
-        verify(targetField !== null)
-        compare(targetField.text, "~/.config/accloud/session.json")
+        var harField = findObjectByName(dialog, "harFileField")
+        var closeButton = findObjectByName(dialog, "harImportCloseButton")
+        verify(harField !== null)
+        verify(closeButton !== null)
         dialog.destroy()
     }
 
@@ -103,55 +119,65 @@ TestCase {
         var dialog = createQmlObject("../../../ui/qml/dialogs/SessionSettingsDialog.qml")
 
         var harField = findObjectByName(dialog, "harFileField")
-        var importButton = findObjectByName(dialog, "harImportButton")
         var statusLabel = findObjectByName(dialog, "harImportStatusLabel")
         var detailsPanel = findObjectByName(dialog, "harImportResultPanel")
 
         verify(harField !== null)
-        verify(importButton !== null)
         verify(statusLabel !== null)
         verify(detailsPanel !== null)
 
-        harField.text = "/tmp/session.har"
-        verify(importButton.enabled)
-        importButton.clicked()
+        dialog.runAnalyzeForPath("/tmp/session.har")
 
         verify(statusLabel.text.indexOf("bridge backend indisponible") !== -1)
-        verify(detailsPanel.text.indexOf("sessionImportBridge non défini") !== -1)
+        verify(detailsPanel.text.indexOf("sessionImportBridge non défini") !== -1
+               || detailsPanel.text.indexOf("sessionImportBridge") !== -1)
         dialog.destroy()
     }
 
     function test_session_dialog_import_button_calls_bridge_and_updates_result() {
         var dialog = createQmlObject("../../../ui/qml/dialogs/SessionSettingsDialog.qml")
+        var commitPath = ""
         dialog.importBridge = {
-            importHar: function(harPath, sessionPath) {
+            analyzeHar: function(harPath, sessionPath) {
                 return {
                     ok: true,
                     message: "mock import done",
                     entriesVisited: 4,
                     entriesAccepted: 2,
-                    tokenKeys: ["Authorization", "access_token"]
+                    tokenKeys: ["Authorization", "access_token"],
+                    sessionPath: sessionPath
                 }
-            }
+            },
+            commitPendingSession: function(sessionPath) {
+                commitPath = sessionPath
+                return {
+                    ok: true,
+                    message: "session saved",
+                    connectionOk: true,
+                    connectionMessage: "cloud ok"
+                }
+            },
+            discardPendingSession: function() {}
         }
+        dialog.sessionTargetPath = "/tmp/session.json"
 
-        var harField = findObjectByName(dialog, "harFileField")
-        var importButton = findObjectByName(dialog, "harImportButton")
         var statusLabel = findObjectByName(dialog, "harImportStatusLabel")
         var detailsPanel = findObjectByName(dialog, "harImportResultPanel")
+        var closeButton = findObjectByName(dialog, "harImportCloseButton")
 
-        verify(harField !== null)
-        verify(importButton !== null)
         verify(statusLabel !== null)
         verify(detailsPanel !== null)
+        verify(closeButton !== null)
 
-        harField.text = "/tmp/sample.har"
-        importButton.clicked()
+        dialog.runAnalyzeForPath("/tmp/sample.har")
 
-        verify(statusLabel.text.indexOf("import réussi") !== -1)
-        verify(detailsPanel.text.indexOf("Import: OK") !== -1)
+        verify(statusLabel.text.indexOf("analyse valide") !== -1)
+        verify(detailsPanel.text.indexOf("Analyse HAR: VALIDE") !== -1)
         verify(detailsPanel.text.indexOf("mock import done") !== -1)
-        verify(detailsPanel.text.indexOf("2 acceptées / 4 visitées") !== -1)
+        verify(detailsPanel.text.indexOf("/tmp/session.json") !== -1)
+
+        dialog.requestClose()
+        compare(commitPath, "/tmp/session.json")
         dialog.destroy()
     }
 

@@ -16,16 +16,18 @@ Dialog {
     height: Math.min(740, Math.max(560, overlayHeight * 0.84))
     property var importBridge: (typeof sessionImportBridge !== "undefined") ? sessionImportBridge : null
     property bool importInProgress: false
-    property string statusMessage: "Status: prêt pour l'import"
-    property string resultDetails: "Aucun import exécuté."
+    property string statusMessage: "Status: prêt pour l'analyse HAR."
+    property string resultDetails: "Aucune analyse exécutée."
+    property string sessionTargetPath: "~/.config/accloud/session.json"
+    property bool pendingValid: false
+    property string analyzedHarPath: ""
 
-    // Quand true : le dialog ne peut pas être fermé tant que la connexion n'est pas validée.
+    // Quand true : le dialog ne peut pas être fermé tant qu'aucune analyse valide n'a été sauvegardée.
     property bool mandatoryMode: false
     // Message de raison affiché en haut quand le dialog s'ouvre en mode obligatoire.
     property string startupMessage: ""
 
-    closePolicy: root.mandatoryMode ? Popup.NoAutoClose
-                                    : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+    closePolicy: Popup.NoAutoClose
 
     signal importCompleted(string message)
 
@@ -40,13 +42,100 @@ Dialog {
         return value
     }
 
-    Component.onCompleted: {
-        if (root.importBridge !== null && root.importBridge.defaultSessionPath) {
-            var defaultPath = String(root.importBridge.defaultSessionPath())
-            if (defaultPath.length > 0) {
-                sessionTargetField.text = defaultPath
-            }
+    function runAnalyzeForPath(harPath) {
+        var trimmedHar = String(harPath).trim()
+        if (trimmedHar.length === 0) {
+            root.statusMessage = "Status: chemin HAR requis."
+            root.pendingValid = false
+            return
         }
+        if (root.importBridge === null || typeof root.importBridge.analyzeHar !== "function") {
+            root.statusMessage = "Status: bridge backend indisponible."
+            root.resultDetails = "Impossible d'analyser : sessionImportBridge non défini."
+            root.pendingValid = false
+            return
+        }
+
+        root.importInProgress = true
+        var response = root.importBridge.analyzeHar(trimmedHar, root.sessionTargetPath)
+        root.importInProgress = false
+
+        var ok = response.ok === true
+        var entriesVisited = response.entriesVisited !== undefined ? response.entriesVisited : 0
+        var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
+        var keys = response.tokenKeys !== undefined ? response.tokenKeys : []
+        var keysText = (keys.length > 0) ? keys.join(", ") : "(aucun)"
+        var message = response.message !== undefined ? String(response.message) : "Aucun message"
+        var targetPath = response.sessionPath !== undefined ? String(response.sessionPath) : root.sessionTargetPath
+
+        root.pendingValid = ok
+        root.analyzedHarPath = trimmedHar
+        root.resultDetails =
+            "Analyse HAR: " + (ok ? "VALIDE" : "ERREUR")
+            + "\nHAR: " + trimmedHar
+            + "\nSession target: " + targetPath
+            + "\nMessage: " + message
+            + "\nEntrées: " + entriesAccepted + " acceptées / " + entriesVisited + " visitées"
+            + "\nClés de tokens: " + keysText
+            + "\n\nLa session sera sauvegardée à la fermeture de cette fenêtre."
+
+        if (ok) {
+            root.statusMessage = "Status: analyse valide. Fermez pour sauvegarder."
+        } else {
+            root.statusMessage = "Status: analyse invalide."
+        }
+    }
+
+    function requestClose() {
+        if (root.importInProgress) {
+            return
+        }
+
+        if (root.mandatoryMode && !root.pendingValid) {
+            root.statusMessage = "Status: import HAR valide requis avant fermeture."
+            return
+        }
+
+        if (root.pendingValid) {
+            if (root.importBridge === null || typeof root.importBridge.commitPendingSession !== "function") {
+                root.statusMessage = "Status: commit impossible (bridge indisponible)."
+                return
+            }
+
+            root.importInProgress = true
+            var commit = root.importBridge.commitPendingSession(root.sessionTargetPath)
+            root.importInProgress = false
+
+            var commitOk = commit.ok === true
+            var commitMsg = commit.message !== undefined ? String(commit.message) : "Aucun message"
+            if (!commitOk) {
+                root.statusMessage = "Status: sauvegarde échouée."
+                root.resultDetails += "\n\nSauvegarde: ECHEC — " + commitMsg
+                return
+            }
+
+            var connOk = commit.connectionOk === true
+            var connMsg = commit.connectionMessage !== undefined ? String(commit.connectionMessage) : commitMsg
+            root.statusMessage = "Status: session sauvegardée."
+            root.resultDetails += "\n\nSauvegarde: OK\nConnexion cloud: "
+                    + (connOk ? "OK" : "ECHEC — " + connMsg)
+            root.pendingValid = false
+            root.importCompleted(connMsg)
+        } else if (root.importBridge !== null && typeof root.importBridge.discardPendingSession === "function") {
+            root.importBridge.discardPendingSession()
+        }
+
+        root.close()
+    }
+
+    onOpened: {
+        if (root.importBridge !== null && typeof root.importBridge.discardPendingSession === "function") {
+            root.importBridge.discardPendingSession()
+        }
+        root.pendingValid = false
+        root.analyzedHarPath = ""
+        root.statusMessage = "Status: prêt pour l'analyse HAR."
+        root.resultDetails = "Aucune analyse exécutée."
     }
 
     FileDialog {
@@ -57,7 +146,7 @@ Dialog {
         onAccepted: {
             var localPath = root.localPathFromUrl(selectedFile)
             harFileField.text = localPath
-            root.statusMessage = "Status: fichier HAR sélectionné."
+            root.runAnalyzeForPath(localPath)
         }
     }
 
@@ -94,7 +183,14 @@ Dialog {
         }
 
         Text {
-            text: "Importer une session depuis un HAR et persister dans session.json"
+            text: "Importer une session depuis un HAR. Analyse automatique au choix du fichier."
+            color: Theme.textSecondary
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Text {
+            text: "Session target (Parametre > session): " + root.sessionTargetPath
             color: Theme.textSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -102,42 +198,29 @@ Dialog {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 150
+            Layout.preferredHeight: 100
             radius: 12
             color: Theme.panel
             border.width: 1
             border.color: Theme.panelStroke
 
-            ColumnLayout {
+            RowLayout {
                 anchors.fill: parent
                 anchors.margins: 10
                 spacing: 8
 
-                RowLayout {
+                Text { text: "HAR file"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
+                TextField {
+                    id: harFileField
+                    objectName: "harFileField"
                     Layout.fillWidth: true
-                    Text { text: "HAR file"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
-                    TextField {
-                        id: harFileField
-                        objectName: "harFileField"
-                        Layout.fillWidth: true
-                        placeholderText: "/path/to/session.har"
-                    }
-                    Button {
-                        objectName: "harBrowseButton"
-                        text: "Browse"
-                        onClicked: harFileDialog.open()
-                    }
+                    placeholderText: "/path/to/session.har"
+                    onAccepted: root.runAnalyzeForPath(harFileField.text)
                 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Session target"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
-                    TextField {
-                        id: sessionTargetField
-                        objectName: "sessionTargetField"
-                        Layout.fillWidth: true
-                        text: "~/.config/accloud/session.json"
-                    }
+                Button {
+                    objectName: "harBrowseButton"
+                    text: "Browse"
+                    onClicked: harFileDialog.open()
                 }
             }
         }
@@ -157,7 +240,7 @@ Dialog {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Import merges headers and token fields found in payloads."
+                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- La sauvegarde session intervient uniquement à la fermeture si analyse valide."
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -187,7 +270,7 @@ Dialog {
                             id: resultPanel
                             objectName: "harImportResultPanel"
                             width: Math.max(resultPanelScroll.availableWidth, implicitWidth)
-                            height: Math.max(resultPanelScroll.availableHeight, implicitHeight)
+                            height: Math.max(resultPanelScroll.availableHeight, contentHeight)
                             readOnly: true
                             wrapMode: Text.Wrap
                             text: root.resultDetails
@@ -212,91 +295,13 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            // Le bouton Close est masqué en mode obligatoire
             Button {
-                text: "Close"
-                visible: !root.mandatoryMode
+                id: closeButton
+                objectName: "harImportCloseButton"
+                text: root.pendingValid ? "Fermer et sauvegarder" : "Fermer"
                 enabled: !root.importInProgress
-                onClicked: root.close()
-            }
-
-            Button {
-                id: importButton
-                objectName: "harImportButton"
-                text: "Import HAR"
-                font.bold: true
-                enabled: !root.importInProgress
-                         && harFileField.text.trim().length > 0
-                onClicked: {
-                    var harPath = harFileField.text.trim()
-                    if (harPath.length === 0) {
-                        root.statusMessage = "Status: chemin HAR requis."
-                        return
-                    }
-                    if (root.importBridge === null) {
-                        root.statusMessage = "Status: bridge backend indisponible."
-                        root.resultDetails = "Impossible d'importer : sessionImportBridge non défini."
-                        return
-                    }
-
-                    root.importInProgress = true
-                    var targetPath = sessionTargetField.text.trim()
-                    var response = root.importBridge.importHar(harPath, targetPath)
-                    root.importInProgress = false
-
-                    var ok = response.ok === true
-                    var entriesVisited  = response.entriesVisited  !== undefined ? response.entriesVisited  : 0
-                    var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
-                    var keys     = response.tokenKeys !== undefined ? response.tokenKeys : []
-                    var keysText = (keys.length > 0) ? keys.join(", ") : "(aucun)"
-                    var message  = response.message  !== undefined ? String(response.message) : "Aucun message"
-
-                    root.resultDetails =
-                        "Import: " + (ok ? "OK" : "ERREUR")
-                        + "\nMessage: " + message
-                        + "\nEntrées: " + entriesAccepted + " acceptées / " + entriesVisited + " visitées"
-                        + "\nClés de tokens: " + keysText
-
-                    if (!ok) {
-                        root.statusMessage = "Status: import échoué."
-                        return
-                    }
-
-                    if (typeof root.importBridge.checkStartup !== "function") {
-                        root.statusMessage = "Status: import réussi."
-                        root.importCompleted(message)
-                        return
-                    }
-
-                    // Import réussi → vérifier la connexion cloud
-                    root.statusMessage = "Status: import réussi. Vérification de la connexion…"
-                    root.importInProgress = true
-                    var check = root.importBridge.checkStartup()
-                    root.importInProgress = false
-
-                    var connOk  = check.connectionOk === true
-                    var connMsg = check.message !== undefined ? String(check.message) : ""
-
-                    root.resultDetails += "\n\nConnexion cloud: " + (connOk ? "OK" : "ECHEC — " + connMsg)
-
-                    if (connOk) {
-                        root.statusMessage = "Status: connexion validée."
-                        root.importCompleted(message)
-                    } else {
-                        root.statusMessage = "Status: connexion échouée. Réessayez avec un HAR récent."
-                    }
-                }
-                background: Rectangle {
-                    radius: 8
-                    color: parent.down ? Qt.darker(Theme.accent, 1.12) : Theme.accent
-                }
-                contentItem: Text {
-                    text: parent.text
-                    color: "#f8fffe"
-                    font: parent.font
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
+                         && (!root.mandatoryMode || root.pendingValid)
+                onClicked: root.requestClose()
             }
         }
     }

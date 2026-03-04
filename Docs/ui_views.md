@@ -59,7 +59,11 @@ Point d’entrée : exposer les **actions globales** (session, viewer, dialogs) 
 ### Positionnement
 - **Header** en haut (QFrame panel), layout horizontal :
   - colonne gauche : titre + sous-titre
-  - colonne droite : 4 boutons (Session Settings, Print Dialog, 3D Viewer Dialog, Upload Dialog)
+  - colonne droite : 3 boutons (Print Dialog, 3D Viewer Dialog, Upload Dialog)
+- **MenuBar top** :
+  - `Session` : `Details`, `import HAR`
+  - `Parametre` : `session`, `theme`, `rendu 3d`
+  - `?` : `A propos`, `git`
 - **Tabs** sous le header, occupant le reste de la fenêtre.
 
 ### Thème
@@ -69,6 +73,7 @@ Point d’entrée : exposer les **actions globales** (session, viewer, dialogs) 
 
 ### Analyse
 - Conforme au besoin “fenêtre principale centrée Cloud” (accès direct aux fichiers + actions).
+- L’accès session est centralisé dans le menu (`Session`) et non plus via bouton header.
 - Les boutons **Upload Dialog** et **Print Dialog** ouvrent des **dialogs “draft”** (design preview) : risque de confusion avec les actions réelles (upload/print déjà disponibles dans Files tab).
 - Le viewer est accessible globalement (OK) + depuis les cartes fichiers (mieux, car contextuel).
 
@@ -244,23 +249,28 @@ Importer une session (tokens) depuis un fichier HAR et persister en `session.jso
 
 ### Data affichées
 - Champ HAR file + bouton Browse
-- Champ Session target (path)
+- Session target affiché en lecture seule (source: `Parametre > session`)
 - Bloc “Security reminders”
-- Status message (résultat import/validation)
-- Actions : Close / Import HAR
+- TextArea de résultat d’analyse (tokens détectés, stats, message)
+- Status message (résultat analyse/commit)
+- Action : `Fermer` / `Fermer et sauvegarder` (selon validité)
 
 ### Positionnement
-- Form panel (HAR + target)
+- Form panel (HAR uniquement)
 - Info panel (rappels sécurité)
 - Status line
 - Boutons en bas.
 
 ### Thème
 - Panels `panel` et `cardAlt`
-- Import = bouton `primary`
+- Actions footer = bouton de fermeture contextuel (`Fermer` / `Fermer et sauvegarder`)
 
 ### Analyse
-- Aligne bien le workflow : import → merge → save → validation.
+- Workflow actuel:
+  - sélection HAR
+  - analyse immédiate (sans persistance)
+  - persistance de `session.json` à la fermeture si l’analyse est valide
+  - vérification cloud après sauvegarde
 - Le discours “Only token headers are imported…” est approximatif : l’import prend aussi des tokens de bodies JSON si présents (comportement utile, mais la phrase peut être trompeuse).
 
 ---
