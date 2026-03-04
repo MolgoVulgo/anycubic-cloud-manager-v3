@@ -153,4 +153,72 @@ TestCase {
         verify(detailsPanel.text.indexOf("2 acceptées / 4 visitées") !== -1)
         dialog.destroy()
     }
+
+    function test_log_page_dynamic_sources_and_filters() {
+        var page = createQmlObject("../../../ui/qml/pages/LogPage.qml", {"width": 1280, "height": 800})
+        page.logBackend = {
+            fetchSnapshot: function(maxLines) {
+                return {
+                    ok: true,
+                    message: "ok",
+                    sources: ["app", "fault", "printer"],
+                    components: ["bootstrap", "printer_agent"],
+                    events: ["startup", "refresh_failed"],
+                    entries: [
+                        {
+                            sink: "app",
+                            ts: "2026-03-04T10:00:00.000+01:00",
+                            level: "INFO",
+                            source: "app",
+                            component: "bootstrap",
+                            event: "startup",
+                            opId: "",
+                            message: "app started",
+                            formatted: "2026-03-04T10:00:00.000+01:00 [app] app INFO bootstrap.startup - app started"
+                        },
+                        {
+                            sink: "printer",
+                            ts: "2026-03-04T10:00:01.000+01:00",
+                            level: "ERROR",
+                            source: "printer",
+                            component: "printer_agent",
+                            event: "refresh_failed",
+                            opId: "op_printer_42",
+                            message: "refresh failed",
+                            formatted: "2026-03-04T10:00:01.000+01:00 [printer] printer ERROR printer_agent.refresh_failed - refresh failed op_id=op_printer_42"
+                        }
+                    ]
+                }
+            }
+        }
+        page.refreshLogs()
+
+        var sourceFilter = findObjectByName(page, "logSourceFilter")
+        var componentFilter = findObjectByName(page, "logComponentFilter")
+        var eventFilter = findObjectByName(page, "logEventFilter")
+        var opIdFilter = findObjectByName(page, "logOpIdFilter")
+        var logsArea = findObjectByName(page, "logsTextArea")
+
+        verify(sourceFilter !== null)
+        verify(componentFilter !== null)
+        verify(eventFilter !== null)
+        verify(opIdFilter !== null)
+        verify(logsArea !== null)
+
+        verify(sourceFilter.find("printer") !== -1)
+        verify(componentFilter.find("printer_agent") !== -1)
+        verify(eventFilter.find("refresh_failed") !== -1)
+
+        sourceFilter.currentIndex = sourceFilter.find("printer")
+        verify(logsArea.text.indexOf("[printer]") !== -1)
+        verify(logsArea.text.indexOf("[app]") === -1)
+
+        opIdFilter.text = "op_printer_42"
+        verify(logsArea.text.indexOf("op_id=op_printer_42") !== -1)
+
+        opIdFilter.text = "op_printer_missing"
+        compare(logsArea.text.trim(), "")
+
+        page.destroy()
+    }
 }

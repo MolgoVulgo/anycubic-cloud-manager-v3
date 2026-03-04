@@ -5,7 +5,7 @@ Observer le runtime en live : tail multi-sources, filtres par niveau/source/comp
 
 ### Data affichées
 - Filtre level (ALL, INFO+, etc.)
-- Filtre source (All sources/app/http/fault/render3d)
+- Filtre source (All sources + sources detectees dynamiquement depuis `logs/*.jsonl`)
 - Filtre component/event (alimentés dynamiquement)
 - op_id exact
 - query (contains)
@@ -22,8 +22,7 @@ Observer le runtime en live : tail multi-sources, filtres par niveau/source/comp
 
 ### Analyse
 - Très utile pour l’approche “op_id / req_id / events”.
-- Résilient aux rotations/truncations (détecte inode/size).
+- Les sources ne sont pas codées en dur: toute nouvelle source JSONL apparait automatiquement dans le filtre source.
 - Cache 1000 lignes : suffisant pour du live, mais pas pour l’analyse longue (à faire offline sur fichiers).
 
 ---
-

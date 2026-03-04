@@ -73,6 +73,8 @@ if(ACCLOUD_ENABLE_QT)
         app/resources.qrc
         app/CloudBridge.cpp
         app/CloudBridge.h
+        app/LogBridge.cpp
+        app/LogBridge.h
         app/SessionImportBridge.cpp
         app/SessionImportBridge.h
     )
