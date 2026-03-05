@@ -28,6 +28,18 @@ public:
     // Retourne { ok, message, url }  — ne pas afficher l'url dans l'UI
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
 
+    // Retourne { ok, message, printers:[{id,name,model,state,reason,available,progress,elapsedSec,remainingSec,currentFile}] }
+    Q_INVOKABLE QVariantMap fetchPrinters() const;
+
+    // Retourne { ok, message, printers:[{id,available,reason}] }
+    Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
+
+    // Retourne { ok, message, taskId }
+    Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
+                                           const QString& fileId,
+                                           bool deleteAfterPrint = false,
+                                           bool dryRun = false) const;
+
     // ── Téléchargement asynchrone ─────────────────────────────────────────
     // signedUrl : URL obtenue via getDownloadUrl()
     // savePath  : chemin local de destination

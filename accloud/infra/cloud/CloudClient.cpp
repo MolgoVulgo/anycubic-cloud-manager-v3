@@ -11,10 +11,13 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QUrlQuery>
 #endif
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <sstream>
 
 namespace accloud::cloud {
@@ -54,6 +57,31 @@ RawResp workbenchPost(const char* path, const std::string& accessToken,
     QNetworkAccessManager nam;
     QEventLoop loop;
     QNetworkReply* reply = nam.post(req, jsonBody);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    RawResp r;
+    r.http  = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    r.error = reply->errorString().toStdString();
+    r.body  = reply->readAll().toStdString();
+    r.ok    = (reply->error() == QNetworkReply::NoError);
+    reply->deleteLater();
+    return r;
+}
+
+RawResp workbenchPostForm(const char* path, const std::string& accessToken,
+                          const std::string& xxToken, const QByteArray& formBody) {
+    QUrl url(QString("https://cloud-universe.anycubic.com") + path);
+    QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    req.setRawHeader("Authorization",
+                     QByteArray("Bearer ") + QByteArray::fromStdString(accessToken));
+    req.setTransferTimeout(10000);
+    applyWorkbenchHeadersBestEffort(req, xxToken);
+
+    QNetworkAccessManager nam;
+    QEventLoop loop;
+    QNetworkReply* reply = nam.post(req, formBody);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
 
@@ -111,6 +139,36 @@ std::string jFirst(const nlohmann::json& obj,
         if (!s.empty()) return s;
     }
     return {};
+}
+
+int jInt(const nlohmann::json& v, int fallback = 0) {
+    if (v.is_number_integer()) return v.get<int>();
+    if (v.is_number_float())   return static_cast<int>(v.get<double>());
+    if (v.is_boolean())        return v.get<bool>() ? 1 : 0;
+    if (v.is_string()) {
+        try { return std::stoi(v.get<std::string>()); }
+        catch (...) { return fallback; }
+    }
+    return fallback;
+}
+
+int jFirstInt(const nlohmann::json& obj,
+              std::initializer_list<const char*> keys, int fallback = 0) {
+    for (const char* k : keys) {
+        if (!obj.contains(k)) continue;
+        return jInt(obj[k], fallback);
+    }
+    return fallback;
+}
+
+bool containsNoCase(const std::string& text, const std::string& needle) {
+    std::string left = text;
+    std::string right = needle;
+    std::transform(left.begin(), left.end(), left.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(right.begin(), right.end(), right.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return left.find(right) != std::string::npos;
 }
 
 std::string formatSeconds(long long secs) {
@@ -191,6 +249,76 @@ std::vector<CloudFileInfo> parseFileArray(const nlohmann::json& data) {
         if (e.is_object()) out.push_back(parseFileEntry(e));
     }
     return out;
+}
+
+CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
+    CloudPrinterInfo p;
+    p.id = jStr(e.value("id", nlohmann::json{}));
+    p.name = jFirst(e, {"name", "printer_name", "device_name"});
+    p.model = jFirst(e, {"model", "model_name", "machine_name", "machineType"});
+    p.reason = jFirst(e, {"reason", "status_text"});
+    p.available = jFirstInt(e, {"available"}, 0);
+
+    const int status = jFirstInt(e, {"status", "device_status"}, 0);
+    const int isPrinting = jFirstInt(e, {"is_printing"}, 0);
+
+    nlohmann::json deviceMessage;
+    if (e.contains("device_message")) {
+        const auto& dm = e["device_message"];
+        if (dm.is_object()) {
+            deviceMessage = dm;
+        } else if (dm.is_string()) {
+            auto parsed = nlohmann::json::parse(dm.get<std::string>(), nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object()) deviceMessage = parsed;
+        }
+    }
+
+    nlohmann::json project;
+    if (e.contains("project")) {
+        const auto& pr = e["project"];
+        if (pr.is_object()) {
+            project = pr;
+        } else if (pr.is_string()) {
+            auto parsed = nlohmann::json::parse(pr.get<std::string>(), nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object()) project = parsed;
+        }
+    }
+
+    p.progress = jFirstInt(deviceMessage, {"progress"}, -1);
+    if (p.progress < 0) p.progress = jFirstInt(project, {"progress"}, -1);
+    p.remainingSec = jFirstInt(deviceMessage, {"remaining_sec", "remain_time"}, -1);
+    if (p.remainingSec < 0) p.remainingSec = jFirstInt(project, {"remain_time"}, -1);
+    p.elapsedSec = jFirstInt(project, {"elapsed_time"}, -1);
+    p.currentFile = jFirst(project, {"old_filename", "filename", "file_name"});
+    if (p.currentFile.empty()) p.currentFile = jFirst(deviceMessage, {"file_name", "filename"});
+
+    bool isOffline = false;
+    if (status == 0 || status == 3 || p.available == 0) isOffline = true;
+    if (containsNoCase(p.reason, "offline")) isOffline = true;
+
+    bool isBusyPrinting = (isPrinting == 1)
+                       || (p.progress >= 0 && p.progress < 100)
+                       || containsNoCase(jFirst(deviceMessage, {"action"}), "start");
+
+    if (isOffline) {
+        p.state = "OFFLINE";
+    } else if (isBusyPrinting) {
+        p.state = "PRINTING";
+    } else if (containsNoCase(p.reason, "error")) {
+        p.state = "ERROR";
+    } else {
+        p.state = "READY";
+    }
+
+    return p;
+}
+
+CloudPrinterCompatItem parsePrinterCompatEntry(const nlohmann::json& e) {
+    CloudPrinterCompatItem item;
+    item.id = jStr(e.value("id", nlohmann::json{}));
+    item.available = jFirstInt(e, {"available"}, 0);
+    item.reason = jFirst(e, {"reason"});
+    return item;
 }
 
 #endif // ACCLOUD_WITH_QT
@@ -427,6 +555,138 @@ CloudDownloadResult getCloudDownloadUrl(const std::string& accessToken,
                       "URL de téléchargement obtenue");
         return {true, "URL obtenue", url};
     } catch (...) { return {false, "Réponse invalide"}; }
+#endif
+}
+
+// ── fetchCloudPrinters ────────────────────────────────────────────────────
+
+CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
+                                       const std::string& xxToken) {
+#ifndef ACCLOUD_WITH_QT
+    return {false, "Qt non disponible"};
+#else
+    if (accessToken.empty()) return {false, "Pas d'access_token"};
+
+    const auto r = workbenchGet(
+        "/p/p/workbench/api/work/printer/getPrinters",
+        accessToken, xxToken);
+    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+
+    try {
+        const auto j = nlohmann::json::parse(r.body);
+        if (j.value("code", 0) != 1)
+            return {false, j.value("msg", "Erreur imprimantes")};
+
+        const auto& data = j.value("data", nlohmann::json::array());
+        if (!data.is_array())
+            return {false, "data imprimantes invalide"};
+
+        CloudPrintersResult out;
+        out.ok = true;
+        out.printers.reserve(data.size());
+        for (const auto& e : data) {
+            if (!e.is_object()) continue;
+            out.printers.push_back(parsePrinterEntry(e));
+        }
+        out.message = std::to_string(out.printers.size()) + " imprimante(s)";
+        return out;
+    } catch (const std::exception& e) {
+        return {false, std::string("Parse error: ") + e.what()};
+    }
+#endif
+}
+
+// ── fetchPrinterCompatibilityByExt ───────────────────────────────────────
+
+CloudPrinterCompatResult fetchPrinterCompatibilityByExt(const std::string& accessToken,
+                                                        const std::string& xxToken,
+                                                        const std::string& fileExt) {
+#ifndef ACCLOUD_WITH_QT
+    return {false, "Qt non disponible"};
+#else
+    if (accessToken.empty()) return {false, "Pas d'access_token"};
+    if (fileExt.empty()) return {false, "file_ext requis"};
+
+    QUrlQuery query;
+    query.addQueryItem("file_ext", QString::fromStdString(fileExt));
+    const std::string path =
+        "/p/p/workbench/api/v2/printer/printersStatus?" + query.toString().toStdString();
+
+    const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
+    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+
+    try {
+        const auto j = nlohmann::json::parse(r.body);
+        if (j.value("code", 0) != 1)
+            return {false, j.value("msg", "Erreur compatibilité imprimantes")};
+
+        const auto& data = j.value("data", nlohmann::json::array());
+        if (!data.is_array())
+            return {false, "data compatibilité invalide"};
+
+        CloudPrinterCompatResult out;
+        out.ok = true;
+        out.printers.reserve(data.size());
+        for (const auto& e : data) {
+            if (!e.is_object()) continue;
+            out.printers.push_back(parsePrinterCompatEntry(e));
+        }
+        out.message = std::to_string(out.printers.size()) + " imprimante(s) compatibles";
+        return out;
+    } catch (const std::exception& e) {
+        return {false, std::string("Parse error: ") + e.what()};
+    }
+#endif
+}
+
+// ── sendCloudPrintOrder ───────────────────────────────────────────────────
+
+CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
+                                          const std::string& xxToken,
+                                          const std::string& printerId,
+                                          const std::string& fileId,
+                                          bool deleteAfterPrint) {
+#ifndef ACCLOUD_WITH_QT
+    return {false, "Qt non disponible"};
+#else
+    if (accessToken.empty()) return {false, "Pas d'access_token"};
+    if (printerId.empty()) return {false, "printer_id requis"};
+    if (fileId.empty()) return {false, "file_id requis"};
+
+    QJsonObject dataObj{
+        {"file_id", QString::fromStdString(fileId)},
+        {"matrix", ""},
+        {"filetype", 0},
+        {"project_type", 1},
+        {"template_id", -2074360784}
+    };
+
+    QUrlQuery form;
+    form.addQueryItem("printer_id", QString::fromStdString(printerId));
+    form.addQueryItem("project_id", "0");
+    form.addQueryItem("order_id", "1");
+    form.addQueryItem("is_delete_file", deleteAfterPrint ? "1" : "0");
+    form.addQueryItem("data",
+                      QString::fromUtf8(QJsonDocument(dataObj).toJson(QJsonDocument::Compact)));
+
+    const QByteArray body = form.query(QUrl::FullyEncoded).toUtf8();
+    const auto r = workbenchPostForm(
+        "/p/p/workbench/api/work/operation/sendOrder",
+        accessToken, xxToken, body);
+    if (!r.ok) return {false, "Erreur réseau: " + r.error, {}};
+
+    try {
+        const auto j = nlohmann::json::parse(r.body);
+        if (j.value("code", 0) != 1)
+            return {false, j.value("msg", "Erreur sendOrder"), {}};
+
+        std::string taskId;
+        const auto& d = j.value("data", nlohmann::json::object());
+        if (d.is_object()) taskId = jStr(d.value("task_id", nlohmann::json{}));
+        return {true, "Print order envoyée", taskId};
+    } catch (...) {
+        return {false, "Réponse invalide", {}};
+    }
 #endif
 }
 

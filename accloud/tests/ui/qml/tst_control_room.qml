@@ -87,7 +87,7 @@ TestCase {
 
         var uploadButton = findObjectByName(page, "uploadPwmbButton")
         verify(uploadButton !== null)
-        compare(uploadButton.text, "Upload .pwmb")
+        compare(uploadButton.text, "Upload")
 
         page.destroy()
     }

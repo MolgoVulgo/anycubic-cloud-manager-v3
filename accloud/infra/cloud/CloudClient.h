@@ -67,6 +67,45 @@ struct CloudDownloadResult {
     std::string url;  // URL signée — ne pas logger !
 };
 
+// --- Imprimantes / remote print --------------------------------------
+
+struct CloudPrinterInfo {
+    std::string id;
+    std::string name;
+    std::string model;
+    std::string state;       // OFFLINE | READY | PRINTING | ERROR
+    std::string reason;
+    int available = 0;
+    int progress = -1;       // 0..100, -1 si indisponible
+    int elapsedSec = -1;
+    int remainingSec = -1;
+    std::string currentFile;
+};
+
+struct CloudPrintersResult {
+    bool ok = false;
+    std::string message;
+    std::vector<CloudPrinterInfo> printers;
+};
+
+struct CloudPrinterCompatItem {
+    std::string id;
+    int available = 0;
+    std::string reason;
+};
+
+struct CloudPrinterCompatResult {
+    bool ok = false;
+    std::string message;
+    std::vector<CloudPrinterCompatItem> printers;
+};
+
+struct CloudPrintOrderResult {
+    bool ok = false;
+    std::string message;
+    std::string taskId;
+};
+
 // Listing fichiers (essaie /files, fallback /userFiles)
 CloudFilesResult fetchCloudFiles(const std::string& accessToken,
                                  const std::string& xxToken,
@@ -86,5 +125,21 @@ CloudOpResult deleteCloudFile(const std::string& accessToken,
 CloudDownloadResult getCloudDownloadUrl(const std::string& accessToken,
                                         const std::string& xxToken,
                                         const std::string& fileId);
+
+// Liste des imprimantes associées au compte
+CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
+                                       const std::string& xxToken);
+
+// Compatibilité des imprimantes par extension de fichier (pwmb/pws/...)
+CloudPrinterCompatResult fetchPrinterCompatibilityByExt(const std::string& accessToken,
+                                                        const std::string& xxToken,
+                                                        const std::string& fileExt);
+
+// Démarrage d'impression distante depuis un fichier cloud
+CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
+                                          const std::string& xxToken,
+                                          const std::string& printerId,
+                                          const std::string& fileId,
+                                          bool deleteAfterPrint);
 
 } // namespace accloud::cloud

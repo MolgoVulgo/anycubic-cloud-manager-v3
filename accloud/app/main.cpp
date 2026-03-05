@@ -9,6 +9,7 @@
 #include "CloudBridge.h"
 #include "LogBridge.h"
 #include "SessionImportBridge.h"
+#include "UiSettingsBridge.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -126,9 +127,11 @@ int main(int argc, char** argv) {
   accloud::SessionImportBridge sessionImportBridge;
   accloud::CloudBridge cloudBridge;
   accloud::LogBridge logBridge;
+  accloud::UiSettingsBridge uiSettingsBridge;
   engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
   engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
   engine.rootContext()->setContextProperty("logBridge", &logBridge);
+  engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
   engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));
   if (engine.rootObjects().isEmpty()) {
     accloud::logging::error("app", "bootstrap", "qml_load_failed",

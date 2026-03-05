@@ -13,6 +13,14 @@
     <file alias="qml/dialogs/PrintDraftDialog.qml">../ui/qml/dialogs/PrintDraftDialog.qml</file>
     <file alias="qml/dialogs/ViewerDraftDialog.qml">../ui/qml/dialogs/ViewerDraftDialog.qml</file>
     <file alias="qml/components/Theme.js">../ui/qml/components/Theme.js</file>
+    <file alias="qml/components/AppButton.qml">../ui/qml/components/AppButton.qml</file>
+    <file alias="qml/components/AppTextField.qml">../ui/qml/components/AppTextField.qml</file>
+    <file alias="qml/components/AppComboBox.qml">../ui/qml/components/AppComboBox.qml</file>
+    <file alias="qml/components/AppPageFrame.qml">../ui/qml/components/AppPageFrame.qml</file>
+    <file alias="qml/components/SectionHeader.qml">../ui/qml/components/SectionHeader.qml</file>
+    <file alias="qml/components/AppDialogFrame.qml">../ui/qml/components/AppDialogFrame.qml</file>
+    <file alias="qml/components/InlineStatusBar.qml">../ui/qml/components/InlineStatusBar.qml</file>
+    <file alias="qml/components/StatusChip.qml">../ui/qml/components/StatusChip.qml</file>
     <file alias="qml/components/FileCard.qml">../ui/qml/components/FileCard.qml</file>
     <file alias="qml/components/BusyOverlay.qml">../ui/qml/components/BusyOverlay.qml</file>
     <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>

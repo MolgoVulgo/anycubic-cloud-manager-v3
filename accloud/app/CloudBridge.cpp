@@ -62,6 +62,29 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     return m;
 }
 
+QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
+    QVariantMap m;
+    m.insert("id",          QString::fromStdString(p.id));
+    m.insert("name",        QString::fromStdString(p.name));
+    m.insert("model",       QString::fromStdString(p.model));
+    m.insert("state",       QString::fromStdString(p.state));
+    m.insert("reason",      QString::fromStdString(p.reason));
+    m.insert("available",   p.available);
+    m.insert("progress",    p.progress);
+    m.insert("elapsedSec",  p.elapsedSec);
+    m.insert("remainingSec",p.remainingSec);
+    m.insert("currentFile", QString::fromStdString(p.currentFile));
+    return m;
+}
+
+QVariantMap printerCompatToMap(const cloud::CloudPrinterCompatItem& p) {
+    QVariantMap m;
+    m.insert("id",        QString::fromStdString(p.id));
+    m.insert("available", p.available);
+    m.insert("reason",    QString::fromStdString(p.reason));
+    return m;
+}
+
 } // namespace
 
 // ── Constructeur / destructeur ────────────────────────────────────────────
@@ -180,6 +203,84 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok)
         out.insert("url", QString::fromStdString(r.url));
+    return out;
+}
+
+// ── fetchPrinters ─────────────────────────────────────────────────────────
+
+QVariantMap CloudBridge::fetchPrinters() const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::fetchCloudPrinters(at, tok);
+    out.insert("ok",      r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    if (r.ok) {
+        QVariantList printers;
+        printers.reserve(static_cast<qsizetype>(r.printers.size()));
+        for (const auto& p : r.printers)
+            printers.append(printerInfoToMap(p));
+        out.insert("printers", printers);
+    }
+    return out;
+}
+
+// ── fetchCompatiblePrintersByExt ─────────────────────────────────────────
+
+QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::fetchPrinterCompatibilityByExt(
+        at, tok, fileExt.trimmed().toLower().toStdString());
+    out.insert("ok",      r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    if (r.ok) {
+        QVariantList printers;
+        printers.reserve(static_cast<qsizetype>(r.printers.size()));
+        for (const auto& p : r.printers)
+            printers.append(printerCompatToMap(p));
+        out.insert("printers", printers);
+    }
+    return out;
+}
+
+// ── sendPrintOrder ────────────────────────────────────────────────────────
+
+QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
+                                        const QString& fileId,
+                                        bool deleteAfterPrint,
+                                        bool dryRun) const {
+    QVariantMap out;
+    if (dryRun) {
+        out.insert("ok", true);
+        out.insert("message", QString("Dry-run: print order payload generated."));
+        out.insert("taskId", QString());
+        return out;
+    }
+
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::sendCloudPrintOrder(
+        at, tok, printerId.toStdString(), fileId.toStdString(), deleteAfterPrint);
+    out.insert("ok",      r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    out.insert("taskId",  QString::fromStdString(r.taskId));
     return out;
 }
 

@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "components/Theme.js" as Theme
+import "components"
 import "pages" as Pages
 import "dialogs" as Dialogs
 
@@ -13,6 +14,8 @@ ApplicationWindow {
     visible: true
     title: "Anycubic Cloud Control Room"
     property string statusText: "Vérification de la session en cours…"
+    property bool debugUi: Qt.application.arguments
+                               && Qt.application.arguments.indexOf("--debug-ui") !== -1
     property string sessionTargetPath: "~/.config/accloud/session.json"
     property string sessionDetailsText: "Aucune vérification de session exécutée."
     property int render3dDefaultQualityIndex: 2
@@ -20,6 +23,102 @@ ApplicationWindow {
     property bool render3dDefaultContourOnly: false
     property int render3dDefaultCutoff: 100
     property int render3dDefaultStride: 1
+    property string persistedThemeName: "WarmLight"
+    property string persistedAccentName: "Teal"
+
+    function hasUiSettingsBridge() {
+        return (typeof uiSettingsBridge !== "undefined")
+                && uiSettingsBridge !== null
+                && typeof uiSettingsBridge.getString === "function"
+                && typeof uiSettingsBridge.setString === "function"
+    }
+
+    function reloadControlRoomShell() {
+        if (typeof controlRoomShellLoader === "undefined"
+                || controlRoomShellLoader === null
+                || controlRoomShellLoader.active !== true) {
+            return
+        }
+
+        var tabIndex = 0
+        if (controlRoomShellLoader.item
+                && controlRoomShellLoader.item.currentTabIndex !== undefined) {
+            tabIndex = controlRoomShellLoader.item.currentTabIndex
+        }
+
+        controlRoomShellLoader.active = false
+        controlRoomShellLoader.active = true
+
+        if (controlRoomShellLoader.item
+                && typeof controlRoomShellLoader.item.setCurrentTabIndex === "function") {
+            controlRoomShellLoader.item.setCurrentTabIndex(tabIndex)
+        }
+    }
+
+    function applyThemeSelection(themeNameValue, accentNameValue, persist) {
+        var candidateTheme = String(themeNameValue || "").trim()
+        if (candidateTheme.length === 0 || !Theme.setThemePreset(candidateTheme)) {
+            candidateTheme = "WarmLight"
+            Theme.setThemePreset(candidateTheme)
+        }
+
+        var candidateAccent = String(accentNameValue || "").trim()
+        if (candidateAccent.length === 0 || !Theme.setAccent(candidateAccent)) {
+            candidateAccent = "Teal"
+            Theme.setAccent(candidateAccent)
+        }
+
+        if (persist === true) {
+            root.persistedThemeName = Theme.themeName
+            root.persistedAccentName = Theme.accentName
+            if (root.hasUiSettingsBridge()) {
+                uiSettingsBridge.setString("ui.themeName", root.persistedThemeName)
+                uiSettingsBridge.setString("ui.accentName", root.persistedAccentName)
+                if (typeof uiSettingsBridge.sync === "function")
+                    uiSettingsBridge.sync()
+            }
+        }
+
+        root.reloadControlRoomShell()
+    }
+
+    function restorePersistedTheme() {
+        root.applyThemeSelection(root.persistedThemeName, root.persistedAccentName, false)
+    }
+
+    function loadThemeFromSettings() {
+        var themeValue = "WarmLight"
+        var accentValue = "Teal"
+
+        if (root.hasUiSettingsBridge()) {
+            themeValue = uiSettingsBridge.getString("ui.themeName", themeValue)
+            accentValue = uiSettingsBridge.getString("ui.accentName", accentValue)
+        }
+
+        root.applyThemeSelection(themeValue, accentValue, false)
+        root.persistedThemeName = Theme.themeName
+        root.persistedAccentName = Theme.accentName
+
+        if (root.hasUiSettingsBridge()) {
+            // Normalise les valeurs persistées si elles étaient invalides.
+            uiSettingsBridge.setString("ui.themeName", root.persistedThemeName)
+            uiSettingsBridge.setString("ui.accentName", root.persistedAccentName)
+            if (typeof uiSettingsBridge.sync === "function")
+                uiSettingsBridge.sync()
+        }
+    }
+
+    function openUploadDialog() {
+        uploadDialog.open()
+    }
+
+    function openPrintDialog() {
+        printDialog.open()
+    }
+
+    function openViewerDialog() {
+        viewerDialog.open()
+    }
 
     function showSessionDetails() {
         if (typeof sessionImportBridge === "undefined"
@@ -37,6 +136,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        root.loadThemeFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -60,30 +160,9 @@ ApplicationWindow {
         })
     }
 
-    component HeaderActionButton: Button {
-        property color baseColor: Theme.panel
-        property color borderColor: Theme.panelStroke
-        property color textColor: Theme.textPrimary
-
-        font.pixelSize: 14
-        font.bold: true
-        padding: 12
-
-        background: Rectangle {
-            radius: 10
-            color: parent.down ? Qt.darker(parent.baseColor, 1.08) : (parent.hovered ? Qt.lighter(parent.baseColor, 1.03) : parent.baseColor)
-            border.width: 1
-            border.color: parent.borderColor
-        }
-
-        contentItem: Text {
-            text: parent.text
-            color: parent.textColor
-            font: parent.font
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
+    component HeaderActionButton: AppButton {
+        variant: "secondary"
+        font.pixelSize: Theme.fontBodyPx
     }
 
     background: Rectangle {
@@ -316,58 +395,171 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    AppDialogFrame {
         id: themeDialog
         objectName: "themeDialog"
-        title: "Parametre theme"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 520
-        height: 240
+        title: "Theme Settings"
+        subtitle: "Preset + accent appliqués en live. La persistance est faite à la validation."
+        minimumWidth: 560
+        maximumWidth: 680
+        showCloseButton: false
+        property string pendingTheme: root.persistedThemeName
+        property string pendingAccent: root.persistedAccentName
+        property bool committed: false
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        function refreshComboState() {
+            var tIndex = themePresetCombo.find(themeDialog.pendingTheme)
+            themePresetCombo.currentIndex = tIndex >= 0 ? tIndex : 0
+
+            var aIndex = accentPresetCombo.find(themeDialog.pendingAccent)
+            accentPresetCombo.currentIndex = aIndex >= 0 ? aIndex : 0
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
+        onOpened: {
+            committed = false
+            pendingTheme = root.persistedThemeName
+            pendingAccent = root.persistedAccentName
+            refreshComboState()
+            root.applyThemeSelection(pendingTheme, pendingAccent, false)
+        }
 
-            Text {
-                Layout.fillWidth: true
-                text: "Configuration theme (draft)."
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
+        onClosed: {
+            if (!committed) {
+                root.restorePersistedTheme()
             }
+        }
 
-            ComboBox {
-                id: themePresetCombo
-                objectName: "themePresetCombo"
-                Layout.fillWidth: true
-                model: ["Warm paper (actuel)", "Slate (draft)"]
+        SectionHeader {
+            Layout.fillWidth: true
+            title: "Preset"
+            subtitle: "Palette globale de l'application"
+        }
+
+        AppComboBox {
+            id: themePresetCombo
+            objectName: "themePresetCombo"
+            Layout.fillWidth: true
+            model: Theme.availableThemePresets()
+            onActivated: function() {
+                themeDialog.pendingTheme = String(currentText)
+                root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, false)
             }
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Appliquer"
-                    onClicked: {
-                        root.statusText = "Theme selectionne: " + String(themePresetCombo.currentText)
-                        themeDialog.close()
+        SectionHeader {
+            Layout.fillWidth: true
+            title: "Accent"
+            subtitle: "Couleur principale des actions primary"
+        }
+
+        AppComboBox {
+            id: accentPresetCombo
+            objectName: "accentPresetCombo"
+            Layout.fillWidth: true
+            model: Theme.availableAccents()
+            onActivated: function() {
+                themeDialog.pendingAccent = String(currentText)
+                root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, false)
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 116
+            radius: Theme.radiusControl
+            color: Theme.bgSurface
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 8
+
+                Text {
+                    text: "Preview"
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                        radius: 8
+                        color: Theme.accent
+                        border.width: 1
+                        border.color: Theme.borderDefault
+                    }
+
+                    Text {
+                        text: "Primary text sample"
+                        color: Theme.fgPrimary
+                        font.pixelSize: Theme.fontBodyPx
+                    }
+
+                    Text {
+                        text: "Secondary text sample"
+                        color: Theme.fgSecondary
+                        opacity: 0.9
+                        font.pixelSize: Theme.fontCaptionPx
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: "Primary"
+                        variant: "primary"
                     }
                 }
-                Button {
-                    text: "Fermer"
-                    onClicked: themeDialog.close()
+            }
+        }
+
+        AppButton {
+            text: "Reset to defaults"
+            variant: "secondary"
+            onClicked: {
+                themeDialog.pendingTheme = "WarmLight"
+                themeDialog.pendingAccent = "Teal"
+                themeDialog.refreshComboState()
+                root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, false)
+            }
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: "Close"
+                variant: "secondary"
+                onClicked: themeDialog.close()
+            },
+            AppButton {
+                text: "Apply"
+                variant: "primary"
+                onClicked: {
+                    themeDialog.committed = true
+                    root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, true)
+                    root.statusText = "Theme: " + root.persistedThemeName + " / Accent: " + root.persistedAccentName
+                    themeDialog.close()
                 }
             }
+        ]
+        footerLeadingData: [
+            AppButton {
+                text: "Cancel changes"
+                variant: "secondary"
+                onClicked: {
+                    themeDialog.committed = false
+                    themeDialog.close()
+                }
+            }
+        ]
+
+        onRejected: {
+            committed = false
         }
     }
 
@@ -607,129 +799,151 @@ ApplicationWindow {
         }
     }
 
-    ColumnLayout {
+    Loader {
+        id: controlRoomShellLoader
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 14
+        sourceComponent: controlRoomShellComponent
+    }
 
-        Rectangle {
-            id: controlRoomHeader
-            objectName: "controlRoomHeader"
-            Layout.fillWidth: true
-            Layout.preferredHeight: 118
-            radius: 16
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.panelStroke
+    Component {
+        id: controlRoomShellComponent
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                spacing: 12
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.paddingPage
+            spacing: Theme.gapSection
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    Text {
-                        id: titleLabel
-                        objectName: "controlRoomTitle"
-                        text: "Anycubic Cloud Control Room"
-                        color: Theme.textPrimary
-                        font.pixelSize: 30
-                        font.bold: true
-                    }
-
-                    Text {
-                        id: subtitleLabel
-                        objectName: "controlRoomSubtitle"
-                        text: root.statusText
-                        color: Theme.textSecondary
-                        font.pixelSize: 14
-                    }
+            property int currentTabIndex: controlTabs.currentIndex
+            function setCurrentTabIndex(index) {
+                if (index >= 0 && index < controlTabs.count) {
+                    controlTabs.currentIndex = index
                 }
+            }
+
+            Rectangle {
+                id: controlRoomHeader
+                objectName: "controlRoomHeader"
+                Layout.fillWidth: true
+                Layout.preferredHeight: root.debugUi ? 108 : 76
+                radius: Theme.radiusDialog
+                color: Theme.bgSurface
+                border.width: Theme.borderWidth
+                border.color: Theme.borderDefault
 
                 RowLayout {
-                    spacing: 8
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.paddingPage
+                    anchors.rightMargin: Theme.paddingPage
+                    anchors.topMargin: 12
+                    anchors.bottomMargin: 12
+                    spacing: Theme.gapRow
 
-                    HeaderActionButton {
-                        id: printDialogButton
-                        objectName: "printDialogButton"
-                        text: "Print Dialog"
-                        onClicked: printDialog.open()
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Text {
+                            id: titleLabel
+                            objectName: "controlRoomTitle"
+                            text: "Anycubic Cloud Control Room"
+                            color: Theme.fgPrimary
+                            font.pixelSize: 20
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            id: subtitleLabel
+                            objectName: "controlRoomSubtitle"
+                            text: root.statusText
+                            color: Theme.fgSecondary
+                            opacity: 0.9
+                            font.pixelSize: Theme.fontCaptionPx
+                            elide: Text.ElideRight
+                        }
                     }
 
-                    HeaderActionButton {
-                        id: viewerDialogButton
-                        objectName: "viewerDialogButton"
-                        text: "3D Viewer Dialog"
-                        onClicked: viewerDialog.open()
-                    }
+                    RowLayout {
+                        visible: root.debugUi
+                        spacing: 8
 
-                    HeaderActionButton {
-                        id: uploadDialogButton
-                        objectName: "uploadDialogButton"
-                        text: "Upload Dialog"
-                        baseColor: Theme.accent
-                        borderColor: Theme.accentStrong
-                        textColor: "#f8fffe"
-                        onClicked: uploadDialog.open()
+                        HeaderActionButton {
+                            id: printDialogButton
+                            objectName: "printDialogButton"
+                            text: "Print Dialog"
+                            onClicked: root.openPrintDialog()
+                        }
+
+                        HeaderActionButton {
+                            id: viewerDialogButton
+                            objectName: "viewerDialogButton"
+                            text: "3D Viewer Dialog"
+                            onClicked: root.openViewerDialog()
+                        }
+
+                        HeaderActionButton {
+                            id: uploadDialogButton
+                            objectName: "uploadDialogButton"
+                            text: "Upload Dialog"
+                            variant: "primary"
+                            onClicked: root.openUploadDialog()
+                        }
                     }
                 }
             }
-        }
 
-        Rectangle {
-            objectName: "tabsPanel"
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: 16
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+            Rectangle {
+                objectName: "tabsPanel"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Theme.radiusDialog
+                color: Theme.bgSurface
+                border.width: Theme.borderWidth
+                border.color: Theme.borderDefault
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 10
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.paddingPage
+                    spacing: Theme.gapRow
 
-                TabBar {
-                    id: controlTabs
-                    objectName: "controlRoomTabs"
-                    Layout.fillWidth: true
+                    TabBar {
+                        id: controlTabs
+                        objectName: "controlRoomTabs"
+                        Layout.fillWidth: true
 
-                    TabButton {
-                        objectName: "filesTabButton"
-                        text: "Files"
+                        TabButton {
+                            objectName: "filesTabButton"
+                            text: "Files"
+                        }
+
+                        TabButton {
+                            objectName: "printerTabButton"
+                            text: "Printers"
+                        }
+
+                        TabButton {
+                            objectName: "logTabButton"
+                            text: "Logs"
+                        }
                     }
 
-                    TabButton {
-                        objectName: "printerTabButton"
-                        text: "Printer"
-                    }
+                    StackLayout {
+                        objectName: "controlRoomStack"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        currentIndex: controlTabs.currentIndex
 
-                    TabButton {
-                        objectName: "logTabButton"
-                        text: "Log"
-                    }
-                }
+                        Pages.CloudFilesPage {
+                            objectName: "cloudFilesPage"
+                        }
 
-                StackLayout {
-                    objectName: "controlRoomStack"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    currentIndex: controlTabs.currentIndex
+                        Pages.PrinterPage {
+                            objectName: "printerPage"
+                        }
 
-                    Pages.CloudFilesPage {
-                        objectName: "cloudFilesPage"
-                    }
-
-                    Pages.PrinterPage {
-                        objectName: "printerPage"
-                    }
-
-                    Pages.LogPage {
-                        objectName: "logPage"
+                        Pages.LogPage {
+                            objectName: "logPage"
+                        }
                     }
                 }
             }
