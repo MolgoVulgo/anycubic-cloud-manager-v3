@@ -9,6 +9,7 @@
 #include "CloudBridge.h"
 #include "LogBridge.h"
 #include "SessionImportBridge.h"
+#include "UiClickTracer.h"
 #include "UiSettingsBridge.h"
 
 #include <QGuiApplication>
@@ -120,6 +121,8 @@ int main(int argc, char** argv) {
 #if defined(ACCLOUD_WITH_QT)
   QGuiApplication app(argc, argv);
   qInstallMessageHandler(qtMessageHandler);
+  accloud::UiClickTracer uiClickTracer;
+  app.installEventFilter(&uiClickTracer);
   accloud::logging::info("app", "bootstrap", "qt_initialized", "Qt GUI initialized",
                          {{"log_dir", accloud::logging::logDirectory().string()}});
 

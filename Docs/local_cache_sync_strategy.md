@@ -8,15 +8,16 @@ Speed up startup by loading local data first, then refreshing from cloud in back
 
 - Files list + quota
 - Printers list
-- Printer enriched payloads (`details` + `projects`)
+- Printer list + jobs list (`getProjects`)
 
 ## Storage
 
 SQLite local database (`accloud_cache.db` by default, overridable with `ACCLOUD_DB_PATH`).
 
 Tables:
-- `files`
-- `printers`
+- `cloud_files`
+- `cloud_printers`
+- `jobs`
 - `quota`
 - `sync_state`
 - `meta`
@@ -33,7 +34,7 @@ Tables:
 
 1. Load cached printers from SQLite.
 2. Trigger first cloud refresh asynchronously (forced).
-3. Persist full printer payload in DB (base fields + `details` + `projects`).
+3. Persist printer base snapshot in DB and persist jobs in `jobs`.
 4. Start auto-refresh timer every 30 seconds after the first successful cloud refresh.
 5. Update UI from signal `printersUpdatedFromCloud`.
 
@@ -49,4 +50,4 @@ Covered by QML tests in `accloud/tests/ui/qml/tst_control_room.qml`:
 - cache-first load + forced cloud refresh at startup
 - model update on cloud signals
 - printer auto-refresh trigger after first cloud refresh
-- printer cached enriched data usage (`details` / `projects`)
+- printer cached jobs usage (`projects`)
