@@ -939,6 +939,7 @@ ApplicationWindow {
 
                         Pages.PrinterPage {
                             objectName: "printerPage"
+                            debugUi: root.debugUi
                         }
 
                         Pages.LogPage {

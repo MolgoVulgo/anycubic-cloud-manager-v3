@@ -28,11 +28,21 @@ public:
     // Retourne { ok, message, url }  — ne pas afficher l'url dans l'UI
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
 
-    // Retourne { ok, message, printers:[{id,name,model,state,reason,available,progress,elapsedSec,remainingSec,currentFile}] }
+    // Retourne { ok, message, endpoint, rawJson, printers:[{id,name,model,type,lastSeen,state,reason,available,progress,elapsedSec,remainingSec,currentFile}] }
     Q_INVOKABLE QVariantMap fetchPrinters() const;
 
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
+    // Retourne { ok, message, printers:[{id,available,reason}] }
+    Q_INVOKABLE QVariantMap fetchCompatiblePrintersByFileId(const QString& fileId) const;
+    // Retourne { ok, message, details:{...}, rawJson }
+    Q_INVOKABLE QVariantMap fetchPrinterDetails(const QString& printerId) const;
+    // Retourne { ok, message, reasons:[{reason,desc,helpUrl,type,push,popup}] }
+    Q_INVOKABLE QVariantMap fetchReasonCatalog() const;
+    // Retourne { ok, message, projects:[{taskId,gcodeName,printerId,printerName,printStatus,progress,reason,createTime,endTime,img}] }
+    Q_INVOKABLE QVariantMap fetchPrinterProjects(const QString& printerId,
+                                                 int page = 1,
+                                                 int limit = 10) const;
 
     // Retourne { ok, message, taskId }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,

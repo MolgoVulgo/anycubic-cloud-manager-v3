@@ -73,6 +73,8 @@ struct CloudPrinterInfo {
     std::string id;
     std::string name;
     std::string model;
+    std::string type;
+    std::string lastSeen;
     std::string state;       // OFFLINE | READY | PRINTING | ERROR
     std::string reason;
     int available = 0;
@@ -86,6 +88,7 @@ struct CloudPrintersResult {
     bool ok = false;
     std::string message;
     std::vector<CloudPrinterInfo> printers;
+    std::string rawJson; // Réponses brutes agrégées (getPrinters + getProjects)
 };
 
 struct CloudPrinterCompatItem {
@@ -104,6 +107,57 @@ struct CloudPrintOrderResult {
     bool ok = false;
     std::string message;
     std::string taskId;
+};
+
+struct CloudPrinterDetailsResult {
+    bool ok = false;
+    std::string message;
+    std::string rawJson;
+    std::string firmwareVersion;
+    std::string printCount;
+    std::string printTotalTime;
+    std::string materialType;
+    std::string materialUsed;
+    std::string machineMac;
+    std::string helpUrl;
+    std::string quickStartUrl;
+    std::string releaseFilmLayers;
+    std::vector<std::string> tools;
+    std::vector<std::string> advances;
+};
+
+struct CloudReasonCatalogItem {
+    int reason = 0;
+    std::string desc;
+    std::string helpUrl;
+    std::string type;
+    int push = 0;
+    int popup = 0;
+};
+
+struct CloudReasonCatalogResult {
+    bool ok = false;
+    std::string message;
+    std::vector<CloudReasonCatalogItem> reasons;
+};
+
+struct CloudPrinterProjectItem {
+    std::string taskId;
+    std::string gcodeName;
+    std::string printerId;
+    std::string printerName;
+    int printStatus = 0;
+    int progress = -1;
+    std::string reason;
+    long long createTime = 0;
+    long long endTime = 0;
+    std::string img;
+};
+
+struct CloudPrinterProjectsResult {
+    bool ok = false;
+    std::string message;
+    std::vector<CloudPrinterProjectItem> items;
 };
 
 // Listing fichiers (essaie /files, fallback /userFiles)
@@ -134,6 +188,27 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
 CloudPrinterCompatResult fetchPrinterCompatibilityByExt(const std::string& accessToken,
                                                         const std::string& xxToken,
                                                         const std::string& fileExt);
+
+// Compatibilité des imprimantes par identifiant de fichier cloud
+CloudPrinterCompatResult fetchPrinterCompatibilityByFileId(const std::string& accessToken,
+                                                           const std::string& xxToken,
+                                                           const std::string& fileId);
+
+// Détails enrichis d'une imprimante
+CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
+                                              const std::string& xxToken,
+                                              const std::string& printerId);
+
+// Catalogue des raisons Anycubic (reason -> desc/help_url)
+CloudReasonCatalogResult fetchReasonCatalog(const std::string& accessToken,
+                                            const std::string& xxToken);
+
+// Historique de projets par imprimante
+CloudPrinterProjectsResult fetchPrinterProjects(const std::string& accessToken,
+                                                const std::string& xxToken,
+                                                const std::string& printerId,
+                                                int page = 1,
+                                                int limit = 10);
 
 // Démarrage d'impression distante depuis un fichier cloud
 CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,

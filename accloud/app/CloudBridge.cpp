@@ -67,6 +67,8 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("id",          QString::fromStdString(p.id));
     m.insert("name",        QString::fromStdString(p.name));
     m.insert("model",       QString::fromStdString(p.model));
+    m.insert("type",        QString::fromStdString(p.type));
+    m.insert("lastSeen",    QString::fromStdString(p.lastSeen));
     m.insert("state",       QString::fromStdString(p.state));
     m.insert("reason",      QString::fromStdString(p.reason));
     m.insert("available",   p.available);
@@ -82,6 +84,58 @@ QVariantMap printerCompatToMap(const cloud::CloudPrinterCompatItem& p) {
     m.insert("id",        QString::fromStdString(p.id));
     m.insert("available", p.available);
     m.insert("reason",    QString::fromStdString(p.reason));
+    return m;
+}
+
+QVariantMap printerDetailsToMap(const cloud::CloudPrinterDetailsResult& d) {
+    QVariantMap m;
+    m.insert("firmwareVersion", QString::fromStdString(d.firmwareVersion));
+    m.insert("printCount", QString::fromStdString(d.printCount));
+    m.insert("printTotalTime", QString::fromStdString(d.printTotalTime));
+    m.insert("materialType", QString::fromStdString(d.materialType));
+    m.insert("materialUsed", QString::fromStdString(d.materialUsed));
+    m.insert("machineMac", QString::fromStdString(d.machineMac));
+    m.insert("helpUrl", QString::fromStdString(d.helpUrl));
+    m.insert("quickStartUrl", QString::fromStdString(d.quickStartUrl));
+    m.insert("releaseFilmLayers", QString::fromStdString(d.releaseFilmLayers));
+
+    QVariantList tools;
+    tools.reserve(static_cast<qsizetype>(d.tools.size()));
+    for (const auto& t : d.tools)
+        tools.append(QString::fromStdString(t));
+    m.insert("tools", tools);
+
+    QVariantList advances;
+    advances.reserve(static_cast<qsizetype>(d.advances.size()));
+    for (const auto& a : d.advances)
+        advances.append(QString::fromStdString(a));
+    m.insert("advances", advances);
+    return m;
+}
+
+QVariantMap reasonCatalogItemToMap(const cloud::CloudReasonCatalogItem& item) {
+    QVariantMap m;
+    m.insert("reason", item.reason);
+    m.insert("desc", QString::fromStdString(item.desc));
+    m.insert("helpUrl", QString::fromStdString(item.helpUrl));
+    m.insert("type", QString::fromStdString(item.type));
+    m.insert("push", item.push);
+    m.insert("popup", item.popup);
+    return m;
+}
+
+QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
+    QVariantMap m;
+    m.insert("taskId", QString::fromStdString(item.taskId));
+    m.insert("gcodeName", QString::fromStdString(item.gcodeName));
+    m.insert("printerId", QString::fromStdString(item.printerId));
+    m.insert("printerName", QString::fromStdString(item.printerName));
+    m.insert("printStatus", item.printStatus);
+    m.insert("progress", item.progress);
+    m.insert("reason", QString::fromStdString(item.reason));
+    m.insert("createTime", static_cast<qlonglong>(item.createTime));
+    m.insert("endTime", static_cast<qlonglong>(item.endTime));
+    m.insert("img", QString::fromStdString(item.img));
     return m;
 }
 
@@ -210,16 +264,21 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
 
 QVariantMap CloudBridge::fetchPrinters() const {
     QVariantMap out;
+    out.insert("endpoint", QStringLiteral(
+        "/p/p/workbench/api/work/printer/getPrinters + "
+        "/p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"));
     std::string at, tok;
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        out.insert("rawJson", QString{});
         return out;
     }
 
     const auto r = cloud::fetchCloudPrinters(at, tok);
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("rawJson", QString::fromStdString(r.rawJson));
     if (r.ok) {
         QVariantList printers;
         printers.reserve(static_cast<qsizetype>(r.printers.size()));
@@ -251,6 +310,93 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) co
         for (const auto& p : r.printers)
             printers.append(printerCompatToMap(p));
         out.insert("printers", printers);
+    }
+    return out;
+}
+
+QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::fetchPrinterCompatibilityByFileId(
+        at, tok, fileId.trimmed().toStdString());
+    out.insert("ok",      r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    if (r.ok) {
+        QVariantList printers;
+        printers.reserve(static_cast<qsizetype>(r.printers.size()));
+        for (const auto& p : r.printers)
+            printers.append(printerCompatToMap(p));
+        out.insert("printers", printers);
+    }
+    return out;
+}
+
+QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        out.insert("rawJson", QString{});
+        return out;
+    }
+
+    const auto r = cloud::fetchPrinterDetails(at, tok, printerId.trimmed().toStdString());
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    out.insert("rawJson", QString::fromStdString(r.rawJson));
+    if (r.ok)
+        out.insert("details", printerDetailsToMap(r));
+    return out;
+}
+
+QVariantMap CloudBridge::fetchReasonCatalog() const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::fetchReasonCatalog(at, tok);
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    if (r.ok) {
+        QVariantList reasons;
+        reasons.reserve(static_cast<qsizetype>(r.reasons.size()));
+        for (const auto& item : r.reasons)
+            reasons.append(reasonCatalogItemToMap(item));
+        out.insert("reasons", reasons);
+    }
+    return out;
+}
+
+QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page, int limit) const {
+    QVariantMap out;
+    std::string at, tok;
+    if (!loadTokens(at, tok)) {
+        out.insert("ok", false);
+        out.insert("message", QString("Session invalide."));
+        return out;
+    }
+
+    const auto r = cloud::fetchPrinterProjects(
+        at, tok, printerId.trimmed().toStdString(), page, limit);
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    if (r.ok) {
+        QVariantList projects;
+        projects.reserve(static_cast<qsizetype>(r.items.size()));
+        for (const auto& item : r.items)
+            projects.append(printerProjectToMap(item));
+        out.insert("projects", projects);
     }
     return out;
 }
