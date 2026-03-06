@@ -78,6 +78,11 @@ Item {
                 && typeof cloudBridge.sendPrintOrder === "function"
     }
 
+    function hasQObjectCloudBridge() {
+        return hasCloudBridge()
+                && cloudBridge.objectName !== undefined
+    }
+
     function hasCompatibilityEndpoint() {
         return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByExt === "function"
     }
@@ -333,7 +338,6 @@ Item {
     }
 
     function reasonEntryFromText(reasonText) {
-        ensureReasonCatalogLoaded()
         var text = String(reasonText || "").trim()
         if (text.length === 0)
             return null
@@ -351,6 +355,17 @@ Item {
 
         var entry = reasonCatalogByCode[code]
         return entry !== undefined ? entry : null
+    }
+
+    function selectedPrinterReasonText() {
+        var selected = selectedPrinterData()
+        if (!selected)
+            return ""
+        return String(selected.reason || "")
+    }
+
+    function selectedPrinterHelpUrlText() {
+        return reasonHelpUrl(selectedPrinterReasonText())
     }
 
     function displayReason(reasonText) {
@@ -703,8 +718,7 @@ Item {
     }
 
     Connections {
-        target: (typeof cloudBridge !== "undefined"
-                 && cloudBridge !== null) ? cloudBridge : null
+        target: root.hasQObjectCloudBridge() ? cloudBridge : null
         ignoreUnknownSignals: true
 
         function onPrintersUpdatedFromCloud(printers, message) {
@@ -1147,8 +1161,8 @@ Item {
                         readonly property var printer: printersModel.get(index)
                         text: root.printerTabTitle(printer)
                         width: Math.min(340, Math.max(170, implicitWidth + 16))
-                        checked: selectedPrinterId === String(printer.id || "")
-                        onClicked: root.choosePrinter(printer.id)
+                        checked: selectedPrinterId === String(printer && printer.id ? printer.id : "")
+                        onClicked: root.choosePrinter(printer && printer.id ? printer.id : "")
                     }
                 }
             }
@@ -1225,16 +1239,16 @@ Item {
                         }
 
                         Text {
-                            visible: String(root.selectedPrinterData() ? root.selectedPrinterData().reason : "").length > 0
-                            text: "Reason: " + root.displayReason(root.selectedPrinterData() ? root.selectedPrinterData().reason : "")
+                            visible: root.selectedPrinterReasonText().length > 0
+                            text: "Reason: " + root.displayReason(root.selectedPrinterReasonText())
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                             wrapMode: Text.WordWrap
                         }
 
                         Text {
-                            visible: root.reasonHelpUrl(root.selectedPrinterData() ? root.selectedPrinterData().reason : "").length > 0
-                            text: "Help: " + root.reasonHelpUrl(root.selectedPrinterData() ? root.selectedPrinterData().reason : "")
+                            visible: root.selectedPrinterHelpUrlText().length > 0
+                            text: "Help: " + root.selectedPrinterHelpUrlText()
                             color: Theme.accent
                             font.pixelSize: Theme.fontCaptionPx
                             elide: Text.ElideRight
