@@ -52,6 +52,7 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("fileId",        QString::fromStdString(f.id));
     m.insert("fileName",      name);
     m.insert("status",        formatStatus(f.status));
+    m.insert("sizeBytes",     static_cast<qulonglong>(f.sizeBytes));
     m.insert("sizeText",      formatBytes(f.sizeBytes));
     m.insert("machine",       QString::fromStdString(f.machine));
     m.insert("material",      QString::fromStdString(f.material));
@@ -142,6 +143,27 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
     m.insert("img", QString::fromStdString(item.img));
     return m;
+}
+
+QVariantList collectJobsFromPrinters(const QVariantList& printers) {
+    QVariantList jobs;
+    for (const QVariant& printerVariant : printers) {
+        const QVariantMap printer = printerVariant.toMap();
+        const QString printerId = printer.value(QStringLiteral("id")).toString();
+        const QString printerName = printer.value(QStringLiteral("name")).toString();
+        const QVariantList projects = printer.value(QStringLiteral("projects")).toList();
+        for (const QVariant& projectVariant : projects) {
+            QVariantMap job = projectVariant.toMap();
+            if (job.value(QStringLiteral("printerId")).toString().trimmed().isEmpty()) {
+                job.insert(QStringLiteral("printerId"), printerId);
+            }
+            if (job.value(QStringLiteral("printerName")).toString().trimmed().isEmpty()) {
+                job.insert(QStringLiteral("printerName"), printerName);
+            }
+            jobs.append(job);
+        }
+    }
+    return jobs;
 }
 
 } // namespace
@@ -374,7 +396,20 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         return out;
     }
 
-    const QVariantList printers = m_cache->loadPrinters();
+    const QVariantList cachedPrinters = m_cache->loadPrinters();
+    QVariantList printers;
+    printers.reserve(cachedPrinters.size());
+    for (const QVariant& item : cachedPrinters) {
+        QVariantMap printer = item.toMap();
+        const QString printerId = printer.value(QStringLiteral("id")).toString();
+        printer.insert(QStringLiteral("progress"), -1);
+        printer.insert(QStringLiteral("elapsedSec"), -1);
+        printer.insert(QStringLiteral("remainingSec"), -1);
+        printer.insert(QStringLiteral("details"), QVariantMap{});
+        printer.insert(QStringLiteral("detailsRawJson"), QString{});
+        printer.insert(QStringLiteral("projects"), m_cache->loadJobsForPrinter(printerId, 1, 20));
+        printers.append(printer);
+    }
     out.insert("ok", true);
     out.insert("message", printers.isEmpty()
                              ? QStringLiteral("Aucune imprimante en cache.")
@@ -485,6 +520,7 @@ void CloudBridge::refreshPrintersAsync(bool force) {
 
         if (ok && m_cache != nullptr) {
             m_cache->replacePrinters(printers);
+            m_cache->replaceJobs(collectJobsFromPrinters(printers));
             QMetaObject::invokeMethod(this, [this, printers]() {
                 emit printersUpdatedFromCloud(printers, QStringLiteral("Cloud refresh imprimantes terminé."));
             }, Qt::QueuedConnection);
@@ -606,6 +642,7 @@ QVariantMap CloudBridge::fetchPrinters() const {
         m_cache->updateSyncState(QStringLiteral("printers"), ok, message);
         if (ok) {
             m_cache->replacePrinters(printers);
+            m_cache->replaceJobs(collectJobsFromPrinters(printers));
         }
     }
     return out;
@@ -702,6 +739,7 @@ QVariantMap CloudBridge::fetchReasonCatalog() const {
 
 QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page, int limit) const {
     QVariantMap out;
+    const QString normalizedPrinterId = printerId.trimmed();
     std::string at, tok;
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
@@ -710,7 +748,7 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     }
 
     const auto r = cloud::fetchPrinterProjects(
-        at, tok, printerId.trimmed().toStdString(), page, limit);
+        at, tok, normalizedPrinterId.toStdString(), page, limit);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok) {
@@ -719,7 +757,42 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
         for (const auto& item : r.items)
             projects.append(printerProjectToMap(item));
         out.insert("projects", projects);
+        if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
+            m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
+        }
+    } else if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
+        const QVariantList cached = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+        if (!cached.isEmpty()) {
+            out.insert("ok", true);
+            out.insert("message", QStringLiteral("Jobs chargés depuis le cache local."));
+            out.insert("projects", cached);
+        }
     }
+    return out;
+}
+
+QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int page, int limit) const {
+    QVariantMap out;
+    out.insert("ok", false);
+    out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("projects", QVariantList{});
+
+    const QString normalizedPrinterId = printerId.trimmed();
+    if (normalizedPrinterId.isEmpty()) {
+        out.insert("message", QStringLiteral("printer_id requis."));
+        return out;
+    }
+
+    if (m_cache == nullptr || !m_cache->isAvailable()) {
+        return out;
+    }
+
+    const QVariantList projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+    out.insert("ok", true);
+    out.insert("message", projects.isEmpty()
+                             ? QStringLiteral("Aucun job en cache pour cette imprimante.")
+                             : QStringLiteral("Jobs chargés depuis le cache local."));
+    out.insert("projects", projects);
     return out;
 }
 

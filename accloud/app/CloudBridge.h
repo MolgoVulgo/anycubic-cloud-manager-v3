@@ -53,6 +53,10 @@ public:
     Q_INVOKABLE QVariantMap fetchPrinterProjects(const QString& printerId,
                                                  int page = 1,
                                                  int limit = 10) const;
+    // Retourne { ok, message, projects:[...] } depuis la DB locale uniquement.
+    Q_INVOKABLE QVariantMap loadCachedPrinterProjects(const QString& printerId,
+                                                      int page = 1,
+                                                      int limit = 20) const;
 
     // Retourne { ok, message, taskId }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,

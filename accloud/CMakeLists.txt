@@ -79,6 +79,8 @@ if(ACCLOUD_ENABLE_QT)
         app/LogBridge.h
         app/UiSettingsBridge.cpp
         app/UiSettingsBridge.h
+        app/UiClickTracer.cpp
+        app/UiClickTracer.h
         app/SessionImportBridge.cpp
         app/SessionImportBridge.h
     )

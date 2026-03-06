@@ -401,15 +401,23 @@ Item {
         if (selected) {
             if (selected.details !== undefined)
                 selectedPrinterDetails = selected.details
-            if (selected.projects !== undefined) {
-                var cachedProjects = selected.projects
-                for (var p = 0; p < cachedProjects.length; ++p)
-                    printerHistoryModel.append(cachedProjects[p])
-            }
         }
 
         if (!hasCloudBridge())
             return
+
+        if (typeof cloudBridge.loadCachedPrinterProjects === "function") {
+            var cachedProjectsRes = cloudBridge.loadCachedPrinterProjects(selectedPrinterId, 1, 20)
+            if (cachedProjectsRes.ok === true) {
+                var cachedProjectsList = cachedProjectsRes.projects !== undefined ? cachedProjectsRes.projects : []
+                for (var cp = 0; cp < cachedProjectsList.length; ++cp)
+                    printerHistoryModel.append(cachedProjectsList[cp])
+            }
+        } else if (selected && selected.projects !== undefined) {
+            var inlineProjects = selected.projects
+            for (var p = 0; p < inlineProjects.length; ++p)
+                printerHistoryModel.append(inlineProjects[p])
+        }
 
         // Fallback cloud fetch only when cached enriched data is missing.
         if ((selectedPrinterDetails === undefined || Object.keys(selectedPrinterDetails).length === 0)
@@ -419,18 +427,6 @@ Item {
             loadingPrinterDetails = false
             if (detailsRes.ok === true && detailsRes.details !== undefined)
                 selectedPrinterDetails = detailsRes.details
-        }
-
-        if (printerHistoryModel.count === 0
-                && typeof cloudBridge.fetchPrinterProjects === "function") {
-            loadingPrinterHistory = true
-            var historyRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
-            loadingPrinterHistory = false
-            if (historyRes.ok === true) {
-                var projects = historyRes.projects !== undefined ? historyRes.projects : []
-                for (var i = 0; i < projects.length; ++i)
-                    printerHistoryModel.append(projects[i])
-            }
         }
     }
 
