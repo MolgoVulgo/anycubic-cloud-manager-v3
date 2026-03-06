@@ -4,6 +4,14 @@ import QtTest 1.3
 
 TestCase {
     name: "ControlRoomUi"
+    property var cloudBridge: undefined
+
+    function cleanup() {
+        if (cloudBridge !== undefined && cloudBridge !== null && cloudBridge.destroy !== undefined) {
+            cloudBridge.destroy()
+        }
+        cloudBridge = undefined
+    }
 
     function createQmlObject(path, props) {
         var component = Qt.createComponent(path)
@@ -251,6 +259,278 @@ TestCase {
 
         opIdFilter.text = "op_printer_missing"
         compare(logsArea.text.trim(), "")
+
+        page.destroy()
+    }
+
+    function test_printer_page_reason_catalog_mapping() {
+        var sendCalls = 0
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    endpoint: "/mock/printers",
+                    rawJson: "{}",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "702",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() {
+                return { ok: true, files: [] }
+            },
+            fetchCompatiblePrintersByExt: function() {
+                return { ok: true, printers: [] }
+            },
+            fetchCompatiblePrintersByFileId: function() {
+                return { ok: true, printers: [] }
+            },
+            fetchReasonCatalog: function() {
+                return {
+                    ok: true,
+                    reasons: [
+                        { reason: 702, desc: "OTA update failed", helpUrl: "https://help/702", type: "LCD", push: 0, popup: 0 }
+                    ]
+                }
+            },
+            fetchPrinterDetails: function() {
+                return { ok: true, details: {} }
+            },
+            fetchPrinterProjects: function() {
+                return { ok: true, projects: [] }
+            },
+            sendPrintOrder: function() {
+                sendCalls += 1
+                return { ok: true, taskId: "123" }
+            }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        compare(page.reasonCatalogLoaded, true)
+        compare(page.displayReason("702"), "OTA update failed (702)")
+        compare(page.reasonHelpUrl("702"), "https://help/702")
+        compare(sendCalls, 0)
+        page.destroy()
+        cloudBridge = undefined
+    }
+
+    function test_printer_page_guard_blocks_incompatible_file_id() {
+        var sendCalls = 0
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    endpoint: "/mock/printers",
+                    rawJson: "{}",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() {
+                return {
+                    ok: true,
+                    files: [
+                        {
+                            fileId: "f1",
+                            fileName: "demo.pwmb",
+                            sizeText: "1 MB",
+                            status: "READY",
+                            printTime: "1m",
+                            resinUsage: "1 ml"
+                        }
+                    ]
+                }
+            },
+            fetchCompatiblePrintersByExt: function(ext) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 1, reason: "" }
+                    ]
+                }
+            },
+            fetchCompatiblePrintersByFileId: function(fileId) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 0, reason: "unavailable reason:printer offline" }
+                    ]
+                }
+            },
+            fetchReasonCatalog: function() {
+                return { ok: true, reasons: [] }
+            },
+            fetchPrinterDetails: function() {
+                return { ok: true, details: {} }
+            },
+            fetchPrinterProjects: function() {
+                return { ok: true, projects: [] }
+            },
+            sendPrintOrder: function() {
+                sendCalls += 1
+                return { ok: true, taskId: "123" }
+            }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        page.openSelectCloudFileDialog("p1")
+        verify(String(page.selectedCloudFileId).length > 0)
+        page.openRemotePrintConfig()
+        compare(page.remotePrintAllowed, false)
+        verify(String(page.remotePrintBlockReason).toLowerCase().indexOf("offline") !== -1)
+
+        page.startRemotePrint()
+        compare(sendCalls, 0)
+        verify(String(page.statusMsg).indexOf("Print blocked:") === 0)
+        page.destroy()
+        cloudBridge = undefined
+    }
+
+    function test_printer_tabs_title_contains_status() {
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    endpoint: "/mock/printers",
+                    rawJson: "{}",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "PRINTING",
+                            reason: "printing",
+                            available: 1,
+                            progress: 12,
+                            elapsedSec: 100,
+                            remainingSec: 200,
+                            currentFile: "demo.pwmb",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() { return { ok: true, files: [] } },
+            fetchCompatiblePrintersByExt: function() { return { ok: true, printers: [] } },
+            fetchCompatiblePrintersByFileId: function() { return { ok: true, printers: [] } },
+            fetchReasonCatalog: function() { return { ok: true, reasons: [] } },
+            fetchPrinterDetails: function() { return { ok: true, details: {} } },
+            fetchPrinterProjects: function() { return { ok: true, projects: [] } },
+            sendPrintOrder: function() { return { ok: true, taskId: "123" } }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        var tabButton = findObjectByName(page, "printerTabButton")
+        verify(tabButton !== null)
+        verify(String(tabButton.text).indexOf("Printer One") !== -1)
+        verify(String(tabButton.text).indexOf("Printing") !== -1)
+        page.destroy()
+        cloudBridge = undefined
+    }
+
+    function test_cloud_files_cache_flow_forces_refresh_and_applies_cloud_signal() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal filesUpdatedFromCloud(var files, string message);' +
+                                         'signal quotaUpdatedFromCloud(var quota, string message);' +
+                                         'signal syncFailed(string scope, string message);' +
+                                         'function fetchFiles(page, limit) { return { ok: true, files: [] } }' +
+                                         'function fetchQuota() { return { ok: true, totalBytes: 0, usedBytes: 0 } }' +
+                                         'function loadCachedFiles(page, limit) {' +
+                                         '  return { ok: true, files: [{ fileId: "cached-1", fileName: "cached.pwmb", status: "READY", sizeText: "1 MB" }] }' +
+                                         '}' +
+                                         'function loadCachedQuota() { return { ok: true, totalDisplay: "2 GB", usedDisplay: "1 GB", totalBytes: 2000, usedBytes: 1000 } }' +
+                                         'function refreshFilesAsync(page, limit, force) { refreshCalls += 1; lastForce = force }' +
+                                         'property int refreshCalls: 0;' +
+                                         'property bool lastForce: false;' +
+                                         '}', this, "cloudFilesBridgeMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        compare(cloudBridge.refreshCalls, 1)
+        compare(cloudBridge.lastForce, true)
+        compare(page.filesModel.count, 1)
+        compare(String(page.filesModel.get(0).fileId), "cached-1")
+
+        cloudBridge.filesUpdatedFromCloud([
+            { fileId: "cloud-1", fileName: "cloud.pwmb", status: "READY", sizeText: "2 MB" }
+        ], "ok")
+        wait(0)
+        tryCompare(page.filesModel, "count", 1)
+        compare(String(page.filesModel.get(0).fileId), "cloud-1")
+
+        page.destroy()
+    }
+
+    function test_printers_cache_flow_forces_refresh_and_applies_cloud_signal() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal printersUpdatedFromCloud(var printers, string message);' +
+                                         'signal syncFailed(string scope, string message);' +
+                                         'function fetchPrinters() { return { ok: true, printers: [] } }' +
+                                         'function fetchFiles() { return { ok: true, files: [] } }' +
+                                         'function sendPrintOrder() { return { ok: true, taskId: "t1" } }' +
+                                         'function fetchCompatiblePrintersByExt() { return { ok: true, printers: [] } }' +
+                                         'function fetchCompatiblePrintersByFileId() { return { ok: true, printers: [] } }' +
+                                         'function fetchReasonCatalog() { return { ok: true, reasons: [] } }' +
+                                         'function fetchPrinterDetails() { return { ok: true, details: {} } }' +
+                                         'function fetchPrinterProjects() { return { ok: true, projects: [] } }' +
+                                         'function loadCachedPrinters() {' +
+                                         '  return { ok: true, endpoint: "/mock/printers", rawJson: "{}", printers: [' +
+                                         '    { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-DB-1" }, projects: [ { taskId: "t-cache-1", gcodeName: "cached.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 20, reason: "", createTime: 1, endTime: 0, img: "" } ] }' +
+                                         '  ] }' +
+                                         '}' +
+                                         'function refreshPrintersAsync(force) { refreshCalls += 1; lastForce = force }' +
+                                         'property int refreshCalls: 0;' +
+                                         'property bool lastForce: false;' +
+                                         '}', this, "printerBridgeMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800, "autoRefreshIntervalMs": 20})
+        compare(cloudBridge.refreshCalls, 1)
+        compare(cloudBridge.lastForce, true)
+        compare(String(page.selectedPrinterId), "cached-p1")
+        compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-DB-1")
+
+        cloudBridge.printersUpdatedFromCloud([
+            { id: "cloud-p1", name: "Cloud Printer", model: "Mono X", type: "LCD", state: "PRINTING", reason: "printing", available: 1, progress: 30, elapsedSec: 300, remainingSec: 600, currentFile: "a.pwmb", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
+        ], "ok")
+        wait(0)
+        tryCompare(page, "selectedPrinterId", "cloud-p1")
+        compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-CLOUD-2")
+
+        var timer = findObjectByName(page, "printersAutoRefreshTimer")
+        verify(timer !== null)
+        compare(timer.running, true)
+        wait(65)
+        verify(cloudBridge.refreshCalls >= 2)
 
         page.destroy()
     }

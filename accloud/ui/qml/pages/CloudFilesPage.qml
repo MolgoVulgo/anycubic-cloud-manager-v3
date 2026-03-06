@@ -263,7 +263,7 @@ Item {
             return
 
         root.loading = true
-        root.statusMsg = "Loading cloud files..."
+        root.statusMsg = "Loading files from local cache..."
         root.statusSev = "info"
 
         if (!hasCloudBridge()) {
@@ -271,32 +271,50 @@ Item {
             return
         }
 
-        var q = cloudBridge.fetchQuota()
-        if (q.ok === true)
+        var useCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
+                && typeof cloudBridge.loadCachedQuota === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+
+        var q = useCacheFlow ? cloudBridge.loadCachedQuota() : cloudBridge.fetchQuota()
+        if (q.ok === true && Number(q.totalBytes || 0) > 0)
             root.quotaData = q
 
-        var r = cloudBridge.fetchFiles(1, 20)
+        var r = useCacheFlow ? cloudBridge.loadCachedFiles(1, 20) : cloudBridge.fetchFiles(1, 20)
         root.loading = false
-
-        if (r.ok !== true) {
-            root.statusMsg = "Listing failed: " + String(r.message)
-            root.statusSev = "error"
-            return
-        }
 
         cloudFilesModel.clear()
         var files = r.files !== undefined ? r.files : []
         for (var i = 0; i < files.length; ++i)
             cloudFilesModel.append(files[i])
 
-        root.statusMsg = String(files.length) + " file(s) loaded"
-        root.statusSev = "success"
+        if (files.length > 0) {
+            if (useCacheFlow) {
+                root.statusMsg = String(files.length) + " file(s) loaded from local cache. Syncing cloud..."
+                root.statusSev = "info"
+            } else {
+                root.statusMsg = String(files.length) + " file(s) loaded"
+                root.statusSev = "success"
+            }
+        } else {
+            if (useCacheFlow) {
+                root.statusMsg = "No local cache yet. Syncing cloud..."
+                root.statusSev = "warn"
+            } else {
+                root.statusMsg = "No file found."
+                root.statusSev = "warn"
+            }
+        }
+
+        if (useCacheFlow)
+            cloudBridge.refreshFilesAsync(1, 20, true)
     }
 
     Component.onCompleted: loadFiles()
 
     Connections {
-        target: (typeof cloudBridge !== "undefined") ? cloudBridge : null
+        target: (typeof cloudBridge !== "undefined"
+                 && cloudBridge !== null) ? cloudBridge : null
+        ignoreUnknownSignals: true
 
         function onDownloadProgress(received, total) {
             downloadOverlay.received = received
@@ -316,6 +334,27 @@ Item {
                 root.statusMsg = "Download error: " + message
                 root.statusSev = "error"
             }
+        }
+
+        function onFilesUpdatedFromCloud(files, message) {
+            cloudFilesModel.clear()
+            var list = files !== undefined ? files : []
+            for (var i = 0; i < list.length; ++i)
+                cloudFilesModel.append(list[i])
+            root.statusMsg = String(list.length) + " file(s) refreshed from cloud."
+            root.statusSev = "success"
+        }
+
+        function onQuotaUpdatedFromCloud(quota, message) {
+            if (quota !== undefined)
+                root.quotaData = quota
+        }
+
+        function onSyncFailed(scope, message) {
+            if (String(scope) !== "files" && String(scope) !== "quota")
+                return
+            root.statusMsg = "Background sync failed (" + String(scope) + "): " + String(message)
+            root.statusSev = "warn"
         }
     }
 
@@ -660,7 +699,19 @@ Item {
                 text: root.loading ? "Loading..." : "Refresh"
                 variant: "secondary"
                 enabled: !root.loading
-                onClicked: root.loadFiles()
+                onClicked: {
+                    if (!hasCloudBridge()) {
+                        root.loadFiles()
+                        return
+                    }
+                    if (typeof cloudBridge.refreshFilesAsync === "function") {
+                        root.statusMsg = "Force refresh from cloud..."
+                        root.statusSev = "info"
+                        cloudBridge.refreshFilesAsync(1, 20, true)
+                    } else {
+                        root.loadFiles()
+                    }
+                }
             }
 
             AppButton {

@@ -64,7 +64,7 @@ add_executable(accloud_cli
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
 
 if(ACCLOUD_ENABLE_QT)
-  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network)
+  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network Sql)
   if(Qt6_FOUND)
     target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
     target_link_libraries(accloud_infra PRIVATE Qt6::Network)
@@ -73,6 +73,8 @@ if(ACCLOUD_ENABLE_QT)
         app/resources.qrc
         app/CloudBridge.cpp
         app/CloudBridge.h
+        app/LocalCacheStore.cpp
+        app/LocalCacheStore.h
         app/LogBridge.cpp
         app/LogBridge.h
         app/UiSettingsBridge.cpp
@@ -80,7 +82,7 @@ if(ACCLOUD_ENABLE_QT)
         app/SessionImportBridge.cpp
         app/SessionImportBridge.h
     )
-    target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2)
+    target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Sql)
   else()
     message(WARNING "Qt6 not found: accloud_cli will build in headless skeleton mode")
   endif()
