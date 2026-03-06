@@ -34,6 +34,8 @@ Item {
     property bool reasonCatalogLoaded: false
     property bool reasonCatalogLoading: false
     property var reasonCatalogByCode: ({})
+    property bool printerAutoRefreshStarted: false
+    property int autoRefreshIntervalMs: 30000
 
     ListModel {
         id: printersModel
@@ -377,10 +379,26 @@ Item {
         selectedPrinterDetails = ({})
         printerHistoryModel.clear()
 
-        if (selectedPrinterId.length === 0 || !hasCloudBridge())
+        if (selectedPrinterId.length === 0)
             return
 
-        if (typeof cloudBridge.fetchPrinterDetails === "function") {
+        var selected = selectedPrinterData()
+        if (selected) {
+            if (selected.details !== undefined)
+                selectedPrinterDetails = selected.details
+            if (selected.projects !== undefined) {
+                var cachedProjects = selected.projects
+                for (var p = 0; p < cachedProjects.length; ++p)
+                    printerHistoryModel.append(cachedProjects[p])
+            }
+        }
+
+        if (!hasCloudBridge())
+            return
+
+        // Fallback cloud fetch only when cached enriched data is missing.
+        if ((selectedPrinterDetails === undefined || Object.keys(selectedPrinterDetails).length === 0)
+                && typeof cloudBridge.fetchPrinterDetails === "function") {
             loadingPrinterDetails = true
             var detailsRes = cloudBridge.fetchPrinterDetails(selectedPrinterId)
             loadingPrinterDetails = false
@@ -388,9 +406,10 @@ Item {
                 selectedPrinterDetails = detailsRes.details
         }
 
-        if (typeof cloudBridge.fetchPrinterProjects === "function") {
+        if (printerHistoryModel.count === 0
+                && typeof cloudBridge.fetchPrinterProjects === "function") {
             loadingPrinterHistory = true
-            var historyRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 10)
+            var historyRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
             loadingPrinterHistory = false
             if (historyRes.ok === true) {
                 var projects = historyRes.projects !== undefined ? historyRes.projects : []
@@ -460,7 +479,7 @@ Item {
             return
 
         loading = true
-        statusMsg = "Refreshing printers..."
+        statusMsg = "Loading printers from local cache..."
         statusSev = "info"
 
         if (!hasCloudBridge()) {
@@ -468,16 +487,12 @@ Item {
             return
         }
 
-        var r = cloudBridge.fetchPrinters()
+        var useCacheFlow = typeof cloudBridge.loadCachedPrinters === "function"
+                && typeof cloudBridge.refreshPrintersAsync === "function"
+        var r = useCacheFlow ? cloudBridge.loadCachedPrinters() : cloudBridge.fetchPrinters()
         loading = false
         printersEndpointPath = String(r.endpoint || printersEndpointPath)
         printersEndpointRawJson = String(r.rawJson || "")
-
-        if (r.ok !== true) {
-            statusMsg = "Printer listing failed: " + String(r.message)
-            statusSev = "error"
-            return
-        }
 
         printersModel.clear()
         var printers = r.printers !== undefined ? r.printers : []
@@ -499,8 +514,25 @@ Item {
         }
 
         loadSelectedPrinterInsights()
-        statusMsg = String(printersModel.count) + " printer(s) loaded"
-        statusSev = "success"
+        if (printersModel.count > 0) {
+            if (useCacheFlow) {
+                statusMsg = String(printersModel.count) + " printer(s) loaded from local cache. Syncing cloud..."
+                statusSev = "info"
+            } else {
+                statusMsg = String(printersModel.count) + " printer(s) loaded"
+                statusSev = "success"
+            }
+        } else {
+            if (useCacheFlow) {
+                statusMsg = "No local cache yet. Syncing cloud..."
+                statusSev = "warn"
+            } else {
+                statusMsg = "No printer found."
+                statusSev = "warn"
+            }
+        }
+        if (useCacheFlow)
+            cloudBridge.refreshPrintersAsync(true)
     }
 
     function compatibilityAllowsPrinter(compatResult, printerId) {
@@ -655,6 +687,61 @@ Item {
     Component.onCompleted: {
         ensureReasonCatalogLoaded()
         loadPrinters()
+    }
+
+    Timer {
+        id: printersAutoRefreshTimer
+        objectName: "printersAutoRefreshTimer"
+        interval: root.autoRefreshIntervalMs
+        repeat: true
+        running: false
+        triggeredOnStart: false
+        onTriggered: {
+            if (hasCloudBridge() && typeof cloudBridge.refreshPrintersAsync === "function")
+                cloudBridge.refreshPrintersAsync(true)
+        }
+    }
+
+    Connections {
+        target: (typeof cloudBridge !== "undefined"
+                 && cloudBridge !== null) ? cloudBridge : null
+        ignoreUnknownSignals: true
+
+        function onPrintersUpdatedFromCloud(printers, message) {
+            printersModel.clear()
+            var list = printers !== undefined ? printers : []
+            for (var i = 0; i < list.length; ++i)
+                printersModel.append(list[i])
+
+            if (printersModel.count > 0) {
+                var keepSelection = false
+                for (var j = 0; j < printersModel.count; ++j) {
+                    if (String(printersModel.get(j).id) === selectedPrinterId) {
+                        keepSelection = true
+                        break
+                    }
+                }
+                if (!keepSelection)
+                    selectedPrinterId = String(printersModel.get(0).id)
+            } else {
+                selectedPrinterId = ""
+            }
+
+            loadSelectedPrinterInsights()
+            statusMsg = String(list.length) + " printer(s) refreshed from cloud."
+            statusSev = "success"
+            if (!root.printerAutoRefreshStarted) {
+                root.printerAutoRefreshStarted = true
+                printersAutoRefreshTimer.start()
+            }
+        }
+
+        function onSyncFailed(scope, message) {
+            if (String(scope) !== "printers")
+                return
+            statusMsg = "Background sync failed (printers): " + String(message)
+            statusSev = "warn"
+        }
     }
 
     AppDialogFrame {
@@ -993,7 +1080,19 @@ Item {
                 text: loading ? "Refreshing..." : "Refresh printers"
                 variant: "secondary"
                 enabled: !loading
-                onClicked: loadPrinters()
+                onClicked: {
+                    if (!hasCloudBridge()) {
+                        loadPrinters()
+                        return
+                    }
+                    if (typeof cloudBridge.refreshPrintersAsync === "function") {
+                        statusMsg = "Force refresh printers from cloud..."
+                        statusSev = "info"
+                        cloudBridge.refreshPrintersAsync(true)
+                    } else {
+                        loadPrinters()
+                    }
+                }
             }
 
             CheckBox {

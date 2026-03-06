@@ -4,9 +4,14 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
+#include <QVariantList>
 #include <QVariantMap>
 
+#include <atomic>
+
 namespace accloud {
+
+class LocalCacheStore;
 
 class CloudBridge : public QObject {
     Q_OBJECT
@@ -21,6 +26,8 @@ public:
 
     // Retourne { ok, message, totalDisplay, usedDisplay, totalBytes, usedBytes }
     Q_INVOKABLE QVariantMap fetchQuota() const;
+    Q_INVOKABLE QVariantMap loadCachedQuota() const;
+    Q_INVOKABLE void refreshFilesAsync(int page = 1, int limit = 20, bool force = false);
 
     // Retourne { ok, message }
     Q_INVOKABLE QVariantMap deleteFile(const QString& fileId) const;
@@ -30,6 +37,9 @@ public:
 
     // Retourne { ok, message, endpoint, rawJson, printers:[{id,name,model,type,lastSeen,state,reason,available,progress,elapsedSec,remainingSec,currentFile}] }
     Q_INVOKABLE QVariantMap fetchPrinters() const;
+    Q_INVOKABLE QVariantMap loadCachedPrinters() const;
+    Q_INVOKABLE void refreshPrintersAsync(bool force = false);
+    Q_INVOKABLE QVariantMap loadCachedFiles(int page = 1, int limit = 20) const;
 
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
@@ -59,15 +69,29 @@ public:
 Q_SIGNALS:
     void downloadProgress(qint64 received, qint64 total);
     void downloadFinished(bool ok, const QString& message, const QString& savedPath);
+    void filesUpdatedFromCache(const QVariantList& files, const QString& message);
+    void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
+    void printersUpdatedFromCache(const QVariantList& printers, const QString& message);
+    void printersUpdatedFromCloud(const QVariantList& printers, const QString& message);
+    void quotaUpdatedFromCache(const QVariantMap& quota, const QString& message);
+    void quotaUpdatedFromCloud(const QVariantMap& quota, const QString& message);
+    void syncFailed(const QString& scope, const QString& message);
 
 private:
     bool loadTokens(std::string& accessToken, std::string& xxToken) const;
+    bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
+    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok) const;
+    QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
+    QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void cleanupDownload();
 
     QNetworkAccessManager* m_nam{nullptr};
     QNetworkReply*         m_dlReply{nullptr};
     QFile*                 m_dlFile{nullptr};
     QString                m_dlPath;
+    LocalCacheStore*       m_cache{nullptr};
+    mutable std::atomic_bool m_refreshFilesRunning{false};
+    mutable std::atomic_bool m_refreshPrintersRunning{false};
 };
 
 } // namespace accloud
