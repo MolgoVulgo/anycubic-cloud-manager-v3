@@ -12,15 +12,15 @@ ApplicationWindow {
     width: 1480
     height: 920
     visible: true
-    title: "Anycubic Cloud Control Room"
-    property string statusText: "Checking active session..."
-    property string globalStatusMsg: "Ready."
+    title: qsTr("Anycubic Cloud Control Room")
+    property string statusText: qsTr("Checking active session...")
+    property string globalStatusMsg: qsTr("Ready.")
     property string globalStatusSev: "info"
     property string globalStatusOpId: "op_shell_status"
     property bool debugUi: Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
     property string sessionTargetPath: "~/.config/accloud/session.json"
-    property string sessionDetailsText: "No session check executed yet."
+    property string sessionDetailsText: qsTr("No session check executed yet.")
     property int render3dDefaultQualityIndex: 2
     property string render3dDefaultPalette: "Palette Steel"
     property bool render3dDefaultContourOnly: false
@@ -28,6 +28,7 @@ ApplicationWindow {
     property int render3dDefaultStride: 1
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
+    property string persistedLanguageCode: "system"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -36,22 +37,30 @@ ApplicationWindow {
                 && typeof uiSettingsBridge.setString === "function"
     }
 
+    function hasI18nBridge() {
+        return (typeof appI18nBridge !== "undefined")
+                && appI18nBridge !== null
+                && typeof appI18nBridge.setLanguage === "function"
+                && appI18nBridge.languageCode !== undefined
+                && appI18nBridge.effectiveLanguageCode !== undefined
+    }
+
     function translateLocalizedText(rawText) {
         var text = String(rawText || "")
         if (text.length === 0)
             return text
 
         var replacements = {
-            "请求被接受": "Request accepted",
-            "操作成功": "Operation successful",
-            "连接成功": "Connection successful",
-            "用户不存在": "User does not exist",
-            "设备离线": "Printer offline",
-            "打印中": "Printing in progress",
-            "失败": "Failed",
-            "成功": "Success",
-            "错误": "Error",
-            "超时": "Timeout"
+            "请求被接受": qsTr("Request accepted"),
+            "操作成功": qsTr("Operation successful"),
+            "连接成功": qsTr("Connection successful"),
+            "用户不存在": qsTr("User does not exist"),
+            "设备离线": qsTr("Printer offline"),
+            "打印中": qsTr("Printing in progress"),
+            "失败": qsTr("Failed"),
+            "成功": qsTr("Success"),
+            "错误": qsTr("Error"),
+            "超时": qsTr("Timeout")
         }
 
         for (var key in replacements) {
@@ -60,7 +69,7 @@ ApplicationWindow {
         }
 
         if (/[\u4e00-\u9fff]/.test(text))
-            text = text.replace(/[\u4e00-\u9fff]+/g, "localized backend message")
+            text = text.replace(/[\u4e00-\u9fff]+/g, qsTr("localized backend message"))
 
         return text
     }
@@ -126,6 +135,12 @@ ApplicationWindow {
         }
     }
 
+    function loadLanguageFromSettings() {
+        if (!root.hasI18nBridge())
+            return
+        root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -142,8 +157,8 @@ ApplicationWindow {
         if (typeof sessionImportBridge === "undefined"
                 || sessionImportBridge === null
                 || typeof sessionImportBridge.sessionDetails !== "function") {
-            sessionDetailsText = "Backend session unavailable."
-            statusText = "Session details unavailable."
+            sessionDetailsText = qsTr("Backend session unavailable.")
+            statusText = qsTr("Session details unavailable.")
             sessionDetailsDialog.open()
             return
         }
@@ -155,11 +170,12 @@ ApplicationWindow {
 
     Component.onCompleted: {
         root.loadThemeFromSettings()
+        root.loadLanguageFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
                     || typeof sessionImportBridge.checkStartup !== "function") {
-                root.statusText = "UI mode: backend unavailable."
+                root.statusText = qsTr("UI mode: backend unavailable.")
                 return
             }
             if (typeof sessionImportBridge.defaultSessionPath === "function") {
@@ -168,7 +184,7 @@ ApplicationWindow {
 
             var check = sessionImportBridge.checkStartup()
             if (check.sessionExists === true && check.connectionOk === true) {
-                root.statusText = "Active session. Auto-refresh every 30s."
+                root.statusText = qsTr("Active session. Auto-refresh every 30s.")
             } else {
                 root.statusText = String(check.message)
                 sessionDialog.startupMessage = String(check.message)
@@ -195,28 +211,28 @@ ApplicationWindow {
 
         Menu {
             objectName: "menuSession"
-            title: "Session"
+            title: qsTr("Session")
 
             MenuItem {
                 objectName: "menuSessionDetails"
-                text: "Details"
+                text: qsTr("Details")
                 onTriggered: root.showSessionDetails()
             }
 
             MenuItem {
                 objectName: "menuSessionImportHar"
-                text: "import HAR"
+                text: qsTr("import HAR")
                 onTriggered: sessionDialog.open()
             }
         }
 
         Menu {
             objectName: "menuParametre"
-            title: "Settings"
+            title: qsTr("Settings")
 
             MenuItem {
                 objectName: "menuSettingsSession"
-                text: "Session"
+                text: qsTr("Session")
                 onTriggered: {
                     sessionPathField.text = root.sessionTargetPath
                     sessionPathDialog.open()
@@ -225,36 +241,45 @@ ApplicationWindow {
 
             MenuItem {
                 objectName: "menuSettingsTheme"
-                text: "Theme"
+                text: qsTr("Theme")
                 onTriggered: {
-                    root.statusText = "Opening theme settings panel."
+                    root.statusText = qsTr("Opening theme settings panel.")
                     themeDialog.open()
                 }
             }
 
             MenuItem {
                 objectName: "menuSettingsRender3d"
-                text: "3D rendering"
+                text: qsTr("3D rendering")
                 onTriggered: {
-                    root.statusText = "Opening default 3D rendering settings."
+                    root.statusText = qsTr("Opening default 3D rendering settings.")
                     render3dDefaultsDialog.open()
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsLanguage"
+                text: qsTr("Language")
+                onTriggered: {
+                    root.statusText = qsTr("Opening language settings panel.")
+                    languageDialog.open()
                 }
             }
         }
 
         Menu {
             objectName: "menuHelp"
-            title: "?"
+            title: qsTr("?")
 
             MenuItem {
                 objectName: "menuHelpAbout"
-                text: "About"
+                text: qsTr("About")
                 onTriggered: aboutDialog.open()
             }
 
             MenuItem {
                 objectName: "menuHelpGit"
-                text: "git"
+                text: qsTr("git")
                 onTriggered: gitDialog.open()
             }
         }
@@ -265,7 +290,7 @@ ApplicationWindow {
         objectName: "sessionSettingsDialog"
         sessionTargetPath: root.sessionTargetPath
         onImportCompleted: function(message) {
-            root.statusText = "Active session. " + message
+            root.statusText = qsTr("Active session. %1").arg(message)
             sessionDialog.mandatoryMode = false
             sessionDialog.close()
         }
@@ -289,7 +314,7 @@ ApplicationWindow {
     Dialog {
         id: sessionPathDialog
         objectName: "sessionPathDialog"
-        title: "Session Settings"
+        title: qsTr("Session Settings")
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
@@ -311,7 +336,7 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: "Target session.json path used by Session > Import HAR."
+                text: qsTr("Target session.json path used by Session > Import HAR.")
                 color: Theme.textSecondary
                 wrapMode: Text.WordWrap
             }
@@ -327,7 +352,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "Default"
+                    text: qsTr("Default")
                     onClicked: {
                         if (typeof sessionImportBridge !== "undefined"
                                 && sessionImportBridge !== null
@@ -337,17 +362,17 @@ ApplicationWindow {
                     }
                 }
                 AppButton {
-                    text: "Apply"
+                    text: qsTr("Apply")
                     onClicked: {
                         root.sessionTargetPath = sessionPathField.text.trim().length > 0
                                 ? sessionPathField.text.trim()
                                 : root.sessionTargetPath
-                        root.statusText = "Session target: " + root.sessionTargetPath
+                        root.statusText = qsTr("Session target: %1").arg(root.sessionTargetPath)
                         sessionPathDialog.close()
                     }
                 }
                 AppButton {
-                    text: "Close"
+                    text: qsTr("Close")
                     onClicked: sessionPathDialog.close()
                 }
             }
@@ -357,7 +382,7 @@ ApplicationWindow {
     Dialog {
         id: sessionDetailsDialog
         objectName: "sessionDetailsDialog"
-        title: "Session details"
+        title: qsTr("Session details")
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
@@ -406,7 +431,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "Close"
+                    text: qsTr("Close")
                     onClicked: sessionDetailsDialog.close()
                 }
             }
@@ -414,10 +439,95 @@ ApplicationWindow {
     }
 
     AppDialogFrame {
+        id: languageDialog
+        objectName: "languageDialog"
+        title: qsTr("Language Settings")
+        subtitle: qsTr("Choose app language. System language is used by default.")
+        minimumWidth: 520
+        maximumWidth: 680
+        showCloseButton: false
+        property string pendingLanguage: root.persistedLanguageCode
+        property var languageCodes: ["system", "en", "fr"]
+        property var languageLabels: []
+
+        function languageIndexFor(codeValue) {
+            var code = String(codeValue || "system")
+            for (var i = 0; i < languageCodes.length; ++i) {
+                if (String(languageCodes[i]) === code)
+                    return i
+            }
+            return 0
+        }
+
+        function rebuildLanguageLabels() {
+            languageLabels = [
+                qsTr("System default"),
+                qsTr("English"),
+                qsTr("French")
+            ]
+        }
+
+        onOpened: {
+            rebuildLanguageLabels()
+            pendingLanguage = root.hasI18nBridge()
+                    ? String(appI18nBridge.languageCode || "system")
+                    : "system"
+            languageCombo.currentIndex = languageIndexFor(pendingLanguage)
+        }
+
+        SectionHeader {
+            Layout.fillWidth: true
+            title: qsTr("Language")
+            subtitle: qsTr("Fallback: English if system language is unavailable")
+        }
+
+        AppComboBox {
+            id: languageCombo
+            Layout.fillWidth: true
+            model: languageDialog.languageLabels
+            onActivated: {
+                if (currentIndex >= 0 && currentIndex < languageDialog.languageCodes.length)
+                    languageDialog.pendingLanguage = String(languageDialog.languageCodes[currentIndex])
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: root.hasI18nBridge()
+                  ? qsTr("Current effective language: %1").arg(String(appI18nBridge.effectiveLanguageCode || "en"))
+                  : qsTr("Language bridge unavailable.")
+            color: Theme.fgSecondary
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontCaptionPx
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                variant: "secondary"
+                onClicked: languageDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                enabled: root.hasI18nBridge()
+                onClicked: {
+                    if (!root.hasI18nBridge())
+                        return
+                    appI18nBridge.setLanguage(languageDialog.pendingLanguage)
+                    root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
+                    root.statusText = qsTr("Language updated: %1").arg(languageCombo.currentText)
+                    languageDialog.close()
+                }
+            }
+        ]
+    }
+
+    AppDialogFrame {
         id: themeDialog
         objectName: "themeDialog"
-        title: "Theme Settings"
-        subtitle: "Preset + accent applied live. Persistence is saved on validation."
+        title: qsTr("Theme Settings")
+        subtitle: qsTr("Preset + accent applied live. Persistence is saved on validation.")
         minimumWidth: 560
         maximumWidth: 680
         showCloseButton: false
@@ -449,8 +559,8 @@ ApplicationWindow {
 
         SectionHeader {
             Layout.fillWidth: true
-            title: "Preset"
-            subtitle: "Global app palette"
+            title: qsTr("Preset")
+            subtitle: qsTr("Global app palette")
         }
 
         AppComboBox {
@@ -466,8 +576,8 @@ ApplicationWindow {
 
         SectionHeader {
             Layout.fillWidth: true
-            title: "Accent"
-            subtitle: "Primary action color"
+            title: qsTr("Accent")
+            subtitle: qsTr("Primary action color")
         }
 
         AppComboBox {
@@ -495,7 +605,7 @@ ApplicationWindow {
                 spacing: 8
 
                 Text {
-                    text: "Preview"
+                    text: qsTr("Preview")
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontSectionPx
                     font.bold: true
@@ -515,13 +625,13 @@ ApplicationWindow {
                     }
 
                     Text {
-                        text: "Primary text sample"
+                        text: qsTr("Primary text sample")
                         color: Theme.fgPrimary
                         font.pixelSize: Theme.fontBodyPx
                     }
 
                     Text {
-                        text: "Secondary text sample"
+                        text: qsTr("Secondary text sample")
                         color: Theme.fgSecondary
                         opacity: 0.9
                         font.pixelSize: Theme.fontCaptionPx
@@ -530,7 +640,7 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
 
                     AppButton {
-                        text: "Primary"
+                        text: qsTr("Primary")
                         variant: "primary"
                     }
                 }
@@ -538,7 +648,7 @@ ApplicationWindow {
         }
 
         AppButton {
-            text: "Reset to defaults"
+            text: qsTr("Reset to defaults")
             variant: "secondary"
             onClicked: {
                 themeDialog.pendingTheme = "WarmLight"
@@ -550,24 +660,26 @@ ApplicationWindow {
 
         footerTrailingData: [
             AppButton {
-                text: "Close"
+                text: qsTr("Close")
                 variant: "secondary"
                 onClicked: themeDialog.close()
             },
             AppButton {
-                text: "Apply"
+                text: qsTr("Apply")
                 variant: "primary"
                 onClicked: {
                     themeDialog.committed = true
                     root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, true)
-                    root.statusText = "Theme: " + root.persistedThemeName + " / Accent: " + root.persistedAccentName
+                    root.statusText = qsTr("Theme: %1 / Accent: %2")
+                            .arg(root.persistedThemeName)
+                            .arg(root.persistedAccentName)
                     themeDialog.close()
                 }
             }
         ]
         footerLeadingData: [
             AppButton {
-                text: "Cancel changes"
+                text: qsTr("Cancel changes")
                 variant: "secondary"
                 onClicked: {
                     themeDialog.committed = false
@@ -584,7 +696,7 @@ ApplicationWindow {
     Dialog {
         id: render3dDefaultsDialog
         objectName: "render3dDefaultsDialog"
-        title: "Default 3D Rendering Settings"
+        title: qsTr("Default 3D Rendering Settings")
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
@@ -606,38 +718,56 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: "Set default 3D rendering values here (without opening the viewer)."
+                text: qsTr("Set default 3D rendering values here (without opening the viewer).")
                 color: Theme.textSecondary
                 wrapMode: Text.WordWrap
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "Quality"; Layout.preferredWidth: 130 }
+                Text { text: qsTr("Quality"); Layout.preferredWidth: 130 }
                 AppComboBox {
                     id: renderQualityCombo
                     objectName: "renderQualityCombo"
                     Layout.fillWidth: true
-                    model: ["Quality 33", "Quality 66", "Quality 100"]
+                    textRole: "label"
+                    model: [
+                        { "value": "q33", "label": qsTr("Quality 33") },
+                        { "value": "q66", "label": qsTr("Quality 66") },
+                        { "value": "q100", "label": qsTr("Quality 100") }
+                    ]
                     currentIndex: root.render3dDefaultQualityIndex
                 }
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "Palette"; Layout.preferredWidth: 130 }
+                Text { text: qsTr("Palette"); Layout.preferredWidth: 130 }
                 AppComboBox {
                     id: renderPaletteCombo
                     objectName: "renderPaletteCombo"
                     Layout.fillWidth: true
-                    model: ["Palette Steel", "Palette Resin", "Palette Heat"]
-                    currentIndex: Math.max(0, model.indexOf(root.render3dDefaultPalette))
+                    textRole: "label"
+                    model: [
+                        { "value": "Palette Steel", "label": qsTr("Palette Steel") },
+                        { "value": "Palette Resin", "label": qsTr("Palette Resin") },
+                        { "value": "Palette Heat", "label": qsTr("Palette Heat") }
+                    ]
+                    Component.onCompleted: {
+                        for (var i = 0; i < model.length; ++i) {
+                            if (String(model[i].value) === root.render3dDefaultPalette) {
+                                currentIndex = i
+                                return
+                            }
+                        }
+                        currentIndex = 0
+                    }
                 }
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "Layer cutoff"; Layout.preferredWidth: 130 }
+                Text { text: qsTr("Layer cutoff"); Layout.preferredWidth: 130 }
                 AppSlider {
                     id: renderCutoffSlider
                     objectName: "renderCutoffSlider"
@@ -657,7 +787,7 @@ ApplicationWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "Stride"; Layout.preferredWidth: 130 }
+                Text { text: qsTr("Stride"); Layout.preferredWidth: 130 }
                 AppSpinBox {
                     id: renderStrideSpin
                     objectName: "renderStrideSpin"
@@ -669,7 +799,7 @@ ApplicationWindow {
                 AppCheckBox {
                     id: renderContourOnlyCheck
                     objectName: "renderContourOnlyCheck"
-                    text: "Contour only"
+                    text: qsTr("Contour only")
                     checked: root.render3dDefaultContourOnly
                 }
             }
@@ -679,7 +809,7 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 AppButton {
-                    text: "Reset"
+                    text: qsTr("Reset")
                     onClicked: {
                         renderQualityCombo.currentIndex = 2
                         renderPaletteCombo.currentIndex = 0
@@ -690,21 +820,24 @@ ApplicationWindow {
                 }
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "Apply"
+                    text: qsTr("Apply")
                     onClicked: {
                         root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
-                        root.render3dDefaultPalette = String(renderPaletteCombo.currentText)
+                        if (renderPaletteCombo.currentIndex >= 0
+                                && renderPaletteCombo.currentIndex < renderPaletteCombo.model.length) {
+                            root.render3dDefaultPalette = String(renderPaletteCombo.model[renderPaletteCombo.currentIndex].value)
+                        }
                         root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
                         root.render3dDefaultStride = renderStrideSpin.value
                         root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
-                        root.statusText = "Applied 3D defaults: "
-                                + String(renderQualityCombo.currentText)
-                                + ", " + root.render3dDefaultPalette
-                                + ", cutoff " + root.render3dDefaultCutoff + "%"
+                        root.statusText = qsTr("Applied 3D defaults: %1, %2, cutoff %3%")
+                                .arg(String(renderQualityCombo.currentText))
+                                .arg(root.render3dDefaultPalette)
+                                .arg(root.render3dDefaultCutoff)
                     }
                 }
                 AppButton {
-                    text: "Close"
+                    text: qsTr("Close")
                     onClicked: render3dDefaultsDialog.close()
                 }
             }
@@ -714,7 +847,7 @@ ApplicationWindow {
     Dialog {
         id: aboutDialog
         objectName: "aboutDialog"
-        title: "About"
+        title: qsTr("About")
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
@@ -736,7 +869,7 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: "Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering."
+                text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering.")
                 color: Theme.textPrimary
                 wrapMode: Text.WordWrap
             }
@@ -747,7 +880,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "Close"
+                    text: qsTr("Close")
                     onClicked: aboutDialog.close()
                 }
             }
@@ -757,7 +890,7 @@ ApplicationWindow {
     Dialog {
         id: gitDialog
         objectName: "gitDialog"
-        title: "git"
+        title: qsTr("git")
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
@@ -797,7 +930,7 @@ ApplicationWindow {
                     height: Math.max(gitInfoScroll.availableHeight, gitInfoTextArea.contentHeight)
                     readOnly: true
                     wrapMode: TextEdit.NoWrap
-                    text: "Useful shortcuts:\n"
+                    text: qsTr("Useful shortcuts:\n")
                         + "- git status --short\n"
                         + "- git log --oneline -n 20\n"
                         + "- git branch --show-current\n"
@@ -810,7 +943,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "Close"
+                    text: qsTr("Close")
                     onClicked: gitDialog.close()
                 }
             }
@@ -863,7 +996,7 @@ ApplicationWindow {
                         Text {
                             id: titleLabel
                             objectName: "controlRoomTitle"
-                            text: "Anycubic Cloud Control Room"
+                            text: qsTr("Anycubic Cloud Control Room")
                             color: Theme.fgPrimary
                             font.pixelSize: 20
                             font.bold: true
@@ -888,21 +1021,21 @@ ApplicationWindow {
                         HeaderActionButton {
                             id: printDialogButton
                             objectName: "printDialogButton"
-                            text: "Print Dialog"
+                            text: qsTr("Print Dialog")
                             onClicked: root.openPrintDialog()
                         }
 
                         HeaderActionButton {
                             id: viewerDialogButton
                             objectName: "viewerDialogButton"
-                            text: "3D Viewer Dialog"
+                            text: qsTr("3D Viewer Dialog")
                             onClicked: root.openViewerDialog()
                         }
 
                         HeaderActionButton {
                             id: uploadDialogButton
                             objectName: "uploadDialogButton"
-                            text: "Upload Dialog"
+                            text: qsTr("Upload Dialog")
                             variant: "primary"
                             onClicked: root.openUploadDialog()
                         }
@@ -931,17 +1064,17 @@ ApplicationWindow {
 
                         AppTabButton {
                             objectName: "filesTabButton"
-                            text: "Files"
+                            text: qsTr("Files")
                         }
 
                         AppTabButton {
                             objectName: "printerTabButton"
-                            text: "Printers"
+                            text: qsTr("Printers")
                         }
 
                         AppTabButton {
                             objectName: "logTabButton"
-                            text: "Logs"
+                            text: qsTr("Logs")
                         }
                     }
 

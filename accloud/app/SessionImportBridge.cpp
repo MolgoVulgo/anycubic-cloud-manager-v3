@@ -62,6 +62,28 @@ std::string pickXxToken(const std::map<std::string, std::string>& tokens) {
   return {};
 }
 
+void finalizeUiMessage(QVariantMap& out) {
+  if (!out.contains("message")) {
+    return;
+  }
+  const QString message = out.value("message").toString().trimmed();
+  const QString lowered = message.toLower();
+  const bool ok = out.value("ok").toBool();
+
+  QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
+  if (lowered.contains("har")) {
+    key = ok ? QStringLiteral("info.session.har") : QStringLiteral("error.session.har");
+  } else if (lowered.contains("session")) {
+    key = ok ? QStringLiteral("info.session") : QStringLiteral("error.session");
+  } else if (lowered.contains("token")) {
+    key = QStringLiteral("error.session.token");
+  } else if (lowered.contains("cloud")) {
+    key = ok ? QStringLiteral("info.cloud") : QStringLiteral("error.cloud");
+  }
+
+  out.insert("messageKey", key);
+}
+
 } // namespace
 
 SessionImportBridge::SessionImportBridge(QObject* parent) : QObject(parent) {}
@@ -91,6 +113,7 @@ QVariantMap SessionImportBridge::analyzeHar(const QString& harPath, const QStrin
     out.insert("ok", false);
     out.insert("message", "HAR file path is required");
     out.insert("pendingValid", false);
+    finalizeUiMessage(out);
     return out;
   }
 
@@ -137,6 +160,7 @@ QVariantMap SessionImportBridge::analyzeHar(const QString& harPath, const QStrin
   out.insert("pendingValid", result.ok);
   out.insert("sessionPath", QString::fromStdString(
       cloud::resolveSessionPath(pathOverride).string()));
+  finalizeUiMessage(out);
   return out;
 }
 
@@ -146,6 +170,7 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
     out.insert("ok", false);
     out.insert("message", "No valid HAR analysis pending.");
     out.insert("connectionOk", false);
+    finalizeUiMessage(out);
     return out;
   }
 
@@ -163,6 +188,7 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   if (!saved.ok) {
     logging::error("app", "session_import_bridge", "commit_failed",
                    "Failed to persist analyzed session", {{"path", saved.path.string()}});
+    finalizeUiMessage(out);
     return out;
   }
 
@@ -188,6 +214,7 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   m_pendingEntriesVisited = 0;
   m_pendingEntriesAccepted = 0;
   m_pendingMessage.clear();
+  finalizeUiMessage(out);
   return out;
 }
 
@@ -213,6 +240,7 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
     out.insert("exists", false);
     out.insert("message", QString::fromStdString(loaded.message));
     out.insert("details", lines.join('\n'));
+    finalizeUiMessage(out);
     return out;
   }
 
@@ -237,6 +265,7 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
   out.insert("message", QStringLiteral("Session loaded"));
   out.insert("tokenKeys", tokenKeyList(loaded.session.tokens));
   out.insert("details", lines.join('\n'));
+  finalizeUiMessage(out);
   return out;
 }
 
@@ -254,6 +283,7 @@ QVariantMap SessionImportBridge::checkStartup() const {
     out.insert("message",
                QString("Aucun fichier session.json trouvé. "
                        "Importez un fichier HAR pour créer une session."));
+    finalizeUiMessage(out);
     return out;
   }
   out.insert("sessionExists", true);
@@ -263,6 +293,7 @@ QVariantMap SessionImportBridge::checkStartup() const {
   if (accIt == loaded.session.tokens.end()) {
     out.insert("connectionOk", false);
     out.insert("message", QString("session.json ne contient pas de access_token."));
+    finalizeUiMessage(out);
     return out;
   }
   const auto tokIt = loaded.session.tokens.find("token");
@@ -284,6 +315,7 @@ QVariantMap SessionImportBridge::checkStartup() const {
     logging::warn("app", "session_import_bridge", "startup_cloud_failed",
                   "Cloud inaccessible au démarrage", {{"reason", check.message}});
   }
+  finalizeUiMessage(out);
   return out;
 }
 

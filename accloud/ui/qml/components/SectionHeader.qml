@@ -21,7 +21,7 @@ Item {
         Text {
             id: titleLabel
             visible: text.length > 0
-            text: ""
+            text: qsTr("")
             color: Theme.fgPrimary
             font.pixelSize: Theme.fontSectionPx
             font.bold: true
@@ -30,7 +30,7 @@ Item {
         Text {
             id: subtitleLabel
             visible: text.length > 0
-            text: ""
+            text: qsTr("")
             color: Theme.fgSecondary
             opacity: 0.9
             font.pixelSize: Theme.fontCaptionPx

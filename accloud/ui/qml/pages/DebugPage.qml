@@ -9,8 +9,8 @@ Item {
 
     AppPageFrame {
         anchors.fill: parent
-        sectionTitle: "Debug"
-        sectionSubtitle: "Diagnostic actions and log preview"
+        sectionTitle: qsTr("Debug")
+        sectionSubtitle: qsTr("Diagnostic actions and log preview")
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -21,9 +21,9 @@ Item {
                 Layout.fillWidth: true
                 spacing: Theme.gapRow
 
-                AppButton { text: "Open app log" }
-                AppButton { text: "Open http log" }
-                AppButton { text: "Open render3d log" }
+                AppButton { text: qsTr("Open app log") }
+                AppButton { text: qsTr("Open http log") }
+                AppButton { text: qsTr("Open render3d log") }
                 Item { Layout.fillWidth: true }
             }
 
@@ -52,7 +52,7 @@ Item {
                         width: Math.max(debugLogScroll.availableWidth, implicitWidth)
                         height: Math.max(debugLogScroll.availableHeight, implicitHeight)
                         readOnly: true
-                        placeholderText: "Structured logs preview"
+                        placeholderText: qsTr("Structured logs preview")
                         color: Theme.mono
                         font.family: "JetBrains Mono"
                         background: null

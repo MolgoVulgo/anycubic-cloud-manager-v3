@@ -40,7 +40,7 @@ Rectangle {
             }
 
             AppButton {
-                text: "Cancel"
+                text: qsTr("Cancel")
                 Layout.alignment: Qt.AlignHCenter
             }
         }

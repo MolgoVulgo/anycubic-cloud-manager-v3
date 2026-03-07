@@ -7,7 +7,7 @@ import "../components"
 
 Dialog {
     id: root
-    title: "Session Settings"
+    title: qsTr("Session Settings")
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
@@ -17,8 +17,8 @@ Dialog {
     height: Math.min(740, Math.max(560, overlayHeight * 0.84))
     property var importBridge: (typeof sessionImportBridge !== "undefined") ? sessionImportBridge : null
     property bool importInProgress: false
-    property string statusMessage: "Status: ready for HAR analysis."
-    property string resultDetails: "No analysis executed."
+    property string statusMessage: qsTr("Status: ready for HAR analysis.")
+    property string resultDetails: qsTr("No analysis executed.")
     property string sessionTargetPath: "~/.config/accloud/session.json"
     property bool pendingValid: false
     property string analyzedHarPath: ""
@@ -46,13 +46,13 @@ Dialog {
     function runAnalyzeForPath(harPath) {
         var trimmedHar = String(harPath).trim()
         if (trimmedHar.length === 0) {
-            root.statusMessage = "Status: HAR path required."
+            root.statusMessage = qsTr("Status: HAR path required.")
             root.pendingValid = false
             return
         }
         if (root.importBridge === null || typeof root.importBridge.analyzeHar !== "function") {
-            root.statusMessage = "Status: backend bridge unavailable."
-            root.resultDetails = "Cannot analyze: sessionImportBridge is undefined."
+            root.statusMessage = qsTr("Status: backend bridge unavailable.")
+            root.resultDetails = qsTr("Cannot analyze: sessionImportBridge is undefined.")
             root.pendingValid = false
             return
         }
@@ -65,25 +65,25 @@ Dialog {
         var entriesVisited = response.entriesVisited !== undefined ? response.entriesVisited : 0
         var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
         var keys = response.tokenKeys !== undefined ? response.tokenKeys : []
-        var keysText = (keys.length > 0) ? keys.join(", ") : "(none)"
-        var message = response.message !== undefined ? String(response.message) : "No message"
+        var keysText = (keys.length > 0) ? keys.join(", ") : qsTr("(none)")
+        var message = response.message !== undefined ? String(response.message) : qsTr("No message")
         var targetPath = response.sessionPath !== undefined ? String(response.sessionPath) : root.sessionTargetPath
 
         root.pendingValid = ok
         root.analyzedHarPath = trimmedHar
         root.resultDetails =
-            "HAR analysis: " + (ok ? "VALID" : "ERROR")
-            + "\nHAR: " + trimmedHar
-            + "\nSession target: " + targetPath
-            + "\nMessage: " + message
-            + "\nEntries: " + entriesAccepted + " accepted / " + entriesVisited + " visited"
-            + "\nToken keys: " + keysText
-            + "\n\nThe session will be saved when this window is closed."
+            qsTr("HAR analysis: %1").arg(ok ? qsTr("VALID") : qsTr("ERROR"))
+            + qsTr("\nHAR: %1").arg(trimmedHar)
+            + qsTr("\nSession target: %1").arg(targetPath)
+            + qsTr("\nMessage: %1").arg(message)
+            + qsTr("\nEntries: %1 accepted / %2 visited").arg(entriesAccepted).arg(entriesVisited)
+            + qsTr("\nToken keys: %1").arg(keysText)
+            + qsTr("\n\nThe session will be saved when this window is closed.")
 
         if (ok) {
-            root.statusMessage = "Status: valid analysis. Close to save."
+            root.statusMessage = qsTr("Status: valid analysis. Close to save.")
         } else {
-            root.statusMessage = "Status: invalid analysis."
+            root.statusMessage = qsTr("Status: invalid analysis.")
         }
     }
 
@@ -93,13 +93,13 @@ Dialog {
         }
 
         if (root.mandatoryMode && !root.pendingValid) {
-            root.statusMessage = "Status: valid HAR import required before closing."
+            root.statusMessage = qsTr("Status: valid HAR import required before closing.")
             return
         }
 
         if (root.pendingValid) {
             if (root.importBridge === null || typeof root.importBridge.commitPendingSession !== "function") {
-                root.statusMessage = "Status: commit unavailable (bridge unavailable)."
+                root.statusMessage = qsTr("Status: commit unavailable (bridge unavailable).")
                 return
             }
 
@@ -108,18 +108,18 @@ Dialog {
             root.importInProgress = false
 
             var commitOk = commit.ok === true
-            var commitMsg = commit.message !== undefined ? String(commit.message) : "No message"
+            var commitMsg = commit.message !== undefined ? String(commit.message) : qsTr("No message")
             if (!commitOk) {
-                root.statusMessage = "Status: save failed."
-                root.resultDetails += "\n\nSave: FAILED - " + commitMsg
+                root.statusMessage = qsTr("Status: save failed.")
+                root.resultDetails += qsTr("\n\nSave: FAILED - %1").arg(commitMsg)
                 return
             }
 
             var connOk = commit.connectionOk === true
             var connMsg = commit.connectionMessage !== undefined ? String(commit.connectionMessage) : commitMsg
-            root.statusMessage = "Status: session saved."
-            root.resultDetails += "\n\nSave: OK\nCloud connection: "
-                    + (connOk ? "OK" : "FAILED - " + connMsg)
+            root.statusMessage = qsTr("Status: session saved.")
+            root.resultDetails += qsTr("\n\nSave: OK\nCloud connection: ")
+                    + (connOk ? qsTr("OK") : qsTr("FAILED - %1").arg(connMsg))
             root.pendingValid = false
             root.importCompleted(connMsg)
         } else if (root.importBridge !== null && typeof root.importBridge.discardPendingSession === "function") {
@@ -135,15 +135,15 @@ Dialog {
         }
         root.pendingValid = false
         root.analyzedHarPath = ""
-        root.statusMessage = "Status: ready for HAR analysis."
-        root.resultDetails = "No analysis executed."
+        root.statusMessage = qsTr("Status: ready for HAR analysis.")
+        root.resultDetails = qsTr("No analysis executed.")
     }
 
     FileDialog {
         id: harFileDialog
-        title: "Select HAR file"
+        title: qsTr("Select HAR file")
         fileMode: FileDialog.OpenFile
-        nameFilters: ["HAR files (*.har *.json)", "All files (*)"]
+        nameFilters: [qsTr("HAR files (*.har *.json)"), qsTr("All files (*)")]
         onAccepted: {
             var localPath = root.localPathFromUrl(selectedFile)
             harFileField.text = localPath
@@ -184,14 +184,14 @@ Dialog {
         }
 
         Text {
-            text: "Import a session from a HAR file. Analysis runs automatically when a file is selected."
+            text: qsTr("Import a session from a HAR file. Analysis runs automatically when a file is selected.")
             color: Theme.textSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
         Text {
-            text: "Session target (Settings > Session): " + root.sessionTargetPath
+            text: qsTr("Session target (Settings > Session): ") + root.sessionTargetPath
             color: Theme.textSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -210,17 +210,17 @@ Dialog {
                 anchors.margins: 10
                 spacing: 8
 
-                Text { text: "HAR file"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
+                Text { text: qsTr("HAR file"); color: Theme.textPrimary; Layout.preferredWidth: 90 }
                 AppTextField {
                     id: harFileField
                     objectName: "harFileField"
                     Layout.fillWidth: true
-                    placeholderText: "/path/to/session.har"
+                    placeholderText: qsTr("/path/to/session.har")
                     onAccepted: root.runAnalyzeForPath(harFileField.text)
                 }
                 AppButton {
                     objectName: "harBrowseButton"
-                    text: "Browse"
+                    text: qsTr("Browse")
                     onClicked: harFileDialog.open()
                 }
             }
@@ -241,7 +241,7 @@ Dialog {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Session is saved only when closing after a valid analysis."
+                    text: qsTr("Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Session is saved only when closing after a valid analysis.")
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -299,7 +299,7 @@ Dialog {
             AppButton {
                 id: closeButton
                 objectName: "harImportCloseButton"
-                text: root.pendingValid ? "Close and Save" : "Close"
+                text: root.pendingValid ? qsTr("Close and Save") : qsTr("Close")
                 enabled: !root.importInProgress
                          && (!root.mandatoryMode || root.pendingValid)
                 onClicked: root.requestClose()

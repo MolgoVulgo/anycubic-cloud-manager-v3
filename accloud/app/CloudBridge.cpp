@@ -166,6 +166,39 @@ QVariantList collectJobsFromPrinters(const QVariantList& printers) {
     return jobs;
 }
 
+void finalizeUiMessage(QVariantMap& out) {
+    if (!out.contains("message")) {
+        return;
+    }
+    const QString message = out.value("message").toString().trimmed();
+    const QString lowered = message.toLower();
+    const bool ok = out.value("ok").toBool();
+
+    QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
+    if (lowered.contains("session")) {
+        key = QStringLiteral("error.session.invalid");
+    } else if (lowered.contains("network") || lowered.contains("réseau")
+               || lowered.contains("reseau")) {
+        key = QStringLiteral("error.network");
+    } else if (lowered.contains("cache")) {
+        key = ok ? QStringLiteral("info.cache") : QStringLiteral("error.cache");
+    } else if (lowered.contains("compat")) {
+        key = QStringLiteral("error.compatibility");
+    } else if (lowered.contains("download") || lowered.contains("url")) {
+        key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
+    } else if (lowered.contains("print")) {
+        key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
+    } else if (lowered.contains("quota")) {
+        key = ok ? QStringLiteral("info.quota") : QStringLiteral("error.quota");
+    } else if (lowered.contains("printer")) {
+        key = ok ? QStringLiteral("info.printer") : QStringLiteral("error.printer");
+    } else if (lowered.contains("file")) {
+        key = ok ? QStringLiteral("info.file") : QStringLiteral("error.file");
+    }
+
+    out.insert("messageKey", key);
+}
+
 } // namespace
 
 // ── Constructeur / destructeur ────────────────────────────────────────────
@@ -328,6 +361,7 @@ QVariantMap CloudBridge::fetchQuotaWithRetry(QString& message, bool& ok) const {
     std::string at, tok;
     if (!loadTokens(at, tok)) {
         message = QStringLiteral("Session invalide.");
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -351,6 +385,7 @@ QVariantMap CloudBridge::fetchQuotaWithRetry(QString& message, bool& ok) const {
     message = QString::fromStdString(q.message);
     ok = q.ok;
     if (!q.ok) {
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -358,6 +393,7 @@ QVariantMap CloudBridge::fetchQuotaWithRetry(QString& message, bool& ok) const {
     out.insert("usedDisplay", QString::fromStdString(q.usedDisplay));
     out.insert("totalBytes", static_cast<qulonglong>(q.totalBytes));
     out.insert("usedBytes", static_cast<qulonglong>(q.usedBytes));
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -369,6 +405,7 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     out.insert("total", 0);
 
     if (m_cache == nullptr || !m_cache->isAvailable()) {
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -379,6 +416,7 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
                              : QStringLiteral("Fichiers chargés depuis le cache local."));
     out.insert("files", files);
     out.insert("total", files.size());
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -393,6 +431,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     out.insert("printers", QVariantList{});
 
     if (m_cache == nullptr || !m_cache->isAvailable()) {
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -415,6 +454,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
                              ? QStringLiteral("Aucune imprimante en cache.")
                              : QStringLiteral("Imprimantes chargées depuis le cache local."));
     out.insert("printers", printers);
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -428,6 +468,7 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     out.insert("usedBytes", static_cast<qulonglong>(0));
 
     if (m_cache == nullptr || !m_cache->isAvailable()) {
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -435,6 +476,7 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     if (quota.isEmpty()) {
         out.insert("ok", true);
         out.insert("message", QStringLiteral("Aucun quota en cache."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -444,6 +486,7 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     out.insert("usedDisplay", quota.value("usedDisplay"));
     out.insert("totalBytes", quota.value("totalBytes"));
     out.insert("usedBytes", quota.value("usedBytes"));
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -553,6 +596,7 @@ QVariantMap CloudBridge::fetchFiles(int page, int limit) const {
             m_cache->replaceFiles(files);
         }
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -577,6 +621,7 @@ QVariantMap CloudBridge::fetchQuota() const {
             m_cache->saveQuota(quota);
         }
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -588,6 +633,7 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -600,6 +646,7 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
         m_cache->removeFile(fileId);
         m_cache->invalidateScope(QStringLiteral("files"));
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -611,6 +658,7 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -619,6 +667,7 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok)
         out.insert("url", QString::fromStdString(r.url));
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -645,6 +694,7 @@ QVariantMap CloudBridge::fetchPrinters() const {
             m_cache->replaceJobs(collectJobsFromPrinters(printers));
         }
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -656,6 +706,7 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) co
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -670,6 +721,7 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) co
             printers.append(printerCompatToMap(p));
         out.insert("printers", printers);
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -679,6 +731,7 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) 
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -693,6 +746,7 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) 
             printers.append(printerCompatToMap(p));
         out.insert("printers", printers);
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -703,6 +757,7 @@ QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
         out.insert("rawJson", QString{});
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -712,6 +767,7 @@ QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
     out.insert("rawJson", QString::fromStdString(r.rawJson));
     if (r.ok)
         out.insert("details", printerDetailsToMap(r));
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -721,6 +777,7 @@ QVariantMap CloudBridge::fetchReasonCatalog() const {
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -734,6 +791,7 @@ QVariantMap CloudBridge::fetchReasonCatalog() const {
             reasons.append(reasonCatalogItemToMap(item));
         out.insert("reasons", reasons);
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -744,6 +802,7 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -768,6 +827,7 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
             out.insert("projects", cached);
         }
     }
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -780,10 +840,12 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     const QString normalizedPrinterId = printerId.trimmed();
     if (normalizedPrinterId.isEmpty()) {
         out.insert("message", QStringLiteral("printer_id requis."));
+        finalizeUiMessage(out);
         return out;
     }
 
     if (m_cache == nullptr || !m_cache->isAvailable()) {
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -793,6 +855,7 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
                              ? QStringLiteral("Aucun job en cache pour cette imprimante.")
                              : QStringLiteral("Jobs chargés depuis le cache local."));
     out.insert("projects", projects);
+    finalizeUiMessage(out);
     return out;
 }
 
@@ -807,6 +870,7 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
         out.insert("taskId", QString());
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -814,6 +878,7 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
+        finalizeUiMessage(out);
         return out;
     }
 
@@ -825,6 +890,7 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }
+    finalizeUiMessage(out);
     return out;
 }
 

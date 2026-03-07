@@ -20,7 +20,7 @@ CheckBox {
         Text {
             anchors.centerIn: parent
             visible: root.checked
-            text: "✓"
+            text: qsTr("✓")
             color: Theme.accent
             font.pixelSize: Theme.fontCaptionPx
             font.bold: true

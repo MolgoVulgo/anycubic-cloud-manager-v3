@@ -9,22 +9,22 @@ Item {
 
     AppPageFrame {
         anchors.fill: parent
-        sectionTitle: "Settings"
-        sectionSubtitle: "Local UI settings"
+        sectionTitle: qsTr("Settings")
+        sectionSubtitle: qsTr("Local UI settings")
 
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.gapRow
 
             AppCheckBox {
-                text: "Enable debug logs"
+                text: qsTr("Enable debug logs")
             }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.gapRow
                 Text {
-                    text: "Render stride"
+                    text: qsTr("Render stride")
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontBodyPx
                     Layout.preferredWidth: 140
@@ -41,7 +41,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: Theme.gapRow
                 Text {
-                    text: "Render LOD"
+                    text: qsTr("Render LOD")
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontBodyPx
                     Layout.preferredWidth: 140

@@ -6,7 +6,7 @@ import "../components"
 
 Dialog {
     id: root
-    title: "Send Print Order (Draft)"
+    title: qsTr("Send Print Order (Draft)")
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
@@ -29,38 +29,38 @@ Dialog {
         spacing: 10
 
         Text {
-            text: "Draft direct print order dialog"
+            text: qsTr("Draft direct print order dialog")
             color: Theme.textSecondary
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "Printer"; Layout.preferredWidth: 92 }
+            Text { text: qsTr("Printer"); Layout.preferredWidth: 92 }
             AppComboBox { Layout.fillWidth: true; model: ["M7-Workshop-A", "M5S-Line-2", "Backup-X2"] }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "file_id"; Layout.preferredWidth: 92 }
-            AppTextField { Layout.fillWidth: true; placeholderText: "f-2d8e91" }
+            Text { text: qsTr("file_id"); Layout.preferredWidth: 92 }
+            AppTextField { Layout.fillWidth: true; placeholderText: qsTr("f-2d8e91") }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "Copies"; Layout.preferredWidth: 92 }
+            Text { text: qsTr("Copies"); Layout.preferredWidth: 92 }
             AppSpinBox { from: 1; to: 10; value: 1 }
-            Text { text: "Priority" }
-            AppComboBox { model: ["normal", "high"] }
-            AppCheckBox { text: "Dry-run" }
+            Text { text: qsTr("Priority") }
+            AppComboBox { model: [qsTr("normal"), qsTr("high")] }
+            AppCheckBox { text: qsTr("Dry-run") }
         }
 
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
-            AppButton { text: "Preview payload" }
-            AppButton { text: "Close"; onClicked: root.close() }
+            AppButton { text: qsTr("Preview payload") }
+            AppButton { text: qsTr("Close"); onClicked: root.close() }
             AppButton {
-                text: "Send order"
+                text: qsTr("Send order")
                 variant: "primary"
             }
         }
