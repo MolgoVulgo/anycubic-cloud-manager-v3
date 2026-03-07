@@ -15,24 +15,33 @@ Rectangle {
     }
 
     function colorSet() {
+        function toned(baseColor) {
+            if (isDarkTheme()) {
+                return {
+                    "bg": Qt.darker(baseColor, 2.8),
+                    "border": Qt.darker(baseColor, 1.9)
+                }
+            }
+            return {
+                "bg": Qt.lighter(baseColor, 1.85),
+                "border": Qt.lighter(baseColor, 1.45)
+            }
+        }
+
         if (severity === "success") {
-            return isDarkTheme()
-                    ? { "bg": "#213328", "border": "#30553b", "dot": Theme.success }
-                    : { "bg": "#e8f5ec", "border": "#b8dcc4", "dot": Theme.success }
+            var successTones = toned(Theme.success)
+            return { "bg": successTones.bg, "border": successTones.border, "dot": Theme.success }
         }
         if (severity === "warn") {
-            return isDarkTheme()
-                    ? { "bg": "#3a3121", "border": "#5f4e2a", "dot": Theme.warning }
-                    : { "bg": "#faefd8", "border": "#e7c995", "dot": Theme.warning }
+            var warningTones = toned(Theme.warning)
+            return { "bg": warningTones.bg, "border": warningTones.border, "dot": Theme.warning }
         }
         if (severity === "error") {
-            return isDarkTheme()
-                    ? { "bg": "#3a2426", "border": "#684245", "dot": Theme.danger }
-                    : { "bg": "#f9e4e4", "border": "#e8bcbc", "dot": Theme.danger }
+            var dangerTones = toned(Theme.danger)
+            return { "bg": dangerTones.bg, "border": dangerTones.border, "dot": Theme.danger }
         }
-        return isDarkTheme()
-                ? { "bg": "#25313a", "border": "#345061", "dot": Theme.accent }
-                : { "bg": "#e5f3f7", "border": "#bbdce6", "dot": Theme.accent }
+        var infoTones = toned(Theme.accent)
+        return { "bg": infoTones.bg, "border": infoTones.border, "dot": Theme.accent }
     }
 
     readonly property var tones: colorSet()

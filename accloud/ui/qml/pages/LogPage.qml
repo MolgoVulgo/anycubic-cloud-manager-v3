@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "../components/Theme.js" as Theme
+import "../components"
 
 Item {
     id: root
@@ -14,7 +15,7 @@ Item {
     property int maxTailLines: 1000
     property int shownCount: 0
     property int totalCount: 0
-    property string statusText: "Prêt."
+    property string statusText: "Ready."
     property bool demoMode: false
     property bool loading: false
 
@@ -106,8 +107,8 @@ Item {
                     "component": "cloud_client",
                     "event": "fetch_files_network_error",
                     "opId": "op_files_refresh_42",
-                    "message": "Erreur réseau listing",
-                    "formatted": "2026-03-04T09:01:05.900+01:00 [fault] app ERROR cloud_client.fetch_files_network_error - Erreur réseau listing op_id=op_files_refresh_42"
+                    "message": "Network error while listing files",
+                    "formatted": "2026-03-04T09:01:05.900+01:00 [fault] app ERROR cloud_client.fetch_files_network_error - Network error while listing files op_id=op_files_refresh_42"
                 }
             ]
         }
@@ -174,7 +175,7 @@ Item {
 
         if (snapshot.ok !== true) {
             root.loading = false
-            root.statusText = "Erreur chargement logs : " + String(snapshot.message)
+            root.statusText = "Log loading error: " + String(snapshot.message)
             return
         }
 
@@ -217,9 +218,9 @@ Item {
         root.shownCount = rendered.length
         logsArea.text = rendered.join("\n")
 
-        var modeLabel = root.demoMode ? "Mode démo" : "Mode live"
+        var modeLabel = root.demoMode ? "Demo mode" : "Live mode"
         root.statusText = modeLabel
-                + " • " + root.shownCount + "/" + root.totalCount + " ligne(s)"
+                + " • " + root.shownCount + "/" + root.totalCount + " line(s)"
                 + " • " + (logSourceFilter.count - 1) + " source(s)"
     }
 
@@ -245,7 +246,7 @@ Item {
         }
 
         Text {
-            text: "Tail multi-sources, filtres level/source/component/event/op_id + recherche texte."
+            text: "Multi-source tail with level/source/component/event/op_id filters + text search."
             color: Theme.textSecondary
             font.pixelSize: 14
         }
@@ -268,7 +269,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    ComboBox {
+                    AppComboBox {
                         id: logLevelFilter
                         objectName: "logLevelFilter"
                         model: ["ALL", "INFO+", "WARN+", "ERROR"]
@@ -276,7 +277,7 @@ Item {
                         onCurrentTextChanged: root.applyFilters()
                     }
 
-                    ComboBox {
+                    AppComboBox {
                         id: logSourceFilter
                         objectName: "logSourceFilter"
                         model: ["All sources"]
@@ -284,7 +285,7 @@ Item {
                         onCurrentTextChanged: root.applyFilters()
                     }
 
-                    ComboBox {
+                    AppComboBox {
                         id: logComponentFilter
                         objectName: "logComponentFilter"
                         model: ["component:*"]
@@ -292,7 +293,7 @@ Item {
                         onCurrentTextChanged: root.applyFilters()
                     }
 
-                    ComboBox {
+                    AppComboBox {
                         id: logEventFilter
                         objectName: "logEventFilter"
                         model: ["event:*"]
@@ -300,7 +301,7 @@ Item {
                         onCurrentTextChanged: root.applyFilters()
                     }
 
-                    TextField {
+                    AppTextField {
                         id: logOpIdFilter
                         objectName: "logOpIdFilter"
                         placeholderText: "op_id exact"
@@ -308,7 +309,7 @@ Item {
                         onTextChanged: root.applyFilters()
                     }
 
-                    TextField {
+                    AppTextField {
                         id: logQueryFilter
                         objectName: "logQueryFilter"
                         placeholderText: "query contains"
@@ -321,7 +322,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    Button {
+                    AppButton {
                         id: logRefreshButton
                         objectName: "logRefreshButton"
                         text: root.loading ? "Refresh…" : "Refresh"
@@ -329,7 +330,7 @@ Item {
                         onClicked: root.refreshLogs()
                     }
 
-                    Button {
+                    AppButton {
                         id: logClearFiltersButton
                         objectName: "logClearFiltersButton"
                         text: "Reset filters"
@@ -391,7 +392,7 @@ Item {
                     color: Theme.mono
                     wrapMode: TextEdit.NoWrap
                     selectByMouse: true
-                    placeholderText: "Aucune ligne de log pour les filtres actuels."
+                    placeholderText: "No log lines for current filters."
                     background: null
                 }
             }

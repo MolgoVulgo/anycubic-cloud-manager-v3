@@ -12,6 +12,7 @@ Item {
     Layout.fillWidth: true
     Layout.fillHeight: true
     property alias filesModel: cloudFilesModel
+    signal statusBroadcast(string message, string severity, string operationId)
 
     // UI state
     property bool loading: false
@@ -20,6 +21,16 @@ Item {
     property var quotaData: null
     property string typeFilterValue: "All"
     property string selectedFileId: ""
+
+    function emitStatusToShell() {
+        var msg = String(statusMsg || "").trim()
+        if (msg.length === 0)
+            return
+        root.statusBroadcast(msg, String(statusSev || "info"), "op_files_refresh")
+    }
+
+    onStatusMsgChanged: root.emitStatusToShell()
+    onStatusSevChanged: root.emitStatusToShell()
 
     // Dense table column widths
     property int colCheckWidth: 32
@@ -452,12 +463,12 @@ Item {
             }
         }
 
-        TabBar {
+        AppTabBar {
             id: detailsTabBar
             Layout.fillWidth: true
 
-            TabButton { text: "Basic Information" }
-            TabButton { text: "Slice Settings" }
+            AppTabButton { text: "Basic Information" }
+            AppTabButton { text: "Slice Settings" }
         }
 
         StackLayout {
@@ -617,7 +628,7 @@ Item {
     Rectangle {
         id: downloadOverlay
         anchors.fill: parent
-        color: "#7a000000"
+        color: Theme.overlayScrim
         visible: false
         z: 20
 
@@ -799,13 +810,6 @@ Item {
             }
         }
 
-        InlineStatusBar {
-            Layout.fillWidth: true
-            message: root.statusMsg
-            operationId: "op_files_refresh"
-            severity: root.statusSev
-        }
-
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -909,7 +913,7 @@ Item {
                             anchors.rightMargin: 8
                             spacing: 8
 
-                            CheckBox {
+                            AppCheckBox {
                                 Layout.preferredWidth: root.colCheckWidth
                                 checked: root.selectedFileId === String(model.fileId)
                                 onClicked: {

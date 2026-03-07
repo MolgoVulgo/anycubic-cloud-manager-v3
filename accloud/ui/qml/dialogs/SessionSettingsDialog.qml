@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Dialogs
 import "../components/Theme.js" as Theme
+import "../components"
 
 Dialog {
     id: root
@@ -16,15 +17,15 @@ Dialog {
     height: Math.min(740, Math.max(560, overlayHeight * 0.84))
     property var importBridge: (typeof sessionImportBridge !== "undefined") ? sessionImportBridge : null
     property bool importInProgress: false
-    property string statusMessage: "Status: prêt pour l'analyse HAR."
-    property string resultDetails: "Aucune analyse exécutée."
+    property string statusMessage: "Status: ready for HAR analysis."
+    property string resultDetails: "No analysis executed."
     property string sessionTargetPath: "~/.config/accloud/session.json"
     property bool pendingValid: false
     property string analyzedHarPath: ""
 
-    // Quand true : le dialog ne peut pas être fermé tant qu'aucune analyse valide n'a été sauvegardée.
+    // When true: the dialog cannot be closed until a valid analysis is saved.
     property bool mandatoryMode: false
-    // Message de raison affiché en haut quand le dialog s'ouvre en mode obligatoire.
+    // Reason message shown at the top when the dialog opens in mandatory mode.
     property string startupMessage: ""
 
     closePolicy: Popup.NoAutoClose
@@ -45,13 +46,13 @@ Dialog {
     function runAnalyzeForPath(harPath) {
         var trimmedHar = String(harPath).trim()
         if (trimmedHar.length === 0) {
-            root.statusMessage = "Status: chemin HAR requis."
+            root.statusMessage = "Status: HAR path required."
             root.pendingValid = false
             return
         }
         if (root.importBridge === null || typeof root.importBridge.analyzeHar !== "function") {
-            root.statusMessage = "Status: bridge backend indisponible."
-            root.resultDetails = "Impossible d'analyser : sessionImportBridge non défini."
+            root.statusMessage = "Status: backend bridge unavailable."
+            root.resultDetails = "Cannot analyze: sessionImportBridge is undefined."
             root.pendingValid = false
             return
         }
@@ -64,25 +65,25 @@ Dialog {
         var entriesVisited = response.entriesVisited !== undefined ? response.entriesVisited : 0
         var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
         var keys = response.tokenKeys !== undefined ? response.tokenKeys : []
-        var keysText = (keys.length > 0) ? keys.join(", ") : "(aucun)"
-        var message = response.message !== undefined ? String(response.message) : "Aucun message"
+        var keysText = (keys.length > 0) ? keys.join(", ") : "(none)"
+        var message = response.message !== undefined ? String(response.message) : "No message"
         var targetPath = response.sessionPath !== undefined ? String(response.sessionPath) : root.sessionTargetPath
 
         root.pendingValid = ok
         root.analyzedHarPath = trimmedHar
         root.resultDetails =
-            "Analyse HAR: " + (ok ? "VALIDE" : "ERREUR")
+            "HAR analysis: " + (ok ? "VALID" : "ERROR")
             + "\nHAR: " + trimmedHar
             + "\nSession target: " + targetPath
             + "\nMessage: " + message
-            + "\nEntrées: " + entriesAccepted + " acceptées / " + entriesVisited + " visitées"
-            + "\nClés de tokens: " + keysText
-            + "\n\nLa session sera sauvegardée à la fermeture de cette fenêtre."
+            + "\nEntries: " + entriesAccepted + " accepted / " + entriesVisited + " visited"
+            + "\nToken keys: " + keysText
+            + "\n\nThe session will be saved when this window is closed."
 
         if (ok) {
-            root.statusMessage = "Status: analyse valide. Fermez pour sauvegarder."
+            root.statusMessage = "Status: valid analysis. Close to save."
         } else {
-            root.statusMessage = "Status: analyse invalide."
+            root.statusMessage = "Status: invalid analysis."
         }
     }
 
@@ -92,13 +93,13 @@ Dialog {
         }
 
         if (root.mandatoryMode && !root.pendingValid) {
-            root.statusMessage = "Status: import HAR valide requis avant fermeture."
+            root.statusMessage = "Status: valid HAR import required before closing."
             return
         }
 
         if (root.pendingValid) {
             if (root.importBridge === null || typeof root.importBridge.commitPendingSession !== "function") {
-                root.statusMessage = "Status: commit impossible (bridge indisponible)."
+                root.statusMessage = "Status: commit unavailable (bridge unavailable)."
                 return
             }
 
@@ -107,18 +108,18 @@ Dialog {
             root.importInProgress = false
 
             var commitOk = commit.ok === true
-            var commitMsg = commit.message !== undefined ? String(commit.message) : "Aucun message"
+            var commitMsg = commit.message !== undefined ? String(commit.message) : "No message"
             if (!commitOk) {
-                root.statusMessage = "Status: sauvegarde échouée."
-                root.resultDetails += "\n\nSauvegarde: ECHEC — " + commitMsg
+                root.statusMessage = "Status: save failed."
+                root.resultDetails += "\n\nSave: FAILED - " + commitMsg
                 return
             }
 
             var connOk = commit.connectionOk === true
             var connMsg = commit.connectionMessage !== undefined ? String(commit.connectionMessage) : commitMsg
-            root.statusMessage = "Status: session sauvegardée."
-            root.resultDetails += "\n\nSauvegarde: OK\nConnexion cloud: "
-                    + (connOk ? "OK" : "ECHEC — " + connMsg)
+            root.statusMessage = "Status: session saved."
+            root.resultDetails += "\n\nSave: OK\nCloud connection: "
+                    + (connOk ? "OK" : "FAILED - " + connMsg)
             root.pendingValid = false
             root.importCompleted(connMsg)
         } else if (root.importBridge !== null && typeof root.importBridge.discardPendingSession === "function") {
@@ -134,8 +135,8 @@ Dialog {
         }
         root.pendingValid = false
         root.analyzedHarPath = ""
-        root.statusMessage = "Status: prêt pour l'analyse HAR."
-        root.resultDetails = "Aucune analyse exécutée."
+        root.statusMessage = "Status: ready for HAR analysis."
+        root.resultDetails = "No analysis executed."
     }
 
     FileDialog {
@@ -162,7 +163,7 @@ Dialog {
         anchors.margins: 14
         spacing: 10
 
-        // Bandeau de raison affiché uniquement en mode obligatoire
+        // Reason banner shown only in mandatory mode
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: startupReasonText.implicitHeight + 16
@@ -176,21 +177,21 @@ Dialog {
                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
                 anchors.margins: 10
                 text: root.startupMessage
-                color: "#fff4f4"
+                color: Theme.fgOnDanger
                 wrapMode: Text.WordWrap
                 font.bold: true
             }
         }
 
         Text {
-            text: "Importer une session depuis un HAR. Analyse automatique au choix du fichier."
+            text: "Import a session from a HAR file. Analysis runs automatically when a file is selected."
             color: Theme.textSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
         Text {
-            text: "Session target (Parametre > session): " + root.sessionTargetPath
+            text: "Session target (Settings > Session): " + root.sessionTargetPath
             color: Theme.textSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -210,14 +211,14 @@ Dialog {
                 spacing: 8
 
                 Text { text: "HAR file"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
-                TextField {
+                AppTextField {
                     id: harFileField
                     objectName: "harFileField"
                     Layout.fillWidth: true
                     placeholderText: "/path/to/session.har"
                     onAccepted: root.runAnalyzeForPath(harFileField.text)
                 }
-                Button {
+                AppButton {
                     objectName: "harBrowseButton"
                     text: "Browse"
                     onClicked: harFileDialog.open()
@@ -240,7 +241,7 @@ Dialog {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- La sauvegarde session intervient uniquement à la fermeture si analyse valide."
+                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Session is saved only when closing after a valid analysis."
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -295,10 +296,10 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            Button {
+            AppButton {
                 id: closeButton
                 objectName: "harImportCloseButton"
-                text: root.pendingValid ? "Fermer et sauvegarder" : "Fermer"
+                text: root.pendingValid ? "Close and Save" : "Close"
                 enabled: !root.importInProgress
                          && (!root.mandatoryMode || root.pendingValid)
                 onClicked: root.requestClose()

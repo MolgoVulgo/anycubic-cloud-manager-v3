@@ -136,8 +136,8 @@ TestCase {
 
         dialog.runAnalyzeForPath("/tmp/session.har")
 
-        verify(statusLabel.text.indexOf("bridge backend indisponible") !== -1)
-        verify(detailsPanel.text.indexOf("sessionImportBridge non défini") !== -1
+        verify(statusLabel.text.indexOf("backend bridge unavailable") !== -1)
+        verify(detailsPanel.text.indexOf("sessionImportBridge is undefined") !== -1
                || detailsPanel.text.indexOf("sessionImportBridge") !== -1)
         dialog.destroy()
     }
@@ -179,14 +179,27 @@ TestCase {
 
         dialog.runAnalyzeForPath("/tmp/sample.har")
 
-        verify(statusLabel.text.indexOf("analyse valide") !== -1)
-        verify(detailsPanel.text.indexOf("Analyse HAR: VALIDE") !== -1)
+        verify(statusLabel.text.indexOf("valid analysis") !== -1)
+        verify(detailsPanel.text.indexOf("HAR analysis: VALID") !== -1)
         verify(detailsPanel.text.indexOf("mock import done") !== -1)
         verify(detailsPanel.text.indexOf("/tmp/session.json") !== -1)
 
         dialog.requestClose()
         compare(commitPath, "/tmp/session.json")
         dialog.destroy()
+    }
+
+    function test_app_tab_components_load() {
+        var tabBar = createQmlObject("../../../ui/qml/components/AppTabBar.qml")
+        verify(tabBar !== null)
+        verify(tabBar.spacing >= 0)
+        tabBar.destroy()
+
+        var tabButton = createQmlObject("../../../ui/qml/components/AppTabButton.qml", {"text": "Demo"})
+        verify(tabButton !== null)
+        compare(tabButton.text, "Demo")
+        verify(tabButton.implicitHeight > 0)
+        tabButton.destroy()
     }
 
     function test_log_page_dynamic_sources_and_filters() {

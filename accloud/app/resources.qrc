@@ -16,6 +16,11 @@
     <file alias="qml/components/AppButton.qml">../ui/qml/components/AppButton.qml</file>
     <file alias="qml/components/AppTextField.qml">../ui/qml/components/AppTextField.qml</file>
     <file alias="qml/components/AppComboBox.qml">../ui/qml/components/AppComboBox.qml</file>
+    <file alias="qml/components/AppCheckBox.qml">../ui/qml/components/AppCheckBox.qml</file>
+    <file alias="qml/components/AppSpinBox.qml">../ui/qml/components/AppSpinBox.qml</file>
+    <file alias="qml/components/AppSlider.qml">../ui/qml/components/AppSlider.qml</file>
+    <file alias="qml/components/AppTabBar.qml">../ui/qml/components/AppTabBar.qml</file>
+    <file alias="qml/components/AppTabButton.qml">../ui/qml/components/AppTabButton.qml</file>
     <file alias="qml/components/AppPageFrame.qml">../ui/qml/components/AppPageFrame.qml</file>
     <file alias="qml/components/SectionHeader.qml">../ui/qml/components/SectionHeader.qml</file>
     <file alias="qml/components/AppDialogFrame.qml">../ui/qml/components/AppDialogFrame.qml</file>

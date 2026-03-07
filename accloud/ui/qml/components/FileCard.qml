@@ -51,7 +51,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "100x100"
-                    color: "#ecfffb"
+                    color: Theme.accentFg
                     font.bold: true
                 }
             }
@@ -75,22 +75,11 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    Button {
+                    AppButton {
                         objectName: "deleteButton"
                         text: "Delete"
-                        font.bold: true
+                        variant: "danger"
                         onClicked: root.deleteRequested(root.fileId)
-                        background: Rectangle {
-                            radius: 8
-                            color: parent.down ? Qt.darker(Theme.danger, 1.1) : Theme.danger
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#fff4f4"
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
 
@@ -120,73 +109,24 @@ Item {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    Button {
+                    AppButton {
                         text: "Details"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
-                    Button {
+                    AppButton {
                         text: "Print"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
-                    Button {
+                    AppButton {
                         text: "Download"
                         onClicked: root.downloadRequested(root.fileId)
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
 
-                    Button {
+                    AppButton {
                         id: openViewerButton
                         objectName: "openViewerButton"
                         text: "Open 3D Viewer"
                         visible: root.isPwmb
                         enabled: root.isPwmb
-                        background: Rectangle {
-                            radius: 8
-                            color: parent.down ? Qt.darker(Theme.accent, 1.12) : Theme.accent
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#f8fffe"
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        variant: "primary"
                     }
                 }
             }

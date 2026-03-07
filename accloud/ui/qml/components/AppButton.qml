@@ -42,7 +42,7 @@ Button {
         if (variant === "primary")
             return Theme.accentFg
         if (variant === "danger")
-            return "#fff6f6"
+            return Theme.fgOnDanger
         return Theme.fgPrimary
     }
 

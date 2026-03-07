@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "Theme.js" as Theme
+import "."
 
 Rectangle {
     id: root
@@ -9,7 +10,7 @@ Rectangle {
     property bool running: false
     property string stage: "Running"
 
-    color: "#66000000"
+    color: Theme.overlayScrim
     visible: running
 
     Rectangle {
@@ -38,7 +39,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
             }
 
-            Button {
+            AppButton {
                 text: "Cancel"
                 Layout.alignment: Qt.AlignHCenter
             }

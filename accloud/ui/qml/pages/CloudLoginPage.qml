@@ -1,15 +1,43 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+import "../components/Theme.js" as Theme
+import "../components"
 
 Item {
     anchors.fill: parent
 
-    Column {
-        anchors.centerIn: parent
-        spacing: 10
-        Text { text: "Cloud Login"; font.pixelSize: 24 }
-        TextField { placeholderText: "Email"; width: 300 }
-        TextField { placeholderText: "Password"; echoMode: TextInput.Password; width: 300 }
-        Button { text: "Login" }
+    AppPageFrame {
+        anchors.fill: parent
+        sectionTitle: "Cloud Login"
+        sectionSubtitle: "Connexion manuelle (mode fallback)"
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+
+            Item { Layout.fillHeight: true }
+
+            AppTextField {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 340
+                placeholderText: "Email"
+            }
+
+            AppTextField {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 340
+                placeholderText: "Password"
+                echoMode: TextInput.Password
+            }
+
+            AppButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Login"
+                variant: "primary"
+            }
+
+            Item { Layout.fillHeight: true }
+        }
     }
 }

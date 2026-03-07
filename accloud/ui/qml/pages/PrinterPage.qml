@@ -9,6 +9,7 @@ Item {
     objectName: "printerPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    signal statusBroadcast(string message, string severity, string operationId)
 
     property bool loading: false
     property string statusMsg: "Ready."
@@ -36,6 +37,16 @@ Item {
     property var reasonCatalogByCode: ({})
     property bool printerAutoRefreshStarted: false
     property int autoRefreshIntervalMs: 30000
+
+    function emitStatusToShell() {
+        var msg = String(statusMsg || "").trim()
+        if (msg.length === 0)
+            return
+        root.statusBroadcast(msg, String(statusSev || "info"), "op_printer_refresh")
+    }
+
+    onStatusMsgChanged: root.emitStatusToShell()
+    onStatusSevChanged: root.emitStatusToShell()
 
     ListModel {
         id: printersModel
@@ -89,6 +100,35 @@ Item {
 
     function hasCompatibilityByFileIdEndpoint() {
         return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByFileId === "function"
+    }
+
+    function translateLocalizedText(rawText) {
+        var text = String(rawText || "")
+        if (text.length === 0)
+            return text
+
+        var replacements = {
+            "请求被接受": "Request accepted",
+            "操作成功": "Operation successful",
+            "连接成功": "Connection successful",
+            "用户不存在": "User does not exist",
+            "设备离线": "Printer offline",
+            "打印中": "Printing in progress",
+            "失败": "Failed",
+            "成功": "Success",
+            "错误": "Error",
+            "超时": "Timeout"
+        }
+
+        for (var key in replacements) {
+            if (Object.prototype.hasOwnProperty.call(replacements, key))
+                text = text.split(key).join(replacements[key])
+        }
+
+        if (/[\u4e00-\u9fff]/.test(text))
+            text = text.replace(/[\u4e00-\u9fff]+/g, "localized backend message")
+
+        return text
     }
 
     function fileType(fileName) {
@@ -225,7 +265,7 @@ Item {
         if (state === "PRINTING")
             return { "ok": false, "reason": "Printer is currently printing." }
         if (state === "ERROR")
-            return { "ok": false, "reason": (String(printer.reason || "").length > 0 ? displayReason(printer.reason) : "Printer reported an error.") }
+            return { "ok": false, "reason": "Printer reported an error." }
         return { "ok": true, "reason": "" }
     }
 
@@ -271,7 +311,7 @@ Item {
     function refreshRemotePrintGuard() {
         var result = evaluateRemotePrintGuard()
         remotePrintAllowed = (result.ok === true)
-        remotePrintBlockReason = String(result.reason || "")
+        remotePrintBlockReason = translateLocalizedText(String(result.reason || ""))
     }
 
     function prettyJson(rawPayload) {
@@ -980,19 +1020,19 @@ Item {
             Layout.fillWidth: true
             spacing: 12
 
-            CheckBox {
+            AppCheckBox {
                 text: "High priority"
                 checked: optionHighPriority
                 onToggled: optionHighPriority = checked
             }
 
-            CheckBox {
+            AppCheckBox {
                 text: "Delete file after print"
                 checked: optionDeleteAfterPrint
                 onToggled: optionDeleteAfterPrint = checked
             }
 
-            CheckBox {
+            AppCheckBox {
                 text: "Dry-run"
                 checked: optionDryRun
                 onToggled: optionDryRun = checked
@@ -1011,7 +1051,7 @@ Item {
             Layout.fillWidth: true
             visible: !remotePrintAllowed
             text: remotePrintBlockReason.length > 0
-                  ? ("Start blocked: " + remotePrintBlockReason)
+                  ? ("Start blocked: " + root.translateLocalizedText(remotePrintBlockReason))
                   : "Start blocked by compatibility checks."
             color: Theme.danger
             font.pixelSize: Theme.fontCaptionPx
@@ -1042,7 +1082,7 @@ Item {
         minimumWidth: 620
         maximumWidth: 760
 
-        CheckBox {
+        AppCheckBox {
             text: "Lift compensation"
             checked: optionLiftCompensation
             onToggled: optionLiftCompensation = checked
@@ -1055,7 +1095,7 @@ Item {
             opacity: 0.9
         }
 
-        CheckBox {
+        AppCheckBox {
             text: "Auto resin check"
             checked: optionAutoResinCheck
             onToggled: optionAutoResinCheck = checked
@@ -1105,7 +1145,7 @@ Item {
                 }
             }
 
-            CheckBox {
+            AppCheckBox {
                 objectName: "debugLabelsToggle"
                 text: "Debug UI"
                 checked: root.showDebugLabels
@@ -1115,18 +1155,10 @@ Item {
             Item { Layout.fillWidth: true }
         }
 
-        InlineStatusBar {
-            objectName: "printersStatusBar"
-            Layout.fillWidth: true
-            message: statusMsg
-            operationId: "op_printer_refresh"
-            severity: statusSev
-        }
-
         Text {
             Layout.fillWidth: true
             visible: root.showDebugLabels
-            text: "sections: printerToolbar | printersStatusBar | printersTabsBar | deviceDetailsPanel | endpointJsonPanel"
+            text: "sections: printerToolbar | printersTabsBar | deviceDetailsPanel | endpointJsonPanel"
             color: Theme.warning
             font.pixelSize: Theme.fontCaptionPx
             elide: Text.ElideRight
@@ -1141,7 +1173,7 @@ Item {
             border.width: Theme.borderWidth
             border.color: Theme.borderDefault
 
-            TabBar {
+            AppTabBar {
                 id: printersTabBar
                 anchors.fill: parent
                 anchors.margins: 6
@@ -1151,7 +1183,7 @@ Item {
                 Repeater {
                     model: printersModel
 
-                    TabButton {
+                    AppTabButton {
                         objectName: "printerTabButton"
                         required property int index
                         readonly property var printer: printersModel.get(index)
@@ -1196,253 +1228,278 @@ Item {
                     ColumnLayout {
                         visible: root.selectedPrinterData() !== null
                         Layout.fillWidth: true
+                        Layout.fillHeight: true
                         spacing: 8
-
-                        Text {
-                            text: String(root.selectedPrinterData() ? root.selectedPrinterData().name : "-")
-                            color: Theme.fgPrimary
-                            font.pixelSize: Theme.fontSectionPx
-                            font.bold: true
-                        }
-
-                        Text {
-                            text: "Model: " + String(root.selectedPrinterData() ? root.selectedPrinterData().model : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontBodyPx
-                        }
-
-                        Text {
-                            text: "Firmware: "
-                                  + (String(root.selectedPrinterDetails.firmwareVersion || "").length > 0
-                                     ? String(root.selectedPrinterDetails.firmwareVersion)
-                                     : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontBodyPx
-                        }
-
-                        RowLayout {
-                            spacing: 8
-
-                            Text {
-                                text: "Status:"
-                                color: Theme.fgSecondary
-                                font.pixelSize: Theme.fontBodyPx
-                            }
-
-                            StatusChip {
-                                status: root.statusChipText(root.selectedPrinterData() ? root.selectedPrinterData().state : "READY")
-                            }
-                        }
-
-                        Text {
-                            visible: root.selectedPrinterReasonText().length > 0
-                            text: "Reason: " + root.displayReason(root.selectedPrinterReasonText())
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            visible: root.selectedPrinterHelpUrlText().length > 0
-                            text: "Help: " + root.selectedPrinterHelpUrlText()
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            text: "Current job: "
-                                  + (root.selectedPrinterData() && String(root.selectedPrinterData().currentFile || "").length > 0
-                                     ? String(root.selectedPrinterData().currentFile)
-                                     : "-")
-                                  + " | Progress: " + root.progressText(root.selectedPrinterData() ? root.selectedPrinterData().progress : -1)
-                                  + " | Elapsed: " + root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().elapsedSec : -1)
-                                  + " | Remaining: " + root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().remainingSec : -1)
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: "Print count: "
-                                  + (String(root.selectedPrinterDetails.printCount || "").length > 0
-                                     ? String(root.selectedPrinterDetails.printCount)
-                                     : "-")
-                                  + " | Total print time: "
-                                  + (String(root.selectedPrinterDetails.printTotalTime || "").length > 0
-                                     ? String(root.selectedPrinterDetails.printTotalTime)
-                                     : "-")
-                                  + " | Material used: "
-                                  + (String(root.selectedPrinterDetails.materialUsed || "").length > 0
-                                     ? String(root.selectedPrinterDetails.materialUsed)
-                                     : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            visible: String(root.selectedPrinterDetails.helpUrl || "").length > 0
-                            text: "Device help: " + String(root.selectedPrinterDetails.helpUrl || "")
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            visible: String(root.selectedPrinterDetails.quickStartUrl || "").length > 0
-                            text: "Quick start: " + String(root.selectedPrinterDetails.quickStartUrl || "")
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            visible: Number(root.selectedPrinterDetails.tools ? root.selectedPrinterDetails.tools.length : 0) > 0
-                            text: "Tools: "
-                                  + (root.selectedPrinterDetails.tools
-                                     ? root.selectedPrinterDetails.tools.slice(0, 6).join(", ")
-                                     : "")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            visible: Number(root.selectedPrinterDetails.advances ? root.selectedPrinterDetails.advances.length : 0) > 0
-                            text: "Advanced: "
-                                  + (root.selectedPrinterDetails.advances
-                                     ? root.selectedPrinterDetails.advances.slice(0, 4).join(", ")
-                                     : "")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            Layout.fillHeight: true
+                            spacing: 10
 
-                            AppButton {
-                                text: "From Cloud File"
-                                variant: "primary"
-                                enabled: root.selectedPrinterData() !== null
-                                onClicked: root.openSelectCloudFileDialog(root.selectedPrinterData().id)
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgWindow
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 8
+
+                                    Text {
+                                        text: String(root.selectedPrinterData() ? root.selectedPrinterData().name : "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontTitlePx
+                                        font.bold: true
+                                    }
+
+                                    Text {
+                                        text: "Model: " + String(root.selectedPrinterData() ? root.selectedPrinterData().model : "-")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontBodyPx
+                                    }
+
+                                    Text {
+                                        text: "Firmware: "
+                                              + (String(root.selectedPrinterDetails.firmwareVersion || "").length > 0
+                                                 ? String(root.selectedPrinterDetails.firmwareVersion)
+                                                 : "-")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontBodyPx
+                                    }
+
+                                    RowLayout {
+                                        spacing: 8
+
+                                        Text {
+                                            text: "Status:"
+                                            color: Theme.fgSecondary
+                                            font.pixelSize: Theme.fontBodyPx
+                                        }
+
+                                        StatusChip {
+                                            status: root.statusChipText(root.selectedPrinterData() ? root.selectedPrinterData().state : "READY")
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: root.selectedPrinterHelpUrlText().length > 0
+                                        text: "Help: " + root.selectedPrinterHelpUrlText()
+                                        color: Theme.accent
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        text: "Current job: "
+                                              + (root.selectedPrinterData() && String(root.selectedPrinterData().currentFile || "").length > 0
+                                                 ? String(root.selectedPrinterData().currentFile)
+                                                 : "-")
+                                              + " | Progress: " + root.progressText(root.selectedPrinterData() ? root.selectedPrinterData().progress : -1)
+                                              + " | Elapsed: " + root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().elapsedSec : -1)
+                                              + " | Remaining: " + root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().remainingSec : -1)
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        text: "Print count: "
+                                              + (String(root.selectedPrinterDetails.printCount || "").length > 0
+                                                 ? String(root.selectedPrinterDetails.printCount)
+                                                 : "-")
+                                              + " | Total print time: "
+                                              + (String(root.selectedPrinterDetails.printTotalTime || "").length > 0
+                                                 ? String(root.selectedPrinterDetails.printTotalTime)
+                                                 : "-")
+                                              + " | Material used: "
+                                              + (String(root.selectedPrinterDetails.materialUsed || "").length > 0
+                                                 ? String(root.selectedPrinterDetails.materialUsed)
+                                                 : "-")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        visible: String(root.selectedPrinterDetails.helpUrl || "").length > 0
+                                        text: "Device help: " + String(root.selectedPrinterDetails.helpUrl || "")
+                                        color: Theme.accent
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        visible: String(root.selectedPrinterDetails.quickStartUrl || "").length > 0
+                                        text: "Quick start: " + String(root.selectedPrinterDetails.quickStartUrl || "")
+                                        color: Theme.accent
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        visible: Number(root.selectedPrinterDetails.tools ? root.selectedPrinterDetails.tools.length : 0) > 0
+                                        text: "Tools: "
+                                              + (root.selectedPrinterDetails.tools
+                                                 ? root.selectedPrinterDetails.tools.slice(0, 6).join(", ")
+                                                 : "")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        visible: Number(root.selectedPrinterDetails.advances ? root.selectedPrinterDetails.advances.length : 0) > 0
+                                        text: "Advanced: "
+                                              + (root.selectedPrinterDetails.advances
+                                                 ? root.selectedPrinterDetails.advances.slice(0, 4).join(", ")
+                                                 : "")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Item { Layout.fillHeight: true }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        AppButton {
+                                            text: "From Cloud File"
+                                            variant: "primary"
+                                            enabled: root.selectedPrinterData() !== null
+                                            onClicked: root.openSelectCloudFileDialog(root.selectedPrinterData().id)
+                                        }
+
+                                        AppButton {
+                                            text: "From Local File"
+                                            variant: "secondary"
+                                            onClicked: {
+                                                root.statusMsg = "Local file remote print entrypoint is not implemented yet."
+                                                root.statusSev = "warn"
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
-                            AppButton {
-                                text: "From Local File"
-                                variant: "secondary"
-                                onClicked: {
-                                    root.statusMsg = "Local file remote print entrypoint is not implemented yet."
-                                    root.statusSev = "warn"
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgWindow
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 8
+
+                                    SectionHeader {
+                                        Layout.fillWidth: true
+                                        title: "Recent Jobs"
+                                        subtitle: loadingPrinterHistory ? "Loading..." : "Latest projects for this printer"
+                                    }
+
+                                    ListView {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        clip: true
+                                        spacing: 6
+                                        model: printerHistoryModel
+                                        ScrollBar.vertical: ScrollBar {
+                                            policy: ScrollBar.AsNeeded
+                                            active: true
+                                        }
+
+                                        delegate: Rectangle {
+                                            width: ListView.view.width
+                                            height: 42
+                                            color: "transparent"
+
+                                            ColumnLayout {
+                                                anchors.fill: parent
+                                                spacing: 2
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: String(model.gcodeName || "-") + " • " + root.printStatusText(model.printStatus)
+                                                    color: Theme.fgPrimary
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: "Task " + String(model.taskId || "-")
+                                                          + " | Progress " + root.progressText(model.progress)
+                                                          + " | Start " + root.unixTimeText(model.createTime)
+                                                          + " | End " + root.unixTimeText(model.endTime)
+                                                    color: Theme.fgSecondary
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                        }
+
+                                        footer: Text {
+                                            width: parent ? parent.width : 0
+                                            visible: printerHistoryModel.count === 0
+                                            text: loadingPrinterHistory ? "Loading history..." : "No project history for this printer."
+                                            color: Theme.fgSecondary
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            horizontalAlignment: Text.AlignHCenter
+                                            padding: 10
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        SectionHeader {
-                            Layout.fillWidth: true
-                            title: "Recent Jobs"
-                            subtitle: loadingPrinterHistory ? "Loading..." : "Latest projects for this printer"
-                        }
-
                         Rectangle {
+                            objectName: "endpointJsonPanel"
+                            visible: root.showDebugLabels
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 180
+                            Layout.preferredHeight: 220
                             radius: Theme.radiusControl
                             color: Theme.bgWindow
                             border.width: Theme.borderWidth
                             border.color: Theme.borderSubtle
 
-                            ListView {
+                            ColumnLayout {
                                 anchors.fill: parent
                                 anchors.margins: 8
-                                clip: true
                                 spacing: 6
-                                model: printerHistoryModel
 
-                                delegate: Rectangle {
-                                    width: ListView.view.width
-                                    height: 42
-                                    color: "transparent"
-
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        spacing: 2
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: String(model.gcodeName || "-") + " • " + root.printStatusText(model.printStatus)
-                                            color: Theme.fgPrimary
-                                            font.pixelSize: Theme.fontCaptionPx
-                                            elide: Text.ElideRight
-                                        }
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: "Task " + String(model.taskId || "-")
-                                                  + " | Progress " + root.progressText(model.progress)
-                                                  + " | Start " + root.unixTimeText(model.createTime)
-                                                  + " | End " + root.unixTimeText(model.endTime)
-                                            color: Theme.fgSecondary
-                                            font.pixelSize: 11
-                                            elide: Text.ElideRight
-                                        }
-                                    }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Endpoint JSON: " + root.printersEndpointPath
+                                    color: Theme.warning
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    elide: Text.ElideRight
                                 }
 
-                                footer: Text {
-                                    width: parent ? parent.width : 0
-                                    visible: printerHistoryModel.count === 0
-                                    text: loadingPrinterHistory ? "Loading history..." : "No project history for this printer."
-                                    color: Theme.fgSecondary
-                                    font.pixelSize: Theme.fontCaptionPx
-                                    horizontalAlignment: Text.AlignHCenter
-                                    padding: 10
-                                }
-                            }
-                        }
-                    }
+                                ScrollView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
 
-                    Rectangle {
-                        objectName: "endpointJsonPanel"
-                        visible: root.showDebugLabels
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: 220
-                        radius: Theme.radiusControl
-                        color: Theme.bgWindow
-                        border.width: Theme.borderWidth
-                        border.color: Theme.borderSubtle
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 6
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: "Endpoint JSON: " + root.printersEndpointPath
-                                color: Theme.warning
-                                font.pixelSize: Theme.fontCaptionPx
-                                font.bold: true
-                                elide: Text.ElideRight
-                            }
-
-                            ScrollView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-
-                                TextArea {
-                                    readOnly: true
-                                    text: root.prettyJson(root.printersEndpointRawJson)
-                                    wrapMode: TextEdit.NoWrap
-                                    color: Theme.fgPrimary
-                                    font.family: "monospace"
-                                    font.pixelSize: Theme.fontCaptionPx
-                                    background: Rectangle {
-                                        color: "transparent"
+                                    TextArea {
+                                        readOnly: true
+                                        text: root.prettyJson(root.printersEndpointRawJson)
+                                        wrapMode: TextEdit.NoWrap
+                                        color: Theme.fgPrimary
+                                        font.family: "monospace"
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        background: Rectangle {
+                                            color: "transparent"
+                                        }
                                     }
                                 }
                             }

@@ -25,6 +25,11 @@ var success = "#2f8a45"
 
 var selectionBg = "#d8ece8"
 var selectionFg = "#1f2b29"
+var overlayScrim = "#7a000000"
+var fgOnDanger = "#fff6f6"
+var viewportBg = "#1d1f23"
+var viewportBorder = "#3e4351"
+var viewportFg = "#d9dde6"
 
 // Typography tokens
 var fontTitlePx = 18
@@ -87,6 +92,11 @@ var _palettes = {
         thumbStart: "#8dcfc4",
         thumbEnd: "#2f746c",
         shadow: "#22000000",
+        overlayScrim: "#7a000000",
+        fgOnDanger: "#fff6f6",
+        viewportBg: "#1d1f23",
+        viewportBorder: "#3e4351",
+        viewportFg: "#d9dde6",
         modalScrimOpacity: 0.35
     },
     "Dark": {
@@ -112,6 +122,11 @@ var _palettes = {
         thumbStart: "#4c7586",
         thumbEnd: "#2e4b5c",
         shadow: "#66000000",
+        overlayScrim: "#7a000000",
+        fgOnDanger: "#fff6f6",
+        viewportBg: "#171a1f",
+        viewportBorder: "#3a404d",
+        viewportFg: "#d9dde6",
         modalScrimOpacity: 0.45
     }
 }
@@ -162,6 +177,11 @@ function _syncLegacyAliases(palette, accentSet) {
     thumbStart = palette.thumbStart
     thumbEnd = palette.thumbEnd
     shadow = palette.shadow
+    overlayScrim = palette.overlayScrim
+    fgOnDanger = palette.fgOnDanger
+    viewportBg = palette.viewportBg
+    viewportBorder = palette.viewportBorder
+    viewportFg = palette.viewportFg
 }
 
 function applyTheme() {
@@ -182,6 +202,11 @@ function applyTheme() {
     selectionBg = palette.selectionBg
     selectionFg = palette.selectionFg
     modalScrimOpacity = palette.modalScrimOpacity
+    overlayScrim = palette.overlayScrim
+    fgOnDanger = palette.fgOnDanger
+    viewportBg = palette.viewportBg
+    viewportBorder = palette.viewportBorder
+    viewportFg = palette.viewportFg
 
     accent = accentSet.accent
     accentFg = accentSet.accentFg

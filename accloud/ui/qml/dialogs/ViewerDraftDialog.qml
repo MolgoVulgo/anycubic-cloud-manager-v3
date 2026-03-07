@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "../components/Theme.js" as Theme
+import "../components"
 
 Dialog {
     id: root
@@ -50,15 +51,15 @@ Dialog {
                     anchors.margins: 10
                     spacing: 8
 
-                    TextField { placeholderText: "Source PWMB path"; Layout.fillWidth: true }
-                    Slider { from: 0; to: 100; value: 100; Layout.fillWidth: true }
-                    ComboBox { Layout.fillWidth: true; model: ["Quality 33", "Quality 66", "Quality 100"] }
-                    ComboBox { Layout.fillWidth: true; model: ["Palette Steel", "Palette Resin", "Palette Heat"] }
-                    CheckBox { text: "Contour only" }
+                    AppTextField { placeholderText: "Source PWMB path"; Layout.fillWidth: true }
+                    AppSlider { from: 0; to: 100; value: 100; Layout.fillWidth: true }
+                    AppComboBox { Layout.fillWidth: true; model: ["Quality 33", "Quality 66", "Quality 100"] }
+                    AppComboBox { Layout.fillWidth: true; model: ["Palette Steel", "Palette Resin", "Palette Heat"] }
+                    AppCheckBox { text: "Contour only" }
                     ProgressBar { from: 0; to: 100; value: 46; Layout.fillWidth: true }
                     Item { Layout.fillHeight: true }
-                    Button { text: "Rebuild"; Layout.fillWidth: true }
-                    Button { text: "Cancel"; Layout.fillWidth: true }
+                    AppButton { text: "Rebuild"; Layout.fillWidth: true; variant: "primary" }
+                    AppButton { text: "Cancel"; Layout.fillWidth: true; variant: "danger" }
                 }
             }
 
@@ -66,14 +67,14 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: 12
-                color: "#1d1f23"
+                color: Theme.viewportBg
                 border.width: 1
-                border.color: "#3e4351"
+                border.color: Theme.viewportBorder
 
                 Text {
                     anchors.centerIn: parent
                     text: "OpenGL viewport placeholder"
-                    color: "#d9dde6"
+                    color: Theme.viewportFg
                 }
             }
         }
@@ -81,11 +82,11 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Button { text: "Retry" }
-            Button { text: "Reset camera" }
-            Button { text: "Export screenshot" }
+            AppButton { text: "Retry" }
+            AppButton { text: "Reset camera" }
+            AppButton { text: "Export screenshot" }
             Item { Layout.fillWidth: true }
-            Button { text: "Close"; onClicked: root.close() }
+            AppButton { text: "Close"; onClicked: root.close() }
         }
     }
 }

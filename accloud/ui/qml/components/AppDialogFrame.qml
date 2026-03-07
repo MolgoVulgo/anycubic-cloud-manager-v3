@@ -32,8 +32,8 @@ Dialog {
     height: Math.min(overlayHeight * 0.9, contentLayout.implicitHeight)
 
     Overlay.modal: Rectangle {
-        color: "#000000"
-        opacity: Theme.modalScrimOpacity
+        color: Theme.overlayScrim
+        opacity: 1
     }
 
     background: Rectangle {

@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "../components/Theme.js" as Theme
+import "../components"
 
 Dialog {
     id: root
@@ -35,44 +36,33 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             Text { text: "File"; Layout.preferredWidth: 92 }
-            TextField { Layout.fillWidth: true; placeholderText: "/path/model.pwmb" }
-            Button { text: "Browse" }
+            AppTextField { Layout.fillWidth: true; placeholderText: "/path/model.pwmb" }
+            AppButton { text: "Browse" }
         }
 
         RowLayout {
             Layout.fillWidth: true
             Text { text: "Upload profile"; Layout.preferredWidth: 92 }
-            ComboBox { Layout.fillWidth: true; model: ["Default", "High reliability", "Fast"] }
+            AppComboBox { Layout.fillWidth: true; model: ["Default", "High reliability", "Fast"] }
         }
 
         RowLayout {
             Layout.fillWidth: true
             Text { text: "Print target"; Layout.preferredWidth: 92 }
-            ComboBox { Layout.fillWidth: true; model: ["None", "M7-Workshop-A", "M5S-Line-2"] }
+            AppComboBox { Layout.fillWidth: true; model: ["None", "M7-Workshop-A", "M5S-Line-2"] }
         }
 
-        CheckBox { text: "Print after upload" }
-        CheckBox { text: "Delete after print" }
-        CheckBox { text: "Keep signed URL snapshot" }
+        AppCheckBox { text: "Print after upload" }
+        AppCheckBox { text: "Delete after print" }
+        AppCheckBox { text: "Keep signed URL snapshot" }
 
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
-            Button { text: "Close"; onClicked: root.close() }
-            Button {
+            AppButton { text: "Close"; onClicked: root.close() }
+            AppButton {
                 text: "Start upload"
-                font.bold: true
-                background: Rectangle {
-                    radius: 8
-                    color: parent.down ? Qt.darker(Theme.accent, 1.12) : Theme.accent
-                }
-                contentItem: Text {
-                    text: parent.text
-                    color: "#f8fffe"
-                    font: parent.font
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
+                variant: "primary"
             }
         }
     }
