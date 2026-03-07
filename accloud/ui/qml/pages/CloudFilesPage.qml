@@ -16,10 +16,10 @@ Item {
 
     // UI state
     property bool loading: false
-    property string statusMsg: "Ready."
+    property string statusMsg: qsTr("Ready.")
     property string statusSev: "info" // info | success | warn | error
     property var quotaData: null
-    property string typeFilterValue: "All"
+    property string typeFilterValue: "all"
     property string selectedFileId: ""
 
     function emitStatusToShell() {
@@ -57,12 +57,12 @@ Item {
         if (!isFinite(value) || value < 0)
             return "-"
         if (value >= 1073741824)
-            return (value / 1073741824).toFixed(1) + " GB"
+            return qsTr("%1 GB").arg((value / 1073741824).toFixed(1))
         if (value >= 1048576)
-            return (value / 1048576).toFixed(1) + " MB"
+            return qsTr("%1 MB").arg((value / 1048576).toFixed(1))
         if (value >= 1024)
-            return (value / 1024).toFixed(1) + " KB"
-        return Math.round(value) + " B"
+            return qsTr("%1 KB").arg((value / 1024).toFixed(1))
+        return qsTr("%1 B").arg(Math.round(value))
     }
 
     function quotaRatio() {
@@ -76,16 +76,17 @@ Item {
 
     function quotaUsedText() {
         if (!quotaData)
-            return "Used / Total: -"
-        return "Used " + String(quotaData.usedDisplay || "-")
-                + " / " + String(quotaData.totalDisplay || "-")
+            return qsTr("Used / Total: -")
+        return qsTr("Used %1 / %2")
+                .arg(String(quotaData.usedDisplay || "-"))
+                .arg(String(quotaData.totalDisplay || "-"))
     }
 
     function quotaFreeText() {
         if (!quotaData)
-            return "Free -"
+            return qsTr("Free -")
         var free = Number(quotaData.totalBytes) - Number(quotaData.usedBytes)
-        return "Free " + formatBytes(free)
+        return qsTr("Free %1").arg(formatBytes(free))
     }
 
     function fileType(fileName) {
@@ -102,14 +103,14 @@ Item {
     function fileTypeLabel(fileName) {
         var ext = fileType(fileName)
         if (ext === "other")
-            return "other"
+            return qsTr("other")
         return ext.toUpperCase()
     }
 
     function fileMatchesFilter(fileName) {
-        if (typeFilterValue === "All")
+        if (typeFilterValue === "all")
             return true
-        return fileType(fileName) === String(typeFilterValue).toLowerCase()
+        return fileType(fileName) === String(typeFilterValue)
     }
 
     function visibleFileCount() {
@@ -130,10 +131,10 @@ Item {
     function displayStatus(status) {
         var raw = String(status || "UNKNOWN").toUpperCase()
         if (raw === "READY")
-            return "Ready"
+            return qsTr("Ready")
         if (raw === "PROCESSING")
-            return "Processing"
-        return "Unknown"
+            return qsTr("Processing")
+        return qsTr("Unknown")
     }
 
     function statusColor(status) {
@@ -165,20 +166,20 @@ Item {
 
     function requestDownload(fileId, fileName) {
         if (!hasCloudBridge() || typeof cloudBridge.getDownloadUrl !== "function") {
-            root.statusMsg = "Download unavailable without backend."
+            root.statusMsg = qsTr("Download unavailable without backend.")
             root.statusSev = "warn"
             return
         }
 
         var r = cloudBridge.getDownloadUrl(String(fileId))
         if (r.ok !== true) {
-            root.statusMsg = "Cannot get download URL: " + String(r.message)
+            root.statusMsg = qsTr("Cannot get download URL: ") + String(r.message)
             root.statusSev = "error"
             return
         }
 
         saveDialog.pendingUrl = r.url
-        saveDialog.suggestName = String(fileName || "file")
+        saveDialog.suggestName = String(fileName || qsTr("file"))
         saveDialog.defaultSuffix = String(fileType(fileName))
         saveDialog.open()
     }
@@ -191,34 +192,34 @@ Item {
 
     function runDelete(fileId) {
         if (!hasCloudBridge() || typeof cloudBridge.deleteFile !== "function") {
-            root.statusMsg = "Delete unavailable without backend."
+            root.statusMsg = qsTr("Delete unavailable without backend.")
             root.statusSev = "warn"
             return
         }
 
         root.loading = true
-        root.statusMsg = "Deleting file..."
+        root.statusMsg = qsTr("Deleting file...")
         root.statusSev = "info"
         var r = cloudBridge.deleteFile(String(fileId))
         root.loading = false
 
         if (r.ok === true) {
-            root.statusMsg = "File deleted."
+            root.statusMsg = qsTr("File deleted.")
             root.statusSev = "success"
             loadFiles()
         } else {
-            root.statusMsg = "Delete failed: " + String(r.message)
+            root.statusMsg = qsTr("Delete failed: ") + String(r.message)
             root.statusSev = "error"
         }
     }
 
     function requestRename(fileId, fileName) {
-        root.statusMsg = "Rename not implemented yet for " + String(fileName || fileId)
+        root.statusMsg = qsTr("Rename not implemented yet for ") + String(fileName || fileId)
         root.statusSev = "warn"
     }
 
     function requestPrint(fileId, fileName) {
-        root.statusMsg = "Open Printers > Details to start remote print for " + String(fileName || fileId)
+        root.statusMsg = qsTr("Open Printers > Details to start remote print for ") + String(fileName || fileId)
         root.statusSev = "warn"
     }
 
@@ -264,7 +265,7 @@ Item {
             "totalBytes": 2147483648,
             "usedBytes": 1181116006
         }
-        root.statusMsg = "Demo mode (backend unavailable)."
+        root.statusMsg = qsTr("Demo mode (backend unavailable).")
         root.statusSev = "warn"
         root.loading = false
     }
@@ -274,7 +275,7 @@ Item {
             return
 
         root.loading = true
-        root.statusMsg = "Loading files from local cache..."
+        root.statusMsg = qsTr("Loading files from local cache...")
         root.statusSev = "info"
 
         if (!hasCloudBridge()) {
@@ -300,18 +301,18 @@ Item {
 
         if (files.length > 0) {
             if (useCacheFlow) {
-                root.statusMsg = String(files.length) + " file(s) loaded from local cache. Syncing cloud..."
+                root.statusMsg = qsTr("%1 file(s) loaded from local cache. Syncing cloud...").arg(String(files.length))
                 root.statusSev = "info"
             } else {
-                root.statusMsg = String(files.length) + " file(s) loaded"
+                root.statusMsg = qsTr("%1 file(s) loaded").arg(String(files.length))
                 root.statusSev = "success"
             }
         } else {
             if (useCacheFlow) {
-                root.statusMsg = "No local cache yet. Syncing cloud..."
+                root.statusMsg = qsTr("No local cache yet. Syncing cloud...")
                 root.statusSev = "warn"
             } else {
-                root.statusMsg = "No file found."
+                root.statusMsg = qsTr("No file found.")
                 root.statusSev = "warn"
             }
         }
@@ -339,10 +340,10 @@ Item {
         function onDownloadFinished(ok, message, savedPath) {
             downloadOverlay.visible = false
             if (ok) {
-                root.statusMsg = "Downloaded: " + savedPath
+                root.statusMsg = qsTr("Downloaded: ") + savedPath
                 root.statusSev = "success"
             } else {
-                root.statusMsg = "Download error: " + message
+                root.statusMsg = qsTr("Download error: ") + message
                 root.statusSev = "error"
             }
         }
@@ -352,7 +353,7 @@ Item {
             var list = files !== undefined ? files : []
             for (var i = 0; i < list.length; ++i)
                 cloudFilesModel.append(list[i])
-            root.statusMsg = String(list.length) + " file(s) refreshed from cloud."
+            root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
         }
 
@@ -364,7 +365,9 @@ Item {
         function onSyncFailed(scope, message) {
             if (String(scope) !== "files" && String(scope) !== "quota")
                 return
-            root.statusMsg = "Background sync failed (" + String(scope) + "): " + String(message)
+            root.statusMsg = qsTr("Background sync failed (%1): %2")
+                    .arg(String(scope))
+                    .arg(String(message))
             root.statusSev = "warn"
         }
     }
@@ -373,15 +376,15 @@ Item {
         id: deleteConfirmDialog
         property string pendingId: ""
         property string pendingName: ""
-        title: "Delete File"
-        subtitle: "This action is irreversible."
+        title: qsTr("Delete File")
+        subtitle: qsTr("This action is irreversible.")
         allowScrimClose: false
         minimumWidth: 520
         maximumWidth: 620
 
         Text {
             Layout.fillWidth: true
-            text: "Delete permanently \"" + deleteConfirmDialog.pendingName + "\"?"
+            text: qsTr("Delete permanently \"%1\"?").arg(deleteConfirmDialog.pendingName)
             color: Theme.fgPrimary
             wrapMode: Text.WordWrap
             font.pixelSize: Theme.fontBodyPx
@@ -389,12 +392,12 @@ Item {
 
         footerTrailingData: [
             AppButton {
-                text: "Cancel"
+                text: qsTr("Cancel")
                 variant: "secondary"
                 onClicked: deleteConfirmDialog.close()
             },
             AppButton {
-                text: "Delete"
+                text: qsTr("Delete")
                 variant: "danger"
                 onClicked: {
                     var fileId = deleteConfirmDialog.pendingId
@@ -408,8 +411,8 @@ Item {
     AppDialogFrame {
         id: fileDetailsDialog
         property var fileData: ({})
-        title: "File Details"
-        subtitle: "Metadata and slice settings"
+        title: qsTr("File Details")
+        subtitle: qsTr("Metadata and slice settings")
         minimumWidth: 860
         maximumWidth: 1020
 
@@ -448,7 +451,7 @@ Item {
                 }
 
                 Text {
-                    text: "ID: " + String(fileDetailsDialog.fileData.fileId || "-")
+                    text: qsTr("ID: ") + String(fileDetailsDialog.fileData.fileId || "-")
                     color: Theme.fgSecondary
                     opacity: 0.9
                     font.pixelSize: Theme.fontCaptionPx
@@ -456,7 +459,7 @@ Item {
             }
 
             AppButton {
-                text: "Rename"
+                text: qsTr("Rename")
                 variant: "secondary"
                 onClicked: root.requestRename(fileDetailsDialog.fileData.fileId,
                                               fileDetailsDialog.fileData.fileName)
@@ -467,8 +470,8 @@ Item {
             id: detailsTabBar
             Layout.fillWidth: true
 
-            AppTabButton { text: "Basic Information" }
-            AppTabButton { text: "Slice Settings" }
+            AppTabButton { text: qsTr("Basic Information") }
+            AppTabButton { text: qsTr("Slice Settings") }
         }
 
         StackLayout {
@@ -492,7 +495,7 @@ Item {
                         columnSpacing: 20
                         rowSpacing: 8
 
-                        Text { text: "File name"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("File name"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text {
                             text: String(fileDetailsDialog.fileData.fileName || "-")
                             color: Theme.fgPrimary
@@ -501,23 +504,23 @@ Item {
                             Layout.fillWidth: true
                         }
 
-                        Text { text: "Type"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Type"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: root.fileTypeLabel(fileDetailsDialog.fileData.fileName || ""); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Size"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Size"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.sizeText || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Date"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Date"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: root.displayDate(fileDetailsDialog.fileData.uploadTime); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Status"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Status"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text {
                             text: root.displayStatus(fileDetailsDialog.fileData.status)
                             color: root.statusColor(fileDetailsDialog.fileData.status)
                             font.pixelSize: Theme.fontBodyPx
                         }
 
-                        Text { text: "gcode_id"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("gcode_id"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.gcodeId || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
                     }
                 }
@@ -539,25 +542,25 @@ Item {
                         columnSpacing: 20
                         rowSpacing: 8
 
-                        Text { text: "Machine"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Machine"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.machine || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Material"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Material"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.material || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Print time"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Print time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.printTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Layer thickness"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Layer thickness"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.layerThickness || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Layers"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Layers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.layers || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Resin usage"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Resin usage"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.resinUsage || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: "Dimensions"; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: qsTr("Dimensions"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.dimensions || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
                     }
                 }
@@ -566,7 +569,7 @@ Item {
 
         footerLeadingData: [
             AppButton {
-                text: "Delete"
+                text: qsTr("Delete")
                 variant: "danger"
                 onClicked: {
                     var fileId = String(fileDetailsDialog.fileData.fileId || "")
@@ -579,19 +582,19 @@ Item {
 
         footerTrailingData: [
             AppButton {
-                text: "Download"
+                text: qsTr("Download")
                 variant: "secondary"
                 onClicked: root.requestDownload(fileDetailsDialog.fileData.fileId,
                                                 fileDetailsDialog.fileData.fileName)
             },
             AppButton {
-                text: "Print"
+                text: qsTr("Print")
                 variant: "primary"
                 onClicked: root.requestPrint(fileDetailsDialog.fileData.fileId,
                                              fileDetailsDialog.fileData.fileName)
             },
             AppButton {
-                text: "Close"
+                text: qsTr("Close")
                 variant: "secondary"
                 onClicked: fileDetailsDialog.close()
             }
@@ -603,7 +606,7 @@ Item {
         property string pendingUrl: ""
         property string suggestName: "file"
         readonly property var downloadFolders: StandardPaths.standardLocations(StandardPaths.DownloadLocation)
-        title: "Save As"
+        title: qsTr("Save As")
         fileMode: FileDialog.SaveFile
         nameFilters: ["All files (*)"]
         currentFolder: downloadFolders.length > 0
@@ -612,7 +615,7 @@ Item {
 
         onAccepted: {
             if (!hasCloudBridge() || typeof cloudBridge.startDownload !== "function") {
-                root.statusMsg = "Download unavailable without backend."
+                root.statusMsg = qsTr("Download unavailable without backend.")
                 root.statusSev = "warn"
                 return
             }
@@ -652,7 +655,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Downloading file..."
+                    text: qsTr("Downloading file...")
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontSectionPx
                     font.bold: true
@@ -670,10 +673,10 @@ Item {
                 Text {
                     text: downloadOverlay.total > 0
                           ? (Math.round(downloadOverlay.received / 1048576)
-                             + " MB / "
+                              + qsTr(" MB / ")
                              + Math.round(downloadOverlay.total / 1048576)
-                             + " MB")
-                          : "Connecting..."
+                              + qsTr(" MB"))
+                          : qsTr("Connecting...")
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontCaptionPx
                 }
@@ -682,7 +685,7 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
                     AppButton {
-                        text: "Cancel"
+                        text: qsTr("Cancel")
                         variant: "danger"
                         onClicked: {
                             if (hasCloudBridge() && typeof cloudBridge.cancelDownload === "function")
@@ -707,7 +710,7 @@ Item {
             AppButton {
                 id: refreshFilesButton
                 objectName: "refreshFilesButton"
-                text: root.loading ? "Loading..." : "Refresh"
+                text: root.loading ? qsTr("Loading...") : qsTr("Refresh")
                 variant: "secondary"
                 enabled: !root.loading
                 onClicked: {
@@ -716,7 +719,7 @@ Item {
                         return
                     }
                     if (typeof cloudBridge.refreshFilesAsync === "function") {
-                        root.statusMsg = "Force refresh from cloud..."
+                        root.statusMsg = qsTr("Force refresh from cloud...")
                         root.statusSev = "info"
                         cloudBridge.refreshFilesAsync(1, 20, true)
                     } else {
@@ -728,10 +731,10 @@ Item {
             AppButton {
                 id: uploadPwmbButton
                 objectName: "uploadPwmbButton"
-                text: "Upload"
+                text: qsTr("Upload")
                 variant: "primary"
                 onClicked: {
-                    root.statusMsg = "Upload workflow will be connected in next lot."
+                    root.statusMsg = qsTr("Upload workflow will be connected in next lot.")
                     root.statusSev = "warn"
                 }
             }
@@ -742,7 +745,7 @@ Item {
                 spacing: 8
 
                 Text {
-                    text: "Type"
+                    text: qsTr("Type")
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontBodyPx
                 }
@@ -751,9 +754,19 @@ Item {
                     id: typeFilterCombo
                     objectName: "filesTypeFilter"
                     Layout.preferredWidth: 130
-                    model: ["All", "pwmb", "pws", "pw0", "phz", "photons", "other"]
+                    textRole: "label"
+                    model: [
+                        { "code": "all", "label": qsTr("All") },
+                        { "code": "pwmb", "label": "pwmb" },
+                        { "code": "pws", "label": "pws" },
+                        { "code": "pw0", "label": "pw0" },
+                        { "code": "phz", "label": "phz" },
+                        { "code": "photons", "label": "photons" },
+                        { "code": "other", "label": qsTr("other") }
+                    ]
                     onActivated: {
-                        root.typeFilterValue = String(currentText)
+                        if (currentIndex >= 0 && currentIndex < model.length)
+                            root.typeFilterValue = String(model[currentIndex].code)
                     }
                 }
             }
@@ -793,7 +806,7 @@ Item {
                     }
 
                     Text {
-                        text: "Files " + root.visibleFileCount()
+                        text: qsTr("Files ") + root.visibleFileCount()
                         color: Theme.fgSecondary
                         font.pixelSize: Theme.fontCaptionPx
                     }
@@ -835,46 +848,46 @@ Item {
                         anchors.rightMargin: 8
                         spacing: 8
 
-                        Text { Layout.preferredWidth: root.colCheckWidth; text: ""; color: Theme.fgSecondary }
+                        Text { Layout.preferredWidth: root.colCheckWidth; text: qsTr(""); color: Theme.fgSecondary }
                         Text {
                             Layout.preferredWidth: root.colThumbWidth
-                            text: "Thumb"
+                            text: qsTr("Thumb")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "File name"
+                            text: qsTr("File name")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.preferredWidth: root.colTypeWidth
-                            text: "Type"
+                            text: qsTr("Type")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.preferredWidth: root.colSizeWidth
-                            text: "Size"
+                            text: qsTr("Size")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.preferredWidth: root.colDateWidth
-                            text: "Date"
+                            text: qsTr("Date")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.preferredWidth: root.colStatusWidth
-                            text: "Status"
+                            text: qsTr("Status")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
                         Text {
                             Layout.preferredWidth: root.colActionsWidth
-                            text: "Actions"
+                            text: qsTr("Actions")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
@@ -992,25 +1005,25 @@ Item {
                                 spacing: 6
 
                                 AppButton {
-                                    text: "Details"
+                                    text: qsTr("Details")
                                     variant: "secondary"
                                     onClicked: root.openFileDetails(model.fileId)
                                 }
 
                                 AppButton {
-                                    text: "Download"
+                                    text: qsTr("Download")
                                     variant: "secondary"
                                     onClicked: root.requestDownload(model.fileId, model.fileName)
                                 }
 
                                 AppButton {
-                                    text: "Print"
+                                    text: qsTr("Print")
                                     variant: "primary"
                                     onClicked: root.requestPrint(model.fileId, model.fileName)
                                 }
 
                                 AppButton {
-                                    text: "..."
+                                    text: qsTr("...")
                                     variant: "secondary"
                                     compact: true
                                     onClicked: rowMenu.open()
@@ -1020,12 +1033,12 @@ Item {
                                     id: rowMenu
 
                                     MenuItem {
-                                        text: "Rename"
+                                        text: qsTr("Rename")
                                         onTriggered: root.requestRename(model.fileId, model.fileName)
                                     }
 
                                     MenuItem {
-                                        text: "Delete"
+                                        text: qsTr("Delete")
                                         onTriggered: root.requestDelete(model.fileId, model.fileName)
                                     }
                                 }
@@ -1041,8 +1054,8 @@ Item {
                             anchors.centerIn: parent
                             visible: parent.height > 0 && !root.loading
                             text: cloudFilesModel.count === 0
-                                  ? "No cloud files. Click Refresh to load files."
-                                  : "No file matches current type filter."
+                                  ? qsTr("No cloud files. Click Refresh to load files.")
+                                  : qsTr("No file matches current type filter.")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontBodyPx
                         }

@@ -71,6 +71,8 @@ if(ACCLOUD_ENABLE_QT)
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
     target_sources(accloud_cli PRIVATE
         app/resources.qrc
+        app/AppI18nBridge.cpp
+        app/AppI18nBridge.h
         app/CloudBridge.cpp
         app/CloudBridge.h
         app/LocalCacheStore.cpp
@@ -85,6 +87,29 @@ if(ACCLOUD_ENABLE_QT)
         app/SessionImportBridge.h
     )
     target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Sql)
+
+    find_package(Qt6 QUIET COMPONENTS LinguistTools)
+    if(TARGET Qt6::lrelease)
+      set(ACCLOUD_I18N_TS_FILES
+          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_en.ts
+          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_fr.ts
+      )
+      file(GLOB_RECURSE ACCLOUD_I18N_QML_FILES
+          ${CMAKE_CURRENT_SOURCE_DIR}/ui/qml/*.qml
+      )
+      qt_add_translations(accloud_cli
+          TS_FILES ${ACCLOUD_I18N_TS_FILES}
+          SOURCES
+              app/main.cpp
+              app/AppI18nBridge.cpp
+              app/CloudBridge.cpp
+              app/SessionImportBridge.cpp
+              ${ACCLOUD_I18N_QML_FILES}
+          RESOURCE_PREFIX "/i18n"
+      )
+    else()
+      message(WARNING "Qt6 LinguistTools not found: skipping .ts/.qm generation")
+    endif()
   else()
     message(WARNING "Qt6 not found: accloud_cli will build in headless skeleton mode")
   endif()

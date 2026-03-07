@@ -6,7 +6,7 @@ import "../components"
 
 Dialog {
     id: root
-    title: "Upload .pwmb (Draft)"
+    title: qsTr("Upload .pwmb (Draft)")
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
@@ -29,39 +29,39 @@ Dialog {
         spacing: 10
 
         Text {
-            text: "Draft workflow: upload + optional print actions"
+            text: qsTr("Draft workflow: upload + optional print actions")
             color: Theme.textSecondary
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "File"; Layout.preferredWidth: 92 }
-            AppTextField { Layout.fillWidth: true; placeholderText: "/path/model.pwmb" }
-            AppButton { text: "Browse" }
+            Text { text: qsTr("File"); Layout.preferredWidth: 92 }
+            AppTextField { Layout.fillWidth: true; placeholderText: qsTr("/path/model.pwmb") }
+            AppButton { text: qsTr("Browse") }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "Upload profile"; Layout.preferredWidth: 92 }
-            AppComboBox { Layout.fillWidth: true; model: ["Default", "High reliability", "Fast"] }
+            Text { text: qsTr("Upload profile"); Layout.preferredWidth: 92 }
+            AppComboBox { Layout.fillWidth: true; model: [qsTr("Default"), qsTr("High reliability"), qsTr("Fast")] }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            Text { text: "Print target"; Layout.preferredWidth: 92 }
-            AppComboBox { Layout.fillWidth: true; model: ["None", "M7-Workshop-A", "M5S-Line-2"] }
+            Text { text: qsTr("Print target"); Layout.preferredWidth: 92 }
+            AppComboBox { Layout.fillWidth: true; model: [qsTr("None"), "M7-Workshop-A", "M5S-Line-2"] }
         }
 
-        AppCheckBox { text: "Print after upload" }
-        AppCheckBox { text: "Delete after print" }
-        AppCheckBox { text: "Keep signed URL snapshot" }
+        AppCheckBox { text: qsTr("Print after upload") }
+        AppCheckBox { text: qsTr("Delete after print") }
+        AppCheckBox { text: qsTr("Keep signed URL snapshot") }
 
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
-            AppButton { text: "Close"; onClicked: root.close() }
+            AppButton { text: qsTr("Close"); onClicked: root.close() }
             AppButton {
-                text: "Start upload"
+                text: qsTr("Start upload")
                 variant: "primary"
             }
         }

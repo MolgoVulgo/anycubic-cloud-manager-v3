@@ -4,6 +4,6 @@ import QtQuick.Controls 2.15
 Frame {
     Label {
         anchors.centerIn: parent
-        text: "Preview"
+        text: qsTr("Preview")
     }
 }

@@ -50,7 +50,7 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "100x100"
+                    text: qsTr("100x100")
                     color: Theme.accentFg
                     font.bold: true
                 }
@@ -77,7 +77,7 @@ Item {
 
                     AppButton {
                         objectName: "deleteButton"
-                        text: "Delete"
+                        text: qsTr("Delete")
                         variant: "danger"
                         onClicked: root.deleteRequested(root.fileId)
                     }
@@ -89,18 +89,18 @@ Item {
                     columnSpacing: 18
                     rowSpacing: 4
 
-                    Text { text: "Layers: " + root.layers; color: Theme.textSecondary }
-                    Text { text: "Print time: " + root.printTime; color: Theme.textSecondary }
-                    Text { text: "Upload time: " + root.uploadTime; color: Theme.textSecondary }
-                    Text { text: "Layer thickness: " + root.layerThickness; color: Theme.textSecondary }
-                    Text { text: "Machine: " + root.machine; color: Theme.textSecondary }
-                    Text { text: "Material: " + root.material; color: Theme.textSecondary }
-                    Text { text: "Resin usage: " + root.resinUsage; color: Theme.textSecondary }
-                    Text { text: "Size XYZ: " + root.dimensions; color: Theme.textSecondary }
+                    Text { text: qsTr("Layers: ") + root.layers; color: Theme.textSecondary }
+                    Text { text: qsTr("Print time: ") + root.printTime; color: Theme.textSecondary }
+                    Text { text: qsTr("Upload time: ") + root.uploadTime; color: Theme.textSecondary }
+                    Text { text: qsTr("Layer thickness: ") + root.layerThickness; color: Theme.textSecondary }
+                    Text { text: qsTr("Machine: ") + root.machine; color: Theme.textSecondary }
+                    Text { text: qsTr("Material: ") + root.material; color: Theme.textSecondary }
+                    Text { text: qsTr("Resin usage: ") + root.resinUsage; color: Theme.textSecondary }
+                    Text { text: qsTr("Size XYZ: ") + root.dimensions; color: Theme.textSecondary }
                 }
 
                 Text {
-                    text: "Size " + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
+                    text: qsTr("Size ") + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
                     color: Theme.textPrimary
                     font.pixelSize: 13
                 }
@@ -110,20 +110,20 @@ Item {
                     spacing: 8
 
                     AppButton {
-                        text: "Details"
+                        text: qsTr("Details")
                     }
                     AppButton {
-                        text: "Print"
+                        text: qsTr("Print")
                     }
                     AppButton {
-                        text: "Download"
+                        text: qsTr("Download")
                         onClicked: root.downloadRequested(root.fileId)
                     }
 
                     AppButton {
                         id: openViewerButton
                         objectName: "openViewerButton"
-                        text: "Open 3D Viewer"
+                        text: qsTr("Open 3D Viewer")
                         visible: root.isPwmb
                         enabled: root.isPwmb
                         variant: "primary"

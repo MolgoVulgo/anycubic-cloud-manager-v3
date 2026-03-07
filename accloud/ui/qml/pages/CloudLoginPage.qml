@@ -9,8 +9,8 @@ Item {
 
     AppPageFrame {
         anchors.fill: parent
-        sectionTitle: "Cloud Login"
-        sectionSubtitle: "Connexion manuelle (mode fallback)"
+        sectionTitle: qsTr("Cloud Login")
+        sectionSubtitle: qsTr("Connexion manuelle (mode fallback)")
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -21,19 +21,19 @@ Item {
             AppTextField {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: 340
-                placeholderText: "Email"
+                placeholderText: qsTr("Email")
             }
 
             AppTextField {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: 340
-                placeholderText: "Password"
+                placeholderText: qsTr("Password")
                 echoMode: TextInput.Password
             }
 
             AppButton {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Login"
+                text: qsTr("Login")
                 variant: "primary"
             }
 

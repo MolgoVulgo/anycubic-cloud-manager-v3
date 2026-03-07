@@ -23,7 +23,7 @@ ComboBox {
     }
 
     indicator: Text {
-        text: "v"
+        text: qsTr("v")
         color: root.enabled ? Theme.fgSecondary : Theme.fgDisabled
         font.pixelSize: Theme.fontCaptionPx
         anchors.right: parent.right

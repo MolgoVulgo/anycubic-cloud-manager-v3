@@ -6,6 +6,7 @@
 #include <string_view>
 
 #if defined(ACCLOUD_WITH_QT)
+#include "AppI18nBridge.h"
 #include "CloudBridge.h"
 #include "LogBridge.h"
 #include "SessionImportBridge.h"
@@ -131,10 +132,13 @@ int main(int argc, char** argv) {
   accloud::CloudBridge cloudBridge;
   accloud::LogBridge logBridge;
   accloud::UiSettingsBridge uiSettingsBridge;
+  accloud::AppI18nBridge appI18nBridge(&app, &engine);
+  appI18nBridge.applyStartupLanguage();
   engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
   engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
   engine.rootContext()->setContextProperty("logBridge", &logBridge);
   engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
+  engine.rootContext()->setContextProperty("appI18nBridge", &appI18nBridge);
   engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));
   if (engine.rootObjects().isEmpty()) {
     accloud::logging::error("app", "bootstrap", "qml_load_failed",

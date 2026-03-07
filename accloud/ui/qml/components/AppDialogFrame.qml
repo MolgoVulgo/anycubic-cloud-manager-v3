@@ -6,7 +6,7 @@ import "Theme.js" as Theme
 Dialog {
     id: root
 
-    property string subtitle: ""
+    property string subtitle: qsTr("")
     property bool allowScrimClose: true
     property bool showCloseButton: true
     property bool showHeaderDivider: true
@@ -87,7 +87,7 @@ Dialog {
 
                 AppButton {
                     visible: root.showCloseButton
-                    text: "Close"
+                    text: qsTr("Close")
                     variant: "secondary"
                     compact: true
                     onClicked: root.close()

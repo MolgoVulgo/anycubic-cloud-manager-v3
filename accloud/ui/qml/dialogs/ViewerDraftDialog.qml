@@ -6,7 +6,7 @@ import "../components"
 
 Dialog {
     id: root
-    title: "PWMB 3D Viewer"
+    title: qsTr("PWMB 3D Viewer")
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
@@ -29,7 +29,7 @@ Dialog {
         spacing: 10
 
         Text {
-            text: "Build progressif contours/fill avec controle camera."
+            text: qsTr("Build progressif contours/fill avec controle camera.")
             color: Theme.textSecondary
         }
 
@@ -51,15 +51,15 @@ Dialog {
                     anchors.margins: 10
                     spacing: 8
 
-                    AppTextField { placeholderText: "Source PWMB path"; Layout.fillWidth: true }
+                    AppTextField { placeholderText: qsTr("Source PWMB path"); Layout.fillWidth: true }
                     AppSlider { from: 0; to: 100; value: 100; Layout.fillWidth: true }
-                    AppComboBox { Layout.fillWidth: true; model: ["Quality 33", "Quality 66", "Quality 100"] }
-                    AppComboBox { Layout.fillWidth: true; model: ["Palette Steel", "Palette Resin", "Palette Heat"] }
-                    AppCheckBox { text: "Contour only" }
+                    AppComboBox { Layout.fillWidth: true; model: [qsTr("Quality 33"), qsTr("Quality 66"), qsTr("Quality 100")] }
+                    AppComboBox { Layout.fillWidth: true; model: [qsTr("Palette Steel"), qsTr("Palette Resin"), qsTr("Palette Heat")] }
+                    AppCheckBox { text: qsTr("Contour only") }
                     ProgressBar { from: 0; to: 100; value: 46; Layout.fillWidth: true }
                     Item { Layout.fillHeight: true }
-                    AppButton { text: "Rebuild"; Layout.fillWidth: true; variant: "primary" }
-                    AppButton { text: "Cancel"; Layout.fillWidth: true; variant: "danger" }
+                    AppButton { text: qsTr("Rebuild"); Layout.fillWidth: true; variant: "primary" }
+                    AppButton { text: qsTr("Cancel"); Layout.fillWidth: true; variant: "danger" }
                 }
             }
 
@@ -73,7 +73,7 @@ Dialog {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "OpenGL viewport placeholder"
+                    text: qsTr("OpenGL viewport placeholder")
                     color: Theme.viewportFg
                 }
             }
@@ -82,11 +82,11 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            AppButton { text: "Retry" }
-            AppButton { text: "Reset camera" }
-            AppButton { text: "Export screenshot" }
+            AppButton { text: qsTr("Retry") }
+            AppButton { text: qsTr("Reset camera") }
+            AppButton { text: qsTr("Export screenshot") }
             Item { Layout.fillWidth: true }
-            AppButton { text: "Close"; onClicked: root.close() }
+            AppButton { text: qsTr("Close"); onClicked: root.close() }
         }
     }
 }
