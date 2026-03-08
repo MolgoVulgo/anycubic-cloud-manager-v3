@@ -27,18 +27,28 @@ struct CloudFileInfo {
     std::string id;
     std::string name;
     uint64_t    sizeBytes    = 0;
+    long long   createTime   = 0;  // epoch sec (best-effort)
     long long   updateTime   = 0;  // epoch sec (best-effort)
     std::string gcodeId;
     std::string thumbnailUrl;
+    std::string downloadUrl;
+    std::string region;
+    std::string bucket;
+    std::string path;
+    std::string md5;
     int         status       = 0;  // 0=inconnu, 1=prêt, 2=traitement...
     // Champs slice_param (best-effort, peuvent être vides) :
     std::string machine;
+    std::string printers;
     std::string material;
     std::string printTime;    // ex "06h 32m"
     std::string layerHeight;  // ex "0.05 mm"
     std::string layers;       // ex "2586"
     std::string resinUsage;   // ex "118 ml"
     std::string dimensions;   // ex "120x74x148"
+    std::string bottomLayers; // ex "4"
+    std::string exposureTime; // ex "1.5 s"
+    std::string offTime;      // ex "0.5 s"
 };
 
 struct CloudFilesResult {

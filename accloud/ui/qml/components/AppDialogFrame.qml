@@ -11,8 +11,11 @@ Dialog {
     property bool showCloseButton: true
     property bool showHeaderDivider: true
     property bool showFooterDivider: true
+    property int framePadding: 15
     property int minimumWidth: 520
     property int maximumWidth: 980
+    property int minimumHeight: 0
+    property int maximumHeight: 980
     readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1280
     readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 860
     default property alias bodyData: bodyColumn.data
@@ -29,7 +32,9 @@ Dialog {
     padding: 0
 
     width: Math.min(maximumWidth, Math.max(minimumWidth, overlayWidth * 0.68))
-    height: Math.min(overlayHeight * 0.9, contentLayout.implicitHeight)
+    height: Math.min(overlayHeight * 0.9,
+                     Math.min(maximumHeight,
+                              Math.max(minimumHeight, contentLayout.implicitHeight)))
 
     Overlay.modal: Rectangle {
         color: Theme.overlayScrim
@@ -49,12 +54,12 @@ Dialog {
 
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: headerLayout.implicitHeight + Theme.paddingDialog * 2
+            Layout.preferredHeight: headerLayout.implicitHeight + root.framePadding * 2
 
             RowLayout {
                 id: headerLayout
                 anchors.fill: parent
-                anchors.margins: Theme.paddingDialog
+                anchors.margins: root.framePadding
                 spacing: Theme.gapRow
 
                 ColumnLayout {
@@ -87,7 +92,7 @@ Dialog {
 
                 AppButton {
                     visible: root.showCloseButton
-                    text: qsTr("Close")
+                    text: qsTr("X")
                     variant: "secondary"
                     compact: true
                     onClicked: root.close()
@@ -105,12 +110,12 @@ Dialog {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredHeight: bodyColumn.implicitHeight + Theme.paddingDialog * 2
+            Layout.preferredHeight: bodyColumn.implicitHeight + root.framePadding * 2
 
             ColumnLayout {
                 id: bodyColumn
                 anchors.fill: parent
-                anchors.margins: Theme.paddingDialog
+                anchors.margins: root.framePadding
                 spacing: Theme.gapSection
             }
         }
@@ -125,12 +130,12 @@ Dialog {
         Item {
             visible: footerLeading.children.length > 0 || footerTrailing.children.length > 0
             Layout.fillWidth: true
-            Layout.preferredHeight: footerRow.implicitHeight + Theme.paddingDialog * 2
+            Layout.preferredHeight: footerRow.implicitHeight + root.framePadding * 2
 
             RowLayout {
                 id: footerRow
                 anchors.fill: parent
-                anchors.margins: Theme.paddingDialog
+                anchors.margins: root.framePadding
                 spacing: Theme.gapRow
 
                 RowLayout {
