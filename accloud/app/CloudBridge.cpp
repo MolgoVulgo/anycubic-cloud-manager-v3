@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QLocale>
 #include <QSaveFile>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
@@ -53,6 +54,22 @@ QString formatStatus(int status) {
     }
 }
 
+QString formatUploadTime(long long updateTimeEpochSec) {
+    if (updateTimeEpochSec <= 0)
+        return {};
+    qint64 epochSec = static_cast<qint64>(updateTimeEpochSec);
+    if (epochSec > 1000000000000LL)  // defensive: epoch ms
+        epochSec /= 1000;
+    const QDateTime dt = QDateTime::fromSecsSinceEpoch(epochSec).toLocalTime();
+    if (!dt.isValid())
+        return {};
+    const QLocale locale = QLocale::system();
+    QString value = locale.toString(dt.date(), QLocale::ShortFormat);
+    if (value.isEmpty())
+        value = dt.date().toString(QStringLiteral("yyyy-MM-dd"));
+    return value;
+}
+
 // ── Conversion CloudFileInfo → QVariantMap ────────────────────────────────
 
 QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
@@ -68,7 +85,7 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("sizeText",      formatBytes(f.sizeBytes));
     m.insert("machine",       QString::fromStdString(f.machine));
     m.insert("material",      QString::fromStdString(f.material));
-    m.insert("uploadTime",    QString{});  // pas disponible dans le listing
+    m.insert("uploadTime",    formatUploadTime(f.updateTime));
     m.insert("printTime",     QString::fromStdString(f.printTime));
     m.insert("layerThickness",QString::fromStdString(f.layerHeight));
     m.insert("layers",        f.layers.empty() ? 0 : std::stoi(f.layers));

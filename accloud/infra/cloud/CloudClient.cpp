@@ -161,6 +161,27 @@ int jFirstInt(const nlohmann::json& obj,
     return fallback;
 }
 
+long long jLong(const nlohmann::json& v, long long fallback = 0) {
+    if (v.is_number_integer()) return v.get<long long>();
+    if (v.is_number_float())   return static_cast<long long>(v.get<double>());
+    if (v.is_boolean())        return v.get<bool>() ? 1 : 0;
+    if (v.is_string()) {
+        try { return std::stoll(v.get<std::string>()); }
+        catch (...) { return fallback; }
+    }
+    return fallback;
+}
+
+long long jFirstLong(const nlohmann::json& obj,
+                     std::initializer_list<const char*> keys,
+                     long long fallback = 0) {
+    for (const char* k : keys) {
+        if (!obj.contains(k)) continue;
+        return jLong(obj[k], fallback);
+    }
+    return fallback;
+}
+
 bool containsNoCase(const std::string& text, const std::string& needle) {
     std::string left = text;
     std::string right = needle;
@@ -205,6 +226,14 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
     f.status       = e.value("status", 0);
 
     const nlohmann::json sp = parseSliceParam(e);
+    f.updateTime = jFirstLong(e, {"update_time", "updateTime", "last_update_time", "lastUpdateTime"}, 0);
+    if (f.updateTime <= 0)
+        f.updateTime = jFirstLong(e, {"create_time", "createTime", "upload_time", "uploadTime"}, 0);
+    if (f.updateTime <= 0 && sp.is_object())
+        f.updateTime = jFirstLong(sp, {"update_time", "updateTime", "timestamp", "time", "create_time", "createTime"}, 0);
+    if (f.updateTime > 1000000000000LL)  // epoch ms -> epoch s
+        f.updateTime /= 1000;
+
     if (sp.is_object()) {
         f.machine  = jFirst(sp, {"machineName", "machine_name", "machineType"});
         f.material = jFirst(sp, {"materialName", "material_name", "resinType", "material"});

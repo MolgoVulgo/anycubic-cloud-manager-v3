@@ -27,6 +27,7 @@ struct CloudFileInfo {
     std::string id;
     std::string name;
     uint64_t    sizeBytes    = 0;
+    long long   updateTime   = 0;  // epoch sec (best-effort)
     std::string gcodeId;
     std::string thumbnailUrl;
     int         status       = 0;  // 0=inconnu, 1=prêt, 2=traitement...

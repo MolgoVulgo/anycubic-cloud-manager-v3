@@ -14,6 +14,10 @@ TabButton {
     font.pixelSize: Theme.fontBodyPx
     font.bold: checked
 
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
+
     function backgroundColor() {
         if (checked)
             return Theme.accentSoft

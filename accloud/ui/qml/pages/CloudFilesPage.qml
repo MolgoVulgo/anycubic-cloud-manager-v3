@@ -112,6 +112,40 @@ Item {
         return qsTr("Free %1").arg(formatBytes(free))
     }
 
+    function quotaFreeRatio() {
+        return Math.max(0, 1 - quotaRatio())
+    }
+
+    function colorFromHex(hexColor) {
+        var raw = String(hexColor || "")
+        if (raw.length !== 7 || raw.charAt(0) !== "#")
+            return Qt.rgba(0, 0, 0, 1)
+        var r = parseInt(raw.slice(1, 3), 16)
+        var g = parseInt(raw.slice(3, 5), 16)
+        var b = parseInt(raw.slice(5, 7), 16)
+        if (!isFinite(r) || !isFinite(g) || !isFinite(b))
+            return Qt.rgba(0, 0, 0, 1)
+        return Qt.rgba(r / 255, g / 255, b / 255, 1)
+    }
+
+    function mixColors(fromColor, toColor, ratio) {
+        var t = Math.max(0, Math.min(1, Number(ratio)))
+        var from = colorFromHex(fromColor)
+        var to = colorFromHex(toColor)
+        return Qt.rgba(from.r + (to.r - from.r) * t,
+                       from.g + (to.g - from.g) * t,
+                       from.b + (to.b - from.b) * t,
+                       1)
+    }
+
+    function quotaBarColor() {
+        return "#2f6ecb"
+    }
+
+    function quotaBackgroundColor() {
+        return mixColors(Theme.danger, Theme.success, quotaFreeRatio())
+    }
+
     function fileExtension(fileName) {
         var name = String(fileName || "")
         var dot = name.lastIndexOf(".")
@@ -966,11 +1000,29 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                ProgressBar {
+                Item {
+                    objectName: "quotaFreeSpaceBar"
                     Layout.fillWidth: true
-                    from: 0
-                    to: 1
-                    value: root.quotaRatio()
+                    Layout.preferredHeight: 12
+                    readonly property real freeRatio: root.quotaFreeRatio()
+                    readonly property real usedRatio: root.quotaRatio()
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: height / 2
+                        color: root.quotaBackgroundColor()
+                        border.width: Theme.borderWidth
+                        border.color: Theme.borderDefault
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width * parent.usedRatio
+                        height: parent.height
+                        radius: height / 2
+                        color: root.quotaBarColor()
+                    }
                 }
             }
         }
@@ -1092,25 +1144,43 @@ Item {
 
                     delegate: Rectangle {
                         property bool rowVisible: root.isIndexOnCurrentPage(index, model.fileName || "")
+                        readonly property bool rowSelected: root.selectedFileId === String(model.fileId)
+                        readonly property int rowVerticalPadding: 6
+                        readonly property int selectedBleedY: 3
                         width: filesList.width
                         height: rowVisible ? 112 : 0
                         visible: rowVisible
-                        color: root.selectedFileId === String(model.fileId) ? Theme.selectionBg : Theme.bgSurface
+                        color: Theme.bgSurface
                         border.width: 0
 
                         MouseArea {
                             anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
                             onClicked: root.selectedFileId = String(model.fileId || "")
+                        }
+
+                        Rectangle {
+                            visible: parent.rowSelected
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.topMargin: parent.rowVerticalPadding - parent.selectedBleedY
+                            anchors.bottomMargin: parent.rowVerticalPadding - parent.selectedBleedY
+                            color: Theme.selectionBg
+                            border.width: 0
                         }
 
                         Item {
                             objectName: "fileTableDataRow"
                             anchors.left: parent.left
                             anchors.leftMargin: root.tableRowHorizontalMargin
+                            anchors.top: parent.top
+                            anchors.topMargin: parent.rowVerticalPadding
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: parent.rowVerticalPadding
                             width: root.tableViewportWidth
-                            height: parent.height
                             clip: true
-                            anchors.verticalCenter: parent.verticalCenter
 
                             Rectangle {
                                 objectName: "fileRowThumb"
@@ -1208,19 +1278,6 @@ Item {
                                 font.pixelSize: Theme.fontBodyPx
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-
-                                MouseArea {
-                                    id: typeCellHover
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    acceptedButtons: Qt.NoButton
-                                    cursorShape: Qt.PointingHandCursor
-                                }
-
-                                ToolTip.visible: typeCellHover.containsMouse
-                                ToolTip.delay: 250
-                                ToolTip.timeout: 5000
-                                ToolTip.text: root.compatiblePrintersTooltip(model.fileName || "")
                             }
 
                             Text {
