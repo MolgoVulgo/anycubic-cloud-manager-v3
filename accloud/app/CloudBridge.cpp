@@ -3,6 +3,7 @@
 #include "LocalCacheStore.h"
 #include "infra/cloud/CloudClient.h"
 #include "infra/cloud/HarImporter.h"
+#include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
 
 #include <QDateTime>
@@ -27,6 +28,8 @@
 
 namespace accloud {
 namespace {
+
+constexpr bool kDebugBuildEnabled = debug::kEnabled;
 
 // ── Formatage taille ──────────────────────────────────────────────────────
 
@@ -529,7 +532,11 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
     }
 
     message = QString::fromStdString(res.message);
-    rawJson = QString::fromStdString(res.rawJson);
+    if constexpr (kDebugBuildEnabled) {
+        rawJson = QString::fromStdString(res.rawJson);
+    } else {
+        rawJson.clear();
+    }
     ok = res.ok;
     if (!res.ok) {
         return printers;
@@ -544,10 +551,14 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
             cloud::fetchPrinterDetails(at, tok, p.id);
         if (details.ok) {
             printer.insert("details", printerDetailsToMap(details));
-            printer.insert("detailsRawJson", QString::fromStdString(details.rawJson));
+            if constexpr (kDebugBuildEnabled) {
+                printer.insert("detailsRawJson", QString::fromStdString(details.rawJson));
+            }
         } else {
             printer.insert("details", QVariantMap{});
-            printer.insert("detailsRawJson", QString{});
+            if constexpr (kDebugBuildEnabled) {
+                printer.insert("detailsRawJson", QString{});
+            }
         }
 
         const cloud::CloudPrinterProjectsResult projects =
@@ -640,12 +651,16 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
 
 QVariantMap CloudBridge::loadCachedPrinters() const {
     QVariantMap out;
-    out.insert("endpoint", QStringLiteral(
-        "/p/p/workbench/api/work/printer/getPrinters + "
-        "/p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"));
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("endpoint", QStringLiteral(
+            "/p/p/workbench/api/work/printer/getPrinters + "
+            "/p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"));
+    }
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
-    out.insert("rawJson", QString{});
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString{});
+    }
     out.insert("printers", QVariantList{});
 
     if (m_cache == nullptr || !m_cache->isAvailable()) {
@@ -663,7 +678,9 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("elapsedSec"), -1);
         printer.insert(QStringLiteral("remainingSec"), -1);
         printer.insert(QStringLiteral("details"), QVariantMap{});
-        printer.insert(QStringLiteral("detailsRawJson"), QString{});
+        if constexpr (kDebugBuildEnabled) {
+            printer.insert(QStringLiteral("detailsRawJson"), QString{});
+        }
         printer.insert(QStringLiteral("projects"), m_cache->loadJobsForPrinter(printerId, 1, 20));
         printers.append(printer);
     }
@@ -893,16 +910,20 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
 
 QVariantMap CloudBridge::fetchPrinters() const {
     QVariantMap out;
-    out.insert("endpoint", QStringLiteral(
-        "/p/p/workbench/api/work/printer/getPrinters + "
-        "/p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"));
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("endpoint", QStringLiteral(
+            "/p/p/workbench/api/work/printer/getPrinters + "
+            "/p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"));
+    }
     QString message;
     QString rawJson;
     bool ok = false;
     const QVariantList printers = fetchPrintersWithRetry(message, ok, rawJson);
     out.insert("ok", ok);
     out.insert("message", message);
-    out.insert("rawJson", rawJson);
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", rawJson);
+    }
     out.insert("printers", printers);
 
     if (m_cache != nullptr) {
@@ -974,7 +995,9 @@ QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
     if (!loadTokens(at, tok)) {
         out.insert("ok", false);
         out.insert("message", QString("Session invalide."));
-        out.insert("rawJson", QString{});
+        if constexpr (kDebugBuildEnabled) {
+            out.insert("rawJson", QString{});
+        }
         finalizeUiMessage(out);
         return out;
     }
@@ -982,7 +1005,9 @@ QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
     const auto r = cloud::fetchPrinterDetails(at, tok, printerId.trimmed().toStdString());
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
-    out.insert("rawJson", QString::fromStdString(r.rawJson));
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString::fromStdString(r.rawJson));
+    }
     if (r.ok)
         out.insert("details", printerDetailsToMap(r));
     finalizeUiMessage(out);

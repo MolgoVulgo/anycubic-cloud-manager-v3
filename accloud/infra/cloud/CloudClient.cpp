@@ -642,14 +642,20 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     CloudPrintersResult out;
+#if defined(ACCLOUD_DEBUG)
     nlohmann::json debugPayload = nlohmann::json::object();
+#endif
     try {
         const auto j = nlohmann::json::parse(r.body);
+#if defined(ACCLOUD_DEBUG)
         debugPayload["getPrinters"] = j;
+#endif
         if (j.value("code", 0) != 1) {
             out.ok = false;
             out.message = j.value("msg", "Erreur imprimantes");
+#if defined(ACCLOUD_DEBUG)
             out.rawJson = debugPayload.dump();
+#endif
             return out;
         }
 
@@ -657,13 +663,17 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
         if (!data.is_array()) {
             out.ok = false;
             out.message = "data imprimantes invalide";
+#if defined(ACCLOUD_DEBUG)
             out.rawJson = debugPayload.dump();
+#endif
             return out;
         }
 
         out.ok = true;
         out.printers.reserve(data.size());
+#if defined(ACCLOUD_DEBUG)
         debugPayload["projects"] = nlohmann::json::object();
+#endif
         for (const auto& e : data) {
             if (!e.is_object()) continue;
             nlohmann::json merged = e;
@@ -678,7 +688,9 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
                 if (projectResp.ok) {
                     auto projectJson = nlohmann::json::parse(projectResp.body, nullptr, false);
                     if (!projectJson.is_discarded()) {
+#if defined(ACCLOUD_DEBUG)
                         debugPayload["projects"][printerId] = projectJson;
+#endif
                         if (projectJson.value("code", 0) == 1) {
                             const auto projectData = projectJson.value("data", nlohmann::json::array());
                             if (projectData.is_array() && !projectData.empty() && projectData[0].is_object())
@@ -687,23 +699,31 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
                                 merged["project"] = projectData;
                         }
                     } else {
+#if defined(ACCLOUD_DEBUG)
                         debugPayload["projects"][printerId] = nlohmann::json::object(
                             {{"parse_error", "invalid_json"}});
+#endif
                     }
                 } else {
+#if defined(ACCLOUD_DEBUG)
                     debugPayload["projects"][printerId] = nlohmann::json::object(
                         {{"network_error", projectResp.error}});
+#endif
                 }
             }
             out.printers.push_back(parsePrinterEntry(merged));
         }
         out.message = std::to_string(out.printers.size()) + " imprimante(s)";
+#if defined(ACCLOUD_DEBUG)
         out.rawJson = debugPayload.dump();
+#endif
         return out;
     } catch (const std::exception& e) {
         out.ok = false;
         out.message = std::string("Parse error: ") + e.what();
+#if defined(ACCLOUD_DEBUG)
         out.rawJson = debugPayload.empty() ? r.body : debugPayload.dump();
+#endif
         return out;
     }
 #endif
@@ -816,7 +836,9 @@ CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
         if (j.value("code", 0) != 1) {
             out.ok = false;
             out.message = j.value("msg", "Erreur printer info");
+#if defined(ACCLOUD_DEBUG)
             out.rawJson = r.body;
+#endif
             return out;
         }
 
@@ -824,14 +846,18 @@ CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
         if (!data.is_object()) {
             out.ok = false;
             out.message = "data printer info invalide";
+#if defined(ACCLOUD_DEBUG)
             out.rawJson = r.body;
+#endif
             return out;
         }
 
         const auto& base = data.value("base", nlohmann::json::object());
         out.ok = true;
         out.message = "Details imprimante charges";
+#if defined(ACCLOUD_DEBUG)
         out.rawJson = data.dump();
+#endif
         out.firmwareVersion = jFirst(base, {"firmware_version"});
         out.printCount = jFirst(base, {"print_count"});
         out.printTotalTime = jFirst(base, {"print_totaltime"});
@@ -867,7 +893,9 @@ CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
     } catch (const std::exception& e) {
         out.ok = false;
         out.message = std::string("Parse error: ") + e.what();
+#if defined(ACCLOUD_DEBUG)
         out.rawJson = r.body;
+#endif
         return out;
     }
 #endif

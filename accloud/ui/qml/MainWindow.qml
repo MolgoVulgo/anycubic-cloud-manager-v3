@@ -17,7 +17,10 @@ ApplicationWindow {
     property string globalStatusMsg: qsTr("Ready.")
     property string globalStatusSev: "info"
     property string globalStatusOpId: "op_shell_status"
-    property bool debugUi: Qt.application.arguments
+    property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
+                                     && accloudBuildDebugEnabled === true
+    property bool debugUi: buildDebugEnabled
+                               && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
     property string sessionTargetPath: "~/.config/accloud/session.json"
     property string sessionDetailsText: qsTr("No session check executed yet.")
@@ -1074,7 +1077,9 @@ ApplicationWindow {
 
                         AppTabButton {
                             objectName: "logTabButton"
-                            text: qsTr("Logs")
+                            text: root.buildDebugEnabled
+                                  ? qsTr("Logs")
+                                  : qsTr("Logs (disabled in this build)")
                         }
                     }
 
@@ -1099,8 +1104,36 @@ ApplicationWindow {
                             }
                         }
 
-                        Pages.LogPage {
-                            objectName: "logPage"
+                        Item {
+                            objectName: "logPageHost"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Loader {
+                                id: logPageLoader
+                                anchors.fill: parent
+                                active: root.buildDebugEnabled
+                                source: "pages/LogPage.qml"
+                            }
+
+                            AppPageFrame {
+                                anchors.fill: parent
+                                visible: !root.buildDebugEnabled
+                                sectionTitle: qsTr("Logs")
+                                sectionSubtitle: qsTr("Debug tools are disabled in this build")
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.gapRow
+
+                                    Text {
+                                        text: qsTr("Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.")
+                                        color: Theme.fgSecondary
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                            }
                         }
                     }
 

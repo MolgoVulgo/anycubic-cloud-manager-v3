@@ -14,6 +14,9 @@ An English translation can be added later.
 ### Runtime logging reference
 - `Docs/logging_reference.md`
 
+### Build modes (debug/prod)
+- `Docs/debug_build_modes.md`
+
 ### Format research note
 The Anycubic format explanation references UVtools analysis and cross-checks it with this repository documentation.
 
@@ -35,6 +38,9 @@ Pour le moment, la documentation detaillee dans `Docs/` est en francais.
 
 ### Reference logging runtime
 - `Docs/logging_reference.md`
+
+### Modes de build (debug/prod)
+- `Docs/debug_build_modes.md`
 
 ### Note sur l'explication des formats
 L'explication des formats Anycubic s'appuie sur UVtools et sur les documents de ce depot.
