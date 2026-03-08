@@ -1,30 +1,35 @@
-## 6) View: Tab “Log” — Runtime Logs
+## 6) View: Tab "Log" - Runtime Logs
+
+### Statut
+- `IMPLEMENTE` en build debug (`ACCLOUD_DEBUG=ON`).
+- En build prod: vue remplacee par un panneau explicatif (logs viewer desactive).
 
 ### But
-Observer le runtime en live : tail multi-sources, filtres par niveau/source/component/event/op_id + recherche texte.
+Observer le runtime en live avec filtres operationnels:
+- niveau
+- source
+- component
+- event
+- op_id
+- recherche texte
 
-### Data affichées
-- Filtre level (ALL, INFO+, etc.)
-- Filtre source (All sources + sources detectees dynamiquement depuis `logs/*.jsonl`)
-- Filtre component/event (alimentés dynamiquement)
-- op_id exact
-- query (contains)
-- Zone de texte : lignes rendues (JSON ou fallback “best-effort”).
-- Scroll du `TextArea`: vertical `AlwaysOn`, horizontal `AsNeeded`.
+### Data affichees
+- Filtres dynamiques depuis les sinks JSONL
+- Zone log mono (tail)
+- Indicateur mode (`Live mode` / `Demo mode`)
 
 ### Positionnement
-- Barre filtres en haut (panel)
-- Zone logs (cardAlt) en dessous, occupant la hauteur.
-- Poll 1s.
+- panel filtres en haut
+- zone logs scrollable en dessous
+- polling periodique 1s
 
-### Thème
-- Zone logs = `monoBlock`
-- Filtres = QComboBox/QLineEdit style global.
+### Comportement reel
+- Si `logBridge` present: snapshot des `*.jsonl` en local
+- Sinon: fallback demo
+- Sources/components/events detectees dynamiquement
 
 ### Analyse
-- Très utile pour l’approche “op_id / req_id / events”.
-- Les sources ne sont pas codées en dur: toute nouvelle source JSONL apparait automatiquement dans le filtre source.
-- Cache 1000 lignes : suffisant pour du live, mais pas pour l’analyse longue (à faire offline sur fichiers).
-- Verification UI: le test QML valide la presence de la scrollbar verticale active sur l'onglet Log.
+- Tres utile pour debug et correlation `op_id`.
+- Comportement explicitement conditionne au flag build debug.
 
 ---

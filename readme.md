@@ -17,6 +17,9 @@ An English translation can be added later.
 ### Build modes (debug/prod)
 - `Docs/debug_build_modes.md`
 
+### Documentation index
+- `Docs/README.md`
+
 ### Format research note
 The Anycubic format explanation references UVtools analysis and cross-checks it with this repository documentation.
 
@@ -41,6 +44,9 @@ Pour le moment, la documentation detaillee dans `Docs/` est en francais.
 
 ### Modes de build (debug/prod)
 - `Docs/debug_build_modes.md`
+
+### Index documentation
+- `Docs/README.md`
 
 ### Note sur l'explication des formats
 L'explication des formats Anycubic s'appuie sur UVtools et sur les documents de ce depot.

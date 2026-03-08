@@ -1,52 +1,49 @@
-## 5) View: Tab “Printer” — Station board
+## 5) View: Tab "Printer" - Station board
+
+### Statut
+- `IMPLEMENTE` (workflow principal de production cote impression distante).
 
 ### But
-Donner une vue “atelier” : statut des imprimantes, signalétique (online/offline/printing), details enrichis, historique des projets, et entrypoint d'impression distante avec garde-fous.
+- Visualiser l'etat des imprimantes
+- Voir details + historique recent
+- Lancer impression distante avec garde-fous de compatibilite
 
-### Data affichées
-1) **Titre / sous-titre**
-- “Printers”
-- “Station board cloud: refresh, status, details, and print entrypoint.”
+### Data affichees
+1) Toolbar
+- `Refresh printers`
+- toggle debug labels
 
-2) **Toolbar**
-- Bouton **Refresh printers**
+2) Navigation imprimantes
+- onglets dynamiques `PrinterName | Status`
 
-3) **Status line**
-- erreurs, résultats, “Loaded X printers…”, etc.
+3) Device details
+- identite (name/model/firmware)
+- etat (`StatusChip`)
+- raison normalisee (catalogue reason)
+- job courant (progress/elapsed/remaining)
+- infos enrichies (count/time/material/help)
 
-4) **Navigation imprimantes**
-- Barre d'onglets horizontale (1 onglet par imprimante).
-- Titre d'onglet: `PrinterName | Status` (ex: `Anycubic Photon Mono M7 Pro | Printing`).
-- Le status de l'imprimante est visible directement dans le titre d'onglet.
+4) Historique recent
+- projets de l'imprimante (task/status/progress/start/end)
 
-5) **Panneau Device Details**
-- Identite: nom, modele, firmware.
-- Statut: chip + raison normalisee (`reason_catalog` si resolu).
-- Job courant: fichier/progress/elapsed/remaining.
-- Infos enrichies: print_count, print_totaltime, material_used, liens help/quick-start.
-- Capacites: `tools`, `advance` (liste compacte).
-- Historique recent: `getProjects?printer_id=...` (task, status, progress, start/end).
+5) Flux remote print
+- dialog `Select Cloud File`
+- dialog `Remote Print Config`
+- dialog `Print Config` (flags avances)
 
-6) **Remote print guardrails**
-- Avant `sendOrder`, verification de compatibilite par `file_id` via `v2/printer/printersStatus?file_id=...`.
-- Blocage explicite si imprimante offline/printing/error/incompatible.
-- Message utilisateur visible dans le dialog de configuration d'impression.
-
-7) **Debug**
-- Panneau JSON endpoint conserve en mode debug.
+### Guardrails reels
+- blocage si imprimante offline/printing/error
+- blocage si incompatibilite fichier vs imprimante
+- verification prioritaire via `fetchCompatiblePrintersByFileId`
+- message explicite utilisateur si blocage
 
 ### Positionnement
-- Layout vertical: toolbar -> status -> tabs -> details -> debug (optionnel).
-
-### Thème
-- Tabs = `card` surface.
-- Device details = `card`.
-- Debug payload = `cardAlt` + `monoBlock`.
-- Status chip = ok/warn/danger.
+- Layout vertical: toolbar -> tabs imprimantes -> details + historique
+- panneau JSON endpoint visible seulement en debug labels
 
 ### Analyse
-- Conforme au perimetre cloud: refresh, diagnostics, print remote controle.
-- Le flux principal repose sur `getPrinters` (+ projets actifs) et reserve les endpoints v2 pour enrichissement/guardrails.
-- Le mode debug reste optionnel et n'impacte pas le flux utilisateur standard.
+- Aligne avec l'approche printer-centric.
+- Bonne resilience via cache-first + sync cloud asynchrone.
+- Auto-refresh periodique apres premier refresh cloud reussi.
 
 ---

@@ -1,36 +1,34 @@
-## 9) Views “draft” exposées (risque UX)
+## 9) Views draft exposees (risque UX)
 
-### 9.1 Dialog “Upload .pwmb” (draft)
+### Statut
+- `PARTIEL` / `DRAFT`.
 
-#### But
-Maquette de workflow upload/auto-print/options.
+### 9.1 Upload dialog (draft)
 
-#### Data affichées
-- File path, Upload profile, Print target
-- Options: Print after upload / Delete after print / Keep signed URL snapshot
-- Actions: Browse / Close / Start upload (primary)
+#### Role actuel
+- Maquette UI uniquement.
+- Non connectee a un pipeline upload cloud complet dans cette vue.
 
-#### Positionnement
-Form + options + boutons.
+#### Risque
+- Peut etre confondu avec le flux metier reel Files/Printers.
 
-#### Thème
-Standard panels.
+### 9.2 Send Print Order dialog (draft)
 
-#### Analyse
-- **Non aligné avec l’état réel** : l’upload est déjà implémenté via Files tab (upload local vers cloud). Ce dialog “draft” devient une source de confusion.
+#### Role actuel
+- Maquette de payload direct.
+- Le flux reel d'impression est printer-centric dans `PrinterPage`.
 
-### 9.2 Dialog “Send Print Order” (draft)
+#### Risque
+- Redondant avec `Select Cloud File` + `Remote Print Config`.
 
-#### But
-Maquette d’un print order direct.
+### 9.3 Viewer dialog (draft)
 
-#### Data affichées
-- Liste imprimantes (mock)
-- file_id, copies, priority, dry-run
-- Actions: Preview payload / Close / Send order (primary)
+#### Role actuel
+- Placeholder visuel de controle viewer.
+- Pas de pipeline rendu OpenGL produit dans ce dialog.
 
-#### Analyse
-- Le print réel est implémenté depuis Files tab (choix imprimante via cloud + submit). Ce dialog est redondant et trompeur.
+### Recommendation
+- Conserver ces vues pour debug/demo uniquement.
+- Eviter de les presenter comme flux de production.
 
 ---
-
