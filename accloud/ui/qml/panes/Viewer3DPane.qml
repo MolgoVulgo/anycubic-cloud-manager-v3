@@ -4,6 +4,6 @@ import QtQuick.Controls 2.15
 Frame {
     Label {
         anchors.centerIn: parent
-        text: "3D Viewer (OpenGL placeholder)"
+        text: qsTr("3D Viewer (OpenGL placeholder)")
     }
 }

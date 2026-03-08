@@ -13,3 +13,4 @@ Source: `Docs/ui_views.md`
 - `sections/07_dialog_session_settings_import_har.md`
 - `sections/09_views_draft_exposees.md`
 - `sections/10_synthese_alignement_produit.md`
+- `sections/11_cards-printer.md`

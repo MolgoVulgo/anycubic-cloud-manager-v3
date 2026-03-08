@@ -1,0 +1,340 @@
+accloud/infra/cloud/SignHeaders.cpp:60:        return {false, "Missing Workbench app id/app secret"};
+accloud/infra/cloud/CloudClient.cpp:404:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:407:        return {false, "Pas d'access_token dans la session"};
+accloud/infra/cloud/CloudClient.cpp:415:        return {false, "Erreur réseau: " + validate.error};
+accloud/infra/cloud/CloudClient.cpp:426:            return {true, "Connexion validée"};
+accloud/infra/cloud/CloudClient.cpp:448:        return {false, "Erreur réseau: " + login.error};
+accloud/infra/cloud/CloudClient.cpp:459:            return {true, "Connexion validée"};
+accloud/infra/cloud/CloudClient.cpp:463:        return {false, "Token rejeté (code " + std::to_string(code) + "): " + msg};
+accloud/infra/cloud/CloudClient.cpp:465:        return {false, "Réponse JSON invalide (HTTP " + std::to_string(login.http) + ")"};
+accloud/infra/cloud/CloudClient.cpp:476:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:478:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:489:        return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:518:        if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:531:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:533:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:538:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:565:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:567:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:577:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:583:    } catch (...) { return {false, "Réponse invalide"}; }
+accloud/infra/cloud/CloudClient.cpp:593:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:595:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:605:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:620:            return {false, "URL non trouvée dans la réponse"};
+accloud/infra/cloud/CloudClient.cpp:625:        return {true, "URL obtenue", url};
+accloud/infra/cloud/CloudClient.cpp:626:    } catch (...) { return {false, "Réponse invalide"}; }
+accloud/infra/cloud/CloudClient.cpp:635:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:637:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:642:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:718:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:720:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:721:    if (fileExt.empty()) return {false, "file_ext requis"};
+accloud/infra/cloud/CloudClient.cpp:729:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:738:            return {false, "data compatibilité invalide"};
+accloud/infra/cloud/CloudClient.cpp:759:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:761:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:762:    if (fileId.empty()) return {false, "file_id requis"};
+accloud/infra/cloud/CloudClient.cpp:770:    if (!r.ok) return {false, "Erreur réseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:779:            return {false, "data compatibilite invalide"};
+accloud/infra/cloud/CloudClient.cpp:800:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:802:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:803:    if (printerId.empty()) return {false, "printer_id requis"};
+accloud/infra/cloud/CloudClient.cpp:811:    if (!r.ok) return {false, "Erreur reseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:879:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:881:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:886:    if (!r.ok) return {false, "Erreur reseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:895:            return {false, "data reason catalog invalide"};
+accloud/infra/cloud/CloudClient.cpp:925:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:927:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:928:    if (printerId.empty()) return {false, "printer_id requis"};
+accloud/infra/cloud/CloudClient.cpp:938:    if (!r.ok) return {false, "Erreur reseau: " + r.error};
+accloud/infra/cloud/CloudClient.cpp:947:            return {false, "data projects invalide"};
+accloud/infra/cloud/CloudClient.cpp:972:    return {false, "Qt non disponible"};
+accloud/infra/cloud/CloudClient.cpp:974:    if (accessToken.empty()) return {false, "Pas d'access_token"};
+accloud/infra/cloud/CloudClient.cpp:975:    if (printerId.empty()) return {false, "printer_id requis"};
+accloud/infra/cloud/CloudClient.cpp:976:    if (fileId.empty()) return {false, "file_id requis"};
+accloud/infra/cloud/CloudClient.cpp:998:    if (!r.ok) return {false, "Erreur réseau: " + r.error, {}};
+accloud/infra/cloud/CloudClient.cpp:1008:        return {true, "Print order envoyée", taskId};
+accloud/infra/cloud/CloudClient.cpp:1010:        return {false, "Réponse invalide", {}};
+accloud/app/LogBridge.cpp:45:  return QStringLiteral("INFO");
+accloud/app/LogBridge.cpp:53:    return value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+accloud/app/LogBridge.cpp:59:    return QStringLiteral("null");
+accloud/app/LogBridge.cpp:71:  for (const QString& key : {QStringLiteral("op_id"), QStringLiteral("opId"),
+accloud/app/LogBridge.cpp:72:                             QStringLiteral("operation_id"), QStringLiteral("operationId")}) {
+accloud/app/LogBridge.cpp:119:    if (key == QStringLiteral("op_id") || key == QStringLiteral("opId") ||
+accloud/app/LogBridge.cpp:120:        key == QStringLiteral("operation_id") || key == QStringLiteral("operationId")) {
+accloud/app/LogBridge.cpp:137:  entry.level = QStringLiteral("INFO");
+accloud/app/LogBridge.cpp:149:  entry.ts = root.value(QStringLiteral("ts")).toString();
+accloud/app/LogBridge.cpp:150:  entry.level = normalizedLevel(root.value(QStringLiteral("level")).toString());
+accloud/app/LogBridge.cpp:152:  const QString parsedSource = root.value(QStringLiteral("source")).toString().trimmed();
+accloud/app/LogBridge.cpp:156:  entry.component = root.value(QStringLiteral("component")).toString().trimmed();
+accloud/app/LogBridge.cpp:157:  entry.event = root.value(QStringLiteral("event")).toString().trimmed();
+accloud/app/LogBridge.cpp:158:  entry.message = root.value(QStringLiteral("message")).toString().trimmed();
+accloud/app/LogBridge.cpp:161:  const QJsonValue fieldsValue = root.value(QStringLiteral("fields"));
+accloud/app/LogBridge.cpp:172:  out.insert(QStringLiteral("sink"), entry.sink);
+accloud/app/LogBridge.cpp:173:  out.insert(QStringLiteral("ts"), entry.ts);
+accloud/app/LogBridge.cpp:174:  out.insert(QStringLiteral("level"), entry.level);
+accloud/app/LogBridge.cpp:175:  out.insert(QStringLiteral("source"), entry.source);
+accloud/app/LogBridge.cpp:176:  out.insert(QStringLiteral("component"), entry.component);
+accloud/app/LogBridge.cpp:177:  out.insert(QStringLiteral("event"), entry.event);
+accloud/app/LogBridge.cpp:178:  out.insert(QStringLiteral("opId"), entry.opId);
+accloud/app/LogBridge.cpp:179:  out.insert(QStringLiteral("message"), entry.message);
+accloud/app/LogBridge.cpp:180:  out.insert(QStringLiteral("formatted"), entry.formatted);
+accloud/app/LogBridge.cpp:195:    out.insert(QStringLiteral("ok"), false);
+accloud/app/LogBridge.cpp:196:    out.insert(QStringLiteral("message"),
+accloud/app/LogBridge.cpp:197:               QStringLiteral("Répertoire de logs introuvable: %1").arg(logDirPath));
+accloud/app/LogBridge.cpp:198:    out.insert(QStringLiteral("logDir"), logDirPath);
+accloud/app/LogBridge.cpp:203:      logDir.entryInfoList(QStringList{QStringLiteral("*.jsonl")}, QDir::Files | QDir::Readable,
+accloud/app/LogBridge.cpp:267:  out.insert(QStringLiteral("ok"), true);
+accloud/app/LogBridge.cpp:268:  out.insert(QStringLiteral("message"), QStringLiteral("%1 ligne(s)").arg(entries.size()));
+accloud/app/LogBridge.cpp:269:  out.insert(QStringLiteral("logDir"), logDirPath);
+accloud/app/LogBridge.cpp:270:  out.insert(QStringLiteral("totalEntries"), entries.size());
+accloud/app/LogBridge.cpp:271:  out.insert(QStringLiteral("sources"), sinkList);
+accloud/app/LogBridge.cpp:272:  out.insert(QStringLiteral("components"), componentList);
+accloud/app/LogBridge.cpp:273:  out.insert(QStringLiteral("events"), eventList);
+accloud/app/LogBridge.cpp:274:  out.insert(QStringLiteral("entries"), entryList);
+accloud/app/SessionImportBridge.cpp:47:    return QStringLiteral("<empty>");
+accloud/app/SessionImportBridge.cpp:50:    return QStringLiteral("<redacted> (len=%1)").arg(value.size());
+accloud/app/SessionImportBridge.cpp:54:  return QStringLiteral("%1...%2 (len=%3)").arg(head, tail).arg(value.size());
+accloud/app/SessionImportBridge.cpp:92:    out.insert("message", "HAR file path is required");
+accloud/app/SessionImportBridge.cpp:133:  out.insert("message", QString::fromStdString(result.message));
+accloud/app/SessionImportBridge.cpp:147:    out.insert("message", "No valid HAR analysis pending.");
+accloud/app/SessionImportBridge.cpp:157:  out.insert("message", QString::fromStdString(saved.message));
+accloud/app/SessionImportBridge.cpp:171:    out.insert("message", "Session saved, but access_token is missing.");
+accloud/app/SessionImportBridge.cpp:208:  lines << QStringLiteral("Path: %1").arg(QString::fromStdString(loaded.path.string()));
+accloud/app/SessionImportBridge.cpp:209:  lines << QStringLiteral("Exists: %1").arg(loaded.ok ? "true" : "false");
+accloud/app/SessionImportBridge.cpp:211:    lines << QStringLiteral("Message: %1").arg(QString::fromStdString(loaded.message));
+accloud/app/SessionImportBridge.cpp:214:    out.insert("message", QString::fromStdString(loaded.message));
+accloud/app/SessionImportBridge.cpp:219:  lines << QStringLiteral("Token count: %1").arg(loaded.session.tokens.size());
+accloud/app/SessionImportBridge.cpp:237:  out.insert("message", QStringLiteral("Session loaded"));
+accloud/app/SessionImportBridge.cpp:254:    out.insert("message",
+accloud/app/SessionImportBridge.cpp:265:    out.insert("message", QString("session.json ne contient pas de access_token."));
+accloud/app/SessionImportBridge.cpp:278:  out.insert("message", QString::fromStdString(check.message));
+accloud/app/UiSettingsBridge.cpp:12:    org = QStringLiteral("accloud");
+accloud/app/UiSettingsBridge.cpp:17:    app = QStringLiteral("accloud");
+accloud/app/main.cpp:138:  engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));
+accloud/app/CloudBridge.cpp:38:        case 1:  return QStringLiteral("READY");
+accloud/app/CloudBridge.cpp:39:        case 2:  return QStringLiteral("PROCESSING");
+accloud/app/CloudBridge.cpp:40:        default: return QStringLiteral("UNKNOWN");
+accloud/app/CloudBridge.cpp:152:        const QString printerId = printer.value(QStringLiteral("id")).toString();
+accloud/app/CloudBridge.cpp:153:        const QString printerName = printer.value(QStringLiteral("name")).toString();
+accloud/app/CloudBridge.cpp:154:        const QVariantList projects = printer.value(QStringLiteral("projects")).toList();
+accloud/app/CloudBridge.cpp:157:            if (job.value(QStringLiteral("printerId")).toString().trimmed().isEmpty()) {
+accloud/app/CloudBridge.cpp:158:                job.insert(QStringLiteral("printerId"), printerId);
+accloud/app/CloudBridge.cpp:160:            if (job.value(QStringLiteral("printerName")).toString().trimmed().isEmpty()) {
+accloud/app/CloudBridge.cpp:161:                job.insert(QStringLiteral("printerName"), printerName);
+accloud/app/CloudBridge.cpp:224:        message = QStringLiteral("Session invalide ou introuvable.");
+accloud/app/CloudBridge.cpp:264:        message = QStringLiteral("Session invalide.");
+accloud/app/CloudBridge.cpp:330:        message = QStringLiteral("Session invalide.");
+accloud/app/CloudBridge.cpp:367:    out.insert("message", QStringLiteral("Cache local indisponible."));
+accloud/app/CloudBridge.cpp:377:    out.insert("message", files.isEmpty()
+accloud/app/CloudBridge.cpp:378:                             ? QStringLiteral("Aucune donnée cache.")
+accloud/app/CloudBridge.cpp:379:                             : QStringLiteral("Fichiers chargés depuis le cache local."));
+accloud/app/CloudBridge.cpp:391:    out.insert("message", QStringLiteral("Cache local indisponible."));
+accloud/app/CloudBridge.cpp:404:        const QString printerId = printer.value(QStringLiteral("id")).toString();
+accloud/app/CloudBridge.cpp:405:        printer.insert(QStringLiteral("progress"), -1);
+accloud/app/CloudBridge.cpp:406:        printer.insert(QStringLiteral("elapsedSec"), -1);
+accloud/app/CloudBridge.cpp:407:        printer.insert(QStringLiteral("remainingSec"), -1);
+accloud/app/CloudBridge.cpp:408:        printer.insert(QStringLiteral("details"), QVariantMap{});
+accloud/app/CloudBridge.cpp:409:        printer.insert(QStringLiteral("detailsRawJson"), QString{});
+accloud/app/CloudBridge.cpp:410:        printer.insert(QStringLiteral("projects"), m_cache->loadJobsForPrinter(printerId, 1, 20));
+accloud/app/CloudBridge.cpp:414:    out.insert("message", printers.isEmpty()
+accloud/app/CloudBridge.cpp:415:                             ? QStringLiteral("Aucune imprimante en cache.")
+accloud/app/CloudBridge.cpp:416:                             : QStringLiteral("Imprimantes chargées depuis le cache local."));
+accloud/app/CloudBridge.cpp:424:    out.insert("message", QStringLiteral("Cache quota indisponible."));
+accloud/app/CloudBridge.cpp:437:        out.insert("message", QStringLiteral("Aucun quota en cache."));
+accloud/app/CloudBridge.cpp:442:    out.insert("message", QStringLiteral("Quota chargé depuis le cache local."));
+accloud/app/CloudBridge.cpp:459:        if (!shouldRefresh(QStringLiteral("files"), 120, force)) {
+accloud/app/CloudBridge.cpp:466:            m_cache->updateSyncState(QStringLiteral("files"), ok, message);
+accloud/app/CloudBridge.cpp:472:                emit filesUpdatedFromCloud(files, QStringLiteral("Cloud refresh terminé."));
+accloud/app/CloudBridge.cpp:479:                m_cache->updateSyncState(QStringLiteral("quota"), quotaOk, quotaMessage);
+accloud/app/CloudBridge.cpp:484:                    emit quotaUpdatedFromCloud(quota, QStringLiteral("Quota rafraîchi depuis le cloud."));
+accloud/app/CloudBridge.cpp:488:                    emit syncFailed(QStringLiteral("quota"), quotaMessage);
+accloud/app/CloudBridge.cpp:493:                emit syncFailed(QStringLiteral("files"), message);
+accloud/app/CloudBridge.cpp:511:        if (!shouldRefresh(QStringLiteral("printers"), 30, force)) {
+accloud/app/CloudBridge.cpp:518:            m_cache->updateSyncState(QStringLiteral("printers"), ok, message);
+accloud/app/CloudBridge.cpp:525:                emit printersUpdatedFromCloud(printers, QStringLiteral("Cloud refresh imprimantes terminé."));
+accloud/app/CloudBridge.cpp:529:                emit syncFailed(QStringLiteral("printers"), message);
+accloud/app/CloudBridge.cpp:546:    out.insert("message", message);
+accloud/app/CloudBridge.cpp:551:        m_cache->updateSyncState(QStringLiteral("files"), ok, message);
+accloud/app/CloudBridge.cpp:568:    out.insert("message", message);
+accloud/app/CloudBridge.cpp:575:        m_cache->updateSyncState(QStringLiteral("quota"), ok, message);
+accloud/app/CloudBridge.cpp:590:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:598:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:601:        m_cache->invalidateScope(QStringLiteral("files"));
+accloud/app/CloudBridge.cpp:613:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:619:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:637:    out.insert("message", message);
+accloud/app/CloudBridge.cpp:642:        m_cache->updateSyncState(QStringLiteral("printers"), ok, message);
+accloud/app/CloudBridge.cpp:658:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:665:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:681:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:688:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:704:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:711:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:723:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:729:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:746:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:753:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:767:            out.insert("message", QStringLiteral("Jobs chargés depuis le cache local."));
+accloud/app/CloudBridge.cpp:777:    out.insert("message", QStringLiteral("Cache local indisponible."));
+accloud/app/CloudBridge.cpp:782:        out.insert("message", QStringLiteral("printer_id requis."));
+accloud/app/CloudBridge.cpp:792:    out.insert("message", projects.isEmpty()
+accloud/app/CloudBridge.cpp:793:                             ? QStringLiteral("Aucun job en cache pour cette imprimante.")
+accloud/app/CloudBridge.cpp:794:                             : QStringLiteral("Jobs chargés depuis le cache local."));
+accloud/app/CloudBridge.cpp:808:        out.insert("message", QString("Dry-run: print order payload generated."));
+accloud/app/CloudBridge.cpp:816:        out.insert("message", QString("Session invalide."));
+accloud/app/CloudBridge.cpp:823:    out.insert("message", QString::fromStdString(r.message));
+accloud/app/CloudBridge.cpp:826:        m_cache->invalidateScope(QStringLiteral("printers"));
+accloud/app/LocalCacheStore.cpp:29:  return QStringLiteral("accloud_cache.db");
+accloud/app/LocalCacheStore.cpp:37:  return QStringLiteral("accloud_cache_") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+accloud/app/LocalCacheStore.cpp:56:  if (!q.exec(QStringLiteral("SELECT 1 FROM ") + table + QStringLiteral(" LIMIT 1"))) {
+accloud/app/LocalCacheStore.cpp:66:  if (!countQuery.exec(QStringLiteral("SELECT COUNT(*) FROM ") + table)) {
+accloud/app/LocalCacheStore.cpp:80:  const QString sql = QStringLiteral("DELETE FROM ") + table
+accloud/app/LocalCacheStore.cpp:81:                      + QStringLiteral(" WHERE ") + idColumn
+accloud/app/LocalCacheStore.cpp:82:                      + QStringLiteral(" IN (SELECT ") + idColumn
+accloud/app/LocalCacheStore.cpp:83:                      + QStringLiteral(" FROM ") + table
+accloud/app/LocalCacheStore.cpp:84:                      + QStringLiteral(" ORDER BY updated_at ASC LIMIT :extra)");
+accloud/app/LocalCacheStore.cpp:86:  prune.bindValue(QStringLiteral(":extra"), extra);
+accloud/app/LocalCacheStore.cpp:91:  if (tableHasRows(db, QStringLiteral("cloud_files"))) {
+accloud/app/LocalCacheStore.cpp:96:  if (!read.exec(QStringLiteral("SELECT payload, updated_at FROM files ORDER BY updated_at DESC"))) {
+accloud/app/LocalCacheStore.cpp:112:    const QString id = map.value(QStringLiteral("fileId")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:116:    ins.bindValue(QStringLiteral(":id"), id);
+accloud/app/LocalCacheStore.cpp:117:    ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("fileName")).toString());
+accloud/app/LocalCacheStore.cpp:118:    ins.bindValue(QStringLiteral(":status"), map.value(QStringLiteral("status")).toString());
+accloud/app/LocalCacheStore.cpp:119:    ins.bindValue(QStringLiteral(":sizeBytes"), map.value(QStringLiteral("sizeBytes"), 0));
+accloud/app/LocalCacheStore.cpp:120:    ins.bindValue(QStringLiteral(":sizeText"), map.value(QStringLiteral("sizeText")).toString());
+accloud/app/LocalCacheStore.cpp:121:    ins.bindValue(QStringLiteral(":machine"), map.value(QStringLiteral("machine")).toString());
+accloud/app/LocalCacheStore.cpp:122:    ins.bindValue(QStringLiteral(":material"), map.value(QStringLiteral("material")).toString());
+accloud/app/LocalCacheStore.cpp:123:    ins.bindValue(QStringLiteral(":uploadTime"), map.value(QStringLiteral("uploadTime")).toString());
+accloud/app/LocalCacheStore.cpp:124:    ins.bindValue(QStringLiteral(":printTime"), map.value(QStringLiteral("printTime")).toString());
+accloud/app/LocalCacheStore.cpp:125:    ins.bindValue(QStringLiteral(":layerThickness"), map.value(QStringLiteral("layerThickness")).toString());
+accloud/app/LocalCacheStore.cpp:126:    ins.bindValue(QStringLiteral(":layers"), map.value(QStringLiteral("layers"), 0));
+accloud/app/LocalCacheStore.cpp:127:    ins.bindValue(QStringLiteral(":isPwmb"), map.value(QStringLiteral("isPwmb"), false).toBool() ? 1 : 0);
+accloud/app/LocalCacheStore.cpp:128:    ins.bindValue(QStringLiteral(":resinUsage"), map.value(QStringLiteral("resinUsage")).toString());
+accloud/app/LocalCacheStore.cpp:129:    ins.bindValue(QStringLiteral(":dimensions"), map.value(QStringLiteral("dimensions")).toString());
+accloud/app/LocalCacheStore.cpp:130:    ins.bindValue(QStringLiteral(":thumbnailUrl"), map.value(QStringLiteral("thumbnailUrl")).toString());
+accloud/app/LocalCacheStore.cpp:131:    ins.bindValue(QStringLiteral(":gcodeId"), map.value(QStringLiteral("gcodeId")).toString());
+accloud/app/LocalCacheStore.cpp:132:    ins.bindValue(QStringLiteral(":updatedAt"), updatedAt > 0 ? updatedAt : readNow());
+accloud/app/LocalCacheStore.cpp:142:  if (tableHasRows(db, QStringLiteral("cloud_printers"))) {
+accloud/app/LocalCacheStore.cpp:147:  if (!read.exec(QStringLiteral("SELECT payload, updated_at FROM printers ORDER BY updated_at DESC"))) {
+accloud/app/LocalCacheStore.cpp:161:    const QString id = map.value(QStringLiteral("id")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:165:    ins.bindValue(QStringLiteral(":id"), id);
+accloud/app/LocalCacheStore.cpp:166:    ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
+accloud/app/LocalCacheStore.cpp:167:    ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
+accloud/app/LocalCacheStore.cpp:168:    ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());
+accloud/app/LocalCacheStore.cpp:169:    ins.bindValue(QStringLiteral(":lastSeen"), map.value(QStringLiteral("lastSeen")).toString());
+accloud/app/LocalCacheStore.cpp:170:    ins.bindValue(QStringLiteral(":state"), map.value(QStringLiteral("state")).toString());
+accloud/app/LocalCacheStore.cpp:171:    ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+accloud/app/LocalCacheStore.cpp:172:    ins.bindValue(QStringLiteral(":available"), map.value(QStringLiteral("available"), -1));
+accloud/app/LocalCacheStore.cpp:173:    ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+accloud/app/LocalCacheStore.cpp:174:    ins.bindValue(QStringLiteral(":updatedAt"), updatedAt > 0 ? updatedAt : readNow());
+accloud/app/LocalCacheStore.cpp:186:      QStringLiteral("PRAGMA journal_mode=WAL"),
+accloud/app/LocalCacheStore.cpp:187:      QStringLiteral("PRAGMA synchronous=NORMAL"),
+accloud/app/LocalCacheStore.cpp:258:      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_cloud_files_updated_at ON cloud_files(updated_at DESC)"),
+accloud/app/LocalCacheStore.cpp:259:      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_cloud_printers_updated_at ON cloud_printers(updated_at DESC)"),
+accloud/app/LocalCacheStore.cpp:260:      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_jobs_printer_id ON jobs(printer_id)"),
+accloud/app/LocalCacheStore.cpp:261:      QStringLiteral("CREATE INDEX IF NOT EXISTS idx_jobs_create_time ON jobs(create_time DESC)")};
+accloud/app/LocalCacheStore.cpp:322:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:367:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:379:    q.bindValue(QStringLiteral(":limit"), limit);
+accloud/app/LocalCacheStore.cpp:380:    q.bindValue(QStringLiteral(":offset"), offset);
+accloud/app/LocalCacheStore.cpp:407:      legacy.prepare(QStringLiteral("SELECT payload FROM files ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"));
+accloud/app/LocalCacheStore.cpp:408:      legacy.bindValue(QStringLiteral(":limit"), limit);
+accloud/app/LocalCacheStore.cpp:409:      legacy.bindValue(QStringLiteral(":offset"), offset);
+accloud/app/LocalCacheStore.cpp:432:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:462:      legacy.prepare(QStringLiteral("SELECT payload FROM printers ORDER BY updated_at DESC"));
+accloud/app/LocalCacheStore.cpp:494:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:505:    q.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+accloud/app/LocalCacheStore.cpp:506:    q.bindValue(QStringLiteral(":limit"), limit);
+accloud/app/LocalCacheStore.cpp:507:    q.bindValue(QStringLiteral(":offset"), offset);
+accloud/app/LocalCacheStore.cpp:539:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:547:    q.prepare(QStringLiteral("SELECT payload FROM quota WHERE id = 1"));
+accloud/app/LocalCacheStore.cpp:566:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:581:    ok = clear.exec(QStringLiteral("DELETE FROM cloud_files"));
+accloud/app/LocalCacheStore.cpp:595:        const QString id = map.value(QStringLiteral("fileId")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:598:        ins.bindValue(QStringLiteral(":id"), id);
+accloud/app/LocalCacheStore.cpp:599:        ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("fileName")).toString());
+accloud/app/LocalCacheStore.cpp:600:        ins.bindValue(QStringLiteral(":status"), map.value(QStringLiteral("status"), QStringLiteral("UNKNOWN")));
+accloud/app/LocalCacheStore.cpp:601:        ins.bindValue(QStringLiteral(":sizeBytes"), map.value(QStringLiteral("sizeBytes"), 0));
+accloud/app/LocalCacheStore.cpp:602:        ins.bindValue(QStringLiteral(":sizeText"), map.value(QStringLiteral("sizeText")).toString());
+accloud/app/LocalCacheStore.cpp:603:        ins.bindValue(QStringLiteral(":machine"), map.value(QStringLiteral("machine")).toString());
+accloud/app/LocalCacheStore.cpp:604:        ins.bindValue(QStringLiteral(":material"), map.value(QStringLiteral("material")).toString());
+accloud/app/LocalCacheStore.cpp:605:        ins.bindValue(QStringLiteral(":uploadTime"), map.value(QStringLiteral("uploadTime")).toString());
+accloud/app/LocalCacheStore.cpp:606:        ins.bindValue(QStringLiteral(":printTime"), map.value(QStringLiteral("printTime")).toString());
+accloud/app/LocalCacheStore.cpp:607:        ins.bindValue(QStringLiteral(":layerThickness"), map.value(QStringLiteral("layerThickness")).toString());
+accloud/app/LocalCacheStore.cpp:608:        ins.bindValue(QStringLiteral(":layers"), map.value(QStringLiteral("layers"), 0));
+accloud/app/LocalCacheStore.cpp:609:        ins.bindValue(QStringLiteral(":isPwmb"), map.value(QStringLiteral("isPwmb"), false).toBool() ? 1 : 0);
+accloud/app/LocalCacheStore.cpp:610:        ins.bindValue(QStringLiteral(":resinUsage"), map.value(QStringLiteral("resinUsage")).toString());
+accloud/app/LocalCacheStore.cpp:611:        ins.bindValue(QStringLiteral(":dimensions"), map.value(QStringLiteral("dimensions")).toString());
+accloud/app/LocalCacheStore.cpp:612:        ins.bindValue(QStringLiteral(":thumbnailUrl"), map.value(QStringLiteral("thumbnailUrl")).toString());
+accloud/app/LocalCacheStore.cpp:613:        ins.bindValue(QStringLiteral(":gcodeId"), map.value(QStringLiteral("gcodeId")).toString());
+accloud/app/LocalCacheStore.cpp:614:        ins.bindValue(QStringLiteral(":updatedAt"), now);
+accloud/app/LocalCacheStore.cpp:623:      enforceMaxRows(db, QStringLiteral("cloud_files"), QStringLiteral("file_id"), 1500);
+accloud/app/LocalCacheStore.cpp:644:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:659:    ok = clear.exec(QStringLiteral("DELETE FROM cloud_printers"));
+accloud/app/LocalCacheStore.cpp:671:        const QString id = map.value(QStringLiteral("id")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:674:        ins.bindValue(QStringLiteral(":id"), id);
+accloud/app/LocalCacheStore.cpp:675:        ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
+accloud/app/LocalCacheStore.cpp:676:        ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
+accloud/app/LocalCacheStore.cpp:677:        ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());
+accloud/app/LocalCacheStore.cpp:678:        ins.bindValue(QStringLiteral(":lastSeen"), map.value(QStringLiteral("lastSeen")).toString());
+accloud/app/LocalCacheStore.cpp:679:        ins.bindValue(QStringLiteral(":state"), map.value(QStringLiteral("state"), QStringLiteral("UNKNOWN")));
+accloud/app/LocalCacheStore.cpp:680:        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+accloud/app/LocalCacheStore.cpp:681:        ins.bindValue(QStringLiteral(":available"), map.value(QStringLiteral("available"), -1));
+accloud/app/LocalCacheStore.cpp:682:        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+accloud/app/LocalCacheStore.cpp:683:        ins.bindValue(QStringLiteral(":updatedAt"), now);
+accloud/app/LocalCacheStore.cpp:692:      enforceMaxRows(db, QStringLiteral("cloud_printers"), QStringLiteral("printer_id"), 300);
+accloud/app/LocalCacheStore.cpp:713:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:728:    ok = clear.exec(QStringLiteral("DELETE FROM jobs"));
+accloud/app/LocalCacheStore.cpp:740:        const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:741:        const QString printerId = map.value(QStringLiteral("printerId")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:744:        ins.bindValue(QStringLiteral(":taskId"), taskId);
+accloud/app/LocalCacheStore.cpp:745:        ins.bindValue(QStringLiteral(":printerId"), printerId);
+accloud/app/LocalCacheStore.cpp:746:        ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
+accloud/app/LocalCacheStore.cpp:747:        ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+accloud/app/LocalCacheStore.cpp:748:        ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
+accloud/app/LocalCacheStore.cpp:749:        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+accloud/app/LocalCacheStore.cpp:750:        ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
+accloud/app/LocalCacheStore.cpp:751:        ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
+accloud/app/LocalCacheStore.cpp:752:        ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+accloud/app/LocalCacheStore.cpp:753:        ins.bindValue(QStringLiteral(":updatedAt"), now);
+accloud/app/LocalCacheStore.cpp:762:      enforceMaxRows(db, QStringLiteral("jobs"), QStringLiteral("task_id"), 3000);
+accloud/app/LocalCacheStore.cpp:788:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:803:    clear.prepare(QStringLiteral("DELETE FROM jobs WHERE printer_id = :printerId"));
+accloud/app/LocalCacheStore.cpp:804:    clear.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+accloud/app/LocalCacheStore.cpp:817:        const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
+accloud/app/LocalCacheStore.cpp:820:        ins.bindValue(QStringLiteral(":taskId"), taskId);
+accloud/app/LocalCacheStore.cpp:821:        ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+accloud/app/LocalCacheStore.cpp:822:        ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
+accloud/app/LocalCacheStore.cpp:823:        ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+accloud/app/LocalCacheStore.cpp:824:        ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
+accloud/app/LocalCacheStore.cpp:825:        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+accloud/app/LocalCacheStore.cpp:826:        ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
+accloud/app/LocalCacheStore.cpp:827:        ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
+accloud/app/LocalCacheStore.cpp:828:        ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+accloud/app/LocalCacheStore.cpp:829:        ins.bindValue(QStringLiteral(":updatedAt"), now);
+accloud/app/LocalCacheStore.cpp:838:      enforceMaxRows(db, QStringLiteral("jobs"), QStringLiteral("task_id"), 3000);
+accloud/app/LocalCacheStore.cpp:859:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:869:    q.bindValue(QStringLiteral(":payload"), encodePayload(quota));
+accloud/app/LocalCacheStore.cpp:870:    q.bindValue(QStringLiteral(":updatedAt"), nowEpochSec());
+accloud/app/LocalCacheStore.cpp:892:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:900:    q.prepare(QStringLiteral("DELETE FROM cloud_files WHERE file_id = :id"));
+accloud/app/LocalCacheStore.cpp:901:    q.bindValue(QStringLiteral(":id"), normalized);
+accloud/app/LocalCacheStore.cpp:905:    qLegacy.prepare(QStringLiteral("DELETE FROM files WHERE file_id = :id"));
+accloud/app/LocalCacheStore.cpp:906:    qLegacy.bindValue(QStringLiteral(":id"), normalized);
+accloud/app/LocalCacheStore.cpp:929:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:948:    q.bindValue(QStringLiteral(":scope"), normalized);
+accloud/app/LocalCacheStore.cpp:949:    q.bindValue(QStringLiteral(":lastSuccessAt"), ok ? now : 0);
+accloud/app/LocalCacheStore.cpp:950:    q.bindValue(QStringLiteral(":lastAttemptAt"), now);
+accloud/app/LocalCacheStore.cpp:951:    q.bindValue(QStringLiteral(":statusOk"), ok ? 1 : 0);
+accloud/app/LocalCacheStore.cpp:952:    q.bindValue(QStringLiteral(":lastError"), ok ? QString{} : errorMessage.left(600));
+accloud/app/LocalCacheStore.cpp:975:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:985:    q.bindValue(QStringLiteral(":scope"), normalized);
+accloud/app/LocalCacheStore.cpp:1017:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:1028:    q.bindValue(QStringLiteral(":scope"), normalized);
+accloud/app/LocalCacheStore.cpp:1044:    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+accloud/app/LocalCacheStore.cpp:1050:    enforceMaxRows(db, QStringLiteral("cloud_files"), QStringLiteral("file_id"), 1500);
+accloud/app/LocalCacheStore.cpp:1051:    enforceMaxRows(db, QStringLiteral("cloud_printers"), QStringLiteral("printer_id"), 300);
+accloud/app/LocalCacheStore.cpp:1052:    enforceMaxRows(db, QStringLiteral("jobs"), QStringLiteral("task_id"), 3000);

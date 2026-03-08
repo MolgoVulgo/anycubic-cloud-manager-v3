@@ -10,6 +10,7 @@ set(CMAKE_AUTORCC ON)
 
 option(ACCLOUD_ENABLE_QT "Enable Qt6/QML frontend target" ON)
 option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
+option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 
@@ -61,24 +62,69 @@ add_executable(accloud_cli
     app/main.cpp
     app/App.cpp
 )
+set_source_files_properties(app/main.cpp PROPERTIES SKIP_AUTOMOC ON)
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
 
+if(ACCLOUD_DEBUG)
+  target_compile_definitions(accloud_infra PRIVATE ACCLOUD_DEBUG=1)
+  target_compile_definitions(accloud_cli PRIVATE ACCLOUD_DEBUG=1)
+endif()
+
 if(ACCLOUD_ENABLE_QT)
-  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network)
+  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network Sql)
   if(Qt6_FOUND)
     target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
     target_link_libraries(accloud_infra PRIVATE Qt6::Network)
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
-    target_sources(accloud_cli PRIVATE
+    set(ACCLOUD_APP_QT_SOURCES
         app/resources.qrc
+        app/AppI18nBridge.cpp
+        app/AppI18nBridge.h
         app/CloudBridge.cpp
         app/CloudBridge.h
-        app/LogBridge.cpp
-        app/LogBridge.h
+        app/LocalCacheStore.cpp
+        app/LocalCacheStore.h
+        app/UiSettingsBridge.cpp
+        app/UiSettingsBridge.h
         app/SessionImportBridge.cpp
         app/SessionImportBridge.h
     )
-    target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2)
+
+    if(ACCLOUD_DEBUG)
+      list(APPEND ACCLOUD_APP_QT_SOURCES
+          app/resources_debug.qrc
+          app/LogBridge.cpp
+          app/LogBridge.h
+          app/UiClickTracer.cpp
+          app/UiClickTracer.h
+      )
+    endif()
+
+    target_sources(accloud_cli PRIVATE ${ACCLOUD_APP_QT_SOURCES})
+    target_link_libraries(accloud_cli PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Sql)
+
+    find_package(Qt6 QUIET COMPONENTS LinguistTools)
+    if(TARGET Qt6::lrelease)
+      set(ACCLOUD_I18N_TS_FILES
+          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_en.ts
+          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_fr.ts
+      )
+      file(GLOB_RECURSE ACCLOUD_I18N_QML_FILES
+          ${CMAKE_CURRENT_SOURCE_DIR}/ui/qml/*.qml
+      )
+      qt_add_translations(accloud_cli
+          TS_FILES ${ACCLOUD_I18N_TS_FILES}
+          SOURCES
+              app/main.cpp
+              app/AppI18nBridge.cpp
+              app/CloudBridge.cpp
+              app/SessionImportBridge.cpp
+              ${ACCLOUD_I18N_QML_FILES}
+          RESOURCE_PREFIX "/i18n"
+      )
+    else()
+      message(WARNING "Qt6 LinguistTools not found: skipping .ts/.qm generation")
+    endif()
   else()
     message(WARNING "Qt6 not found: accloud_cli will build in headless skeleton mode")
   endif()
