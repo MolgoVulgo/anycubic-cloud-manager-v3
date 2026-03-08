@@ -1,4 +1,5 @@
 #include "App.h"
+#include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
 
 #include <cstdlib>
@@ -8,10 +9,12 @@
 #if defined(ACCLOUD_WITH_QT)
 #include "AppI18nBridge.h"
 #include "CloudBridge.h"
-#include "LogBridge.h"
 #include "SessionImportBridge.h"
-#include "UiClickTracer.h"
 #include "UiSettingsBridge.h"
+#if defined(ACCLOUD_DEBUG)
+#include "LogBridge.h"
+#include "UiClickTracer.h"
+#endif
 
 #include <QGuiApplication>
 #include <QImageReader>
@@ -51,6 +54,8 @@ bool hasArg(int argc, char** argv, std::string_view flag) {
 }
 
 #if defined(ACCLOUD_WITH_QT)
+constexpr bool kBuildDebugEnabled = accloud::debug::kEnabled;
+
 void qtMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& message) {
   accloud::logging::Level level = accloud::logging::Level::kInfo;
   std::string event = "qt_info";
@@ -133,21 +138,29 @@ int main(int argc, char** argv) {
                            "QImageReader supported formats",
                            {{"formats", formats.join(',').toStdString()}});
   }
+#if defined(ACCLOUD_DEBUG)
   accloud::UiClickTracer uiClickTracer;
   app.installEventFilter(&uiClickTracer);
+#endif
   accloud::logging::info("app", "bootstrap", "qt_initialized", "Qt GUI initialized",
                          {{"log_dir", accloud::logging::logDirectory().string()}});
 
   QQmlApplicationEngine engine;
   accloud::SessionImportBridge sessionImportBridge;
   accloud::CloudBridge cloudBridge;
+#if defined(ACCLOUD_DEBUG)
   accloud::LogBridge logBridge;
+#endif
   accloud::UiSettingsBridge uiSettingsBridge;
   accloud::AppI18nBridge appI18nBridge(&app, &engine);
   appI18nBridge.applyStartupLanguage();
+  engine.rootContext()->setContextProperty("accloudBuildDebugEnabled",
+                                           kBuildDebugEnabled);
   engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
   engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
+#if defined(ACCLOUD_DEBUG)
   engine.rootContext()->setContextProperty("logBridge", &logBridge);
+#endif
   engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
   engine.rootContext()->setContextProperty("appI18nBridge", &appI18nBridge);
   engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));

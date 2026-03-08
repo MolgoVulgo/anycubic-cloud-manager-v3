@@ -88,7 +88,7 @@ struct CloudPrintersResult {
     bool ok = false;
     std::string message;
     std::vector<CloudPrinterInfo> printers;
-    std::string rawJson; // Réponses brutes agrégées (getPrinters + getProjects)
+    std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
 };
 
 struct CloudPrinterCompatItem {
@@ -112,7 +112,7 @@ struct CloudPrintOrderResult {
 struct CloudPrinterDetailsResult {
     bool ok = false;
     std::string message;
-    std::string rawJson;
+    std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
     std::string firmwareVersion;
     std::string printCount;
     std::string printTotalTime;

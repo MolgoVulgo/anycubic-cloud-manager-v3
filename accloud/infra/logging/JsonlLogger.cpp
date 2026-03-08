@@ -358,8 +358,16 @@ void log(Level level, std::string source, std::string component, std::string eve
 
 void debug(std::string source, std::string component, std::string event, std::string message,
            FieldMap fields) {
+#if defined(ACCLOUD_DEBUG)
   log(Level::kDebug, std::move(source), std::move(component), std::move(event), std::move(message),
       std::move(fields));
+#else
+  (void)source;
+  (void)component;
+  (void)event;
+  (void)message;
+  (void)fields;
+#endif
 }
 
 void info(std::string source, std::string component, std::string event, std::string message,
