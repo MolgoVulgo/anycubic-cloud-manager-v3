@@ -9,6 +9,8 @@ This directory materializes the architecture from `Docs/structure_application_ph
 
 Logging reference:
 - `../Docs/logging_reference.md`
+- `../Docs/README.md` (documentation map)
+- `../Docs/etat_reel_vs_cible.md` (implemented vs target matrix)
 
 ## Build
 
