@@ -1,5 +1,11 @@
 # Capture des retours endpoints Anycubic
 
+## Statut document
+
+- Type: `SNAPSHOT` (capture datee, non normative).
+- Priorite de reference: voir `Docs/endpoints_reference_policy.md`.
+- Ce fichier decrit une execution ponctuelle; il ne remplace pas le contrat endpoint.
+
 ## Contexte
 - Genere le: `2026-03-06T18:04:27Z`
 - Sources endpoints: `Docs/end_points.md`, `Docs/end_points_v2_verifie.md`

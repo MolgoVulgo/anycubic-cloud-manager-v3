@@ -1,41 +1,30 @@
-## 8) View: Dialog “PWMB 3D Viewer” — OpenGL viewport
+## 8) View: Dialog "PWMB 3D Viewer" - Draft dialog
 
-### But
-Afficher un PWMB en 3D via pipeline progressif :
-- **Pass 1** contours
-- **Pass 2** fill
-Avec **progress**, **annulation**, **cache**, **qualité (sampling)** et contrôle caméra.
+### Statut
+- `PARTIEL` / `DRAFT`.
 
-### Data affichées
-- Source PWMB (path) + Browse
-- Layer cutoff (slider 0..N)
-- Quality preset (33/66/100)
-- Palette (plusieurs palettes)
-- Toggle “Contour only”
-- Info status (idle/progress/errors + stats build)
-- Progress bar (0..100)
-- Viewport OpenGL : rendu (lignes/triangles/points)
-- Actions : Rebuild / Retry / Cancel / Reset camera / Export screenshot / Close
+### Role actuel
+- Fournir une maquette de dialogue viewer 3D (`ViewerDraftDialog.qml`).
+- Exposer des controles UI (path, quality, palette, contour-only) sans pipeline rendu 3D branche au backend.
 
-### Positionnement
-- En-tête texte (titre + aide interactions)
-- Split horizontal :
-  - gauche : `panel` controls (min width 320)
-  - droite : viewport (QOpenGLWidget / fallback)
-- Barre boutons en bas.
+### Elements visibles
+- Champ `Source PWMB path` (placeholder).
+- Slider `Layer cutoff`.
+- Presets qualite `33/66/100`.
+- Palettes (`Steel`, `Resin`, `Heat`).
+- Toggle `Contour only`.
+- Barre de progression de demonstration.
+- Zone viewport: texte `OpenGL viewport placeholder`.
+- Boutons: `Rebuild`, `Cancel`, `Retry`, `Reset camera`, `Export screenshot`, `Close`.
 
-### Thème
-- Controls panel = `panel`
-- UI standard; rendu OpenGL gère ses propres couleurs via “Palette”.
+### Limites reelles
+- Pas de decode PWMB ni extraction de geometry dans ce dialog.
+- Pas de rendu OpenGL produit.
+- Boutons hors `Close` sans flux metier final connecte.
 
 ### Analyse
-- Conforme aux exigences “UI non bloquante” : build sur runner + progress queue + cancel token + polling 80ms.
-- “Vérité matière” : le viewer utilise un threshold minimal (équivalent non-noir) + bin_mode strict ; cohérent pour un rendu fidèle.
-- Le viewer peut être ouvert de 2 façons :
-  - **depuis un fichier cloud** : resolve → download cache → build auto
-  - **depuis un chemin local** : Browse → build
-  Si l’objectif produit est “cloud-only” au niveau UX, il faudra masquer/désactiver Browse quand un `file_label` cloud est fourni.
-- Retry last build bien cadré (réutilise la dernière config) + messages d’erreur classés (OpenGL / decode / parse).
+- Ce dialog est utile pour cadrer l'UX cible.
+- Il ne doit pas etre presente comme viewer de production.
+- Pour la production, l'etat reel reste `ViewerPage.qml` + panes placeholders, donc couverture viewer globale encore `PARTIEL`.
 
 ---
-

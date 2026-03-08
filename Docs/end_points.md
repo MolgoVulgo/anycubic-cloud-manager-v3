@@ -1,5 +1,11 @@
 # EndPoints — Anycubic Cloud (Workbench)
 
+## Statut document
+
+- Type: `SPEC` (contrat cible + catalogue elargi).
+- Priorite de reference: voir `Docs/endpoints_reference_policy.md`.
+- Les sections de ce document peuvent inclure des endpoints non encore verifies dans la v2 Python.
+
 ## 0) Contrat transverse (valable pour tous les endpoints Workbench)
 
 ### 0.1 Hosts
@@ -863,4 +869,3 @@ GET /p/p/workbench/api/work/project/getProjects?limit=10&page=1&print_status=1&p
 But : éviter les actions susceptibles d’activer l’UV (ex: nettoyage bac) tant que le mapping des fonctions n’est pas entièrement prouvé.
 - Bloquer par défaut les actions associées aux IDs suspects tant que le mapping est incomplet (ex: `{3,29,33}`).
 - Bloquer toute action dont la sémantique ressemble à du “cleaning” / “vat cleaning” / “exposure detection” tant que non validée.
-

@@ -1,6 +1,8 @@
 # Anycubic Cloud Client — UI Views (decoupage)
 
-Source: `Docs/ui_views.md`
+Source central: `Docs/ui_views.md`
+
+Statut de ce dossier: `IMPLEMENTE` (avec quelques vues draft explicitement marquees).
 
 ## Sous-parties (sections)
 - `sections/00_vue_ensemble_composition.md`
