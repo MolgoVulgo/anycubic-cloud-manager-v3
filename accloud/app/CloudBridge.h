@@ -84,7 +84,7 @@ Q_SIGNALS:
 private:
     bool loadTokens(std::string& accessToken, std::string& xxToken) const;
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
-    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok) const;
+    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void cleanupDownload();

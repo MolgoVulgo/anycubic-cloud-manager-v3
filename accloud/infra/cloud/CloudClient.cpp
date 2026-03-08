@@ -201,7 +201,7 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
         f.name     = e.value("filename", std::string{});
     f.sizeBytes    = e.value("size", uint64_t{0});
     f.gcodeId      = jStr(e.value("gcode_id", nlohmann::json{}));
-    f.thumbnailUrl = e.value("thumbnail", std::string{});
+    f.thumbnailUrl = jFirst(e, {"printer_image_id", "thumbnail", "img", "image"});
     f.status       = e.value("status", 0);
 
     const nlohmann::json sp = parseSliceParam(e);

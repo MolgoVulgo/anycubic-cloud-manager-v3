@@ -19,6 +19,7 @@ Item {
     property bool isPwmb: false
     property string resinUsage: "-"
     property string dimensions: "-"
+    property string thumbnailUrl: ""
 
     signal deleteRequested(string fileId)
     signal downloadRequested(string fileId)
@@ -47,9 +48,20 @@ Item {
                     GradientStop { position: 0.0; color: Theme.thumbStart }
                     GradientStop { position: 1.0; color: Theme.thumbEnd }
                 }
+                clip: true
+
+                Image {
+                    id: cardThumbnailImage
+                    anchors.fill: parent
+                    source: String(root.thumbnailUrl || "")
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    visible: source.length > 0 && status === Image.Ready
+                }
 
                 Text {
                     anchors.centerIn: parent
+                    visible: !cardThumbnailImage.visible
                     text: qsTr("100x100")
                     color: Theme.accentFg
                     font.bold: true

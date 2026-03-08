@@ -100,6 +100,113 @@ TestCase {
         page.destroy()
     }
 
+    function test_cloud_files_header_and_row_columns_are_aligned() {
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        page.loadMockFiles()
+        wait(160)
+
+        var headerThumb = findObjectByName(page, "fileHeaderThumb")
+        var headerName = findObjectByName(page, "fileHeaderName")
+        var headerType = findObjectByName(page, "fileHeaderType")
+        var headerSize = findObjectByName(page, "fileHeaderSize")
+        var headerDate = findObjectByName(page, "fileHeaderDate")
+        var headerActions = findObjectByName(page, "fileHeaderActions")
+
+        verify(headerThumb !== null)
+        verify(headerName !== null)
+        verify(headerType !== null)
+        verify(headerSize !== null)
+        verify(headerDate !== null)
+        verify(headerActions !== null)
+
+        compare(headerName.width, page.colNameWidth)
+        verify(page.colNameWidth > 200)
+        compare(headerThumb.width, page.colThumbWidth)
+        compare(headerType.width, page.colTypeWidth)
+        compare(headerSize.width, page.colSizeWidth)
+        compare(headerDate.width, page.colDateWidth)
+        compare(headerActions.width, page.colActionsWidth)
+
+        var totalColumns = page.colThumbWidth + page.colNameWidth + page.colTypeWidth
+                         + page.colSizeWidth + page.colDateWidth + page.colActionsWidth
+                         + page.tableColumnSpacing * 5
+        compare(totalColumns, page.tableViewportWidth)
+
+        compare(headerName.horizontalAlignment, Text.AlignLeft)
+        compare(headerType.horizontalAlignment, Text.AlignHCenter)
+
+        page.destroy()
+    }
+
+    function test_cloud_files_pagination_defaults_and_rows_per_page_options() {
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        page.loadMockFiles()
+        wait(120)
+
+        compare(page.pageSize, 10)
+        compare(page.totalPages(), 1)
+
+        var rowsPerPage = findObjectByName(page, "filesRowsPerPage")
+        verify(rowsPerPage !== null)
+        compare(rowsPerPage.model.length, 4)
+        compare(rowsPerPage.model[0].value, 10)
+        compare(rowsPerPage.model[1].value, 20)
+        compare(rowsPerPage.model[2].value, 50)
+        compare(rowsPerPage.model[3].value, 100)
+        compare(rowsPerPage.model[0].label, "10")
+        compare(rowsPerPage.model[1].label, "20")
+        compare(rowsPerPage.model[2].label, "50")
+        compare(rowsPerPage.model[3].label, "100")
+
+        rowsPerPage.popup.open()
+        wait(120)
+        var popupList = rowsPerPage.popup.contentItem
+        verify(popupList !== null)
+        compare(popupList.count, 4)
+        var item0 = popupList.itemAtIndex(0)
+        var item1 = popupList.itemAtIndex(1)
+        var item2 = popupList.itemAtIndex(2)
+        var item3 = popupList.itemAtIndex(3)
+        verify(item0 !== null)
+        verify(item1 !== null)
+        verify(item2 !== null)
+        verify(item3 !== null)
+        compare(String(item0.contentItem.text), "10")
+        compare(String(item1.contentItem.text), "20")
+        compare(String(item2.contentItem.text), "50")
+        compare(String(item3.contentItem.text), "100")
+        item1.clicked()
+        wait(80)
+        compare(page.pageSize, 20)
+        compare(rowsPerPage.currentIndex, 1)
+
+        page.destroy()
+    }
+
+    function test_cloud_files_type_filter_uses_present_supported_extensions_only() {
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        page.filesModel.clear()
+        page.filesModel.append({ fileId: "a", fileName: "a.pm3", sizeText: "1 MB", uploadTime: "2026-03-07" })
+        page.filesModel.append({ fileId: "b", fileName: "b.pwmb", sizeText: "2 MB", uploadTime: "2026-03-07" })
+        page.filesModel.append({ fileId: "d", fileName: "d.pwsz", sizeText: "4 MB", uploadTime: "2026-03-07" })
+        page.filesModel.append({ fileId: "c", fileName: "c.txt", sizeText: "3 MB", uploadTime: "2026-03-07" })
+        page.refreshTypeFilterOptions()
+
+        compare(page.typeFilterOptions.length, 4)
+        compare(page.typeFilterOptions[0].code, "all")
+        compare(page.typeFilterOptions[1].code, "pm3")
+        compare(page.typeFilterOptions[2].code, "pwmb")
+        compare(page.typeFilterOptions[3].code, "pwsz")
+        compare(page.fileTypeLabel("demo.pm5s"), "PM5S")
+        compare(page.fileTypeLabel("demo.unknown"), "UNKNOWN")
+        compare(page.compatiblePrintersTooltip("part.pm3"), "Compatible printers: Photon Mono 3, Mono 3 Ultra")
+        compare(page.compatiblePrintersTooltip("part.m5sp"), "Compatible printers: Photon Mono M5s Pro")
+        compare(page.compatiblePrintersTooltip("part.dlp"), "Compatible printers: Anycubic DLP printers")
+
+        page.destroy()
+    }
+
     function test_file_card_shows_viewer_button_only_for_pwmb() {
         var nonPwmb = createQmlObject("../../../ui/qml/components/FileCard.qml", {"isPwmb": false})
         var viewerA = findObjectByName(nonPwmb, "openViewerButton")

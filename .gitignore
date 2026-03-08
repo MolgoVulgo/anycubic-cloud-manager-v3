@@ -12,6 +12,7 @@ accloud/build/
 **/.qt/
 
 # Runtime artifacts
+accloud/logs/
 accloud/logs/*.jsonl
 accloud/session.json
 accloud/accloud_cache.db

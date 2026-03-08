@@ -20,7 +20,15 @@ Item {
     property string statusSev: "info" // info | success | warn | error
     property var quotaData: null
     property string typeFilterValue: "all"
+    property var typeFilterOptions: [
+        { "code": "all", "label": qsTr("All") }
+    ]
     property string selectedFileId: ""
+    readonly property var supportedExtensions: [
+        "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
+        "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
+        "pm3r", "pm3n", "px6s", "pm5", "pm5s", "m5sp"
+    ]
 
     function emitStatusToShell() {
         var msg = String(statusMsg || "").trim()
@@ -32,14 +40,29 @@ Item {
     onStatusMsgChanged: root.emitStatusToShell()
     onStatusSevChanged: root.emitStatusToShell()
 
-    // Dense table column widths
-    property int colCheckWidth: 32
-    property int colThumbWidth: 56
+    // Table column widths
+    property int colThumbWidth: 100
     property int colTypeWidth: 72
     property int colSizeWidth: 86
     property int colDateWidth: 92
-    property int colStatusWidth: 86
-    property int colActionsWidth: 278
+    property int colActionsWidth: 392
+    readonly property int tableRowHorizontalMargin: 8
+    readonly property int tableColumnSpacing: 8
+    readonly property int actionDetailsWidth: 92
+    readonly property int actionDownloadWidth: 112
+    readonly property int actionPrintWidth: 96
+    readonly property int actionMenuWidth: 42
+    readonly property int tableFixedColumnsWidth: colThumbWidth + colTypeWidth + colSizeWidth + colDateWidth + colActionsWidth + tableColumnSpacing * 5
+    readonly property int colNameWidth: Math.max(220, tableViewportWidth - tableFixedColumnsWidth)
+    property int pageSize: 10
+    property int currentPage: 0
+    readonly property int tableViewportWidth: Math.max(0, filesList.width - tableRowHorizontalMargin * 2 - (filesVBar.visible ? filesVBar.width : 0))
+    readonly property int colXThumb: 0
+    readonly property int colXName: colXThumb + colThumbWidth + tableColumnSpacing
+    readonly property int colXType: colXName + colNameWidth + tableColumnSpacing
+    readonly property int colXSize: colXType + colTypeWidth + tableColumnSpacing
+    readonly property int colXDate: colXSize + colSizeWidth + tableColumnSpacing
+    readonly property int colXActions: colXDate + colDateWidth + tableColumnSpacing
 
     ListModel {
         id: cloudFilesModel
@@ -89,28 +112,123 @@ Item {
         return qsTr("Free %1").arg(formatBytes(free))
     }
 
-    function fileType(fileName) {
+    function fileExtension(fileName) {
         var name = String(fileName || "")
         var dot = name.lastIndexOf(".")
         if (dot < 0 || dot + 1 >= name.length)
+            return ""
+        return name.slice(dot + 1).toLowerCase()
+    }
+
+    function isSupportedExtension(ext) {
+        var value = String(ext || "").toLowerCase()
+        for (var i = 0; i < supportedExtensions.length; ++i) {
+            if (supportedExtensions[i] === value)
+                return true
+        }
+        return false
+    }
+
+    function fileType(fileName) {
+        var ext = fileExtension(fileName)
+        if (ext.length === 0)
             return "other"
-        var ext = name.slice(dot + 1).toLowerCase()
-        if (ext === "pwmb" || ext === "pws" || ext === "pw0" || ext === "phz" || ext === "photons")
-            return ext
-        return "other"
+        return isSupportedExtension(ext) ? ext : "other"
     }
 
     function fileTypeLabel(fileName) {
-        var ext = fileType(fileName)
-        if (ext === "other")
-            return qsTr("other")
+        var ext = fileExtension(fileName)
+        if (ext.length === 0)
+            return "-"
         return ext.toUpperCase()
     }
 
     function fileMatchesFilter(fileName) {
         if (typeFilterValue === "all")
             return true
-        return fileType(fileName) === String(typeFilterValue)
+        return fileExtension(fileName) === String(typeFilterValue)
+    }
+
+    function refreshTypeFilterOptions() {
+        var present = {}
+        for (var i = 0; i < cloudFilesModel.count; ++i) {
+            var entry = cloudFilesModel.get(i)
+            var ext = fileExtension(entry.fileName)
+            if (ext.length > 0 && isSupportedExtension(ext))
+                present[ext] = true
+        }
+
+        var sortedExt = []
+        for (var key in present)
+            sortedExt.push(key)
+        sortedExt.sort()
+
+        var options = [ { "code": "all", "label": qsTr("All") } ]
+        for (var j = 0; j < sortedExt.length; ++j) {
+            options.push({
+                "code": sortedExt[j],
+                "label": sortedExt[j].toUpperCase()
+            })
+        }
+        typeFilterOptions = options
+
+        var hasCurrent = false
+        for (var k = 0; k < typeFilterOptions.length; ++k) {
+            if (String(typeFilterOptions[k].code) === String(typeFilterValue)) {
+                hasCurrent = true
+                break
+            }
+        }
+        if (!hasCurrent) {
+            typeFilterValue = "all"
+            currentPage = 0
+        }
+    }
+
+    function typeFilterIndex() {
+        for (var i = 0; i < typeFilterOptions.length; ++i) {
+            if (String(typeFilterOptions[i].code) === String(typeFilterValue))
+                return i
+        }
+        return 0
+    }
+
+    function compatiblePrintersLabel(fileName) {
+        var ext = fileExtension(fileName)
+        var families = {
+            "pm3": "Photon Mono 3, Mono 3 Ultra",
+            "pm3m": "Photon Mono 3 Max",
+            "pm3r": "Photon Mono 3 series",
+            "pm3n": "Photon Mono 3 series",
+            "pm5": "Photon Mono M5",
+            "pm5s": "Photon Mono M5s",
+            "m5sp": "Photon Mono M5s Pro",
+            "px6s": "Photon Mono X 6Ks",
+            "pwmb": "Modern Photon resin printers",
+            "pws": "Legacy Photon resin printers",
+            "pwsz": "Legacy Photon resin printers",
+            "photons": "Legacy Photon resin printers",
+            "photon": "Legacy Photon resin printers",
+            "pw0": "Legacy Photon resin printers",
+            "pwx": "Legacy Photon resin printers",
+            "pwmo": "Legacy Photon resin printers",
+            "pwma": "Legacy Photon resin printers",
+            "pwms": "Legacy Photon resin printers",
+            "pwmx": "Legacy Photon resin printers",
+            "pmx2": "Photon Mono X series",
+            "pmsq": "Anycubic resin printers",
+            "dlp": "Anycubic DLP printers",
+            "dl2p": "Anycubic DLP printers"
+        }
+        if (families[ext] !== undefined)
+            return qsTr(families[ext])
+        if (ext.length === 0)
+            return qsTr("Unknown")
+        return qsTr("Anycubic resin printers")
+    }
+
+    function compatiblePrintersTooltip(fileName) {
+        return qsTr("Compatible printers: %1").arg(compatiblePrintersLabel(fileName))
     }
 
     function visibleFileCount() {
@@ -122,6 +240,39 @@ Item {
         }
         return count
     }
+
+    function totalPages() {
+        var total = visibleFileCount()
+        if (total <= 0)
+            return 1
+        return Math.max(1, Math.ceil(total / pageSize))
+    }
+
+    function clampCurrentPage() {
+        currentPage = Math.max(0, Math.min(currentPage, totalPages() - 1))
+    }
+
+    function visibleRankForIndex(modelIndex) {
+        var rank = 0
+        for (var i = 0; i < modelIndex; ++i) {
+            var entry = cloudFilesModel.get(i)
+            if (fileMatchesFilter(entry.fileName))
+                rank += 1
+        }
+        return rank
+    }
+
+    function isIndexOnCurrentPage(modelIndex, fileName) {
+        if (!fileMatchesFilter(fileName))
+            return false
+        var rank = visibleRankForIndex(modelIndex)
+        var start = currentPage * pageSize
+        var end = start + pageSize
+        return rank >= start && rank < end
+    }
+
+    onPageSizeChanged: clampCurrentPage()
+    onTypeFilterValueChanged: clampCurrentPage()
 
     function displayDate(uploadTime) {
         var value = String(uploadTime || "").trim()
@@ -180,7 +331,7 @@ Item {
 
         saveDialog.pendingUrl = r.url
         saveDialog.suggestName = String(fileName || qsTr("file"))
-        saveDialog.defaultSuffix = String(fileType(fileName))
+        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
         saveDialog.open()
     }
 
@@ -224,6 +375,7 @@ Item {
     }
 
     function loadMockFiles() {
+        root.currentPage = 0
         cloudFilesModel.clear()
         cloudFilesModel.append({
             "fileId": "demo-001",
@@ -265,6 +417,7 @@ Item {
             "totalBytes": 2147483648,
             "usedBytes": 1181116006
         }
+        refreshTypeFilterOptions()
         root.statusMsg = qsTr("Demo mode (backend unavailable).")
         root.statusSev = "warn"
         root.loading = false
@@ -274,6 +427,7 @@ Item {
         if (root.loading)
             return
 
+        root.currentPage = 0
         root.loading = true
         root.statusMsg = qsTr("Loading files from local cache...")
         root.statusSev = "info"
@@ -298,6 +452,7 @@ Item {
         var files = r.files !== undefined ? r.files : []
         for (var i = 0; i < files.length; ++i)
             cloudFilesModel.append(files[i])
+        refreshTypeFilterOptions()
 
         if (files.length > 0) {
             if (useCacheFlow) {
@@ -353,6 +508,8 @@ Item {
             var list = files !== undefined ? files : []
             for (var i = 0; i < list.length; ++i)
                 cloudFilesModel.append(list[i])
+            refreshTypeFilterOptions()
+            root.currentPage = Math.min(root.currentPage, root.totalPages() - 1)
             root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
         }
@@ -755,18 +912,13 @@ Item {
                     objectName: "filesTypeFilter"
                     Layout.preferredWidth: 130
                     textRole: "label"
-                    model: [
-                        { "code": "all", "label": qsTr("All") },
-                        { "code": "pwmb", "label": "pwmb" },
-                        { "code": "pws", "label": "pws" },
-                        { "code": "pw0", "label": "pw0" },
-                        { "code": "phz", "label": "phz" },
-                        { "code": "photons", "label": "photons" },
-                        { "code": "other", "label": qsTr("other") }
-                    ]
+                    model: root.typeFilterOptions
+                    currentIndex: root.typeFilterIndex()
                     onActivated: {
-                        if (currentIndex >= 0 && currentIndex < model.length)
+                        if (currentIndex >= 0 && currentIndex < model.length) {
                             root.typeFilterValue = String(model[currentIndex].code)
+                            root.currentPage = 0
+                        }
                     }
                 }
             }
@@ -834,7 +986,7 @@ Item {
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 8
-                spacing: 0
+                spacing: 6
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -842,61 +994,86 @@ Item {
                     color: Theme.bgSurface
                     border.width: 0
 
-                    RowLayout {
+                    Item {
+                        id: fileTableHeaderRow
+                        objectName: "fileTableHeaderRow"
                         anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        spacing: 8
+                        anchors.leftMargin: root.tableRowHorizontalMargin
+                        anchors.rightMargin: root.tableRowHorizontalMargin + (filesVBar.visible ? filesVBar.width : 0)
+                        clip: true
 
-                        Text { Layout.preferredWidth: root.colCheckWidth; text: qsTr(""); color: Theme.fgSecondary }
                         Text {
-                            Layout.preferredWidth: root.colThumbWidth
+                            objectName: "fileHeaderThumb"
+                            x: root.colXThumb
+                            width: root.colThumbWidth
+                            height: parent.height
                             text: qsTr("Thumb")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
-                            Layout.fillWidth: true
+                            objectName: "fileHeaderName"
+                            x: root.colXName
+                            width: root.colNameWidth
+                            height: parent.height
                             text: qsTr("File name")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignLeft
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
-                            Layout.preferredWidth: root.colTypeWidth
+                            objectName: "fileHeaderType"
+                            x: root.colXType
+                            width: root.colTypeWidth
+                            height: parent.height
                             text: qsTr("Type")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
-                            Layout.preferredWidth: root.colSizeWidth
+                            objectName: "fileHeaderSize"
+                            x: root.colXSize
+                            width: root.colSizeWidth
+                            height: parent.height
                             text: qsTr("Size")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
-                            Layout.preferredWidth: root.colDateWidth
+                            objectName: "fileHeaderDate"
+                            x: root.colXDate
+                            width: root.colDateWidth
+                            height: parent.height
                             text: qsTr("Date")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Text {
-                            Layout.preferredWidth: root.colStatusWidth
-                            text: qsTr("Status")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                        }
-                        Text {
-                            Layout.preferredWidth: root.colActionsWidth
+                            objectName: "fileHeaderActions"
+                            x: root.colXActions
+                            width: root.colActionsWidth
+                            height: parent.height
                             text: qsTr("Actions")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 1
+                    Layout.preferredHeight: Theme.borderWidth
                     color: Theme.borderSubtle
                 }
 
@@ -909,64 +1086,149 @@ Item {
                     model: cloudFilesModel
 
                     ScrollBar.vertical: ScrollBar {
+                        id: filesVBar
                         policy: ScrollBar.AsNeeded
                     }
 
                     delegate: Rectangle {
-                        property bool rowVisible: root.fileMatchesFilter(model.fileName || "")
+                        property bool rowVisible: root.isIndexOnCurrentPage(index, model.fileName || "")
                         width: filesList.width
-                        height: rowVisible ? 60 : 0
+                        height: rowVisible ? 112 : 0
                         visible: rowVisible
                         color: root.selectedFileId === String(model.fileId) ? Theme.selectionBg : Theme.bgSurface
                         border.width: 0
 
-                        RowLayout {
+                        MouseArea {
                             anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
-                            spacing: 8
+                            onClicked: root.selectedFileId = String(model.fileId || "")
+                        }
 
-                            AppCheckBox {
-                                Layout.preferredWidth: root.colCheckWidth
-                                checked: root.selectedFileId === String(model.fileId)
-                                onClicked: {
-                                    if (root.selectedFileId === String(model.fileId))
-                                        root.selectedFileId = ""
-                                    else
-                                        root.selectedFileId = String(model.fileId)
-                                }
-                            }
+                        Item {
+                            objectName: "fileTableDataRow"
+                            anchors.left: parent.left
+                            anchors.leftMargin: root.tableRowHorizontalMargin
+                            width: root.tableViewportWidth
+                            height: parent.height
+                            clip: true
+                            anchors.verticalCenter: parent.verticalCenter
 
                             Rectangle {
-                                Layout.preferredWidth: 48
-                                Layout.preferredHeight: 48
-                                Layout.alignment: Qt.AlignVCenter
+                                objectName: "fileRowThumb"
+                                x: root.colXThumb
+                                width: root.colThumbWidth
+                                height: root.colThumbWidth
                                 radius: 6
                                 color: Theme.accentSoft
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderDefault
+                                clip: true
+
+                                Image {
+                                    id: thumbnailImage
+                                    anchors.fill: parent
+                                    source: String(model.thumbnailUrl || "")
+                                    fillMode: Image.PreserveAspectFit
+                                    visible: String(source).length > 0
+                                    asynchronous: true
+                                }
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: root.fileTypeLabel(model.fileName || "")
+                                    visible: !(thumbnailImage.visible && thumbnailImage.status === Image.Ready)
+                                    text: qsTr("100x100")
                                     color: Theme.fgPrimary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontCaptionPx
                                     font.bold: true
                                 }
                             }
 
-                            Text {
-                                Layout.fillWidth: true
-                                text: String(model.fileName || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                elide: Text.ElideRight
-                                verticalAlignment: Text.AlignVCenter
+                            Item {
+                                objectName: "fileRowNameCell"
+                                x: root.colXName
+                                width: root.colNameWidth
+                                height: parent.height
+
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 2
+
+                                    Text {
+                                        objectName: "fileRowName"
+                                        width: parent.width
+                                        text: String(model.fileName || "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        elide: Text.ElideRight
+                                        horizontalAlignment: Text.AlignLeft
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    Text {
+                                        objectName: "fileRowThumbnailPath"
+                                        width: parent.width
+                                        text: String(model.thumbnailUrl || "-")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        elide: Text.ElideMiddle
+                                        horizontalAlignment: Text.AlignLeft
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    Text {
+                                        objectName: "fileRowThumbnailStatus"
+                                        width: parent.width
+                                        text: (thumbnailImage.status === Image.Ready
+                                               ? "thumb=ready"
+                                               : (thumbnailImage.status === Image.Loading
+                                                  ? "thumb=loading"
+                                                  : (thumbnailImage.status === Image.Error
+                                                     ? "thumb=error"
+                                                     : "thumb=null")))
+                                              + " vis=" + (thumbnailImage.visible ? "1" : "0")
+                                              + " s=" + thumbnailImage.status
+                                        color: thumbnailImage.status === Image.Error
+                                               ? Theme.danger
+                                               : Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        horizontalAlignment: Text.AlignLeft
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
                             }
 
                             Text {
-                                Layout.preferredWidth: root.colTypeWidth
+                                objectName: "fileRowType"
+                                x: root.colXType
+                                width: root.colTypeWidth
+                                height: parent.height
                                 text: root.fileTypeLabel(model.fileName || "")
+                                color: Theme.fgPrimary
+                                font.pixelSize: Theme.fontBodyPx
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+
+                                MouseArea {
+                                    id: typeCellHover
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.NoButton
+                                    cursorShape: Qt.PointingHandCursor
+                                }
+
+                                ToolTip.visible: typeCellHover.containsMouse
+                                ToolTip.delay: 250
+                                ToolTip.timeout: 5000
+                                ToolTip.text: root.compatiblePrintersTooltip(model.fileName || "")
+                            }
+
+                            Text {
+                                objectName: "fileRowSize"
+                                x: root.colXSize
+                                width: root.colSizeWidth
+                                height: parent.height
+                                text: String(model.sizeText || "-")
                                 color: Theme.fgPrimary
                                 font.pixelSize: Theme.fontBodyPx
                                 horizontalAlignment: Text.AlignHCenter
@@ -974,16 +1236,10 @@ Item {
                             }
 
                             Text {
-                                Layout.preferredWidth: root.colSizeWidth
-                                text: String(model.sizeText || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                horizontalAlignment: Text.AlignRight
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            Text {
-                                Layout.preferredWidth: root.colDateWidth
+                                objectName: "fileRowDate"
+                                x: root.colXDate
+                                width: root.colDateWidth
+                                height: parent.height
                                 text: root.displayDate(model.uploadTime)
                                 color: Theme.fgPrimary
                                 font.pixelSize: Theme.fontBodyPx
@@ -991,73 +1247,150 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                             }
 
-                            Text {
-                                Layout.preferredWidth: root.colStatusWidth
-                                text: root.displayStatus(model.status)
-                                color: root.statusColor(model.status)
-                                font.pixelSize: Theme.fontBodyPx
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
+                            Rectangle {
+                                objectName: "fileRowActions"
+                                x: root.colXActions
+                                width: root.colActionsWidth
+                                height: parent.height
+                                color: "transparent"
 
-                            RowLayout {
-                                Layout.preferredWidth: root.colActionsWidth
-                                spacing: 6
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: 6
 
-                                AppButton {
-                                    text: qsTr("Details")
-                                    variant: "secondary"
-                                    onClicked: root.openFileDetails(model.fileId)
-                                }
-
-                                AppButton {
-                                    text: qsTr("Download")
-                                    variant: "secondary"
-                                    onClicked: root.requestDownload(model.fileId, model.fileName)
-                                }
-
-                                AppButton {
-                                    text: qsTr("Print")
-                                    variant: "primary"
-                                    onClicked: root.requestPrint(model.fileId, model.fileName)
-                                }
-
-                                AppButton {
-                                    text: qsTr("...")
-                                    variant: "secondary"
-                                    compact: true
-                                    onClicked: rowMenu.open()
-                                }
-
-                                Menu {
-                                    id: rowMenu
-
-                                    MenuItem {
-                                        text: qsTr("Rename")
-                                        onTriggered: root.requestRename(model.fileId, model.fileName)
+                                    AppButton {
+                                        text: qsTr("Details")
+                                        variant: "secondary"
+                                        width: root.actionDetailsWidth
+                                        onClicked: root.openFileDetails(model.fileId)
                                     }
 
-                                    MenuItem {
-                                        text: qsTr("Delete")
-                                        onTriggered: root.requestDelete(model.fileId, model.fileName)
+                                    AppButton {
+                                        text: qsTr("Download")
+                                        variant: "secondary"
+                                        width: root.actionDownloadWidth
+                                        onClicked: root.requestDownload(model.fileId, model.fileName)
+                                    }
+
+                                    AppButton {
+                                        text: qsTr("Print")
+                                        variant: "primary"
+                                        width: root.actionPrintWidth
+                                        onClicked: root.requestPrint(model.fileId, model.fileName)
+                                    }
+
+                                    AppButton {
+                                        text: qsTr("...")
+                                        variant: "secondary"
+                                        compact: true
+                                        width: root.actionMenuWidth
+                                        onClicked: rowMenu.open()
+                                    }
+
+                                    Menu {
+                                        id: rowMenu
+
+                                        MenuItem {
+                                            text: qsTr("Rename")
+                                            onTriggered: root.requestRename(model.fileId, model.fileName)
+                                        }
+
+                                        MenuItem {
+                                            text: qsTr("Delete")
+                                            onTriggered: root.requestDelete(model.fileId, model.fileName)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    footer: Item {
-                        width: filesList.width
-                        height: cloudFilesModel.count === 0 || root.visibleFileCount() === 0 ? 120 : 0
+                Text {
+                    Layout.fillWidth: true
+                    visible: !root.loading && root.visibleFileCount() === 0
+                    text: qsTr("No file matches current type filter.")
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontBodyPx
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    padding: 10
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.borderWidth
+                    color: Theme.borderSubtle
+                    visible: root.visibleFileCount() > 0
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
+                    radius: Theme.radiusControl
+                    color: Theme.bgWindow
+                    border.width: Theme.borderWidth
+                    border.color: Theme.borderSubtle
+                    visible: root.visibleFileCount() > 0
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 8
 
                         Text {
-                            anchors.centerIn: parent
-                            visible: parent.height > 0 && !root.loading
-                            text: cloudFilesModel.count === 0
-                                  ? qsTr("No cloud files. Click Refresh to load files.")
-                                  : qsTr("No file matches current type filter.")
+                            text: qsTr("Page %1 / %2").arg(root.currentPage + 1).arg(root.totalPages())
                             color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontBodyPx
+                            font.pixelSize: Theme.fontCaptionPx
+                        }
+
+                        Text {
+                            text: qsTr("Rows: %1").arg(root.visibleFileCount())
+                            color: Theme.fgSecondary
+                            font.pixelSize: Theme.fontCaptionPx
+                        }
+
+                        Text {
+                            text: qsTr("Rows/page")
+                            color: Theme.fgSecondary
+                            font.pixelSize: Theme.fontCaptionPx
+                        }
+
+                        AppComboBox {
+                            id: filesRowsPerPage
+                            objectName: "filesRowsPerPage"
+                            Layout.preferredWidth: 88
+                            textRole: "label"
+                            model: [
+                                { "value": 10, "label": "10" },
+                                { "value": 20, "label": "20" },
+                                { "value": 50, "label": "50" },
+                                { "value": 100, "label": "100" }
+                            ]
+                            currentIndex: root.pageSize === 20 ? 1 : (root.pageSize === 50 ? 2 : (root.pageSize === 100 ? 3 : 0))
+                            onActivated: {
+                                if (currentIndex >= 0 && currentIndex < model.length) {
+                                    root.pageSize = Number(model[currentIndex].value)
+                                    root.currentPage = 0
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AppButton {
+                            text: qsTr("Previous")
+                            variant: "secondary"
+                            enabled: root.currentPage > 0
+                            onClicked: root.currentPage = Math.max(0, root.currentPage - 1)
+                        }
+
+                        AppButton {
+                            text: qsTr("Next")
+                            variant: "secondary"
+                            enabled: root.currentPage < root.totalPages() - 1
+                            onClicked: root.currentPage = Math.min(root.totalPages() - 1, root.currentPage + 1)
                         }
                     }
                 }

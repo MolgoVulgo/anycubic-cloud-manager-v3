@@ -6,10 +6,19 @@
 #include "infra/logging/JsonlLogger.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QSaveFile>
 #include <QMetaObject>
+#include <QNetworkAccessManager>
 #include <QNetworkRequest>
+#include <QStandardPaths>
 #include <QUrl>
 #include <QVariantList>
+#include <QCryptographicHash>
 
 #include <chrono>
 #include <cmath>
@@ -66,6 +75,208 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("thumbnailUrl",  QString::fromStdString(f.thumbnailUrl));
     m.insert("gcodeId",       QString::fromStdString(f.gcodeId));
     return m;
+}
+
+QString normalizedThumbnailUrl(const QString& raw) {
+    const QString value = raw.trimmed();
+    if (value.isEmpty()) {
+        return {};
+    }
+    if (value.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+        || value.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)) {
+        return value;
+    }
+    if (value.startsWith(QStringLiteral("//"))) {
+        return QStringLiteral("https:") + value;
+    }
+    if (value.startsWith(QStringLiteral("/"))) {
+        return QStringLiteral("https://cloud-universe.anycubic.com") + value;
+    }
+    if (value.contains(QStringLiteral(".jpg"), Qt::CaseInsensitive)
+        || value.contains(QStringLiteral(".jpeg"), Qt::CaseInsensitive)
+        || value.contains(QStringLiteral(".png"), Qt::CaseInsensitive)) {
+        return QStringLiteral("https://") + value;
+    }
+    return {};
+}
+
+QString thumbnailCacheDirPath() {
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (base.isEmpty()) {
+        return {};
+    }
+    const QString dir = base + QStringLiteral("/thumbnails");
+    QDir().mkpath(dir);
+    return dir;
+}
+
+QString cacheBasePathForThumbnailUrl(const QString& url) {
+    const QString dir = thumbnailCacheDirPath();
+    if (dir.isEmpty()) {
+        return {};
+    }
+    const QByteArray hash = QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha1).toHex();
+    return dir + QStringLiteral("/") + QString::fromLatin1(hash);
+}
+
+QString detectImageExtension(const QByteArray& bytes, const QString& fallbackUrl) {
+    if (bytes.size() >= 4
+        && static_cast<unsigned char>(bytes[0]) == 0x89
+        && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') {
+        return QStringLiteral(".png");
+    }
+    if (bytes.size() >= 3
+        && static_cast<unsigned char>(bytes[0]) == 0xFF
+        && static_cast<unsigned char>(bytes[1]) == 0xD8
+        && static_cast<unsigned char>(bytes[2]) == 0xFF) {
+        return QStringLiteral(".jpg");
+    }
+    if (bytes.startsWith("RIFF") && bytes.size() >= 12 && bytes.mid(8, 4) == "WEBP") {
+        return QStringLiteral(".webp");
+    }
+    const QString lowered = fallbackUrl.toLower();
+    if (lowered.contains(QStringLiteral(".png"))) {
+        return QStringLiteral(".png");
+    }
+    if (lowered.contains(QStringLiteral(".jpeg"))) {
+        return QStringLiteral(".jpeg");
+    }
+    return QStringLiteral(".jpg");
+}
+
+QByteArray readHead(const QString& path, qint64 maxBytes = 32) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    return f.read(maxBytes);
+}
+
+QString findReadableCachedImage(const QString& cacheBasePath) {
+    static const QStringList exts = {
+        QStringLiteral(".png"),
+        QStringLiteral(".jpg"),
+        QStringLiteral(".jpeg"),
+        QStringLiteral(".webp")
+    };
+    for (const QString& ext : exts) {
+        const QString path = cacheBasePath + ext;
+        const QFileInfo info(path);
+        if (!info.exists() || !info.isFile() || info.size() <= 0) {
+            continue;
+        }
+        const QByteArray head = readHead(path);
+        const QString detectedExt = detectImageExtension(head, path);
+        if (!detectedExt.isEmpty() && detectedExt != ext) {
+            const QString migratedPath = cacheBasePath + detectedExt;
+            if (!QFileInfo::exists(migratedPath)) {
+                QFile::copy(path, migratedPath);
+            }
+            QImageReader migratedReader(migratedPath);
+            if (migratedReader.canRead()) {
+                return migratedPath;
+            }
+        }
+        QImageReader reader(path);
+        if (reader.canRead()) {
+            return path;
+        }
+    }
+    return {};
+}
+
+QString fetchThumbnailToCache(const QString& normalizedUrl, const QString& cacheBasePath) {
+    QNetworkAccessManager nam;
+    QNetworkRequest req{QUrl(normalizedUrl)};
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    QEventLoop loop;
+    QNetworkReply* reply = nam.get(req);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const QByteArray bytes = reply->readAll();
+    const bool ok = (reply->error() == QNetworkReply::NoError) && !bytes.isEmpty();
+    reply->deleteLater();
+    if (!ok) {
+        return {};
+    }
+
+    const QString ext = detectImageExtension(bytes, normalizedUrl);
+    const QString finalPath = cacheBasePath + ext;
+    QSaveFile file(finalPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return {};
+    }
+    if (file.write(bytes) != bytes.size() || !file.commit()) {
+        file.cancelWriting();
+        return {};
+    }
+    QImageReader reader(finalPath);
+    if (!reader.canRead()) {
+        return {};
+    }
+    return QUrl::fromLocalFile(finalPath).toString();
+}
+
+QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
+    const QString normalized = normalizedThumbnailUrl(source);
+    if (normalized.isEmpty()) {
+        if (!source.trimmed().isEmpty()) {
+            logging::warn("app", "thumbnail_cache", "unsupported_source",
+                          "Unsupported thumbnail source",
+                          {{"source", source.toStdString()}});
+        }
+        return {};
+    }
+    const QString cacheBasePath = cacheBasePathForThumbnailUrl(normalized);
+    if (cacheBasePath.isEmpty()) {
+        return normalized;
+    }
+    const QString cachedPath = findReadableCachedImage(cacheBasePath);
+    if (!cachedPath.isEmpty()) {
+        logging::info("app", "thumbnail_cache", "cache_hit",
+                      "Thumbnail served from local cache",
+                      {{"url", normalized.toStdString()},
+                       {"path", cachedPath.toStdString()}});
+        return QUrl::fromLocalFile(cachedPath).toString();
+    }
+    logging::info("app", "thumbnail_cache", "cache_miss",
+                  "Thumbnail not found in local cache",
+                  {{"url", normalized.toStdString()},
+                   {"path", cacheBasePath.toStdString()}});
+    if (!downloadMissing) {
+        return normalized;
+    }
+    const QString localUrl = fetchThumbnailToCache(normalized, cacheBasePath);
+    if (localUrl.isEmpty()) {
+        logging::warn("app", "thumbnail_cache", "download_failed",
+                      "Thumbnail download failed",
+                      {{"url", normalized.toStdString()}});
+        return normalized;
+    }
+    logging::info("app", "thumbnail_cache", "download_ok",
+                  "Thumbnail downloaded and cached",
+                  {{"url", normalized.toStdString()},
+                   {"path", QUrl(localUrl).toLocalFile().toStdString()}});
+    return localUrl;
+}
+
+void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
+    const QString source = map.value(QStringLiteral("thumbnailUrl")).toString();
+    const QString resolved = resolveThumbnailLocalUrl(source, downloadMissing);
+    if (!resolved.isEmpty()) {
+        const QString localPath = QUrl(resolved).toLocalFile();
+        if (!localPath.isEmpty()) {
+            QImageReader reader(localPath);
+            logging::info("app", "thumbnail_cache", "qml_probe",
+                          "Thumbnail path probe before QML bind",
+                          {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
+                           {"path", localPath.toStdString()},
+                           {"canRead", reader.canRead() ? "1" : "0"},
+                           {"error", reader.errorString().toStdString()}});
+        }
+        map.insert(QStringLiteral("thumbnailUrl"), resolved);
+    }
 }
 
 QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
@@ -249,7 +460,7 @@ bool CloudBridge::shouldRefresh(const QString& scope, int ttlSec, bool force) co
     return (now - state->lastSuccessAt) >= ttlSec;
 }
 
-QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok) const {
+QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const {
     ok = false;
     QVariantList files;
     std::string at, tok;
@@ -283,7 +494,9 @@ QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& mess
 
     files.reserve(static_cast<qsizetype>(res.files.size()));
     for (const auto& f : res.files) {
-        files.append(fileInfoToMap(f));
+        QVariantMap item = fileInfoToMap(f);
+        resolveThumbnailInMap(item, downloadThumbnails);
+        files.append(item);
     }
     return files;
 }
@@ -409,7 +622,12 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
         return out;
     }
 
-    const QVariantList files = m_cache->loadFiles(page, limit);
+    QVariantList files = m_cache->loadFiles(page, limit);
+    for (int i = 0; i < files.size(); ++i) {
+        QVariantMap item = files[i].toMap();
+        resolveThumbnailInMap(item, false);
+        files[i] = item;
+    }
     out.insert("ok", true);
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
@@ -504,7 +722,7 @@ void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
             return;
         }
 
-        const QVariantList files = fetchFilesWithRetry(page, limit, message, ok);
+        const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, true);
         if (m_cache != nullptr) {
             m_cache->updateSyncState(QStringLiteral("files"), ok, message);
         }
@@ -583,7 +801,7 @@ QVariantMap CloudBridge::fetchFiles(int page, int limit) const {
     QVariantMap out;
     QString message;
     bool ok = false;
-    const QVariantList files = fetchFilesWithRetry(page, limit, message, ok);
+    const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, false);
 
     out.insert("ok", ok);
     out.insert("message", message);

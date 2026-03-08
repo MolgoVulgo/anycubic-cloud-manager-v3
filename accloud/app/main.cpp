@@ -14,6 +14,7 @@
 #include "UiSettingsBridge.h"
 
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QUrl>
@@ -122,6 +123,16 @@ int main(int argc, char** argv) {
 #if defined(ACCLOUD_WITH_QT)
   QGuiApplication app(argc, argv);
   qInstallMessageHandler(qtMessageHandler);
+  {
+    QStringList formats;
+    const auto supported = QImageReader::supportedImageFormats();
+    for (const QByteArray& f : supported) {
+      formats.append(QString::fromLatin1(f).toLower());
+    }
+    accloud::logging::info("app", "bootstrap", "image_formats",
+                           "QImageReader supported formats",
+                           {{"formats", formats.join(',').toStdString()}});
+  }
   accloud::UiClickTracer uiClickTracer;
   app.installEventFilter(&uiClickTracer);
   accloud::logging::info("app", "bootstrap", "qt_initialized", "Qt GUI initialized",
