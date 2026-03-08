@@ -11,6 +11,8 @@ Item {
     objectName: "cloudFilesPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
+                                             && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
 
@@ -175,6 +177,16 @@ Item {
         if (ext.length === 0)
             return "-"
         return ext.toUpperCase()
+    }
+
+    function fileNameWithoutExtension(fileName) {
+        var name = String(fileName || "").trim()
+        if (name.length === 0)
+            return qsTr("File Details")
+        var dot = name.lastIndexOf(".")
+        if (dot > 0)
+            return name.slice(0, dot)
+        return name
     }
 
     function fileMatchesFilter(fileName) {
@@ -415,16 +427,28 @@ Item {
             "fileId": "demo-001",
             "fileName": "rook_plate_v12.pwmb",
             "status": "READY",
+            "statusCode": 1,
             "sizeText": "42.6 MB",
             "machine": "Photon Mono M7",
+            "printers": "Photon Mono M7, Photon Mono M7 Pro",
             "material": "Eco Resin Gray",
             "uploadTime": "2026-03-05",
+            "createTime": "2026-03-05",
+            "updateTime": "2026-03-05",
             "printTime": "02h 15m",
             "layerThickness": "0.05 mm",
             "layers": 1850,
             "isPwmb": true,
             "resinUsage": "67 ml",
             "dimensions": "102x68x120",
+            "bottomLayers": "4",
+            "exposureTime": "1.5 s",
+            "offTime": "0.5 s",
+            "md5": "b574212e123ff9ef2db4ab9bb880a6b0",
+            "downloadUrl": "https://cdn.cloud-universe.anycubic.com/file/demo/rook_plate_v12.pwmb",
+            "region": "us-east-2",
+            "bucket": "workbentch",
+            "path": "file/demo/rook_plate_v12.pwmb",
             "thumbnailUrl": "",
             "gcodeId": "demo-gcode-001"
         })
@@ -432,16 +456,28 @@ Item {
             "fileId": "demo-002",
             "fileName": "calibration_tower.pws",
             "status": "READY",
+            "statusCode": 1,
             "sizeText": "11.8 MB",
             "machine": "Photon Mono M5s",
+            "printers": "Photon Mono M5s",
             "material": "ABS-Like Resin",
             "uploadTime": "2026-03-05",
+            "createTime": "2026-03-05",
+            "updateTime": "2026-03-05",
             "printTime": "00h 48m",
             "layerThickness": "0.05 mm",
             "layers": 620,
             "isPwmb": false,
             "resinUsage": "14 ml",
             "dimensions": "35x35x80",
+            "bottomLayers": "5",
+            "exposureTime": "1.8 s",
+            "offTime": "0.5 s",
+            "md5": "ff08f1feb055fb7711bafcbe0ec55843",
+            "downloadUrl": "https://cdn.cloud-universe.anycubic.com/file/demo/calibration_tower.pws",
+            "region": "us-east-2",
+            "bucket": "workbentch",
+            "path": "file/demo/calibration_tower.pws",
             "thumbnailUrl": "",
             "gcodeId": "demo-gcode-002"
         })
@@ -602,10 +638,15 @@ Item {
     AppDialogFrame {
         id: fileDetailsDialog
         property var fileData: ({})
-        title: qsTr("File Details")
-        subtitle: qsTr("Metadata and slice settings")
+        title: root.fileNameWithoutExtension(fileDetailsDialog.fileData.fileName)
+        subtitle: qsTr("ID: %1 | status_code: %2 | gcode_id: %3")
+                      .arg(String(fileDetailsDialog.fileData.fileId || "-"))
+                      .arg(String(fileDetailsDialog.fileData.statusCode || "-"))
+                      .arg(String(fileDetailsDialog.fileData.gcodeId || "-"))
         minimumWidth: 860
         maximumWidth: 1020
+        minimumHeight: 620
+        maximumHeight: 920
 
         RowLayout {
             Layout.fillWidth: true
@@ -641,12 +682,6 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Text {
-                    text: qsTr("ID: ") + String(fileDetailsDialog.fileData.fileId || "-")
-                    color: Theme.fgSecondary
-                    opacity: 0.9
-                    font.pixelSize: Theme.fontCaptionPx
-                }
             }
 
             AppButton {
@@ -663,6 +698,7 @@ Item {
 
             AppTabButton { text: qsTr("Basic Information") }
             AppTabButton { text: qsTr("Slice Settings") }
+            AppTabButton { text: qsTr("Cloud Metadata"); visible: root.buildDebugEnabled }
         }
 
         StackLayout {
@@ -704,12 +740,8 @@ Item {
                         Text { text: qsTr("Date"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: root.displayDate(fileDetailsDialog.fileData.uploadTime); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
-                        Text { text: qsTr("Status"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                        Text {
-                            text: root.displayStatus(fileDetailsDialog.fileData.status)
-                            color: root.statusColor(fileDetailsDialog.fileData.status)
-                            font.pixelSize: Theme.fontBodyPx
-                        }
+                        Text { text: qsTr("status_code"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.statusCode || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
 
                         Text { text: qsTr("gcode_id"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.gcodeId || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
@@ -753,6 +785,95 @@ Item {
 
                         Text { text: qsTr("Dimensions"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                         Text { text: String(fileDetailsDialog.fileData.dimensions || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Bottom layers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.bottomLayers || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Exposure time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.exposureTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Off time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.offTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Printers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text {
+                            text: String(fileDetailsDialog.fileData.printers || "-")
+                            color: Theme.fgPrimary
+                            font.pixelSize: Theme.fontBodyPx
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Text { text: qsTr("Slice md5"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text {
+                            text: String(fileDetailsDialog.fileData.md5 || "-")
+                            color: Theme.fgPrimary
+                            font.pixelSize: Theme.fontBodyPx
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+
+            Flickable {
+                visible: root.buildDebugEnabled
+                clip: true
+                contentWidth: width
+                contentHeight: cloudColumn.implicitHeight
+
+                ColumnLayout {
+                    id: cloudColumn
+                    width: parent.width
+                    spacing: 8
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        columnSpacing: 20
+                        rowSpacing: 8
+
+                        Text { text: qsTr("Uploaded"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: root.displayDate(fileDetailsDialog.fileData.uploadTime); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Created"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: root.displayDate(fileDetailsDialog.fileData.createTime); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Updated"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: root.displayDate(fileDetailsDialog.fileData.updateTime); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Thumbnail URL"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text {
+                            text: String(fileDetailsDialog.fileData.thumbnailUrl || "-")
+                            color: Theme.fgPrimary
+                            font.pixelSize: Theme.fontBodyPx
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
+
+                        Text { text: qsTr("Download URL"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text {
+                            text: String(fileDetailsDialog.fileData.downloadUrl || "-")
+                            color: Theme.fgPrimary
+                            font.pixelSize: Theme.fontBodyPx
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
+
+                        Text { text: qsTr("Region"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.region || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Bucket"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text { text: String(fileDetailsDialog.fileData.bucket || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+
+                        Text { text: qsTr("Path"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                        Text {
+                            text: String(fileDetailsDialog.fileData.path || "-")
+                            color: Theme.fgPrimary
+                            font.pixelSize: Theme.fontBodyPx
+                            wrapMode: Text.WrapAnywhere
+                            Layout.fillWidth: true
+                        }
                     }
                 }
             }

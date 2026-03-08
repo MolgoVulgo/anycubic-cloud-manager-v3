@@ -322,6 +322,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
         width: 640
         height: 260
 
@@ -334,8 +335,27 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 15
             spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: sessionPathDialog.title
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    text: qsTr("X")
+                    compact: true
+                    variant: "secondary"
+                    onClicked: sessionPathDialog.close()
+                }
+            }
 
             Text {
                 Layout.fillWidth: true
@@ -390,6 +410,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
         width: 620
         height: 330
 
@@ -402,8 +423,27 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 15
             spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: sessionDetailsDialog.title
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    text: qsTr("X")
+                    compact: true
+                    variant: "secondary"
+                    onClicked: sessionDetailsDialog.close()
+                }
+            }
 
             ScrollView {
                 id: sessionDetailsScroll
@@ -448,7 +488,6 @@ ApplicationWindow {
         subtitle: qsTr("Choose app language. System language is used by default.")
         minimumWidth: 520
         maximumWidth: 680
-        showCloseButton: false
         property string pendingLanguage: root.persistedLanguageCode
         property var languageCodes: ["system", "en", "fr"]
         property var languageLabels: []
@@ -533,7 +572,6 @@ ApplicationWindow {
         subtitle: qsTr("Preset + accent applied live. Persistence is saved on validation.")
         minimumWidth: 560
         maximumWidth: 680
-        showCloseButton: false
         property string pendingTheme: root.persistedThemeName
         property string pendingAccent: root.persistedAccentName
         property bool committed: false
@@ -604,7 +642,7 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 15
                 spacing: 8
 
                 Text {
@@ -704,6 +742,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
         width: 620
         height: 410
 
@@ -716,8 +755,27 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 15
             spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: render3dDefaultsDialog.title
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    text: qsTr("X")
+                    compact: true
+                    variant: "secondary"
+                    onClicked: render3dDefaultsDialog.close()
+                }
+            }
 
             Text {
                 Layout.fillWidth: true
@@ -855,6 +913,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
         width: 560
         height: 280
 
@@ -867,8 +926,27 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 15
             spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: aboutDialog.title
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    text: qsTr("X")
+                    compact: true
+                    variant: "secondary"
+                    onClicked: aboutDialog.close()
+                }
+            }
 
             Text {
                 Layout.fillWidth: true
@@ -898,6 +976,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 0
         width: 620
         height: 320
 
@@ -910,8 +989,27 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 15
             spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: gitDialog.title
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    text: qsTr("X")
+                    compact: true
+                    variant: "secondary"
+                    onClicked: gitDialog.close()
+                }
+            }
 
             ScrollView {
                 id: gitInfoScroll

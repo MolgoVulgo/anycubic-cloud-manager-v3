@@ -11,6 +11,7 @@ Dialog {
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    padding: 0
     readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1480
     readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 920
     width: Math.min(1040, Math.max(820, overlayWidth * 0.78))
@@ -25,8 +26,29 @@ Dialog {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 14
+        anchors.margins: 15
         spacing: 10
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Text {
+                Layout.fillWidth: true
+                text: root.title
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSectionPx
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            AppButton {
+                text: qsTr("X")
+                compact: true
+                variant: "secondary"
+                onClicked: root.close()
+            }
+        }
 
         Text {
             text: qsTr("Draft direct print order dialog")

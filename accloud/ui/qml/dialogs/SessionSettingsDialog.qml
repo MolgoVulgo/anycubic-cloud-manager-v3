@@ -29,6 +29,7 @@ Dialog {
     property string startupMessage: ""
 
     closePolicy: Popup.NoAutoClose
+    padding: 0
 
     signal importCompleted(string message)
 
@@ -160,8 +161,31 @@ Dialog {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 14
+        anchors.margins: 15
         spacing: 10
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Text {
+                Layout.fillWidth: true
+                text: root.title
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSectionPx
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            AppButton {
+                text: qsTr("X")
+                compact: true
+                variant: "secondary"
+                enabled: !root.importInProgress
+                         && (!root.mandatoryMode || root.pendingValid)
+                onClicked: root.requestClose()
+            }
+        }
 
         // Reason banner shown only in mandatory mode
         Rectangle {
@@ -175,7 +199,7 @@ Dialog {
             Text {
                 id: startupReasonText
                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
-                anchors.margins: 10
+                anchors.margins: 15
                 text: root.startupMessage
                 color: Theme.fgOnDanger
                 wrapMode: Text.WordWrap
@@ -207,7 +231,7 @@ Dialog {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 15
                 spacing: 8
 
                 Text { text: qsTr("HAR file"); color: Theme.textPrimary; Layout.preferredWidth: 90 }
@@ -236,7 +260,7 @@ Dialog {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 15
                 spacing: 8
 
                 Text {
@@ -257,7 +281,7 @@ Dialog {
                     ScrollView {
                         id: resultPanelScroll
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: 15
                         ScrollBar.vertical: ScrollBar {
                             policy: ScrollBar.AsNeeded
                             active: true
