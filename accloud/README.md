@@ -42,6 +42,32 @@ cmake --build --preset prod
 Detailed guide:
 - `../Docs/debug_build_modes.md`
 
+### MQTT build flags
+
+- `ACCLOUD_ENABLE_MQTT=OFF` (default): MQTT stack excluded from build.
+- `ACCLOUD_ENABLE_MQTT=ON`: enables MQTT integration if `Qt6::Mqtt` is available.
+- `ACCLOUD_MQTT_V1_ENABLED_DEFAULT=OFF` (default): runtime feature flag default remains disabled.
+- `ACCLOUD_MQTT_V1_ENABLED_DEFAULT=ON`: runtime feature flag default enabled for test environments.
+
+Example:
+
+```bash
+cmake --preset default -DACCLOUD_ENABLE_MQTT=ON -DACCLOUD_MQTT_V1_ENABLED_DEFAULT=OFF
+cmake --build --preset default
+```
+
+MQTT TLS environment variables:
+- `ACCLOUD_MQTT_TLS_CA_PATH`
+- `ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH`
+- `ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH`
+- `ACCLOUD_MQTT_TLS_ALLOW_INSECURE` (`0` by default)
+- `ACCLOUD_MQTT_TLS_DEV_FALLBACK` (`0` by default, set `1` to use `Docs/MQTT/resources` explicitly in dev)
+
+MQTT auth mode:
+- default mode is `slicer`
+- UI setting key: `mqtt.authMode` (`slicer` or `android`)
+- optional env override: `ACCLOUD_MQTT_AUTH_MODE`
+
 ## Workbench signature config
 
 Workbench API calls use XX-* signature headers with the same defaults as

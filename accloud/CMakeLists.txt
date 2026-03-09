@@ -11,6 +11,14 @@ set(CMAKE_AUTORCC ON)
 option(ACCLOUD_ENABLE_QT "Enable Qt6/QML frontend target" ON)
 option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
 option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
+option(ACCLOUD_ENABLE_MQTT "Enable MQTT realtime integration (requires Qt6::Mqtt)" OFF)
+option(ACCLOUD_MQTT_V1_ENABLED_DEFAULT "Enable MQTT v1 runtime feature flag by default" OFF)
+
+if(ACCLOUD_MQTT_V1_ENABLED_DEFAULT)
+  set(ACCLOUD_MQTT_V1_ENABLED_DEFAULT_VALUE 1)
+else()
+  set(ACCLOUD_MQTT_V1_ENABLED_DEFAULT_VALUE 0)
+endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
 
@@ -42,6 +50,12 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/core/EndpointRegistry.cpp
     infra/cloud/core/ResponseEnvelopeParser.cpp
     infra/cloud/core/SessionProvider.cpp
+    infra/mqtt/core/TlsMaterialProvider.cpp
+    infra/mqtt/core/MqttSessionManager.cpp
+    infra/mqtt/core/MqttCredentialProvider.cpp
+    infra/mqtt/routing/MqttTopicBuilder.cpp
+    infra/mqtt/routing/MqttMessageRouter.cpp
+    infra/mqtt/observability/MqttTelemetry.cpp
     infra/cloud/api/AuthApi.cpp
     infra/cloud/api/FilesApi.cpp
     infra/cloud/api/QuotaApi.cpp
@@ -63,6 +77,10 @@ set(ACCLOUD_INFRA_SOURCES
     infra/jobs/Jobs_Build3D.cpp
     infra/jobs/Jobs_Cloud.cpp
     infra/jobs/Jobs_ExportReport.cpp
+    app/realtime/PrinterRealtimeStore.cpp
+    app/usecases/cloud/ApplyRealtimeOverlayUseCase.cpp
+    app/usecases/cloud/OrderResponseTracker.cpp
+    app/usecases/cloud/ResyncCloudStateUseCase.cpp
     app/usecases/cloud/CheckCloudSessionUseCase.cpp
     app/usecases/cloud/LoadCloudFilesUseCase.cpp
     app/usecases/cloud/LoadCloudQuotaUseCase.cpp
@@ -84,6 +102,9 @@ set(ACCLOUD_INFRA_SOURCES
 add_library(accloud_infra OBJECT ${ACCLOUD_INFRA_SOURCES})
 target_include_directories(accloud_infra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(accloud_infra PRIVATE accloud_domain nlohmann_json::nlohmann_json)
+target_compile_definitions(accloud_infra PRIVATE
+  ACCLOUD_MQTT_V1_ENABLED_DEFAULT=${ACCLOUD_MQTT_V1_ENABLED_DEFAULT_VALUE}
+)
 
 add_executable(accloud_cli
     app/main.cpp
@@ -91,6 +112,23 @@ add_executable(accloud_cli
 )
 set_source_files_properties(app/main.cpp PROPERTIES SKIP_AUTOMOC ON)
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
+target_compile_definitions(accloud_cli PRIVATE
+  ACCLOUD_MQTT_V1_ENABLED_DEFAULT=${ACCLOUD_MQTT_V1_ENABLED_DEFAULT_VALUE}
+)
+
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_infra PRIVATE OpenSSL::Crypto)
+  target_link_libraries(accloud_cli PRIVATE OpenSSL::Crypto)
+  target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_OPENSSL=1)
+  target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_OPENSSL=1)
+endif()
+
+find_library(ACCLOUD_CRYPT_LIBRARY crypt)
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_infra PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+  target_link_libraries(accloud_cli PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
 
 if(ACCLOUD_DEBUG)
   target_compile_definitions(accloud_infra PRIVATE ACCLOUD_DEBUG=1)
@@ -102,6 +140,16 @@ if(ACCLOUD_ENABLE_QT)
   if(Qt6_FOUND)
     target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
     target_link_libraries(accloud_infra PRIVATE Qt6::Network)
+    if(ACCLOUD_ENABLE_MQTT)
+      find_package(Qt6 QUIET COMPONENTS Mqtt)
+      if(TARGET Qt6::Mqtt)
+        target_link_libraries(accloud_infra PRIVATE Qt6::Mqtt)
+        target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_MQTT=1)
+        target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_MQTT=1)
+      else()
+        message(WARNING "ACCLOUD_ENABLE_MQTT=ON but Qt6::Mqtt was not found: MQTT support disabled")
+      endif()
+    endif()
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
     set(ACCLOUD_APP_QT_SOURCES
         app/resources.qrc
@@ -191,4 +239,10 @@ add_executable(accloud_har_tests
     tests/cloud/test_har_import.cpp
 )
 target_link_libraries(accloud_har_tests PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_har_tests PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_har_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)

@@ -1277,9 +1277,16 @@ CloudPrintOrderResult legacySendCloudPrintOrder(const std::string& accessToken,
             return {false, j.value("msg", "Erreur sendOrder"), {}};
 
         std::string taskId;
+        std::string msgId;
         const auto& d = j.value("data", nlohmann::json::object());
-        if (d.is_object()) taskId = jStr(d.value("task_id", nlohmann::json{}));
-        return {true, "Print order envoyée", taskId};
+        if (d.is_object()) {
+            taskId = jStr(d.value("task_id", nlohmann::json{}));
+            msgId = jStr(d.value("msgid", nlohmann::json{}));
+            if (msgId.empty()) {
+                msgId = jStr(d.value("msg_id", nlohmann::json{}));
+            }
+        }
+        return {true, "Print order envoyée", taskId, msgId, {}, {}};
     } catch (...) {
         return {false, "Réponse invalide", {}};
     }

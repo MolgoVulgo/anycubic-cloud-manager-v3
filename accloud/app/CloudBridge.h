@@ -61,7 +61,7 @@ public:
                                                       int page = 1,
                                                       int limit = 20) const;
 
-    // Retourne { ok, message, taskId }
+    // Retourne { ok, message, taskId, msgId, correlationTicket, correlationStatus }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
                                            const QString& fileId,
                                            bool deleteAfterPrint = false,

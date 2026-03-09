@@ -32,6 +32,7 @@ ApplicationWindow {
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
+    property string persistedMqttAuthMode: "slicer"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -144,6 +145,34 @@ ApplicationWindow {
         root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
     }
 
+    function normalizeMqttAuthMode(value) {
+        var lowered = String(value || "").toLowerCase().trim()
+        if (lowered === "android")
+            return "android"
+        return "slicer"
+    }
+
+    function loadMqttAuthModeFromSettings() {
+        var modeValue = "slicer"
+        if (root.hasUiSettingsBridge())
+            modeValue = uiSettingsBridge.getString("mqtt.authMode", modeValue)
+        root.persistedMqttAuthMode = root.normalizeMqttAuthMode(modeValue)
+        if (root.hasUiSettingsBridge()) {
+            uiSettingsBridge.setString("mqtt.authMode", root.persistedMqttAuthMode)
+            if (typeof uiSettingsBridge.sync === "function")
+                uiSettingsBridge.sync()
+        }
+    }
+
+    function persistMqttAuthMode(modeValue) {
+        root.persistedMqttAuthMode = root.normalizeMqttAuthMode(modeValue)
+        if (root.hasUiSettingsBridge()) {
+            uiSettingsBridge.setString("mqtt.authMode", root.persistedMqttAuthMode)
+            if (typeof uiSettingsBridge.sync === "function")
+                uiSettingsBridge.sync()
+        }
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -174,6 +203,7 @@ ApplicationWindow {
     Component.onCompleted: {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
+        root.loadMqttAuthModeFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -248,6 +278,20 @@ ApplicationWindow {
                 onTriggered: {
                     root.statusText = qsTr("Opening theme settings panel.")
                     themeDialog.open()
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsMqttAuthMode"
+                text: root.persistedMqttAuthMode === "android"
+                      ? qsTr("MQTT auth mode: Android")
+                      : qsTr("MQTT auth mode: Slicer")
+                onTriggered: {
+                    var nextMode = root.persistedMqttAuthMode === "android" ? "slicer" : "android"
+                    root.persistMqttAuthMode(nextMode)
+                    root.statusText = root.persistedMqttAuthMode === "android"
+                            ? qsTr("MQTT auth mode set to Android.")
+                            : qsTr("MQTT auth mode set to Slicer.")
                 }
             }
 

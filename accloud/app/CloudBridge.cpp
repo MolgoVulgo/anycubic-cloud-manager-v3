@@ -1036,6 +1036,9 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
         out.insert("taskId", QString());
+        out.insert("msgId", QString());
+        out.insert("correlationTicket", QString());
+        out.insert("correlationStatus", QStringLiteral("Pending"));
         finalizeUiMessage(out);
         return out;
     }
@@ -1046,6 +1049,9 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     out.insert("taskId",  QString::fromStdString(r.taskId));
+    out.insert("msgId", QString::fromStdString(r.msgId));
+    out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
+    out.insert("correlationStatus", QString::fromStdString(r.correlationStatus));
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }

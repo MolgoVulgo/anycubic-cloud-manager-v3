@@ -120,6 +120,9 @@ struct CloudPrintOrderResult {
     bool ok = false;
     std::string message;
     std::string taskId;
+    std::string msgId;
+    std::string correlationTicket;
+    std::string correlationStatus;
 };
 
 struct CloudPrinterDetailsResult {
