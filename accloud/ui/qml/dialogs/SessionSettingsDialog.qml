@@ -193,22 +193,23 @@ AppDialogFrame {
                 anchors.margins: Theme.paddingDialog
                 spacing: Theme.gapRow
 
-                Text {
-                    text: qsTr("HAR file")
-                    color: Theme.fgPrimary
-                    Layout.preferredWidth: 90
-                }
-                AppTextField {
-                    id: harFileField
-                    objectName: "harFileField"
+                FormRow {
                     Layout.fillWidth: true
-                    placeholderText: qsTr("/path/to/session.har")
-                    onAccepted: root.runAnalyzeForPath(harFileField.text)
-                }
-                AppButton {
-                    objectName: "harBrowseButton"
-                    text: qsTr("Browse")
-                    onClicked: harFileDialog.open()
+                    labelText: qsTr("HAR file")
+                    labelWidth: 90
+
+                    AppTextField {
+                        id: harFileField
+                        objectName: "harFileField"
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("/path/to/session.har")
+                        onAccepted: root.runAnalyzeForPath(harFileField.text)
+                    }
+                    AppButton {
+                        objectName: "harBrowseButton"
+                        text: qsTr("Browse")
+                        onClicked: harFileDialog.open()
+                    }
                 }
             }
         },

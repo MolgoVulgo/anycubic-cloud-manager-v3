@@ -14,9 +14,16 @@ TabBar {
     property int minTabWidth: tabVariant === "navigation" ? 120 : 96
     property bool connectActiveToPanel: true
     property color panelColor: tabVariant === "navigation" ? Theme.bgSurface : Theme.bgDialog
-    property color inactiveColor: Theme.bgWindow
-    property color baselineColor: Theme.borderDefault
+    property color inactiveColor: panelColor
+    property color baselineColor: Theme.tabBaselineColor
+    property int baselineWidth: Theme.tabStrokeWidth
+    property color stripColor: panelColor
+    property int tabTopCornerRadius: Theme.radiusControl
     property int tabGap: tabLook === "classic" ? 0 : 4
+    readonly property var _activeTabItem: (currentItem && currentItem.visible) ? currentItem : null
+    readonly property bool _hasActiveTab: _activeTabItem !== null
+    readonly property real _activeTabLeft: _activeTabItem ? Math.round(_activeTabItem.x) : -1
+    readonly property real _activeTabRight: _activeTabItem ? Math.round(_activeTabItem.x + _activeTabItem.width) : -1
     readonly property int _visibleTabCount: {
         var count = 0
         for (var i = 0; i < contentChildren.length; ++i) {
@@ -34,18 +41,24 @@ TabBar {
     spacing: tabGap
     padding: tabLook === "classic" ? 0 : (tabVariant === "navigation" ? 4 : 3)
 
-    background: Item {
+    background: Rectangle {
+        color: root.stripColor
+
         Rectangle {
-            anchors.fill: parent
-            color: "transparent"
+            visible: root.tabLook === "classic"
+            x: 0
+            y: parent.height - root.baselineWidth
+            width: root._hasActiveTab ? Math.max(0, root._activeTabLeft) : parent.width
+            height: root.baselineWidth
+            color: root.baselineColor
         }
 
         Rectangle {
-            // Base separator line, interrupted by active tab bottom edge.
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: Theme.borderWidth
+            visible: root.tabLook === "classic"
+            x: root._hasActiveTab ? root._activeTabRight : 0
+            y: parent.height - root.baselineWidth
+            width: root._hasActiveTab ? Math.max(0, parent.width - root._activeTabRight) : 0
+            height: root.baselineWidth
             color: root.baselineColor
         }
     }

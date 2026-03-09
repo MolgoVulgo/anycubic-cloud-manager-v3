@@ -23,6 +23,7 @@ Rectangle {
     property var unixTimeTextProvider: null
     property var printStatusTextProvider: null
     property var prettyJsonProvider: null
+    property bool embeddedInTabsContainer: false
 
     signal cloudFileRequested(string printerId)
     signal localFileRequested()
@@ -33,9 +34,9 @@ Rectangle {
 
     Layout.fillWidth: true
     Layout.fillHeight: true
-    radius: Theme.radiusControl
+    radius: embeddedInTabsContainer ? 0 : Theme.radiusControl
     color: Theme.bgSurface
-    border.width: Theme.borderWidth
+    border.width: embeddedInTabsContainer ? 0 : Theme.borderWidth
     border.color: Theme.borderDefault
 
     ColumnLayout {

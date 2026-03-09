@@ -14,21 +14,21 @@ AppDialogFrame {
     dialogSize: "large"
 
     bodyData: [
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Printer"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("Printer")
+            labelWidth: 100
             AppComboBox { Layout.fillWidth: true; model: ["M7-Workshop-A", "M5S-Line-2", "Backup-X2"] }
         },
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("file_id"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("file_id")
+            labelWidth: 100
             AppTextField { Layout.fillWidth: true; placeholderText: qsTr("f-2d8e91") }
         },
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Copies"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("Copies")
+            labelWidth: 100
             AppSpinBox { from: 1; to: 10; value: 1 }
-            Text { text: qsTr("Priority") }
+            FormLabel { text: qsTr("Priority"); preferredWidth: 56 }
             AppComboBox { model: [qsTr("normal"), qsTr("high")] }
             AppCheckBox { text: qsTr("Dry-run") }
         }

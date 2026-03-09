@@ -70,31 +70,51 @@ AppPageFrame {
         elide: Text.ElideRight
     }
 
-    PrintersTabsBar {
-        printersModel: root.printersModel
-        selectedPrinterId: root.selectedPrinterId
-        tabTitleProvider: root.tabTitleProvider
-        onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
-    }
+    Rectangle {
+        id: printerTabsContainer
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        radius: Theme.radiusControl
+        color: Theme.bgSurface
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
-    PrinterDetailPanel {
-        id: printerDetailPanel
-        selectedPrinter: root.selectedPrinter
-        selectedPrinterDetails: root.selectedPrinterDetails
-        loadingPrinterHistory: root.loadingPrinterHistory
-        printerHistoryModel: root.printerHistoryModel
-        showDebugLabels: root.showDebugLabels
-        printersEndpointPath: root.printersEndpointPath
-        printersEndpointRawJson: root.printersEndpointRawJson
-        selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText
-        statusChipTextProvider: root.statusChipTextProvider
-        progressTextProvider: root.progressTextProvider
-        timeTextProvider: root.timeTextProvider
-        unixTimeTextProvider: root.unixTimeTextProvider
-        printStatusTextProvider: root.printStatusTextProvider
-        prettyJsonProvider: root.prettyJsonProvider
-        onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
-        onLocalFileRequested: root.localFileRequested()
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
+
+            PrintersTabsBar {
+                Layout.fillWidth: true
+                embeddedInTabsContainer: true
+                printersModel: root.printersModel
+                selectedPrinterId: root.selectedPrinterId
+                tabTitleProvider: root.tabTitleProvider
+                onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
+            }
+
+            PrinterDetailPanel {
+                id: printerDetailPanel
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                embeddedInTabsContainer: true
+                selectedPrinter: root.selectedPrinter
+                selectedPrinterDetails: root.selectedPrinterDetails
+                loadingPrinterHistory: root.loadingPrinterHistory
+                printerHistoryModel: root.printerHistoryModel
+                showDebugLabels: root.showDebugLabels
+                printersEndpointPath: root.printersEndpointPath
+                printersEndpointRawJson: root.printersEndpointRawJson
+                selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText
+                statusChipTextProvider: root.statusChipTextProvider
+                progressTextProvider: root.progressTextProvider
+                timeTextProvider: root.timeTextProvider
+                unixTimeTextProvider: root.unixTimeTextProvider
+                printStatusTextProvider: root.printStatusTextProvider
+                prettyJsonProvider: root.prettyJsonProvider
+                onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
+                onLocalFileRequested: root.localFileRequested()
+            }
+        }
     }
 
     DebugTag {
