@@ -535,6 +535,96 @@ TestCase {
         cloudBridge = undefined
     }
 
+    function test_printer_page_open_remote_print_from_file_prefers_compatible_printer() {
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    endpoint: "/mock/printers",
+                    rawJson: "{}",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        },
+                        {
+                            id: "p2",
+                            name: "Printer Two",
+                            model: "Mono M5s",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() {
+                return { ok: true, files: [] }
+            },
+            fetchCompatiblePrintersByExt: function(ext) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 0, reason: "unavailable reason:file type mismatch" },
+                        { id: "p2", available: 1, reason: "" }
+                    ]
+                }
+            },
+            fetchCompatiblePrintersByFileId: function(fileId) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 0, reason: "unavailable reason:printer offline" },
+                        { id: "p2", available: 1, reason: "" }
+                    ]
+                }
+            },
+            fetchReasonCatalog: function() {
+                return { ok: true, reasons: [] }
+            },
+            fetchPrinterDetails: function() {
+                return { ok: true, details: {} }
+            },
+            fetchPrinterProjects: function() {
+                return { ok: true, projects: [] }
+            },
+            sendPrintOrder: function() {
+                return { ok: true, taskId: "123" }
+            }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        page.selectedPrinterId = "p1"
+        page.openRemotePrintFromFile("f-route-1", "route_file.pwmb")
+
+        compare(String(page.remotePrinterId), "p2")
+        compare(String(page.selectedCloudFileId), "f-route-1")
+        var selectedFile = page.selectedCloudFileData()
+        verify(selectedFile !== null)
+        compare(String(selectedFile.fileId), "f-route-1")
+        verify(String(page.statusMsg).indexOf("Remote print prepared for") === 0)
+
+        page.destroy()
+        cloudBridge = undefined
+    }
+
     function test_printer_tabs_title_contains_status() {
         cloudBridge = {
             fetchPrinters: function() {
@@ -577,6 +667,28 @@ TestCase {
         verify(String(tabButton.text).indexOf("Printing") !== -1)
         page.destroy()
         cloudBridge = undefined
+    }
+
+    function test_main_window_print_intent_routes_from_files_to_printers() {
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        var tabs = findObjectByName(window, "controlRoomTabs")
+        var cloudPage = findObjectByName(window, "cloudFilesPage")
+        var printerPage = findObjectByName(window, "printerPage")
+
+        verify(tabs !== null)
+        verify(cloudPage !== null)
+        verify(printerPage !== null)
+        compare(tabs.currentIndex, 0)
+
+        cloudPage.requestPrint("route-file-1", "route_file.pwmb")
+        wait(0)
+
+        compare(tabs.currentIndex, 1)
+        compare(String(printerPage.selectedCloudFileId), "route-file-1")
+        verify(String(printerPage.remotePrinterId).length > 0)
+
+        window.close()
+        window.destroy()
     }
 
     function test_cloud_files_cache_flow_forces_refresh_and_applies_cloud_signal() {

@@ -92,6 +92,8 @@ struct CloudPrinterInfo {
     int progress = -1;       // 0..100, -1 si indisponible
     int elapsedSec = -1;
     int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
     std::string currentFile;
 };
 
@@ -124,6 +126,12 @@ struct CloudPrinterDetailsResult {
     bool ok = false;
     std::string message;
     std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
+    int progress = -1;
+    int elapsedSec = -1;
+    int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
+    std::string currentFile;
     std::string firmwareVersion;
     std::string printCount;
     std::string printTotalTime;
@@ -159,7 +167,12 @@ struct CloudPrinterProjectItem {
     std::string printerName;
     int printStatus = 0;
     int progress = -1;
+    int elapsedSec = -1;
+    int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
     std::string reason;
+    std::string currentFile;
     long long createTime = 0;
     long long endTime = 0;
     std::string img;
@@ -168,6 +181,7 @@ struct CloudPrinterProjectItem {
 struct CloudPrinterProjectsResult {
     bool ok = false;
     std::string message;
+    std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
     std::vector<CloudPrinterProjectItem> items;
 };
 

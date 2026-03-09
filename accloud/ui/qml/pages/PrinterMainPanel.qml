@@ -13,6 +13,9 @@ AppPageFrame {
     property var tabTitleProvider: null
     property var selectedPrinter: null
     property var selectedPrinterDetails: ({})
+    property var selectedLiveJobData: ({})
+    property string selectedPrinterDetailsRawJson: ""
+    property string selectedPrinterProjectsRawJson: ""
     property bool loadingPrinterHistory: false
     property var printerHistoryModel: null
     property string printersEndpointPath: ""
@@ -99,6 +102,9 @@ AppPageFrame {
                 embeddedInTabsContainer: true
                 selectedPrinter: root.selectedPrinter
                 selectedPrinterDetails: root.selectedPrinterDetails
+                selectedLiveJobData: root.selectedLiveJobData
+                selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
+                selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
                 loadingPrinterHistory: root.loadingPrinterHistory
                 printerHistoryModel: root.printerHistoryModel
                 showDebugLabels: root.showDebugLabels

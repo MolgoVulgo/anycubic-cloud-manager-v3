@@ -221,6 +221,20 @@ std::string formatSeconds(long long secs) {
     return std::to_string(m) + "m " + std::to_string(s) + "s";
 }
 
+int durationSecondsFromObject(const nlohmann::json& obj,
+                              std::initializer_list<const char*> secondKeys,
+                              std::initializer_list<const char*> minuteKeys) {
+    if (!obj.is_object())
+        return -1;
+    int secValue = jFirstInt(obj, secondKeys, -1);
+    if (secValue >= 0)
+        return secValue;
+    int minValue = jFirstInt(obj, minuteKeys, -1);
+    if (minValue >= 0)
+        return minValue * 60;
+    return -1;
+}
+
 // Parse slice_param (objet JSON ou string JSON)
 nlohmann::json parseSliceParam(const nlohmann::json& entry) {
     if (!entry.contains("slice_param")) return {};
@@ -437,11 +451,32 @@ CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
 
     p.progress = jFirstInt(deviceMessage, {"progress"}, -1);
     if (p.progress < 0) p.progress = jFirstInt(project, {"progress"}, -1);
-    p.remainingSec = jFirstInt(deviceMessage, {"remaining_sec", "remain_time"}, -1);
-    if (p.remainingSec < 0) p.remainingSec = jFirstInt(project, {"remain_time"}, -1);
-    p.elapsedSec = jFirstInt(project, {"elapsed_time"}, -1);
+    p.remainingSec = durationSecondsFromObject(deviceMessage,
+                                               {"remaining_sec"},
+                                               {"remain_time", "remaining_time"});
+    if (p.remainingSec < 0) {
+        p.remainingSec = durationSecondsFromObject(project,
+                                                   {"remaining_sec"},
+                                                   {"remain_time", "remaining_time"});
+    }
+    p.elapsedSec = durationSecondsFromObject(project,
+                                             {"elapsed_sec"},
+                                             {"elapsed_time", "time_elapsed", "print_time"});
+    if (p.elapsedSec < 0) {
+        p.elapsedSec = durationSecondsFromObject(deviceMessage,
+                                                 {"elapsed_sec"},
+                                                 {"elapsed_time", "time_elapsed", "print_time"});
+    }
+    p.currentLayer = jFirstInt(project, {"curr_layer", "current_layer", "currLayer", "currentLayer"}, -1);
+    if (p.currentLayer < 0) {
+        p.currentLayer = jFirstInt(deviceMessage, {"curr_layer", "current_layer", "currLayer", "currentLayer"}, -1);
+    }
+    p.totalLayers = jFirstInt(project, {"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"}, -1);
+    if (p.totalLayers < 0) {
+        p.totalLayers = jFirstInt(deviceMessage, {"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"}, -1);
+    }
     p.currentFile = jFirst(project, {"old_filename", "filename", "file_name"});
-    if (p.currentFile.empty()) p.currentFile = jFirst(deviceMessage, {"file_name", "filename"});
+    if (p.currentFile.empty()) p.currentFile = jFirst(deviceMessage, {"old_filename", "file_name", "filename"});
 
     // Règle prioritaire demandée:
     // - device_status == 1 => online
@@ -500,12 +535,78 @@ CloudPrinterCompatItem parsePrinterCompatEntry(const nlohmann::json& e) {
 
 CloudPrinterProjectItem parsePrinterProjectItem(const nlohmann::json& e) {
     CloudPrinterProjectItem item;
+    nlohmann::json deviceMessage;
+    if (e.contains("device_message")) {
+        const auto& dm = e["device_message"];
+        if (dm.is_object()) {
+            deviceMessage = dm;
+        } else if (dm.is_string()) {
+            auto parsed = nlohmann::json::parse(dm.get<std::string>(), nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object()) deviceMessage = parsed;
+        }
+    }
+    nlohmann::json settingsMessage;
+    if (e.contains("settings")) {
+        const auto& sm = e["settings"];
+        if (sm.is_object()) {
+            settingsMessage = sm;
+        } else if (sm.is_string()) {
+            auto parsed = nlohmann::json::parse(sm.get<std::string>(), nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object()) settingsMessage = parsed;
+        }
+    }
+
     item.taskId = jFirst(e, {"task_id", "id"});
-    item.gcodeName = jFirst(e, {"gcode_name", "filename"});
+    item.gcodeName = jFirst(e, {"gcode_name", "old_filename", "filename", "file_name"});
     item.printerId = jFirst(e, {"printer_id"});
     item.printerName = jFirst(e, {"printer_name", "machine_name"});
     item.printStatus = jFirstInt(e, {"print_status"}, 0);
     item.progress = jFirstInt(e, {"progress"}, -1);
+    if (item.progress < 0) item.progress = jFirstInt(deviceMessage, {"progress"}, -1);
+    if (item.progress < 0) item.progress = jFirstInt(settingsMessage, {"progress"}, -1);
+    item.remainingSec = durationSecondsFromObject(e,
+                                                  {"remaining_sec"},
+                                                  {"remain_time", "remaining_time"});
+    if (item.remainingSec < 0) {
+        item.remainingSec = durationSecondsFromObject(deviceMessage,
+                                                      {"remaining_sec"},
+                                                      {"remain_time", "remaining_time"});
+    }
+    if (item.remainingSec < 0) {
+        item.remainingSec = durationSecondsFromObject(settingsMessage,
+                                                      {"remaining_sec"},
+                                                      {"remain_time", "remaining_time"});
+    }
+    item.elapsedSec = durationSecondsFromObject(e,
+                                                {"elapsed_sec"},
+                                                {"elapsed_time", "time_elapsed", "print_time"});
+    if (item.elapsedSec < 0) {
+        item.elapsedSec = durationSecondsFromObject(deviceMessage,
+                                                    {"elapsed_sec"},
+                                                    {"elapsed_time", "time_elapsed", "print_time"});
+    }
+    if (item.elapsedSec < 0) {
+        item.elapsedSec = durationSecondsFromObject(settingsMessage,
+                                                    {"elapsed_sec"},
+                                                    {"elapsed_time", "time_elapsed", "print_time"});
+    }
+    item.currentLayer = jFirstInt(e, {"curr_layer", "current_layer", "currLayer", "currentLayer"}, -1);
+    if (item.currentLayer < 0) {
+        item.currentLayer = jFirstInt(deviceMessage, {"curr_layer", "current_layer", "currLayer", "currentLayer"}, -1);
+    }
+    if (item.currentLayer < 0) {
+        item.currentLayer = jFirstInt(settingsMessage, {"curr_layer", "current_layer", "currLayer", "currentLayer"}, -1);
+    }
+    item.totalLayers = jFirstInt(e, {"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"}, -1);
+    if (item.totalLayers < 0) {
+        item.totalLayers = jFirstInt(deviceMessage, {"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"}, -1);
+    }
+    if (item.totalLayers < 0) {
+        item.totalLayers = jFirstInt(settingsMessage, {"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"}, -1);
+    }
+    item.currentFile = jFirst(e, {"old_filename", "filename", "file_name", "gcode_name"});
+    if (item.currentFile.empty()) item.currentFile = jFirst(deviceMessage, {"old_filename", "filename", "file_name"});
+    if (item.currentFile.empty()) item.currentFile = jFirst(settingsMessage, {"old_filename", "filename", "file_name"});
     item.reason = jFirst(e, {"reason"});
     if (e.contains("create_time") && e["create_time"].is_number())
         item.createTime = e["create_time"].get<long long>();
@@ -978,11 +1079,83 @@ CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
         }
 
         const auto& base = data.value("base", nlohmann::json::object());
+        nlohmann::json deviceMessage;
+        if (data.contains("device_message")) {
+            const auto& dm = data["device_message"];
+            if (dm.is_object()) {
+                deviceMessage = dm;
+            } else if (dm.is_string()) {
+                auto parsed = nlohmann::json::parse(dm.get<std::string>(), nullptr, false);
+                if (!parsed.is_discarded() && parsed.is_object()) deviceMessage = parsed;
+            }
+        }
+
+        nlohmann::json settingsMessage;
+        if (data.contains("settings")) {
+            const auto& sm = data["settings"];
+            if (sm.is_object()) {
+                settingsMessage = sm;
+            } else if (sm.is_string()) {
+                auto parsed = nlohmann::json::parse(sm.get<std::string>(), nullptr, false);
+                if (!parsed.is_discarded() && parsed.is_object()) settingsMessage = parsed;
+            }
+        }
+
+        nlohmann::json sliceResultMessage;
+        if (data.contains("slice_result")) {
+            const auto& sr = data["slice_result"];
+            if (sr.is_object()) {
+                sliceResultMessage = sr;
+            } else if (sr.is_string()) {
+                auto parsed = nlohmann::json::parse(sr.get<std::string>(), nullptr, false);
+                if (!parsed.is_discarded() && parsed.is_object()) sliceResultMessage = parsed;
+            }
+        }
+
+        auto firstLiveInt = [&](std::initializer_list<const char*> keys) -> int {
+            int value = jFirstInt(data, keys, -1);
+            if (value >= 0) return value;
+            value = jFirstInt(deviceMessage, keys, -1);
+            if (value >= 0) return value;
+            value = jFirstInt(settingsMessage, keys, -1);
+            if (value >= 0) return value;
+            return jFirstInt(sliceResultMessage, keys, -1);
+        };
+
+        auto firstLiveText = [&](std::initializer_list<const char*> keys) -> std::string {
+            std::string value = jFirst(data, keys);
+            if (!value.empty()) return value;
+            value = jFirst(deviceMessage, keys);
+            if (!value.empty()) return value;
+            value = jFirst(settingsMessage, keys);
+            if (!value.empty()) return value;
+            return jFirst(sliceResultMessage, keys);
+        };
+
+        auto firstLiveDurationSeconds = [&](std::initializer_list<const char*> secondKeys,
+                                            std::initializer_list<const char*> minuteKeys) -> int {
+            int value = durationSecondsFromObject(data, secondKeys, minuteKeys);
+            if (value >= 0) return value;
+            value = durationSecondsFromObject(deviceMessage, secondKeys, minuteKeys);
+            if (value >= 0) return value;
+            value = durationSecondsFromObject(settingsMessage, secondKeys, minuteKeys);
+            if (value >= 0) return value;
+            return durationSecondsFromObject(sliceResultMessage, secondKeys, minuteKeys);
+        };
+
         out.ok = true;
         out.message = "Details imprimante charges";
 #if defined(ACCLOUD_DEBUG)
         out.rawJson = data.dump();
 #endif
+        out.progress = firstLiveInt({"progress"});
+        out.remainingSec = firstLiveDurationSeconds({"remaining_sec"},
+                                                    {"remain_time", "remaining_time"});
+        out.elapsedSec = firstLiveDurationSeconds({"elapsed_sec"},
+                                                  {"elapsed_time", "time_elapsed", "print_time"});
+        out.currentLayer = firstLiveInt({"curr_layer", "current_layer", "currLayer", "currentLayer"});
+        out.totalLayers = firstLiveInt({"total_layers", "total_layer", "totalLayers", "layers", "layer_count", "layerCount"});
+        out.currentFile = firstLiveText({"old_filename", "file_name", "filename"});
         out.firmwareVersion = jFirst(base, {"firmware_version"});
         out.printCount = jFirst(base, {"print_count"});
         out.printTotalTime = jFirst(base, {"print_totaltime"});
@@ -1090,17 +1263,30 @@ CloudPrinterProjectsResult fetchPrinterProjects(const std::string& accessToken,
     const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
     if (!r.ok) return {false, "Erreur reseau: " + r.error};
 
+    CloudPrinterProjectsResult out;
+#if defined(ACCLOUD_DEBUG)
+    out.rawJson = r.body;
+#endif
+
     try {
         const auto j = nlohmann::json::parse(r.body);
-        if (j.value("code", 0) != 1)
-            return {false, j.value("msg", "Erreur projects")};
+        if (j.value("code", 0) != 1) {
+            out.ok = false;
+            out.message = j.value("msg", "Erreur projects");
+            return out;
+        }
 
         const auto& data = j.value("data", nlohmann::json::array());
-        if (!data.is_array())
-            return {false, "data projects invalide"};
+        if (!data.is_array()) {
+            out.ok = false;
+            out.message = "data projects invalide";
+            return out;
+        }
 
-        CloudPrinterProjectsResult out;
         out.ok = true;
+#if defined(ACCLOUD_DEBUG)
+        out.rawJson = j.dump();
+#endif
         out.items.reserve(data.size());
         for (const auto& e : data) {
             if (!e.is_object()) continue;
@@ -1109,7 +1295,9 @@ CloudPrinterProjectsResult fetchPrinterProjects(const std::string& accessToken,
         out.message = std::to_string(out.items.size()) + " projet(s)";
         return out;
     } catch (const std::exception& e) {
-        return {false, std::string("Parse error: ") + e.what()};
+        out.ok = false;
+        out.message = std::string("Parse error: ") + e.what();
+        return out;
     }
 #endif
 }

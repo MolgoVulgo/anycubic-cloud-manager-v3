@@ -1,4 +1,5 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "../components/Theme.js" as Theme
 import "../components"
@@ -303,6 +304,10 @@ AppDialogFrame {
         AppButton {
             text: qsTr("Print")
             variant: "primary"
+            enabled: String(root.fileData.fileId || "").length > 0
+            ToolTip.visible: hovered && enabled
+            ToolTip.delay: 350
+            ToolTip.text: qsTr("Remote print via Printers workflow")
             onClicked: root.printRequested(String(root.fileData.fileId || ""),
                                            String(root.fileData.fileName || ""))
         },

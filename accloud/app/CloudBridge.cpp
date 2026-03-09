@@ -326,6 +326,8 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("progress",    p.progress);
     m.insert("elapsedSec",  p.elapsedSec);
     m.insert("remainingSec",p.remainingSec);
+    m.insert("currentLayer",p.currentLayer);
+    m.insert("totalLayers", p.totalLayers);
     m.insert("currentFile", QString::fromStdString(p.currentFile));
     return m;
 }
@@ -340,6 +342,12 @@ QVariantMap printerCompatToMap(const cloud::CloudPrinterCompatItem& p) {
 
 QVariantMap printerDetailsToMap(const cloud::CloudPrinterDetailsResult& d) {
     QVariantMap m;
+    m.insert("progress", d.progress);
+    m.insert("elapsedSec", d.elapsedSec);
+    m.insert("remainingSec", d.remainingSec);
+    m.insert("currentLayer", d.currentLayer);
+    m.insert("totalLayers", d.totalLayers);
+    m.insert("currentFile", QString::fromStdString(d.currentFile));
     m.insert("firmwareVersion", QString::fromStdString(d.firmwareVersion));
     m.insert("printCount", QString::fromStdString(d.printCount));
     m.insert("printTotalTime", QString::fromStdString(d.printTotalTime));
@@ -383,6 +391,11 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("printerName", QString::fromStdString(item.printerName));
     m.insert("printStatus", item.printStatus);
     m.insert("progress", item.progress);
+    m.insert("elapsedSec", item.elapsedSec);
+    m.insert("remainingSec", item.remainingSec);
+    m.insert("currentLayer", item.currentLayer);
+    m.insert("totalLayers", item.totalLayers);
+    m.insert("currentFile", QString::fromStdString(item.currentFile));
     m.insert("reason", QString::fromStdString(item.reason));
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
@@ -585,6 +598,25 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
             if constexpr (kDebugBuildEnabled) {
                 printer.insert("detailsRawJson", QString::fromStdString(details.rawJson));
             }
+            if (printer.value(QStringLiteral("currentFile")).toString().trimmed().isEmpty()
+                && !details.currentFile.empty()) {
+                printer.insert(QStringLiteral("currentFile"), QString::fromStdString(details.currentFile));
+            }
+            if (printer.value(QStringLiteral("progress"), -1).toInt() < 0 && details.progress >= 0) {
+                printer.insert(QStringLiteral("progress"), details.progress);
+            }
+            if (printer.value(QStringLiteral("elapsedSec"), -1).toInt() < 0 && details.elapsedSec >= 0) {
+                printer.insert(QStringLiteral("elapsedSec"), details.elapsedSec);
+            }
+            if (printer.value(QStringLiteral("remainingSec"), -1).toInt() < 0 && details.remainingSec >= 0) {
+                printer.insert(QStringLiteral("remainingSec"), details.remainingSec);
+            }
+            if (printer.value(QStringLiteral("currentLayer"), -1).toInt() < 0 && details.currentLayer >= 0) {
+                printer.insert(QStringLiteral("currentLayer"), details.currentLayer);
+            }
+            if (printer.value(QStringLiteral("totalLayers"), -1).toInt() < 0 && details.totalLayers >= 0) {
+                printer.insert(QStringLiteral("totalLayers"), details.totalLayers);
+            }
         } else {
             printer.insert("details", QVariantMap{});
             if constexpr (kDebugBuildEnabled) {
@@ -601,8 +633,39 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
                 projectItems.append(printerProjectToMap(item));
             }
             printer.insert("projects", projectItems);
+            if constexpr (kDebugBuildEnabled) {
+                printer.insert("projectsRawJson", QString::fromStdString(projects.rawJson));
+            }
+            if (!projects.items.empty()) {
+                const auto& active = projects.items.front();
+                if (printer.value(QStringLiteral("currentFile")).toString().trimmed().isEmpty()) {
+                    if (!active.currentFile.empty()) {
+                        printer.insert(QStringLiteral("currentFile"), QString::fromStdString(active.currentFile));
+                    } else if (!active.gcodeName.empty()) {
+                        printer.insert(QStringLiteral("currentFile"), QString::fromStdString(active.gcodeName));
+                    }
+                }
+                if (printer.value(QStringLiteral("progress"), -1).toInt() < 0 && active.progress >= 0) {
+                    printer.insert(QStringLiteral("progress"), active.progress);
+                }
+                if (printer.value(QStringLiteral("elapsedSec"), -1).toInt() < 0 && active.elapsedSec >= 0) {
+                    printer.insert(QStringLiteral("elapsedSec"), active.elapsedSec);
+                }
+                if (printer.value(QStringLiteral("remainingSec"), -1).toInt() < 0 && active.remainingSec >= 0) {
+                    printer.insert(QStringLiteral("remainingSec"), active.remainingSec);
+                }
+                if (printer.value(QStringLiteral("currentLayer"), -1).toInt() < 0 && active.currentLayer >= 0) {
+                    printer.insert(QStringLiteral("currentLayer"), active.currentLayer);
+                }
+                if (printer.value(QStringLiteral("totalLayers"), -1).toInt() < 0 && active.totalLayers >= 0) {
+                    printer.insert(QStringLiteral("totalLayers"), active.totalLayers);
+                }
+            }
         } else {
             printer.insert("projects", QVariantList{});
+            if constexpr (kDebugBuildEnabled) {
+                printer.insert("projectsRawJson", QString{});
+            }
         }
 
         printers.append(printer);
@@ -708,11 +771,44 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("progress"), -1);
         printer.insert(QStringLiteral("elapsedSec"), -1);
         printer.insert(QStringLiteral("remainingSec"), -1);
+        printer.insert(QStringLiteral("currentLayer"), -1);
+        printer.insert(QStringLiteral("totalLayers"), -1);
         printer.insert(QStringLiteral("details"), QVariantMap{});
+        const QVariantList cachedProjects = m_cache->loadJobsForPrinter(printerId, 1, 20);
+        if (!cachedProjects.isEmpty()) {
+            const QVariantMap firstProject = cachedProjects.first().toMap();
+            const QString firstName = firstProject.value(QStringLiteral("currentFile")).toString().trimmed().isEmpty()
+                    ? firstProject.value(QStringLiteral("gcodeName")).toString()
+                    : firstProject.value(QStringLiteral("currentFile")).toString();
+            if (!firstName.trimmed().isEmpty()) {
+                printer.insert(QStringLiteral("currentFile"), firstName);
+            }
+            const int firstProgress = firstProject.value(QStringLiteral("progress"), -1).toInt();
+            if (firstProgress >= 0) {
+                printer.insert(QStringLiteral("progress"), firstProgress);
+            }
+            const int firstElapsedSec = firstProject.value(QStringLiteral("elapsedSec"), -1).toInt();
+            if (firstElapsedSec >= 0) {
+                printer.insert(QStringLiteral("elapsedSec"), firstElapsedSec);
+            }
+            const int firstRemainingSec = firstProject.value(QStringLiteral("remainingSec"), -1).toInt();
+            if (firstRemainingSec >= 0) {
+                printer.insert(QStringLiteral("remainingSec"), firstRemainingSec);
+            }
+            const int firstCurrentLayer = firstProject.value(QStringLiteral("currentLayer"), -1).toInt();
+            if (firstCurrentLayer >= 0) {
+                printer.insert(QStringLiteral("currentLayer"), firstCurrentLayer);
+            }
+            const int firstTotalLayers = firstProject.value(QStringLiteral("totalLayers"), -1).toInt();
+            if (firstTotalLayers >= 0) {
+                printer.insert(QStringLiteral("totalLayers"), firstTotalLayers);
+            }
+        }
         if constexpr (kDebugBuildEnabled) {
             printer.insert(QStringLiteral("detailsRawJson"), QString{});
+            printer.insert(QStringLiteral("projectsRawJson"), QString{});
         }
-        printer.insert(QStringLiteral("projects"), m_cache->loadJobsForPrinter(printerId, 1, 20));
+        printer.insert(QStringLiteral("projects"), cachedProjects);
         printers.append(printer);
     }
     out.insert("ok", true);
@@ -1084,6 +1180,9 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
         at, tok, normalizedPrinterId.toStdString(), page, limit);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString::fromStdString(r.rawJson));
+    }
     if (r.ok) {
         QVariantList projects;
         projects.reserve(static_cast<qsizetype>(r.items.size()));
@@ -1110,6 +1209,9 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
     out.insert("projects", QVariantList{});
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString{});
+    }
 
     const QString normalizedPrinterId = printerId.trimmed();
     if (normalizedPrinterId.isEmpty()) {

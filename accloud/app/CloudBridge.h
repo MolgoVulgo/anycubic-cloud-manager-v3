@@ -51,7 +51,8 @@ public:
     Q_INVOKABLE QVariantMap fetchPrinterDetails(const QString& printerId) const;
     // Retourne { ok, message, reasons:[{reason,desc,helpUrl,type,push,popup}] }
     Q_INVOKABLE QVariantMap fetchReasonCatalog() const;
-    // Retourne { ok, message, projects:[{taskId,gcodeName,printerId,printerName,printStatus,progress,reason,createTime,endTime,img}] }
+    // Retourne { ok, message, projects:[{taskId,gcodeName,printerId,printerName,printStatus,progress,elapsedSec,remainingSec,currentLayer,totalLayers,currentFile,reason,createTime,endTime,img}] }
+    // Champ debug (uniquement si ACCLOUD_DEBUG=ON): rawJson
     Q_INVOKABLE QVariantMap fetchPrinterProjects(const QString& printerId,
                                                  int page = 1,
                                                  int limit = 10) const;
