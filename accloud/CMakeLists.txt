@@ -36,6 +36,21 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/CloudClient.cpp
     infra/cloud/HarImporter.cpp
     infra/cloud/SignHeaders.cpp
+    infra/cloud/core/HttpClient.cpp
+    infra/cloud/core/WorkbenchSigner.cpp
+    infra/cloud/core/WorkbenchRequestBuilder.cpp
+    infra/cloud/core/EndpointRegistry.cpp
+    infra/cloud/core/ResponseEnvelopeParser.cpp
+    infra/cloud/core/SessionProvider.cpp
+    infra/cloud/api/AuthApi.cpp
+    infra/cloud/api/FilesApi.cpp
+    infra/cloud/api/QuotaApi.cpp
+    infra/cloud/api/PrintersApi.cpp
+    infra/cloud/api/ProjectsApi.cpp
+    infra/cloud/api/DownloadsApi.cpp
+    infra/cloud/api/ReasonCatalogApi.cpp
+    infra/cloud/api/PrintOrderApi.cpp
+    infra/cloud/api/CloudLegacyImpl.cpp
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
@@ -48,6 +63,18 @@ set(ACCLOUD_INFRA_SOURCES
     infra/jobs/Jobs_Build3D.cpp
     infra/jobs/Jobs_Cloud.cpp
     infra/jobs/Jobs_ExportReport.cpp
+    app/usecases/cloud/CheckCloudSessionUseCase.cpp
+    app/usecases/cloud/LoadCloudFilesUseCase.cpp
+    app/usecases/cloud/LoadCloudQuotaUseCase.cpp
+    app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
+    app/usecases/cloud/GetDownloadUrlUseCase.cpp
+    app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
+    app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
+    app/usecases/cloud/FetchPrinterDetailsUseCase.cpp
+    app/usecases/cloud/FetchReasonCatalogUseCase.cpp
+    app/usecases/cloud/FetchPrinterProjectsUseCase.cpp
+    app/usecases/cloud/SendPrintOrderUseCase.cpp
+    app/usecases/cloud/DeleteCloudFileUseCase.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
     render3d/gl/MeshlessVolume.cpp

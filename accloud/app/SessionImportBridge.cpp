@@ -1,6 +1,8 @@
 #include "SessionImportBridge.h"
 
-#include "infra/cloud/CloudClient.h"
+#include "app/usecases/cloud/CheckCloudSessionUseCase.h"
+#include "infra/cloud/api/AuthApi.h"
+#include "infra/cloud/core/SessionProvider.h"
 #include "infra/cloud/HarImporter.h"
 #include "infra/logging/JsonlLogger.h"
 
@@ -196,8 +198,9 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   if (accIt == m_pendingTokens.end()) {
     out.insert("message", "Session saved, but access_token is missing.");
   } else {
+    const cloud::api::AuthApi authApi;
     const cloud::CloudCheckResult check =
-        cloud::checkCloudAuth(accIt->second, pickXxToken(m_pendingTokens));
+        authApi.checkAuth(accIt->second, pickXxToken(m_pendingTokens));
     out.insert("connectionOk", check.ok);
     out.insert("connectionMessage", QString::fromStdString(check.message));
   }
@@ -228,8 +231,9 @@ void SessionImportBridge::discardPendingSession() {
 
 QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) const {
   QVariantMap out;
+  const cloud::core::SessionProvider sessionProvider;
   const std::optional<std::filesystem::path> pathOverride = optionalFsPath(sessionPath);
-  const cloud::LoadSessionResult loaded = cloud::loadSessionFile(pathOverride);
+  const cloud::LoadSessionResult loaded = sessionProvider.loadCurrentSession(pathOverride);
 
   QStringList lines;
   lines << QStringLiteral("Path: %1").arg(QString::fromStdString(loaded.path.string()));
@@ -271,9 +275,10 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
 
 QVariantMap SessionImportBridge::checkStartup() const {
   QVariantMap out;
+  const cloud::core::SessionProvider sessionProvider;
 
   // 1. Vérifier que session.json existe et est lisible
-  const cloud::LoadSessionResult loaded = cloud::loadSessionFile();
+  const cloud::LoadSessionResult loaded = sessionProvider.loadCurrentSession();
   if (!loaded.ok) {
     logging::info("app", "session_import_bridge", "startup_no_session",
                   "Session introuvable ou invalide",
@@ -289,21 +294,18 @@ QVariantMap SessionImportBridge::checkStartup() const {
   out.insert("sessionExists", true);
 
   // 2. Récupérer le token d'accès
-  const auto accIt = loaded.session.tokens.find("access_token");
-  if (accIt == loaded.session.tokens.end()) {
+  const std::optional<std::string> accessToken = sessionProvider.requireAccessToken(loaded.session);
+  if (!accessToken.has_value()) {
     out.insert("connectionOk", false);
     out.insert("message", QString("session.json ne contient pas de access_token."));
     finalizeUiMessage(out);
     return out;
   }
-  const auto tokIt = loaded.session.tokens.find("token");
-  const std::string xxToken =
-      (tokIt != loaded.session.tokens.end()) ? tokIt->second : std::string{};
-
   // 3. Tester la connexion cloud
   logging::info("app", "session_import_bridge", "startup_checking_cloud",
                 "Vérification de la connexion cloud au démarrage");
-  const cloud::CloudCheckResult check = cloud::checkCloudAuth(accIt->second, xxToken);
+  const usecases::cloud::CheckCloudSessionUseCase checkUseCase;
+  const cloud::CloudCheckResult check = checkUseCase.execute();
 
   out.insert("connectionOk", check.ok);
   out.insert("message", QString::fromStdString(check.message));
