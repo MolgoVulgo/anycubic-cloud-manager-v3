@@ -85,7 +85,6 @@ Q_SIGNALS:
     void syncFailed(const QString& scope, const QString& message);
 
 private:
-    bool loadTokens(std::string& accessToken, std::string& xxToken) const;
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
     QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
