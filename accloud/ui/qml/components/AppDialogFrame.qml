@@ -8,30 +8,54 @@ Dialog {
 
     property string subtitle: qsTr("")
     property bool allowScrimClose: true
+    property bool allowEscapeClose: true
     property bool showCloseButton: true
     property bool showHeaderDivider: true
     property bool showFooterDivider: true
-    property int framePadding: 15
+    property int framePadding: Theme.paddingDialog
+    property var requestCloseCallback: null
+    property string dialogSize: "medium" // "small" | "medium" | "large" | "workspace"
     property int minimumWidth: 520
     property int maximumWidth: 980
     property int minimumHeight: 0
     property int maximumHeight: 980
+    readonly property color headerFooterBg: Qt.darker(Theme.bgDialog, 1.05)
     readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1280
     readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 860
+    readonly property real widthRatio: dialogSize === "small"
+                                     ? 0.46
+                                     : dialogSize === "large"
+                                       ? 0.82
+                                       : dialogSize === "workspace"
+                                         ? 0.9
+                                         : 0.68
     default property alias bodyData: bodyColumn.data
     property alias headerActionsData: headerActions.data
     property alias footerLeadingData: footerLeading.data
     property alias footerTrailingData: footerTrailing.data
 
+    function requestClose() {
+        if (requestCloseCallback !== null && typeof requestCloseCallback === "function") {
+            requestCloseCallback()
+            return
+        }
+        root.close()
+    }
+
     modal: true
     parent: Overlay.overlay
     anchors.centerIn: Overlay.overlay
-    closePolicy: allowScrimClose
+    header: null
+    closePolicy: allowScrimClose && allowEscapeClose
                  ? (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
-                 : Popup.CloseOnEscape
+                 : allowScrimClose
+                   ? Popup.CloseOnPressOutside
+                   : allowEscapeClose
+                     ? Popup.CloseOnEscape
+                     : Popup.NoAutoClose
     padding: 0
 
-    width: Math.min(maximumWidth, Math.max(minimumWidth, overlayWidth * 0.68))
+    width: Math.min(maximumWidth, Math.max(minimumWidth, overlayWidth * widthRatio))
     height: Math.min(overlayHeight * 0.9,
                      Math.min(maximumHeight,
                               Math.max(minimumHeight, contentLayout.implicitHeight)))
@@ -52,9 +76,10 @@ Dialog {
         id: contentLayout
         spacing: 0
 
-        Item {
+        Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: headerLayout.implicitHeight + root.framePadding * 2
+            color: root.headerFooterBg
 
             RowLayout {
                 id: headerLayout
@@ -95,7 +120,7 @@ Dialog {
                     text: qsTr("X")
                     variant: "secondary"
                     compact: true
-                    onClicked: root.close()
+                    onClicked: root.requestClose()
                 }
             }
         }
@@ -127,10 +152,11 @@ Dialog {
             color: Theme.borderSubtle
         }
 
-        Item {
+        Rectangle {
             visible: footerLeading.children.length > 0 || footerTrailing.children.length > 0
             Layout.fillWidth: true
             Layout.preferredHeight: footerRow.implicitHeight + root.framePadding * 2
+            color: root.headerFooterBg
 
             RowLayout {
                 id: footerRow

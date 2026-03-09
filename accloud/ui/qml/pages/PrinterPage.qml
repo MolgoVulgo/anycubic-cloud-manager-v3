@@ -801,726 +801,115 @@ Item {
         }
     }
 
-    AppDialogFrame {
+    PrinterSelectCloudFileDialog {
         id: selectCloudFileDialog
-        title: qsTr("Select Cloud File")
-        subtitle: qsTr("Compatible files for the selected printer")
-        minimumWidth: 820
-        maximumWidth: 980
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 36
-            color: Theme.bgSurface
-            border.width: 0
-
-            RowLayout {
-                anchors.fill: parent
-                spacing: 8
-
-                Text { Layout.preferredWidth: 32; text: qsTr(""); color: Theme.fgSecondary }
-                Text { Layout.fillWidth: true; text: qsTr("File name"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
-                Text { Layout.preferredWidth: 80; text: qsTr("Type"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
-                Text { Layout.preferredWidth: 90; text: qsTr("Size"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
-                Text { Layout.preferredWidth: 86; text: qsTr("Status"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
-            }
+        filesModel: printCloudFilesModel
+        selectedFileId: root.selectedCloudFileId
+        fileTypeProvider: root.fileType
+        onSelectedFileChanged: function(fileId) {
+            root.selectedCloudFileId = fileId
         }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Theme.borderSubtle
+        onCloseRequested: selectCloudFileDialog.close()
+        onStartRequested: {
+            selectCloudFileDialog.close()
+            openRemotePrintConfig()
         }
-
-        ListView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            model: printCloudFilesModel
-            spacing: 0
-
-            delegate: Rectangle {
-                width: ListView.view.width
-                height: 48
-                color: selectedCloudFileId === String(model.fileId) ? Theme.selectionBg : Theme.bgSurface
-                border.width: 0
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 8
-
-                    RadioButton {
-                        Layout.preferredWidth: 32
-                        checked: selectedCloudFileId === String(model.fileId)
-                        onClicked: selectedCloudFileId = String(model.fileId)
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: String(model.fileName || "-")
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontBodyPx
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        Layout.preferredWidth: 80
-                        text: fileType(model.fileName).toUpperCase()
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontBodyPx
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-
-                    Text {
-                        Layout.preferredWidth: 90
-                        text: String(model.sizeText || "-")
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontBodyPx
-                        horizontalAlignment: Text.AlignRight
-                    }
-
-                    Text {
-                        Layout.preferredWidth: 86
-                        text: String(model.status || "-")
-                        color: Theme.fgSecondary
-                        font.pixelSize: Theme.fontBodyPx
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                }
-            }
-
-            footer: Text {
-                width: parent ? parent.width : 0
-                visible: printCloudFilesModel.count === 0
-                text: qsTr("No compatible cloud file for this printer.")
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontBodyPx
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                padding: 18
-            }
-        }
-
-        footerTrailingData: [
-            AppButton {
-                text: qsTr("Close")
-                variant: "secondary"
-                onClicked: selectCloudFileDialog.close()
-            },
-            AppButton {
-                text: qsTr("Start Printing")
-                variant: "primary"
-                enabled: selectedCloudFileId.length > 0
-                onClicked: {
-                    selectCloudFileDialog.close()
-                    openRemotePrintConfig()
-                }
-            }
-        ]
     }
 
-    AppDialogFrame {
+    PrinterRemotePrintConfigDialog {
         id: remotePrintConfigDialog
-        title: qsTr("Remote Print Config")
-        subtitle: qsTr("Review task, printer and options before start")
-        minimumWidth: 760
-        maximumWidth: 900
-
-        onOpened: {
-            for (var i = 0; i < printersModel.count; ++i) {
-                if (String(printersModel.get(i).id) === remotePrinterId) {
-                    remotePrinterCombo.currentIndex = i
-                    break
-                }
-            }
-            refreshRemotePrintGuard()
+        printersModel: printersModel
+        remotePrinterId: root.remotePrinterId
+        selectedCloudFileId: root.selectedCloudFileId
+        selectedFileName: selectedCloudFileData() ? String(selectedCloudFileData().fileName || "-") : "-"
+        selectedPrinterName: selectedPrinterData() ? String(selectedPrinterData().name || "-") : "-"
+        selectedPrintTime: selectedCloudFileData() ? String(selectedCloudFileData().printTime || "-") : "-"
+        selectedResinUsage: selectedCloudFileData() ? String(selectedCloudFileData().resinUsage || "-") : "-"
+        optionHighPriority: root.optionHighPriority
+        optionDeleteAfterPrint: root.optionDeleteAfterPrint
+        optionDryRun: root.optionDryRun
+        remotePrintAllowed: root.remotePrintAllowed
+        remotePrintBlockReason: root.remotePrintBlockReason
+        translateLocalizedTextProvider: root.translateLocalizedText
+        onRemotePrinterChanged: function(printerId) {
+            root.remotePrinterId = printerId
         }
-
-        SectionHeader {
-            Layout.fillWidth: true
-            title: qsTr("Print Task")
-            subtitle: qsTr("Selected cloud file summary")
+        onOptionHighPriorityToggled: function(checked) {
+            root.optionHighPriority = checked
         }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 86
-            radius: Theme.radiusControl
-            color: Theme.bgSurface
-            border.width: Theme.borderWidth
-            border.color: Theme.borderDefault
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 10
-                spacing: 6
-
-                Text {
-                    text: (selectedCloudFileData() ? String(selectedCloudFileData().fileName) : "-")
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontSectionPx
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    text: qsTr("Printer: %1 | Est: %2 | Resin: %3")
-                            .arg(selectedPrinterData() ? String(selectedPrinterData().name) : "-")
-                            .arg(selectedCloudFileData() ? String(selectedCloudFileData().printTime || "-") : "-")
-                            .arg(selectedCloudFileData() ? String(selectedCloudFileData().resinUsage || "-") : "-")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideRight
-                }
-            }
+        onOptionDeleteAfterPrintToggled: function(checked) {
+            root.optionDeleteAfterPrint = checked
         }
-
-        SectionHeader {
-            Layout.fillWidth: true
-            title: qsTr("Select Printer")
-            subtitle: qsTr("Change target printer if needed")
+        onOptionDryRunToggled: function(checked) {
+            root.optionDryRun = checked
         }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            AppComboBox {
-                id: remotePrinterCombo
-                Layout.fillWidth: true
-                model: printersModel
-                textRole: "name"
-
-                Component.onCompleted: {
-                    for (var i = 0; i < printersModel.count; ++i) {
-                        if (String(printersModel.get(i).id) === remotePrinterId) {
-                            currentIndex = i
-                            break
-                        }
-                    }
-                }
-
-                onActivated: {
-                    if (currentIndex >= 0 && currentIndex < printersModel.count) {
-                        remotePrinterId = String(printersModel.get(currentIndex).id)
-                        refreshRemotePrintGuard()
-                    }
-                }
-            }
-
-            AppButton {
-                text: qsTr("Change")
-                variant: "secondary"
-                onClicked: {
-                    remotePrintConfigDialog.close()
-                    openSelectCloudFileDialog(remotePrinterId)
-                }
-            }
+        onRefreshGuardRequested: root.refreshRemotePrintGuard()
+        onChangePrinterRequested: {
+            remotePrintConfigDialog.close()
+            root.openSelectCloudFileDialog(root.remotePrinterId)
         }
-
-        SectionHeader {
-            Layout.fillWidth: true
-            title: qsTr("Options")
-            subtitle: qsTr("Fast options before start")
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-
-            AppCheckBox {
-                text: qsTr("High priority")
-                checked: optionHighPriority
-                onToggled: optionHighPriority = checked
-            }
-
-            AppCheckBox {
-                text: qsTr("Delete file after print")
-                checked: optionDeleteAfterPrint
-                onToggled: optionDeleteAfterPrint = checked
-            }
-
-            AppCheckBox {
-                text: qsTr("Dry-run")
-                checked: optionDryRun
-                onToggled: optionDryRun = checked
-            }
-
-            Item { Layout.fillWidth: true }
-
-            AppButton {
-                text: qsTr("More")
-                variant: "secondary"
-                onClicked: printConfigDialog.open()
-            }
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: !remotePrintAllowed
-            text: remotePrintBlockReason.length > 0
-                  ? (qsTr("Start blocked: %1").arg(root.translateLocalizedText(remotePrintBlockReason)))
-                  : qsTr("Start blocked by compatibility checks.")
-            color: Theme.danger
-            font.pixelSize: Theme.fontCaptionPx
-            wrapMode: Text.WordWrap
-        }
-
-        footerTrailingData: [
-            AppButton {
-                text: qsTr("Close")
-                variant: "secondary"
-                onClicked: remotePrintConfigDialog.close()
-            },
-            AppButton {
-                text: qsTr("Start Printing")
-                variant: "primary"
-                enabled: selectedCloudFileId.length > 0
-                         && remotePrinterId.length > 0
-                         && remotePrintAllowed
-                onClicked: startRemotePrint()
-            }
-        ]
+        onMoreRequested: printConfigDialog.open()
+        onCloseRequested: remotePrintConfigDialog.close()
+        onStartRequested: root.startRemotePrint()
     }
 
-    AppDialogFrame {
+    PrinterAdvancedPrintConfigDialog {
         id: printConfigDialog
-        title: qsTr("Print Config")
-        subtitle: qsTr("Advanced flags")
-        minimumWidth: 620
-        maximumWidth: 760
-
-        AppCheckBox {
-            text: qsTr("Lift compensation")
-            checked: optionLiftCompensation
-            onToggled: optionLiftCompensation = checked
+        liftCompensation: root.optionLiftCompensation
+        autoResinCheck: root.optionAutoResinCheck
+        onLiftCompensationToggled: function(checked) {
+            root.optionLiftCompensation = checked
         }
-
-        Text {
-            text: qsTr("Adds extra stabilization on Z lifts.")
-            color: Theme.fgSecondary
-            font.pixelSize: Theme.fontCaptionPx
-            opacity: 0.9
+        onAutoResinCheckToggled: function(checked) {
+            root.optionAutoResinCheck = checked
         }
-
-        AppCheckBox {
-            text: qsTr("Auto resin check")
-            checked: optionAutoResinCheck
-            onToggled: optionAutoResinCheck = checked
-        }
-
-        Text {
-            text: qsTr("Best-effort pre-check before sending order.")
-            color: Theme.fgSecondary
-            font.pixelSize: Theme.fontCaptionPx
-            opacity: 0.9
-        }
-
-        footerTrailingData: [
-            AppButton {
-                text: qsTr("Close")
-                variant: "secondary"
-                onClicked: printConfigDialog.close()
-            }
-        ]
+        onCloseRequested: printConfigDialog.close()
     }
 
-    AppPageFrame {
-        anchors.fill: parent
-
-        RowLayout {
-            objectName: "printerToolbar"
-            Layout.fillWidth: true
-            spacing: 8
-
-            AppButton {
-                objectName: "refreshPrintersButton"
-                text: loading ? qsTr("Refreshing...") : qsTr("Refresh printers")
-                variant: "secondary"
-                enabled: !loading
-                onClicked: {
-                    if (!hasCloudBridge()) {
-                        loadPrinters()
-                        return
-                    }
-                    if (typeof cloudBridge.refreshPrintersAsync === "function") {
-                        statusMsg = qsTr("Force refresh printers from cloud...")
-                        statusSev = "info"
-                        cloudBridge.refreshPrintersAsync(true)
-                    } else {
-                        loadPrinters()
-                    }
-                }
+    PrinterMainPanel {
+        loading: root.loading
+        showDebugLabels: root.showDebugLabels
+        printersModel: printersModel
+        selectedPrinterId: root.selectedPrinterId
+        tabTitleProvider: root.printerTabTitle
+        selectedPrinter: root.selectedPrinterData()
+        selectedPrinterDetails: root.selectedPrinterDetails
+        loadingPrinterHistory: root.loadingPrinterHistory
+        printerHistoryModel: printerHistoryModel
+        printersEndpointPath: root.printersEndpointPath
+        printersEndpointRawJson: root.printersEndpointRawJson
+        selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText()
+        statusChipTextProvider: root.statusChipText
+        progressTextProvider: root.progressText
+        timeTextProvider: root.timeText
+        unixTimeTextProvider: root.unixTimeText
+        printStatusTextProvider: root.printStatusText
+        prettyJsonProvider: root.prettyJson
+        onRefreshRequested: {
+            if (!root.hasCloudBridge()) {
+                root.loadPrinters()
+                return
             }
-
-            AppCheckBox {
-                objectName: "debugLabelsToggle"
-                text: qsTr("Debug UI")
-                checked: root.showDebugLabels
-                onToggled: root.showDebugLabels = checked
-            }
-
-            Item { Layout.fillWidth: true }
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: root.showDebugLabels
-            text: qsTr("sections: printerToolbar | printersTabsBar | deviceDetailsPanel | endpointJsonPanel")
-            color: Theme.warning
-            font.pixelSize: Theme.fontCaptionPx
-            elide: Text.ElideRight
-        }
-
-        Rectangle {
-            objectName: "printersTabsBar"
-            Layout.fillWidth: true
-            Layout.preferredHeight: 50
-            radius: Theme.radiusControl
-            color: Theme.bgSurface
-            border.width: Theme.borderWidth
-            border.color: Theme.borderDefault
-
-            AppTabBar {
-                id: printersTabBar
-                anchors.fill: parent
-                anchors.margins: 6
-                spacing: 4
-                clip: true
-
-                Repeater {
-                    model: printersModel
-
-                    AppTabButton {
-                        objectName: "printerTabButton"
-                        required property int index
-                        readonly property var printer: printersModel.get(index)
-                        text: root.printerTabTitle(printer)
-                        width: Math.min(340, Math.max(170, implicitWidth + 16))
-                        checked: selectedPrinterId === String(printer && printer.id ? printer.id : "")
-                        onClicked: root.choosePrinter(printer && printer.id ? printer.id : "")
-                    }
-                }
+            if (typeof cloudBridge.refreshPrintersAsync === "function") {
+                root.statusMsg = qsTr("Force refresh printers from cloud...")
+                root.statusSev = "info"
+                cloudBridge.refreshPrintersAsync(true)
+            } else {
+                root.loadPrinters()
             }
         }
-
-        Rectangle {
-            objectName: "deviceDetailsPanel"
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: Theme.radiusControl
-            color: Theme.bgSurface
-            border.width: Theme.borderWidth
-            border.color: Theme.borderDefault
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 10
-
-                    Text {
-                        text: qsTr("Device Details")
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontTitlePx
-                        font.bold: true
-                    }
-
-                    Text {
-                        visible: root.selectedPrinterData() === null
-                        text: qsTr("Select a printer to view details and remote print entrypoints.")
-                        color: Theme.fgSecondary
-                        font.pixelSize: Theme.fontBodyPx
-                        wrapMode: Text.WordWrap
-                    }
-
-                    ColumnLayout {
-                        visible: root.selectedPrinterData() !== null
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: 8
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            spacing: 10
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgWindow
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 10
-                                    spacing: 8
-
-                                    Text {
-                                        text: String(root.selectedPrinterData() ? root.selectedPrinterData().name : "-")
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontTitlePx
-                                        font.bold: true
-                                    }
-
-                                    Text {
-                                        text: qsTr("Model: ") + String(root.selectedPrinterData() ? root.selectedPrinterData().model : "-")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontBodyPx
-                                    }
-
-                                    Text {
-                                        text: qsTr("Firmware: ")
-                                              + (String(root.selectedPrinterDetails.firmwareVersion || "").length > 0
-                                                 ? String(root.selectedPrinterDetails.firmwareVersion)
-                                                 : "-")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontBodyPx
-                                    }
-
-                                    RowLayout {
-                                        spacing: 8
-
-                                        Text {
-                                            text: qsTr("Status:")
-                                            color: Theme.fgSecondary
-                                            font.pixelSize: Theme.fontBodyPx
-                                        }
-
-                                        StatusChip {
-                                            status: root.statusChipText(root.selectedPrinterData() ? root.selectedPrinterData().state : "READY")
-                                        }
-                                    }
-
-                                    Text {
-                                        visible: root.selectedPrinterHelpUrlText().length > 0
-                                        text: qsTr("Help: ") + root.selectedPrinterHelpUrlText()
-                                        color: Theme.accent
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        text: qsTr("Current job: %1 | Progress: %2 | Elapsed: %3 | Remaining: %4")
-                                                .arg(root.selectedPrinterData() && String(root.selectedPrinterData().currentFile || "").length > 0
-                                                     ? String(root.selectedPrinterData().currentFile)
-                                                     : "-")
-                                                .arg(root.progressText(root.selectedPrinterData() ? root.selectedPrinterData().progress : -1))
-                                                .arg(root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().elapsedSec : -1))
-                                                .arg(root.timeText(root.selectedPrinterData() ? root.selectedPrinterData().remainingSec : -1))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Text {
-                                        text: qsTr("Print count: %1 | Total print time: %2 | Material used: %3")
-                                                .arg(String(root.selectedPrinterDetails.printCount || "").length > 0
-                                                     ? String(root.selectedPrinterDetails.printCount)
-                                                     : "-")
-                                                .arg(String(root.selectedPrinterDetails.printTotalTime || "").length > 0
-                                                     ? String(root.selectedPrinterDetails.printTotalTime)
-                                                     : "-")
-                                                .arg(String(root.selectedPrinterDetails.materialUsed || "").length > 0
-                                                     ? String(root.selectedPrinterDetails.materialUsed)
-                                                     : "-")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Text {
-                                        visible: String(root.selectedPrinterDetails.helpUrl || "").length > 0
-                                        text: qsTr("Device help: ") + String(root.selectedPrinterDetails.helpUrl || "")
-                                        color: Theme.accent
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        visible: String(root.selectedPrinterDetails.quickStartUrl || "").length > 0
-                                        text: qsTr("Quick start: ") + String(root.selectedPrinterDetails.quickStartUrl || "")
-                                        color: Theme.accent
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        visible: Number(root.selectedPrinterDetails.tools ? root.selectedPrinterDetails.tools.length : 0) > 0
-                                        text: qsTr("Tools: ")
-                                              + (root.selectedPrinterDetails.tools
-                                                 ? root.selectedPrinterDetails.tools.slice(0, 6).join(", ")
-                                                 : "")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Text {
-                                        visible: Number(root.selectedPrinterDetails.advances ? root.selectedPrinterDetails.advances.length : 0) > 0
-                                        text: qsTr("Advanced: ")
-                                              + (root.selectedPrinterDetails.advances
-                                                 ? root.selectedPrinterDetails.advances.slice(0, 4).join(", ")
-                                                 : "")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Item { Layout.fillHeight: true }
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
-
-                                        AppButton {
-                                            text: qsTr("From Cloud File")
-                                            variant: "primary"
-                                            enabled: root.selectedPrinterData() !== null
-                                            onClicked: root.openSelectCloudFileDialog(root.selectedPrinterData().id)
-                                        }
-
-                                        AppButton {
-                                            text: qsTr("From Local File")
-                                            variant: "secondary"
-                                            onClicked: {
-                                                root.statusMsg = qsTr("Local file remote print entrypoint is not implemented yet.")
-                                                root.statusSev = "warn"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgWindow
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 10
-                                    spacing: 8
-
-                                    SectionHeader {
-                                        Layout.fillWidth: true
-                                        title: qsTr("Recent Jobs")
-                                        subtitle: loadingPrinterHistory ? qsTr("Loading...") : qsTr("Latest projects for this printer")
-                                    }
-
-                                    ListView {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        clip: true
-                                        spacing: 6
-                                        model: printerHistoryModel
-                                        ScrollBar.vertical: ScrollBar {
-                                            policy: ScrollBar.AsNeeded
-                                            active: true
-                                        }
-
-                                        delegate: Rectangle {
-                                            width: ListView.view.width
-                                            height: 42
-                                            color: "transparent"
-
-                                            ColumnLayout {
-                                                anchors.fill: parent
-                                                spacing: 2
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: String(model.gcodeName || "-") + " • " + root.printStatusText(model.printStatus)
-                                                    color: Theme.fgPrimary
-                                                    font.pixelSize: Theme.fontCaptionPx
-                                                    elide: Text.ElideRight
-                                                }
-
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    text: qsTr("Task %1 | Progress %2 | Start %3 | End %4")
-                                                            .arg(String(model.taskId || "-"))
-                                                            .arg(root.progressText(model.progress))
-                                                            .arg(root.unixTimeText(model.createTime))
-                                                            .arg(root.unixTimeText(model.endTime))
-                                                    color: Theme.fgSecondary
-                                                    font.pixelSize: Theme.fontCaptionPx
-                                                    elide: Text.ElideRight
-                                                }
-                                            }
-                                        }
-
-                                        footer: Text {
-                                            width: parent ? parent.width : 0
-                                            visible: printerHistoryModel.count === 0
-                                            text: loadingPrinterHistory ? qsTr("Loading history...") : qsTr("No project history for this printer.")
-                                            color: Theme.fgSecondary
-                                            font.pixelSize: Theme.fontCaptionPx
-                                            horizontalAlignment: Text.AlignHCenter
-                                            padding: 10
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            objectName: "endpointJsonPanel"
-                            visible: root.showDebugLabels
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 220
-                            radius: Theme.radiusControl
-                            color: Theme.bgWindow
-                            border.width: Theme.borderWidth
-                            border.color: Theme.borderSubtle
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 6
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Endpoint JSON: ") + root.printersEndpointPath
-                                    color: Theme.warning
-                                    font.pixelSize: Theme.fontCaptionPx
-                                    font.bold: true
-                                    elide: Text.ElideRight
-                                }
-
-                                ScrollView {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    clip: true
-
-                                    TextArea {
-                                        readOnly: true
-                                        text: root.prettyJson(root.printersEndpointRawJson)
-                                        wrapMode: TextEdit.NoWrap
-                                        color: Theme.fgPrimary
-                                        font.family: "monospace"
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        background: Rectangle {
-                                            color: "transparent"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                DebugTag {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.leftMargin: 8
-                    anchors.topMargin: 8
-                    label: "panel: deviceDetailsPanel"
-                }
-            }
+        onDebugToggled: function(checked) {
+            root.showDebugLabels = checked
+        }
+        onPrinterSelected: function(printerId) {
+            root.choosePrinter(printerId)
+        }
+        onCloudFileRequested: function(printerId) {
+            root.openSelectCloudFileDialog(printerId)
+        }
+        onLocalFileRequested: {
+            root.statusMsg = qsTr("Local file remote print entrypoint is not implemented yet.")
+            root.statusSev = "warn"
         }
     }
+}

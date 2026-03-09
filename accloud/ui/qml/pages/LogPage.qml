@@ -240,14 +240,14 @@ Item {
 
         Text {
             text: qsTr("Runtime Logs")
-            color: Theme.textPrimary
+            color: Theme.fgPrimary
             font.pixelSize: 26
             font.bold: true
         }
 
         Text {
             text: qsTr("Multi-source tail with level/source/component/event/op_id filters + text search.")
-            color: Theme.textSecondary
+            color: Theme.fgSecondary
             font.pixelSize: 14
         }
 
@@ -255,10 +255,10 @@ Item {
             objectName: "logFiltersPanel"
             Layout.fillWidth: true
             Layout.preferredHeight: 116
-            radius: 12
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgSurface
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ColumnLayout {
                 anchors.fill: parent
@@ -351,7 +351,7 @@ Item {
                         id: logStatusLabel
                         objectName: "logStatusLabel"
                         text: root.statusText
-                        color: Theme.textSecondary
+                        color: Theme.fgSecondary
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignRight
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
@@ -363,10 +363,10 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 12
-            color: Theme.cardAlt
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgDialog
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ScrollView {
                 id: logsScrollView

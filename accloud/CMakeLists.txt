@@ -150,6 +150,16 @@ endif()
 enable_testing()
 add_test(NAME accloud_smoke COMMAND accloud_cli --smoke)
 
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME accloud_ui_migration_check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_ui_migration.py
+  )
+else()
+  message(WARNING "Python3 interpreter not found: skipping UI migration guard test")
+endif()
+
 add_executable(accloud_har_tests
     tests/cloud/test_har_import.cpp
 )

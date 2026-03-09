@@ -5,16 +5,15 @@ import QtQuick.Dialogs
 import "../components/Theme.js" as Theme
 import "../components"
 
-Dialog {
+AppDialogFrame {
     id: root
     title: qsTr("Session Settings")
-    modal: true
-    parent: Overlay.overlay
-    anchors.centerIn: Overlay.overlay
-    readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1480
-    readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 920
-    width: Math.min(1120, Math.max(860, overlayWidth * 0.82))
-    height: Math.min(740, Math.max(560, overlayHeight * 0.84))
+    subtitle: qsTr("Import a session from a HAR file. Analysis runs automatically when a file is selected.")
+    minimumWidth: 860
+    maximumWidth: 1120
+    minimumHeight: 560
+    maximumHeight: 740
+    dialogSize: "large"
     property var importBridge: (typeof sessionImportBridge !== "undefined") ? sessionImportBridge : null
     property bool importInProgress: false
     property string statusMessage: qsTr("Status: ready for HAR analysis.")
@@ -28,8 +27,9 @@ Dialog {
     // Reason message shown at the top when the dialog opens in mandatory mode.
     property string startupMessage: ""
 
-    closePolicy: Popup.NoAutoClose
-    padding: 0
+    allowScrimClose: false
+    allowEscapeClose: false
+    requestCloseCallback: requestClose
 
     signal importCompleted(string message)
 
@@ -152,89 +152,52 @@ Dialog {
         }
     }
 
-    background: Rectangle {
-        radius: 14
-        color: Theme.card
-        border.width: 1
-        border.color: Theme.panelStroke
-    }
-
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 15
-        spacing: 10
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            Text {
-                Layout.fillWidth: true
-                text: root.title
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSectionPx
-                font.bold: true
-                elide: Text.ElideRight
-            }
-
-            AppButton {
-                text: qsTr("X")
-                compact: true
-                variant: "secondary"
-                enabled: !root.importInProgress
-                         && (!root.mandatoryMode || root.pendingValid)
-                onClicked: root.requestClose()
-            }
-        }
-
-        // Reason banner shown only in mandatory mode
+    bodyData: [
+        // Reason banner shown only in mandatory mode.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: startupReasonText.implicitHeight + 16
             visible: root.mandatoryMode && root.startupMessage.length > 0
-            radius: 8
+            radius: Theme.radiusControl
             color: Theme.danger
             opacity: 0.85
 
             Text {
                 id: startupReasonText
-                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
-                anchors.margins: 15
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Theme.paddingDialog
                 text: root.startupMessage
                 color: Theme.fgOnDanger
                 wrapMode: Text.WordWrap
                 font.bold: true
             }
-        }
-
-        Text {
-            text: qsTr("Import a session from a HAR file. Analysis runs automatically when a file is selected.")
-            color: Theme.textSecondary
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
+        },
         Text {
             text: qsTr("Session target (Settings > Session): ") + root.sessionTargetPath
-            color: Theme.textSecondary
+            color: Theme.fgSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
-        }
-
+        },
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
-            radius: 12
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgSurface
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 8
+                anchors.margins: Theme.paddingDialog
+                spacing: Theme.gapRow
 
-                Text { text: qsTr("HAR file"); color: Theme.textPrimary; Layout.preferredWidth: 90 }
+                Text {
+                    text: qsTr("HAR file")
+                    color: Theme.fgPrimary
+                    Layout.preferredWidth: 90
+                }
                 AppTextField {
                     id: harFileField
                     objectName: "harFileField"
@@ -248,40 +211,39 @@ Dialog {
                     onClicked: harFileDialog.open()
                 }
             }
-        }
-
+        },
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 12
-            color: Theme.cardAlt
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgDialog
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 8
+                anchors.margins: Theme.paddingDialog
+                spacing: Theme.gapRow
 
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Session is saved only when closing after a valid analysis.")
-                    color: Theme.textSecondary
+                    color: Theme.fgSecondary
                     wrapMode: Text.WordWrap
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    radius: 8
-                    color: Theme.panel
-                    border.width: 1
-                    border.color: Theme.panelStroke
+                    radius: Theme.radiusControl
+                    color: Theme.bgSurface
+                    border.width: Theme.borderWidth
+                    border.color: Theme.borderDefault
 
                     ScrollView {
                         id: resultPanelScroll
                         anchors.fill: parent
-                        anchors.margins: 15
+                        anchors.margins: Theme.paddingDialog
                         ScrollBar.vertical: ScrollBar {
                             policy: ScrollBar.AsNeeded
                             active: true
@@ -299,35 +261,31 @@ Dialog {
                             readOnly: true
                             wrapMode: Text.Wrap
                             text: root.resultDetails
-                            color: Theme.textPrimary
+                            color: Theme.fgPrimary
                             background: null
                         }
                     }
                 }
             }
-        }
-
-        RowLayout {
+        },
+        Text {
+            id: statusLabel
+            objectName: "harImportStatusLabel"
             Layout.fillWidth: true
-            spacing: 8
-
-            Text {
-                id: statusLabel
-                objectName: "harImportStatusLabel"
-                Layout.fillWidth: true
-                text: root.statusMessage
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            AppButton {
-                id: closeButton
-                objectName: "harImportCloseButton"
-                text: root.pendingValid ? qsTr("Close and Save") : qsTr("Close")
-                enabled: !root.importInProgress
-                         && (!root.mandatoryMode || root.pendingValid)
-                onClicked: root.requestClose()
-            }
+            text: root.statusMessage
+            color: Theme.fgSecondary
+            wrapMode: Text.WordWrap
         }
-    }
+    ]
+
+    footerTrailingData: [
+        AppButton {
+            id: closeButton
+            objectName: "harImportCloseButton"
+            text: root.pendingValid ? qsTr("Close and Save") : qsTr("Close")
+            enabled: !root.importInProgress
+                     && (!root.mandatoryMode || root.pendingValid)
+            onClicked: root.requestClose()
+        }
+    ]
 }
