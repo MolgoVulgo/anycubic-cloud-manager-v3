@@ -1,5 +1,11 @@
 # EndPoints v2 Python — vérification et compléments
 
+## Statut document
+
+- Type: `IMPLEMENTE` (verification de reference contre la v2 Python).
+- Priorite de reference: voir `Docs/endpoints_reference_policy.md`.
+- En cas de conflit avec `end_points.md`, ce document fait foi pour le perimetre v2 prouve.
+
 Source vérifiée contre le zip `manager_anycubic_cloud.zip` de la v2 Python.
 
 ## Verdict rapide

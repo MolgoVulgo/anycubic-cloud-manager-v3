@@ -25,10 +25,15 @@ class LocalCacheStore {
 
   [[nodiscard]] QVariantList loadFiles(int page, int limit) const;
   [[nodiscard]] QVariantList loadPrinters() const;
+  [[nodiscard]] QVariantList loadJobsForPrinter(const QString& printerId,
+                                                int page = 1,
+                                                int limit = 20) const;
   [[nodiscard]] QVariantMap loadQuota() const;
 
   bool replaceFiles(const QVariantList& files) const;
   bool replacePrinters(const QVariantList& printers) const;
+  bool replaceJobs(const QVariantList& jobs) const;
+  bool replaceJobsForPrinter(const QString& printerId, const QVariantList& jobs) const;
   bool saveQuota(const QVariantMap& quota) const;
 
   void removeFile(const QString& fileId) const;

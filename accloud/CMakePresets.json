@@ -13,7 +13,30 @@
       "binaryDir": "${sourceDir}/build/default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "ACCLOUD_ENABLE_QT": "ON"
+        "ACCLOUD_ENABLE_QT": "ON",
+        "ACCLOUD_DEBUG": "OFF"
+      }
+    },
+    {
+      "name": "dev-debug",
+      "displayName": "Dev Debug Tools (Ninja)",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/dev-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ACCLOUD_ENABLE_QT": "ON",
+        "ACCLOUD_DEBUG": "ON"
+      }
+    },
+    {
+      "name": "prod",
+      "displayName": "Production (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/prod",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ACCLOUD_ENABLE_QT": "ON",
+        "ACCLOUD_DEBUG": "OFF"
       }
     }
   ],
@@ -21,12 +44,28 @@
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "dev-debug",
+      "configurePreset": "dev-debug"
+    },
+    {
+      "name": "prod",
+      "configurePreset": "prod"
     }
   ],
   "testPresets": [
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "dev-debug",
+      "configurePreset": "dev-debug"
+    },
+    {
+      "name": "prod",
+      "configurePreset": "prod"
     }
   ]
 }

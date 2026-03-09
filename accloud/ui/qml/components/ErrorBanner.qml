@@ -10,12 +10,22 @@ Rectangle {
     property string operationId: ""
     property string severity: "warn"
 
+    function toneColor() {
+        return severity === "danger" ? Theme.danger : (severity === "ok" ? Theme.success : Theme.warning)
+    }
+
+    function backgroundTone() {
+        return Theme.themeName === "Dark"
+                ? Qt.darker(toneColor(), 2.8)
+                : Qt.lighter(toneColor(), 1.9)
+    }
+
     radius: 10
     implicitHeight: 52
 
-    color: severity === "danger" ? "#f6dddd" : (severity === "ok" ? "#ddf1e2" : "#f9edd2")
+    color: backgroundTone()
     border.width: 1
-    border.color: severity === "danger" ? Theme.danger : (severity === "ok" ? Theme.ok : Theme.warn)
+    border.color: toneColor()
 
     RowLayout {
         anchors.fill: parent
@@ -26,20 +36,22 @@ Rectangle {
             width: 10
             height: 10
             radius: 5
-            color: severity === "danger" ? Theme.danger : (severity === "ok" ? Theme.ok : Theme.warn)
+            color: toneColor()
         }
 
         Text {
             Layout.fillWidth: true
             text: message
-            color: Theme.textPrimary
+            color: Theme.fgPrimary
+            font.pixelSize: Theme.fontBodyPx
             elide: Text.ElideRight
         }
 
         Text {
             visible: operationId.length > 0
             text: operationId
-            color: Theme.textSecondary
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontCaptionPx
             font.family: "JetBrains Mono"
         }
     }

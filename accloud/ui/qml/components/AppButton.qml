@@ -16,6 +16,10 @@ Button {
     font.pixelSize: Theme.fontBodyPx
     font.bold: variant === "primary" || variant === "danger"
 
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
+
     function backgroundColor() {
         if (!enabled)
             return Theme.bgSurface
@@ -42,7 +46,7 @@ Button {
         if (variant === "primary")
             return Theme.accentFg
         if (variant === "danger")
-            return "#fff6f6"
+            return Theme.fgOnDanger
         return Theme.fgPrimary
     }
 

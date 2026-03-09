@@ -12,12 +12,18 @@ ApplicationWindow {
     width: 1480
     height: 920
     visible: true
-    title: "Anycubic Cloud Control Room"
-    property string statusText: "Vérification de la session en cours…"
-    property bool debugUi: Qt.application.arguments
+    title: qsTr("Anycubic Cloud Control Room")
+    property string statusText: qsTr("Checking active session...")
+    property string globalStatusMsg: qsTr("Ready.")
+    property string globalStatusSev: "info"
+    property string globalStatusOpId: "op_shell_status"
+    property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
+                                     && accloudBuildDebugEnabled === true
+    property bool debugUi: buildDebugEnabled
+                               && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
     property string sessionTargetPath: "~/.config/accloud/session.json"
-    property string sessionDetailsText: "Aucune vérification de session exécutée."
+    property string sessionDetailsText: qsTr("No session check executed yet.")
     property int render3dDefaultQualityIndex: 2
     property string render3dDefaultPalette: "Palette Steel"
     property bool render3dDefaultContourOnly: false
@@ -25,6 +31,7 @@ ApplicationWindow {
     property int render3dDefaultStride: 1
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
+    property string persistedLanguageCode: "system"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -33,26 +40,50 @@ ApplicationWindow {
                 && typeof uiSettingsBridge.setString === "function"
     }
 
-    function reloadControlRoomShell() {
-        if (typeof controlRoomShellLoader === "undefined"
-                || controlRoomShellLoader === null
-                || controlRoomShellLoader.active !== true) {
+    function hasI18nBridge() {
+        return (typeof appI18nBridge !== "undefined")
+                && appI18nBridge !== null
+                && typeof appI18nBridge.setLanguage === "function"
+                && appI18nBridge.languageCode !== undefined
+                && appI18nBridge.effectiveLanguageCode !== undefined
+    }
+
+    function translateLocalizedText(rawText) {
+        var text = String(rawText || "")
+        if (text.length === 0)
+            return text
+
+        var replacements = {
+            "请求被接受": qsTr("Request accepted"),
+            "操作成功": qsTr("Operation successful"),
+            "连接成功": qsTr("Connection successful"),
+            "用户不存在": qsTr("User does not exist"),
+            "设备离线": qsTr("Printer offline"),
+            "打印中": qsTr("Printing in progress"),
+            "失败": qsTr("Failed"),
+            "成功": qsTr("Success"),
+            "错误": qsTr("Error"),
+            "超时": qsTr("Timeout")
+        }
+
+        for (var key in replacements) {
+            if (Object.prototype.hasOwnProperty.call(replacements, key))
+                text = text.split(key).join(replacements[key])
+        }
+
+        if (/[\u4e00-\u9fff]/.test(text))
+            text = text.replace(/[\u4e00-\u9fff]+/g, qsTr("localized backend message"))
+
+        return text
+    }
+
+    function pushGlobalStatus(message, severity, operationId) {
+        var msg = String(message || "").trim()
+        if (msg.length === 0)
             return
-        }
-
-        var tabIndex = 0
-        if (controlRoomShellLoader.item
-                && controlRoomShellLoader.item.currentTabIndex !== undefined) {
-            tabIndex = controlRoomShellLoader.item.currentTabIndex
-        }
-
-        controlRoomShellLoader.active = false
-        controlRoomShellLoader.active = true
-
-        if (controlRoomShellLoader.item
-                && typeof controlRoomShellLoader.item.setCurrentTabIndex === "function") {
-            controlRoomShellLoader.item.setCurrentTabIndex(tabIndex)
-        }
+        globalStatusMsg = translateLocalizedText(msg)
+        globalStatusSev = String(severity || "info")
+        globalStatusOpId = String(operationId || "op_shell_status")
     }
 
     function applyThemeSelection(themeNameValue, accentNameValue, persist) {
@@ -79,7 +110,6 @@ ApplicationWindow {
             }
         }
 
-        root.reloadControlRoomShell()
     }
 
     function restorePersistedTheme() {
@@ -100,12 +130,18 @@ ApplicationWindow {
         root.persistedAccentName = Theme.accentName
 
         if (root.hasUiSettingsBridge()) {
-            // Normalise les valeurs persistées si elles étaient invalides.
+            // Normalize persisted values if they were invalid.
             uiSettingsBridge.setString("ui.themeName", root.persistedThemeName)
             uiSettingsBridge.setString("ui.accentName", root.persistedAccentName)
             if (typeof uiSettingsBridge.sync === "function")
                 uiSettingsBridge.sync()
         }
+    }
+
+    function loadLanguageFromSettings() {
+        if (!root.hasI18nBridge())
+            return
+        root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
     }
 
     function openUploadDialog() {
@@ -124,8 +160,8 @@ ApplicationWindow {
         if (typeof sessionImportBridge === "undefined"
                 || sessionImportBridge === null
                 || typeof sessionImportBridge.sessionDetails !== "function") {
-            sessionDetailsText = "Backend session indisponible."
-            statusText = "Session details indisponible."
+            sessionDetailsText = qsTr("Backend session unavailable.")
+            statusText = qsTr("Session details unavailable.")
             sessionDetailsDialog.open()
             return
         }
@@ -137,11 +173,12 @@ ApplicationWindow {
 
     Component.onCompleted: {
         root.loadThemeFromSettings()
+        root.loadLanguageFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
                     || typeof sessionImportBridge.checkStartup !== "function") {
-                root.statusText = "Mode interface: backend indisponible."
+                root.statusText = qsTr("UI mode: backend unavailable.")
                 return
             }
             if (typeof sessionImportBridge.defaultSessionPath === "function") {
@@ -150,7 +187,7 @@ ApplicationWindow {
 
             var check = sessionImportBridge.checkStartup()
             if (check.sessionExists === true && check.connectionOk === true) {
-                root.statusText = "Session active. Auto-refresh toutes les 30s."
+                root.statusText = qsTr("Active session. Auto-refresh every 30s.")
             } else {
                 root.statusText = String(check.message)
                 sessionDialog.startupMessage = String(check.message)
@@ -177,28 +214,28 @@ ApplicationWindow {
 
         Menu {
             objectName: "menuSession"
-            title: "Session"
+            title: qsTr("Session")
 
             MenuItem {
                 objectName: "menuSessionDetails"
-                text: "Details"
+                text: qsTr("Details")
                 onTriggered: root.showSessionDetails()
             }
 
             MenuItem {
                 objectName: "menuSessionImportHar"
-                text: "import HAR"
+                text: qsTr("import HAR")
                 onTriggered: sessionDialog.open()
             }
         }
 
         Menu {
             objectName: "menuParametre"
-            title: "Parametre"
+            title: qsTr("Settings")
 
             MenuItem {
                 objectName: "menuSettingsSession"
-                text: "session"
+                text: qsTr("Session")
                 onTriggered: {
                     sessionPathField.text = root.sessionTargetPath
                     sessionPathDialog.open()
@@ -207,36 +244,45 @@ ApplicationWindow {
 
             MenuItem {
                 objectName: "menuSettingsTheme"
-                text: "theme"
+                text: qsTr("Theme")
                 onTriggered: {
-                    root.statusText = "Parametre theme: ouverture du panneau de configuration."
+                    root.statusText = qsTr("Opening theme settings panel.")
                     themeDialog.open()
                 }
             }
 
             MenuItem {
                 objectName: "menuSettingsRender3d"
-                text: "rendu 3d"
+                text: qsTr("3D rendering")
                 onTriggered: {
-                    root.statusText = "Ouverture des parametres par defaut du rendu 3D."
+                    root.statusText = qsTr("Opening default 3D rendering settings.")
                     render3dDefaultsDialog.open()
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsLanguage"
+                text: qsTr("Language")
+                onTriggered: {
+                    root.statusText = qsTr("Opening language settings panel.")
+                    languageDialog.open()
                 }
             }
         }
 
         Menu {
             objectName: "menuHelp"
-            title: "?"
+            title: qsTr("?")
 
             MenuItem {
                 objectName: "menuHelpAbout"
-                text: "A propos"
+                text: qsTr("About")
                 onTriggered: aboutDialog.open()
             }
 
             MenuItem {
                 objectName: "menuHelpGit"
-                text: "git"
+                text: qsTr("git")
                 onTriggered: gitDialog.open()
             }
         }
@@ -247,7 +293,7 @@ ApplicationWindow {
         objectName: "sessionSettingsDialog"
         sessionTargetPath: root.sessionTargetPath
         onImportCompleted: function(message) {
-            root.statusText = "Session active. " + message
+            root.statusText = qsTr("Active session. %1").arg(message)
             sessionDialog.mandatoryMode = false
             sessionDialog.close()
         }
@@ -268,141 +314,191 @@ ApplicationWindow {
         objectName: "viewerDraftDialog"
     }
 
-    Dialog {
+    AppDialogFrame {
         id: sessionPathDialog
         objectName: "sessionPathDialog"
-        title: "Parametre session"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 640
-        height: 260
+        title: qsTr("Session Settings")
+        subtitle: qsTr("Target session.json path used by Session > Import HAR.")
+        minimumWidth: 640
+        maximumWidth: 640
+        minimumHeight: 260
+        maximumHeight: 260
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        AppTextField {
+            id: sessionPathField
+            objectName: "sessionPathField"
+            Layout.fillWidth: true
+            text: root.sessionTargetPath
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-
-            Text {
-                Layout.fillWidth: true
-                text: "Chemin cible de session.json utilisé par Session > import HAR."
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            TextField {
-                id: sessionPathField
-                objectName: "sessionPathField"
-                Layout.fillWidth: true
-                text: root.sessionTargetPath
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Defaut"
-                    onClicked: {
-                        if (typeof sessionImportBridge !== "undefined"
-                                && sessionImportBridge !== null
-                                && typeof sessionImportBridge.defaultSessionPath === "function") {
-                            sessionPathField.text = String(sessionImportBridge.defaultSessionPath())
-                        }
+        footerLeadingData: [
+            AppButton {
+                text: qsTr("Default")
+                onClicked: {
+                    if (typeof sessionImportBridge !== "undefined"
+                            && sessionImportBridge !== null
+                            && typeof sessionImportBridge.defaultSessionPath === "function") {
+                        sessionPathField.text = String(sessionImportBridge.defaultSessionPath())
                     }
                 }
-                Button {
-                    text: "Appliquer"
-                    onClicked: {
-                        root.sessionTargetPath = sessionPathField.text.trim().length > 0
-                                ? sessionPathField.text.trim()
-                                : root.sessionTargetPath
-                        root.statusText = "Session target: " + root.sessionTargetPath
-                        sessionPathDialog.close()
-                    }
-                }
-                Button {
-                    text: "Fermer"
-                    onClicked: sessionPathDialog.close()
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: sessionPathDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    root.sessionTargetPath = sessionPathField.text.trim().length > 0
+                            ? sessionPathField.text.trim()
+                            : root.sessionTargetPath
+                    root.statusText = qsTr("Session target: %1").arg(root.sessionTargetPath)
+                    sessionPathDialog.close()
                 }
             }
-        }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: sessionDetailsDialog
         objectName: "sessionDetailsDialog"
-        title: "Session details"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 330
+        title: qsTr("Session details")
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 330
+        maximumHeight: 330
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            ScrollView {
-                id: sessionDetailsScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-
-                TextArea {
-                    id: sessionDetailsTextArea
-                    objectName: "sessionDetailsTextArea"
-                    width: sessionDetailsScroll.availableWidth
-                    height: Math.max(sessionDetailsScroll.availableHeight, sessionDetailsTextArea.contentHeight)
-                    readOnly: true
-                    text: root.sessionDetailsText
-                    wrapMode: TextEdit.Wrap
-                    background: null
-                }
+        ScrollView {
+            id: sessionDetailsScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Fermer"
-                    onClicked: sessionDetailsDialog.close()
-                }
+            TextArea {
+                id: sessionDetailsTextArea
+                objectName: "sessionDetailsTextArea"
+                width: sessionDetailsScroll.availableWidth
+                height: Math.max(sessionDetailsScroll.availableHeight, sessionDetailsTextArea.contentHeight)
+                readOnly: true
+                text: root.sessionDetailsText
+                wrapMode: TextEdit.Wrap
+                color: Theme.fgPrimary
+                background: null
             }
         }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: sessionDetailsDialog.close()
+            }
+        ]
+    }
+
+    AppDialogFrame {
+        id: languageDialog
+        objectName: "languageDialog"
+        title: qsTr("Language Settings")
+        subtitle: qsTr("Choose app language. System language is used by default.")
+        minimumWidth: 520
+        maximumWidth: 680
+        property string pendingLanguage: root.persistedLanguageCode
+        property var languageCodes: ["system", "en", "fr"]
+        property var languageLabels: []
+
+        function languageIndexFor(codeValue) {
+            var code = String(codeValue || "system")
+            for (var i = 0; i < languageCodes.length; ++i) {
+                if (String(languageCodes[i]) === code)
+                    return i
+            }
+            return 0
+        }
+
+        function rebuildLanguageLabels() {
+            languageLabels = [
+                qsTr("System default"),
+                qsTr("English"),
+                qsTr("French")
+            ]
+        }
+
+        onOpened: {
+            rebuildLanguageLabels()
+            pendingLanguage = root.hasI18nBridge()
+                    ? String(appI18nBridge.languageCode || "system")
+                    : "system"
+            languageCombo.currentIndex = languageIndexFor(pendingLanguage)
+        }
+
+        SectionHeader {
+            Layout.fillWidth: true
+            title: qsTr("Language")
+            subtitle: qsTr("Fallback: English if system language is unavailable")
+        }
+
+        AppComboBox {
+            id: languageCombo
+            Layout.fillWidth: true
+            model: languageDialog.languageLabels
+            onActivated: {
+                if (currentIndex >= 0 && currentIndex < languageDialog.languageCodes.length)
+                    languageDialog.pendingLanguage = String(languageDialog.languageCodes[currentIndex])
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: root.hasI18nBridge()
+                  ? qsTr("Current effective language: %1").arg(String(appI18nBridge.effectiveLanguageCode || "en"))
+                  : qsTr("Language bridge unavailable.")
+            color: Theme.fgSecondary
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontCaptionPx
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                variant: "secondary"
+                onClicked: languageDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                enabled: root.hasI18nBridge()
+                onClicked: {
+                    if (!root.hasI18nBridge())
+                        return
+                    appI18nBridge.setLanguage(languageDialog.pendingLanguage)
+                    root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
+                    root.statusText = qsTr("Language updated: %1").arg(languageCombo.currentText)
+                    languageDialog.close()
+                }
+            }
+        ]
     }
 
     AppDialogFrame {
         id: themeDialog
         objectName: "themeDialog"
-        title: "Theme Settings"
-        subtitle: "Preset + accent appliqués en live. La persistance est faite à la validation."
+        title: qsTr("Theme Settings")
+        subtitle: qsTr("Preset + accent applied live. Persistence is saved on validation.")
         minimumWidth: 560
         maximumWidth: 680
-        showCloseButton: false
         property string pendingTheme: root.persistedThemeName
         property string pendingAccent: root.persistedAccentName
         property bool committed: false
@@ -431,8 +527,8 @@ ApplicationWindow {
 
         SectionHeader {
             Layout.fillWidth: true
-            title: "Preset"
-            subtitle: "Palette globale de l'application"
+            title: qsTr("Preset")
+            subtitle: qsTr("Global app palette")
         }
 
         AppComboBox {
@@ -448,8 +544,8 @@ ApplicationWindow {
 
         SectionHeader {
             Layout.fillWidth: true
-            title: "Accent"
-            subtitle: "Couleur principale des actions primary"
+            title: qsTr("Accent")
+            subtitle: qsTr("Primary action color")
         }
 
         AppComboBox {
@@ -473,11 +569,11 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 15
                 spacing: 8
 
                 Text {
-                    text: "Preview"
+                    text: qsTr("Preview")
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontSectionPx
                     font.bold: true
@@ -492,18 +588,18 @@ ApplicationWindow {
                         Layout.preferredHeight: 16
                         radius: 8
                         color: Theme.accent
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.borderDefault
                     }
 
                     Text {
-                        text: "Primary text sample"
+                        text: qsTr("Primary text sample")
                         color: Theme.fgPrimary
                         font.pixelSize: Theme.fontBodyPx
                     }
 
                     Text {
-                        text: "Secondary text sample"
+                        text: qsTr("Secondary text sample")
                         color: Theme.fgSecondary
                         opacity: 0.9
                         font.pixelSize: Theme.fontCaptionPx
@@ -512,7 +608,7 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
 
                     AppButton {
-                        text: "Primary"
+                        text: qsTr("Primary")
                         variant: "primary"
                     }
                 }
@@ -520,7 +616,7 @@ ApplicationWindow {
         }
 
         AppButton {
-            text: "Reset to defaults"
+            text: qsTr("Reset to defaults")
             variant: "secondary"
             onClicked: {
                 themeDialog.pendingTheme = "WarmLight"
@@ -532,24 +628,26 @@ ApplicationWindow {
 
         footerTrailingData: [
             AppButton {
-                text: "Close"
+                text: qsTr("Close")
                 variant: "secondary"
                 onClicked: themeDialog.close()
             },
             AppButton {
-                text: "Apply"
+                text: qsTr("Apply")
                 variant: "primary"
                 onClicked: {
                     themeDialog.committed = true
                     root.applyThemeSelection(themeDialog.pendingTheme, themeDialog.pendingAccent, true)
-                    root.statusText = "Theme: " + root.persistedThemeName + " / Accent: " + root.persistedAccentName
+                    root.statusText = qsTr("Theme: %1 / Accent: %2")
+                            .arg(root.persistedThemeName)
+                            .arg(root.persistedAccentName)
                     themeDialog.close()
                 }
             }
         ]
         footerLeadingData: [
             AppButton {
-                text: "Cancel changes"
+                text: qsTr("Cancel changes")
                 variant: "secondary"
                 onClicked: {
                     themeDialog.committed = false
@@ -563,240 +661,212 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    AppDialogFrame {
         id: render3dDefaultsDialog
         objectName: "render3dDefaultsDialog"
-        title: "Parametre rendu 3D (defaut)"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 410
+        title: qsTr("Default 3D Rendering Settings")
+        subtitle: qsTr("Set default 3D rendering values here (without opening the viewer).")
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 410
+        maximumHeight: 410
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Quality"); Layout.preferredWidth: 130 }
+            AppComboBox {
+                id: renderQualityCombo
+                objectName: "renderQualityCombo"
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "q33", "label": qsTr("Quality 33") },
+                    { "value": "q66", "label": qsTr("Quality 66") },
+                    { "value": "q100", "label": qsTr("Quality 100") }
+                ]
+                currentIndex: root.render3dDefaultQualityIndex
+            }
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Palette"); Layout.preferredWidth: 130 }
+            AppComboBox {
+                id: renderPaletteCombo
+                objectName: "renderPaletteCombo"
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "Palette Steel", "label": qsTr("Palette Steel") },
+                    { "value": "Palette Resin", "label": qsTr("Palette Resin") },
+                    { "value": "Palette Heat", "label": qsTr("Palette Heat") }
+                ]
+                Component.onCompleted: {
+                    for (var i = 0; i < model.length; ++i) {
+                        if (String(model[i].value) === root.render3dDefaultPalette) {
+                            currentIndex = i
+                            return
+                        }
+                    }
+                    currentIndex = 0
+                }
+            }
+        }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Layer cutoff"); Layout.preferredWidth: 130 }
+            AppSlider {
+                id: renderCutoffSlider
+                objectName: "renderCutoffSlider"
+                Layout.fillWidth: true
+                from: 0
+                to: 100
+                stepSize: 1
+                value: root.render3dDefaultCutoff
+            }
             Text {
-                Layout.fillWidth: true
-                text: "Reglez ici les valeurs par defaut du rendu 3D (sans ouvrir le viewer)."
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "Qualite"; Layout.preferredWidth: 130 }
-                ComboBox {
-                    id: renderQualityCombo
-                    objectName: "renderQualityCombo"
-                    Layout.fillWidth: true
-                    model: ["Quality 33", "Quality 66", "Quality 100"]
-                    currentIndex: root.render3dDefaultQualityIndex
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "Palette"; Layout.preferredWidth: 130 }
-                ComboBox {
-                    id: renderPaletteCombo
-                    objectName: "renderPaletteCombo"
-                    Layout.fillWidth: true
-                    model: ["Palette Steel", "Palette Resin", "Palette Heat"]
-                    currentIndex: Math.max(0, model.indexOf(root.render3dDefaultPalette))
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "Layer cutoff"; Layout.preferredWidth: 130 }
-                Slider {
-                    id: renderCutoffSlider
-                    objectName: "renderCutoffSlider"
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    stepSize: 1
-                    value: root.render3dDefaultCutoff
-                }
-                Text {
-                    text: Math.round(renderCutoffSlider.value) + "%"
-                    color: Theme.textSecondary
-                    Layout.preferredWidth: 46
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "Stride"; Layout.preferredWidth: 130 }
-                SpinBox {
-                    id: renderStrideSpin
-                    objectName: "renderStrideSpin"
-                    from: 1
-                    to: 8
-                    value: root.render3dDefaultStride
-                }
-                Item { Layout.fillWidth: true }
-                CheckBox {
-                    id: renderContourOnlyCheck
-                    objectName: "renderContourOnlyCheck"
-                    text: "Contour only"
-                    checked: root.render3dDefaultContourOnly
-                }
-            }
-
-            Item { Layout.fillHeight: true }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Button {
-                    text: "Reinitialiser"
-                    onClicked: {
-                        renderQualityCombo.currentIndex = 2
-                        renderPaletteCombo.currentIndex = 0
-                        renderCutoffSlider.value = 100
-                        renderStrideSpin.value = 1
-                        renderContourOnlyCheck.checked = false
-                    }
-                }
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Appliquer"
-                    onClicked: {
-                        root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
-                        root.render3dDefaultPalette = String(renderPaletteCombo.currentText)
-                        root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
-                        root.render3dDefaultStride = renderStrideSpin.value
-                        root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
-                        root.statusText = "Defaults rendu 3D appliques: "
-                                + String(renderQualityCombo.currentText)
-                                + ", " + root.render3dDefaultPalette
-                                + ", cutoff " + root.render3dDefaultCutoff + "%"
-                    }
-                }
-                Button {
-                    text: "Fermer"
-                    onClicked: render3dDefaultsDialog.close()
-                }
+                text: Math.round(renderCutoffSlider.value) + "%"
+                color: Theme.fgSecondary
+                Layout.preferredWidth: 46
+                horizontalAlignment: Text.AlignRight
             }
         }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Stride"); Layout.preferredWidth: 130 }
+            AppSpinBox {
+                id: renderStrideSpin
+                objectName: "renderStrideSpin"
+                from: 1
+                to: 8
+                value: root.render3dDefaultStride
+            }
+            Item { Layout.fillWidth: true }
+            AppCheckBox {
+                id: renderContourOnlyCheck
+                objectName: "renderContourOnlyCheck"
+                text: qsTr("Contour only")
+                checked: root.render3dDefaultContourOnly
+            }
+        }
+
+        Item { Layout.fillHeight: true }
+
+        footerLeadingData: [
+            AppButton {
+                text: qsTr("Reset")
+                onClicked: {
+                    renderQualityCombo.currentIndex = 2
+                    renderPaletteCombo.currentIndex = 0
+                    renderCutoffSlider.value = 100
+                    renderStrideSpin.value = 1
+                    renderContourOnlyCheck.checked = false
+                }
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: render3dDefaultsDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
+                    if (renderPaletteCombo.currentIndex >= 0
+                            && renderPaletteCombo.currentIndex < renderPaletteCombo.model.length) {
+                        root.render3dDefaultPalette = String(renderPaletteCombo.model[renderPaletteCombo.currentIndex].value)
+                    }
+                    root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
+                    root.render3dDefaultStride = renderStrideSpin.value
+                    root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
+                    root.statusText = qsTr("Applied 3D defaults: %1, %2, cutoff %3%")
+                            .arg(String(renderQualityCombo.currentText))
+                            .arg(root.render3dDefaultPalette)
+                            .arg(root.render3dDefaultCutoff)
+                }
+            }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: aboutDialog
         objectName: "aboutDialog"
-        title: "A propos"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 560
-        height: 280
+        title: qsTr("About")
+        minimumWidth: 560
+        maximumWidth: 560
+        minimumHeight: 280
+        maximumHeight: 280
+        dialogSize: "small"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering.")
+            color: Theme.fgPrimary
+            wrapMode: Text.WordWrap
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+        Item { Layout.fillHeight: true }
 
-            Text {
-                Layout.fillWidth: true
-                text: "Anycubic Cloud Control Room\nVersion: 0.1.0\nInterface Qt/QML pour workflow cloud, logs runtime, et rendu 3D."
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: aboutDialog.close()
             }
-
-            Item { Layout.fillHeight: true }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Fermer"
-                    onClicked: aboutDialog.close()
-                }
-            }
-        }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: gitDialog
         objectName: "gitDialog"
-        title: "git"
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 320
+        title: qsTr("git")
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 320
+        maximumHeight: 320
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            ScrollView {
-                id: gitInfoScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-
-                TextArea {
-                    id: gitInfoTextArea
-                    objectName: "gitInfoTextArea"
-                    width: Math.max(gitInfoScroll.availableWidth, gitInfoTextArea.contentWidth)
-                    height: Math.max(gitInfoScroll.availableHeight, gitInfoTextArea.contentHeight)
-                    readOnly: true
-                    wrapMode: TextEdit.NoWrap
-                    text: "Raccourcis utiles:\n"
-                        + "- git status --short\n"
-                        + "- git log --oneline -n 20\n"
-                        + "- git branch --show-current\n"
-                        + "- git diff --stat"
-                    background: null
-                }
+        ScrollView {
+            id: gitInfoScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: "Fermer"
-                    onClicked: gitDialog.close()
-                }
+            TextArea {
+                id: gitInfoTextArea
+                objectName: "gitInfoTextArea"
+                width: Math.max(gitInfoScroll.availableWidth, gitInfoTextArea.contentWidth)
+                height: Math.max(gitInfoScroll.availableHeight, gitInfoTextArea.contentHeight)
+                readOnly: true
+                wrapMode: TextEdit.NoWrap
+                text: qsTr("Useful shortcuts:\n")
+                    + "- git status --short\n"
+                    + "- git log --oneline -n 20\n"
+                    + "- git branch --show-current\n"
+                    + "- git diff --stat"
+                color: Theme.fgPrimary
+                background: null
             }
         }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: gitDialog.close()
+            }
+        ]
     }
 
     Loader {
@@ -845,7 +915,7 @@ ApplicationWindow {
                         Text {
                             id: titleLabel
                             objectName: "controlRoomTitle"
-                            text: "Anycubic Cloud Control Room"
+                            text: qsTr("Anycubic Cloud Control Room")
                             color: Theme.fgPrimary
                             font.pixelSize: 20
                             font.bold: true
@@ -870,21 +940,21 @@ ApplicationWindow {
                         HeaderActionButton {
                             id: printDialogButton
                             objectName: "printDialogButton"
-                            text: "Print Dialog"
+                            text: qsTr("Print Dialog")
                             onClicked: root.openPrintDialog()
                         }
 
                         HeaderActionButton {
                             id: viewerDialogButton
                             objectName: "viewerDialogButton"
-                            text: "3D Viewer Dialog"
+                            text: qsTr("3D Viewer Dialog")
                             onClicked: root.openViewerDialog()
                         }
 
                         HeaderActionButton {
                             id: uploadDialogButton
                             objectName: "uploadDialogButton"
-                            text: "Upload Dialog"
+                            text: qsTr("Upload Dialog")
                             variant: "primary"
                             onClicked: root.openUploadDialog()
                         }
@@ -903,27 +973,37 @@ ApplicationWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.paddingPage
-                    spacing: Theme.gapRow
+                    anchors.margins: 0
+                    spacing: 0
 
-                    TabBar {
+                    AppTabBar {
                         id: controlTabs
                         objectName: "controlRoomTabs"
                         Layout.fillWidth: true
+                        tabVariant: "navigation"
+                        tabLook: "classic"
+                        tabSizingMode: "equal"
+                        minTabWidth: 140
+                        connectActiveToPanel: true
+                        panelColor: Theme.bgSurface
+                        stripColor: Theme.bgSurface
+                        tabTopCornerRadius: Theme.radiusControl
 
-                        TabButton {
+                        AppTabButton {
                             objectName: "filesTabButton"
-                            text: "Files"
+                            text: qsTr("Files")
                         }
 
-                        TabButton {
+                        AppTabButton {
                             objectName: "printerTabButton"
-                            text: "Printers"
+                            text: qsTr("Printers")
                         }
 
-                        TabButton {
+                        AppTabButton {
                             objectName: "logTabButton"
-                            text: "Logs"
+                            text: root.buildDebugEnabled
+                                  ? qsTr("Logs")
+                                  : qsTr("Logs (disabled in this build)")
                         }
                     }
 
@@ -935,16 +1015,61 @@ ApplicationWindow {
 
                         Pages.CloudFilesPage {
                             objectName: "cloudFilesPage"
+                            embeddedInTabsContainer: true
+                            onStatusBroadcast: function(message, severity, operationId) {
+                                root.pushGlobalStatus(message, severity, operationId)
+                            }
                         }
 
                         Pages.PrinterPage {
                             objectName: "printerPage"
                             debugUi: root.debugUi
+                            embeddedInTabsContainer: true
+                            onStatusBroadcast: function(message, severity, operationId) {
+                                root.pushGlobalStatus(message, severity, operationId)
+                            }
                         }
 
-                        Pages.LogPage {
-                            objectName: "logPage"
+                        Item {
+                            objectName: "logPageHost"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Loader {
+                                id: logPageLoader
+                                anchors.fill: parent
+                                active: root.buildDebugEnabled
+                                source: "pages/LogPage.qml"
+                            }
+
+                            AppPageFrame {
+                                anchors.fill: parent
+                                visible: !root.buildDebugEnabled
+                                embeddedInTabsContainer: true
+                                sectionTitle: qsTr("Logs")
+                                sectionSubtitle: qsTr("Debug tools are disabled in this build")
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.gapRow
+
+                                    Text {
+                                        text: qsTr("Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.")
+                                        color: Theme.fgSecondary
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    InlineStatusBar {
+                        objectName: "globalStatusBar"
+                        Layout.fillWidth: true
+                        message: root.globalStatusMsg
+                        severity: root.globalStatusSev
+                        operationId: root.globalStatusOpId
                     }
                 }
             }

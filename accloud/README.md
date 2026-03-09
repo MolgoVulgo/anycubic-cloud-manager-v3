@@ -9,6 +9,8 @@ This directory materializes the architecture from `Docs/structure_application_ph
 
 Logging reference:
 - `../Docs/logging_reference.md`
+- `../Docs/README.md` (documentation map)
+- `../Docs/etat_reel_vs_cible.md` (implemented vs target matrix)
 
 ## Build
 
@@ -19,6 +21,26 @@ ctest --preset default --output-on-failure
 ```
 
 When Qt6 is unavailable, the build falls back to a headless skeleton mode.
+
+### Debug tooling split
+
+- `ACCLOUD_DEBUG=OFF` (default): production-safe build, debug UI/data/traces are excluded.
+- `ACCLOUD_DEBUG=ON`: enables debug tooling (`LogBridge`, `UiClickTracer`, `LogPage.qml`, `DebugPage.qml`, debug payloads).
+
+Useful presets:
+
+```bash
+# Development build with debug tooling enabled
+cmake --preset dev-debug
+cmake --build --preset dev-debug
+
+# Production build (Release, debug tooling excluded)
+cmake --preset prod
+cmake --build --preset prod
+```
+
+Detailed guide:
+- `../Docs/debug_build_modes.md`
 
 ## Workbench signature config
 

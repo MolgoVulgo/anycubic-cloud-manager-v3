@@ -1,32 +1,36 @@
-## 2) View: Fenêtre principale — “Anycubic Cloud Control Room”
+## 2) View: Fenetre principale - "Anycubic Cloud Control Room"
+
+### Statut
+- `IMPLEMENTE` (avec actions draft visibles en mode debug-ui).
 
 ### But
-Point d’entrée : exposer les **actions globales** (session, viewer, dialogs) et la **navigation** entre les 3 zones fonctionnelles (Files/Printer/Log).
+Point d'entree global pour:
+- navigation `Files / Printers / Logs`
+- actions session (menu)
+- reglages theme/langue/rendu par defaut
 
-### Data affichées
-- Titre : “Anycubic Cloud Control Room”
-- Sous-titre de statut (phase / message)
-- Tabs : Files / Printer / Log
+### Data affichees
+- Titre: `Anycubic Cloud Control Room`
+- Sous-titre de statut runtime/session
+- Tabs: `Files`, `Printers`, `Logs`
 
 ### Positionnement
-- **Header** en haut (QFrame panel), layout horizontal :
-  - colonne gauche : titre + sous-titre
-  - colonne droite : 3 boutons (Print Dialog, 3D Viewer Dialog, Upload Dialog)
-- **MenuBar top** :
-  - `Session` : `Details`, `import HAR`
-  - `Parametre` : `session`, `theme`, `rendu 3d`
-  - `?` : `A propos`, `git`
-- **Tabs** sous le header, occupant le reste de la fenêtre.
+- Header en haut:
+  - gauche: titre + sous-titre
+  - droite: boutons raccourcis `Print Dialog`, `3D Viewer Dialog`, `Upload Dialog`
+- MenuBar:
+  - `Session`: `Details`, `import HAR`
+  - `Settings`: `Session`, `Theme`, `3D rendering`, `Language`
+  - `?`: `About`, `git`
+- Contenu principal: tabs + status bar inline globale
 
-### Thème
-- Header = `panel` (bg_panel)
-- Boutons primary = `Upload Dialog` (primary)
-- Fenêtre root = gradient global
+### Comportement reel
+- Les boutons header sont surtout des raccourcis vers dialogs draft.
+- Ils sont pertinents surtout en `--debug-ui`.
+- Les flux de prod restent dans les tabs `Files` et `Printers`.
 
 ### Analyse
-- Conforme au besoin “fenêtre principale centrée Cloud” (accès direct aux fichiers + actions).
-- Les actions session passent par le menu top (plus de bouton `Session Settings` dans le header).
-- Les boutons **Upload Dialog** et **Print Dialog** ouvrent des **dialogs “draft”** (design preview) : risque de confusion avec les actions réelles (upload/print déjà disponibles dans Files tab).
-- Le viewer est accessible globalement (OK) + depuis les cartes fichiers (mieux, car contextuel).
+- Architecture claire et stable pour l'usage Cloud manager.
+- Risque UX connu: confusion possible entre raccourcis draft et flux metier reels.
 
 ---

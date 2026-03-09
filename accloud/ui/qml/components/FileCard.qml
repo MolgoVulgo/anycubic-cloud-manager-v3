@@ -19,6 +19,7 @@ Item {
     property bool isPwmb: false
     property string resinUsage: "-"
     property string dimensions: "-"
+    property string thumbnailUrl: ""
 
     signal deleteRequested(string fileId)
     signal downloadRequested(string fileId)
@@ -27,10 +28,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: 14
-        color: Theme.cardAlt
-        border.width: 1
-        border.color: Theme.panelStroke
+        radius: Theme.radiusDialog
+        color: Theme.bgDialog
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
         RowLayout {
             anchors.fill: parent
@@ -47,11 +48,22 @@ Item {
                     GradientStop { position: 0.0; color: Theme.thumbStart }
                     GradientStop { position: 1.0; color: Theme.thumbEnd }
                 }
+                clip: true
+
+                Image {
+                    id: cardThumbnailImage
+                    anchors.fill: parent
+                    source: String(root.thumbnailUrl || "")
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    visible: source.length > 0 && status === Image.Ready
+                }
 
                 Text {
                     anchors.centerIn: parent
-                    text: "100x100"
-                    color: "#ecfffb"
+                    visible: !cardThumbnailImage.visible
+                    text: qsTr("100x100")
+                    color: Theme.accentFg
                     font.bold: true
                 }
             }
@@ -69,28 +81,17 @@ Item {
                         objectName: "fileNameLabel"
                         Layout.fillWidth: true
                         text: root.fileName
-                        color: Theme.textPrimary
-                        font.pixelSize: 18
+                        color: Theme.fgPrimary
+                        font.pixelSize: Theme.fontTitlePx
                         font.bold: true
                         elide: Text.ElideRight
                     }
 
-                    Button {
+                    AppButton {
                         objectName: "deleteButton"
-                        text: "Delete"
-                        font.bold: true
+                        text: qsTr("Delete")
+                        variant: "danger"
                         onClicked: root.deleteRequested(root.fileId)
-                        background: Rectangle {
-                            radius: 8
-                            color: parent.down ? Qt.darker(Theme.danger, 1.1) : Theme.danger
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#fff4f4"
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
 
@@ -100,93 +101,44 @@ Item {
                     columnSpacing: 18
                     rowSpacing: 4
 
-                    Text { text: "Layers: " + root.layers; color: Theme.textSecondary }
-                    Text { text: "Print time: " + root.printTime; color: Theme.textSecondary }
-                    Text { text: "Upload time: " + root.uploadTime; color: Theme.textSecondary }
-                    Text { text: "Layer thickness: " + root.layerThickness; color: Theme.textSecondary }
-                    Text { text: "Machine: " + root.machine; color: Theme.textSecondary }
-                    Text { text: "Material: " + root.material; color: Theme.textSecondary }
-                    Text { text: "Resin usage: " + root.resinUsage; color: Theme.textSecondary }
-                    Text { text: "Size XYZ: " + root.dimensions; color: Theme.textSecondary }
+                    Text { text: qsTr("Layers: ") + root.layers; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Print time: ") + root.printTime; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Upload time: ") + root.uploadTime; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Layer thickness: ") + root.layerThickness; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Machine: ") + root.machine; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Material: ") + root.material; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Resin usage: ") + root.resinUsage; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Size XYZ: ") + root.dimensions; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                 }
 
                 Text {
-                    text: "Size " + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
-                    color: Theme.textPrimary
-                    font.pixelSize: 13
+                    text: qsTr("Size ") + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    Button {
-                        text: "Details"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                    AppButton {
+                        text: qsTr("Details")
                     }
-                    Button {
-                        text: "Print"
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                    AppButton {
+                        text: qsTr("Print")
                     }
-                    Button {
-                        text: "Download"
+                    AppButton {
+                        text: qsTr("Download")
                         onClicked: root.downloadRequested(root.fileId)
-                        background: Rectangle {
-                            radius: 6
-                            color: parent.down ? Qt.darker(Theme.panel, 1.1) : (parent.hovered ? Qt.lighter(Theme.panel, 1.03) : Theme.panel)
-                            border.width: 1
-                            border.color: Theme.panelStroke
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textPrimary
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
 
-                    Button {
+                    AppButton {
                         id: openViewerButton
                         objectName: "openViewerButton"
-                        text: "Open 3D Viewer"
+                        text: qsTr("Open 3D Viewer")
                         visible: root.isPwmb
                         enabled: root.isPwmb
-                        background: Rectangle {
-                            radius: 8
-                            color: parent.down ? Qt.darker(Theme.accent, 1.12) : Theme.accent
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: "#f8fffe"
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        variant: "primary"
                     }
                 }
             }

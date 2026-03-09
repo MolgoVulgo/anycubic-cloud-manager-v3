@@ -9,8 +9,13 @@ ComboBox {
     implicitHeight: Theme.controlHeight
     leftPadding: 10
     rightPadding: 30
+    hoverEnabled: true
     focusPolicy: Qt.TabFocus
     font.pixelSize: Theme.fontBodyPx
+
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
 
     contentItem: Text {
         leftPadding: root.leftPadding
@@ -23,7 +28,7 @@ ComboBox {
     }
 
     indicator: Text {
-        text: "v"
+        text: qsTr("v")
         color: root.enabled ? Theme.fgSecondary : Theme.fgDisabled
         font.pixelSize: Theme.fontCaptionPx
         anchors.right: parent.right
@@ -43,8 +48,23 @@ ComboBox {
         highlighted: root.highlightedIndex === index
         hoverEnabled: true
         font.pixelSize: Theme.fontBodyPx
+        onClicked: {
+            root.currentIndex = index
+            root.activated(index)
+            root.popup.close()
+        }
+
+        HoverHandler {
+            cursorShape: Qt.PointingHandCursor
+        }
 
         function delegateText() {
+            if (typeof model !== "undefined" && model !== null) {
+                if (root.textRole.length > 0 && model[root.textRole] !== undefined)
+                    return model[root.textRole]
+                if (model.text !== undefined)
+                    return model.text
+            }
             if (typeof modelData === "string")
                 return modelData
             if (modelData !== null && modelData !== undefined) {
@@ -85,10 +105,13 @@ ComboBox {
         }
 
         contentItem: ListView {
+            id: popupList
             clip: true
-            model: root.delegateModel
+            model: root.model
+            delegate: root.delegate
             currentIndex: root.highlightedIndex
             implicitHeight: contentHeight
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {
                 policy: ScrollBar.AsNeeded
             }

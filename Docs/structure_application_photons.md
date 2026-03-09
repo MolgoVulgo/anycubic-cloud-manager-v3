@@ -1,5 +1,17 @@
 # Structure de l’application (KDE / Linux)
 
+## Statut document
+
+- Type: `SPEC` (cible architecture).
+- Etat implementation reel: voir `Docs/etat_reel_vs_cible.md`.
+- Cette page decrit la cible technique; elle ne signifie pas que tous les modules sont implementes.
+- Les details de formats (PWMB/PWS/PHZ/PHOTONS/PWSZ) sont centralises dans `Docs/photon_formats.md` (reference spec).
+
+## Etat reel (rappel court)
+
+- Implemente aujourd'hui: Cloud manager, import HAR/session, UI Files/Printers/Logs, cache SQLite local, logging.
+- Partiellement ou non implemente: `infra/photons`, `render3d`, `infra/jobs`, `infra/cache` (hors SQLite app), tests photons et outils photons.
+
 ## 0) Choix techno (KDE-friendly)
 - **Langage** : C++20
 - **UI** : **Qt 6 + QML (Qt Quick Controls 2) + Kirigami** (patterns KDE)
@@ -338,4 +350,3 @@ accloud/
 - **UI réactive** : tout >100 ms en job
 - **batch + cache fenêtre** sinon app inutilisable sur gros fichiers
 - **logs séparés** + redaction stricte
-

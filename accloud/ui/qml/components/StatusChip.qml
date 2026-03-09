@@ -7,6 +7,9 @@ Rectangle {
     id: root
 
     property string status: "Offline"
+    property int horizontalPadding: 10
+    property int dotSize: 8
+    property int spacingValue: 6
 
     function normalized() {
         return String(status).toLowerCase()
@@ -26,34 +29,40 @@ Rectangle {
     }
 
     function chipBackground() {
+        function tone(baseColor) {
+            return Theme.themeName === "Dark"
+                    ? Qt.darker(baseColor, 2.6)
+                    : Qt.lighter(baseColor, 1.9)
+        }
+
         var state = normalized()
         if (state === "offline")
-            return Theme.themeName === "Dark" ? "#343a43" : "#ece7dd"
+            return tone(Theme.fgSecondary)
         if (state === "ready" || state === "free" || state === "online")
-            return Theme.themeName === "Dark" ? "#223429" : "#e7f4ea"
+            return tone(Theme.success)
         if (state === "printing")
-            return Theme.themeName === "Dark" ? "#203741" : "#e3f1f4"
+            return tone(Theme.accent)
         if (state === "error")
-            return Theme.themeName === "Dark" ? "#3a2426" : "#f8e3e3"
-        return Theme.themeName === "Dark" ? "#343a43" : "#ece7dd"
+            return tone(Theme.danger)
+        return tone(Theme.fgSecondary)
     }
 
     radius: Theme.radiusControl
-    implicitHeight: 26
-    implicitWidth: chipText.implicitWidth + 20
+    implicitHeight: Math.max(26, chipText.implicitHeight + 10)
+    implicitWidth: chipText.implicitWidth + horizontalPadding * 2 + dotSize + spacingValue
     color: chipBackground()
     border.width: Theme.borderWidth
     border.color: toneColor()
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 10
-        anchors.rightMargin: 10
-        spacing: 6
+        anchors.leftMargin: root.horizontalPadding
+        anchors.rightMargin: root.horizontalPadding
+        spacing: root.spacingValue
 
         Rectangle {
-            Layout.preferredWidth: 8
-            Layout.preferredHeight: 8
+            Layout.preferredWidth: root.dotSize
+            Layout.preferredHeight: root.dotSize
             radius: 4
             color: root.toneColor()
         }

@@ -3,31 +3,33 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Dialogs
 import "../components/Theme.js" as Theme
+import "../components"
 
-Dialog {
+AppDialogFrame {
     id: root
-    title: "Session Settings"
-    modal: true
-    parent: Overlay.overlay
-    anchors.centerIn: Overlay.overlay
-    readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1480
-    readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 920
-    width: Math.min(1120, Math.max(860, overlayWidth * 0.82))
-    height: Math.min(740, Math.max(560, overlayHeight * 0.84))
+    title: qsTr("Session Settings")
+    subtitle: qsTr("Import a session from a HAR file. Analysis runs automatically when a file is selected.")
+    minimumWidth: 860
+    maximumWidth: 1120
+    minimumHeight: 560
+    maximumHeight: 740
+    dialogSize: "large"
     property var importBridge: (typeof sessionImportBridge !== "undefined") ? sessionImportBridge : null
     property bool importInProgress: false
-    property string statusMessage: "Status: prêt pour l'analyse HAR."
-    property string resultDetails: "Aucune analyse exécutée."
+    property string statusMessage: qsTr("Status: ready for HAR analysis.")
+    property string resultDetails: qsTr("No analysis executed.")
     property string sessionTargetPath: "~/.config/accloud/session.json"
     property bool pendingValid: false
     property string analyzedHarPath: ""
 
-    // Quand true : le dialog ne peut pas être fermé tant qu'aucune analyse valide n'a été sauvegardée.
+    // When true: the dialog cannot be closed until a valid analysis is saved.
     property bool mandatoryMode: false
-    // Message de raison affiché en haut quand le dialog s'ouvre en mode obligatoire.
+    // Reason message shown at the top when the dialog opens in mandatory mode.
     property string startupMessage: ""
 
-    closePolicy: Popup.NoAutoClose
+    allowScrimClose: false
+    allowEscapeClose: false
+    requestCloseCallback: requestClose
 
     signal importCompleted(string message)
 
@@ -45,13 +47,13 @@ Dialog {
     function runAnalyzeForPath(harPath) {
         var trimmedHar = String(harPath).trim()
         if (trimmedHar.length === 0) {
-            root.statusMessage = "Status: chemin HAR requis."
+            root.statusMessage = qsTr("Status: HAR path required.")
             root.pendingValid = false
             return
         }
         if (root.importBridge === null || typeof root.importBridge.analyzeHar !== "function") {
-            root.statusMessage = "Status: bridge backend indisponible."
-            root.resultDetails = "Impossible d'analyser : sessionImportBridge non défini."
+            root.statusMessage = qsTr("Status: backend bridge unavailable.")
+            root.resultDetails = qsTr("Cannot analyze: sessionImportBridge is undefined.")
             root.pendingValid = false
             return
         }
@@ -64,25 +66,25 @@ Dialog {
         var entriesVisited = response.entriesVisited !== undefined ? response.entriesVisited : 0
         var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
         var keys = response.tokenKeys !== undefined ? response.tokenKeys : []
-        var keysText = (keys.length > 0) ? keys.join(", ") : "(aucun)"
-        var message = response.message !== undefined ? String(response.message) : "Aucun message"
+        var keysText = (keys.length > 0) ? keys.join(", ") : qsTr("(none)")
+        var message = response.message !== undefined ? String(response.message) : qsTr("No message")
         var targetPath = response.sessionPath !== undefined ? String(response.sessionPath) : root.sessionTargetPath
 
         root.pendingValid = ok
         root.analyzedHarPath = trimmedHar
         root.resultDetails =
-            "Analyse HAR: " + (ok ? "VALIDE" : "ERREUR")
-            + "\nHAR: " + trimmedHar
-            + "\nSession target: " + targetPath
-            + "\nMessage: " + message
-            + "\nEntrées: " + entriesAccepted + " acceptées / " + entriesVisited + " visitées"
-            + "\nClés de tokens: " + keysText
-            + "\n\nLa session sera sauvegardée à la fermeture de cette fenêtre."
+            qsTr("HAR analysis: %1").arg(ok ? qsTr("VALID") : qsTr("ERROR"))
+            + qsTr("\nHAR: %1").arg(trimmedHar)
+            + qsTr("\nSession target: %1").arg(targetPath)
+            + qsTr("\nMessage: %1").arg(message)
+            + qsTr("\nEntries: %1 accepted / %2 visited").arg(entriesAccepted).arg(entriesVisited)
+            + qsTr("\nToken keys: %1").arg(keysText)
+            + qsTr("\n\nThe session will be saved when this window is closed.")
 
         if (ok) {
-            root.statusMessage = "Status: analyse valide. Fermez pour sauvegarder."
+            root.statusMessage = qsTr("Status: valid analysis. Close to save.")
         } else {
-            root.statusMessage = "Status: analyse invalide."
+            root.statusMessage = qsTr("Status: invalid analysis.")
         }
     }
 
@@ -92,13 +94,13 @@ Dialog {
         }
 
         if (root.mandatoryMode && !root.pendingValid) {
-            root.statusMessage = "Status: import HAR valide requis avant fermeture."
+            root.statusMessage = qsTr("Status: valid HAR import required before closing.")
             return
         }
 
         if (root.pendingValid) {
             if (root.importBridge === null || typeof root.importBridge.commitPendingSession !== "function") {
-                root.statusMessage = "Status: commit impossible (bridge indisponible)."
+                root.statusMessage = qsTr("Status: commit unavailable (bridge unavailable).")
                 return
             }
 
@@ -107,18 +109,18 @@ Dialog {
             root.importInProgress = false
 
             var commitOk = commit.ok === true
-            var commitMsg = commit.message !== undefined ? String(commit.message) : "Aucun message"
+            var commitMsg = commit.message !== undefined ? String(commit.message) : qsTr("No message")
             if (!commitOk) {
-                root.statusMessage = "Status: sauvegarde échouée."
-                root.resultDetails += "\n\nSauvegarde: ECHEC — " + commitMsg
+                root.statusMessage = qsTr("Status: save failed.")
+                root.resultDetails += qsTr("\n\nSave: FAILED - %1").arg(commitMsg)
                 return
             }
 
             var connOk = commit.connectionOk === true
             var connMsg = commit.connectionMessage !== undefined ? String(commit.connectionMessage) : commitMsg
-            root.statusMessage = "Status: session sauvegardée."
-            root.resultDetails += "\n\nSauvegarde: OK\nConnexion cloud: "
-                    + (connOk ? "OK" : "ECHEC — " + connMsg)
+            root.statusMessage = qsTr("Status: session saved.")
+            root.resultDetails += qsTr("\n\nSave: OK\nCloud connection: ")
+                    + (connOk ? qsTr("OK") : qsTr("FAILED - %1").arg(connMsg))
             root.pendingValid = false
             root.importCompleted(connMsg)
         } else if (root.importBridge !== null && typeof root.importBridge.discardPendingSession === "function") {
@@ -134,15 +136,15 @@ Dialog {
         }
         root.pendingValid = false
         root.analyzedHarPath = ""
-        root.statusMessage = "Status: prêt pour l'analyse HAR."
-        root.resultDetails = "Aucune analyse exécutée."
+        root.statusMessage = qsTr("Status: ready for HAR analysis.")
+        root.resultDetails = qsTr("No analysis executed.")
     }
 
     FileDialog {
         id: harFileDialog
-        title: "Select HAR file"
+        title: qsTr("Select HAR file")
         fileMode: FileDialog.OpenFile
-        nameFilters: ["HAR files (*.har *.json)", "All files (*)"]
+        nameFilters: [qsTr("HAR files (*.har *.json)"), qsTr("All files (*)")]
         onAccepted: {
             var localPath = root.localPathFromUrl(selectedFile)
             harFileField.text = localPath
@@ -150,113 +152,99 @@ Dialog {
         }
     }
 
-    background: Rectangle {
-        radius: 14
-        color: Theme.card
-        border.width: 1
-        border.color: Theme.panelStroke
-    }
-
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 14
-        spacing: 10
-
-        // Bandeau de raison affiché uniquement en mode obligatoire
+    bodyData: [
+        // Reason banner shown only in mandatory mode.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: startupReasonText.implicitHeight + 16
             visible: root.mandatoryMode && root.startupMessage.length > 0
-            radius: 8
+            radius: Theme.radiusControl
             color: Theme.danger
             opacity: 0.85
 
             Text {
                 id: startupReasonText
-                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
-                anchors.margins: 10
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Theme.paddingDialog
                 text: root.startupMessage
-                color: "#fff4f4"
+                color: Theme.fgOnDanger
                 wrapMode: Text.WordWrap
                 font.bold: true
             }
-        }
-
+        },
         Text {
-            text: "Importer une session depuis un HAR. Analyse automatique au choix du fichier."
-            color: Theme.textSecondary
+            text: qsTr("Session target (Settings > Session): ") + root.sessionTargetPath
+            color: Theme.fgSecondary
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
-        }
-
-        Text {
-            text: "Session target (Parametre > session): " + root.sessionTargetPath
-            color: Theme.textSecondary
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
+        },
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
-            radius: 12
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgSurface
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 10
-                spacing: 8
+                anchors.margins: Theme.paddingDialog
+                spacing: Theme.gapRow
 
-                Text { text: "HAR file"; color: Theme.textPrimary; Layout.preferredWidth: 90 }
-                TextField {
-                    id: harFileField
-                    objectName: "harFileField"
+                FormRow {
                     Layout.fillWidth: true
-                    placeholderText: "/path/to/session.har"
-                    onAccepted: root.runAnalyzeForPath(harFileField.text)
-                }
-                Button {
-                    objectName: "harBrowseButton"
-                    text: "Browse"
-                    onClicked: harFileDialog.open()
+                    labelText: qsTr("HAR file")
+                    labelWidth: 90
+
+                    AppTextField {
+                        id: harFileField
+                        objectName: "harFileField"
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("/path/to/session.har")
+                        onAccepted: root.runAnalyzeForPath(harFileField.text)
+                    }
+                    AppButton {
+                        objectName: "harBrowseButton"
+                        text: qsTr("Browse")
+                        onClicked: harFileDialog.open()
+                    }
                 }
             }
-        }
-
+        },
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 12
-            color: Theme.cardAlt
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgDialog
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
-                spacing: 8
+                anchors.margins: Theme.paddingDialog
+                spacing: Theme.gapRow
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- La sauvegarde session intervient uniquement à la fermeture si analyse valide."
-                    color: Theme.textSecondary
+                    text: qsTr("Security reminders:\n- Keep HAR files encrypted at rest.\n- Remove signed URLs from shared logs.\n- Session is saved only when closing after a valid analysis.")
+                    color: Theme.fgSecondary
                     wrapMode: Text.WordWrap
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    radius: 8
-                    color: Theme.panel
-                    border.width: 1
-                    border.color: Theme.panelStroke
+                    radius: Theme.radiusControl
+                    color: Theme.bgSurface
+                    border.width: Theme.borderWidth
+                    border.color: Theme.borderDefault
 
                     ScrollView {
                         id: resultPanelScroll
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: Theme.paddingDialog
                         ScrollBar.vertical: ScrollBar {
                             policy: ScrollBar.AsNeeded
                             active: true
@@ -274,35 +262,31 @@ Dialog {
                             readOnly: true
                             wrapMode: Text.Wrap
                             text: root.resultDetails
-                            color: Theme.textPrimary
+                            color: Theme.fgPrimary
                             background: null
                         }
                     }
                 }
             }
-        }
-
-        RowLayout {
+        },
+        Text {
+            id: statusLabel
+            objectName: "harImportStatusLabel"
             Layout.fillWidth: true
-            spacing: 8
-
-            Text {
-                id: statusLabel
-                objectName: "harImportStatusLabel"
-                Layout.fillWidth: true
-                text: root.statusMessage
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            Button {
-                id: closeButton
-                objectName: "harImportCloseButton"
-                text: root.pendingValid ? "Fermer et sauvegarder" : "Fermer"
-                enabled: !root.importInProgress
-                         && (!root.mandatoryMode || root.pendingValid)
-                onClicked: root.requestClose()
-            }
+            text: root.statusMessage
+            color: Theme.fgSecondary
+            wrapMode: Text.WordWrap
         }
-    }
+    ]
+
+    footerTrailingData: [
+        AppButton {
+            id: closeButton
+            objectName: "harImportCloseButton"
+            text: root.pendingValid ? qsTr("Close and Save") : qsTr("Close")
+            enabled: !root.importInProgress
+                     && (!root.mandatoryMode || root.pendingValid)
+            onClicked: root.requestClose()
+        }
+    ]
 }

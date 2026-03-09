@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "Theme.js" as Theme
+import "."
 
 Rectangle {
     id: root
@@ -9,17 +10,17 @@ Rectangle {
     property bool running: false
     property string stage: "Running"
 
-    color: "#66000000"
+    color: Theme.overlayScrim
     visible: running
 
     Rectangle {
         anchors.centerIn: parent
         width: 280
         height: 140
-        radius: 14
-        color: Theme.panel
-        border.width: 1
-        border.color: Theme.panelStroke
+        radius: Theme.radiusDialog
+        color: Theme.bgSurface
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
         ColumnLayout {
             anchors.fill: parent
@@ -28,7 +29,8 @@ Rectangle {
 
             Text {
                 text: root.stage
-                color: Theme.textPrimary
+                color: Theme.fgPrimary
+                font.pixelSize: Theme.fontBodyPx
                 font.bold: true
                 Layout.alignment: Qt.AlignHCenter
             }
@@ -38,8 +40,8 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
             }
 
-            Button {
-                text: "Cancel"
+            AppButton {
+                text: qsTr("Cancel")
                 Layout.alignment: Qt.AlignHCenter
             }
         }
