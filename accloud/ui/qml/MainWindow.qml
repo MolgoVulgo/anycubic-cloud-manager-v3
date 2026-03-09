@@ -973,8 +973,8 @@ ApplicationWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.paddingPage
-                    spacing: Theme.gapRow
+                    anchors.margins: 0
+                    spacing: 0
 
                     AppTabBar {
                         id: controlTabs
@@ -986,6 +986,8 @@ ApplicationWindow {
                         minTabWidth: 140
                         connectActiveToPanel: true
                         panelColor: Theme.bgSurface
+                        stripColor: Theme.bgSurface
+                        tabTopCornerRadius: Theme.radiusControl
 
                         AppTabButton {
                             objectName: "filesTabButton"
@@ -1013,6 +1015,7 @@ ApplicationWindow {
 
                         Pages.CloudFilesPage {
                             objectName: "cloudFilesPage"
+                            embeddedInTabsContainer: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
@@ -1021,6 +1024,7 @@ ApplicationWindow {
                         Pages.PrinterPage {
                             objectName: "printerPage"
                             debugUi: root.debugUi
+                            embeddedInTabsContainer: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
@@ -1041,6 +1045,7 @@ ApplicationWindow {
                             AppPageFrame {
                                 anchors.fill: parent
                                 visible: !root.buildDebugEnabled
+                                embeddedInTabsContainer: true
                                 sectionTitle: qsTr("Logs")
                                 sectionSubtitle: qsTr("Debug tools are disabled in this build")
 

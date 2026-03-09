@@ -11,7 +11,7 @@ Rectangle {
     property string severity: "warn"
 
     function toneColor() {
-        return severity === "danger" ? Theme.danger : (severity === "ok" ? Theme.ok : Theme.warn)
+        return severity === "danger" ? Theme.danger : (severity === "ok" ? Theme.success : Theme.warning)
     }
 
     function backgroundTone() {
@@ -42,14 +42,16 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: message
-            color: Theme.textPrimary
+            color: Theme.fgPrimary
+            font.pixelSize: Theme.fontBodyPx
             elide: Text.ElideRight
         }
 
         Text {
             visible: operationId.length > 0
             text: operationId
-            color: Theme.textSecondary
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontCaptionPx
             font.family: "JetBrains Mono"
         }
     }

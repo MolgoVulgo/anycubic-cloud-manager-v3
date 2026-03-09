@@ -9,11 +9,12 @@ Rectangle {
     property string sectionTitle: ""
     property string sectionSubtitle: ""
     property bool showSectionHeader: sectionTitle.length > 0 || sectionSubtitle.length > 0
+    property bool embeddedInTabsContainer: false
     default property alias contentData: contentColumn.data
 
-    radius: Theme.radiusDialog
+    radius: embeddedInTabsContainer ? 0 : Theme.radiusDialog
     color: Theme.bgSurface
-    border.width: Theme.borderWidth
+    border.width: embeddedInTabsContainer ? 0 : Theme.borderWidth
     border.color: Theme.borderDefault
 
     ColumnLayout {

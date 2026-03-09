@@ -9,6 +9,7 @@ Item {
     objectName: "printerPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    property bool embeddedInTabsContainer: false
     signal statusBroadcast(string message, string severity, string operationId)
 
     property bool loading: false
@@ -867,6 +868,7 @@ Item {
     }
 
     PrinterMainPanel {
+        embeddedInTabsContainer: root.embeddedInTabsContainer
         loading: root.loading
         showDebugLabels: root.showDebugLabels
         printersModel: printersModel

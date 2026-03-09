@@ -11,6 +11,7 @@ Item {
     objectName: "cloudFilesPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    property bool embeddedInTabsContainer: false
     readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
@@ -141,7 +142,7 @@ Item {
     }
 
     function quotaBarColor() {
-        return "#2f6ecb"
+        return Theme.accent
     }
 
     function quotaBackgroundColor() {
@@ -759,6 +760,7 @@ Item {
     AppPageFrame {
         id: pageFrame
         anchors.fill: parent
+        embeddedInTabsContainer: root.embeddedInTabsContainer
 
         CloudFilesToolbar {
             loading: root.loading

@@ -14,20 +14,20 @@ AppDialogFrame {
     dialogSize: "large"
 
     bodyData: [
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("File"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("File")
+            labelWidth: 100
             AppTextField { Layout.fillWidth: true; placeholderText: qsTr("/path/model.pwmb") }
             AppButton { text: qsTr("Browse") }
         },
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Upload profile"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("Upload profile")
+            labelWidth: 100
             AppComboBox { Layout.fillWidth: true; model: [qsTr("Default"), qsTr("High reliability"), qsTr("Fast")] }
         },
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Print target"); Layout.preferredWidth: 92 }
+        FormRow {
+            labelText: qsTr("Print target")
+            labelWidth: 100
             AppComboBox { Layout.fillWidth: true; model: [qsTr("None"), "M7-Workshop-A", "M5S-Line-2"] }
         },
         AppCheckBox { text: qsTr("Print after upload") },
