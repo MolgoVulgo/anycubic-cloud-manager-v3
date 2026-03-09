@@ -1014,14 +1014,26 @@ ApplicationWindow {
                         currentIndex: controlTabs.currentIndex
 
                         Pages.CloudFilesPage {
+                            id: cloudFilesPage
                             objectName: "cloudFilesPage"
                             embeddedInTabsContainer: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
+                            onPrintIntentRequested: function(fileId, fileName) {
+                                controlTabs.currentIndex = 1
+                                if (typeof printerPage.openRemotePrintFromFile === "function") {
+                                    printerPage.openRemotePrintFromFile(fileId, fileName)
+                                } else {
+                                    root.pushGlobalStatus(qsTr("Remote print entrypoint is unavailable."),
+                                                          "warn",
+                                                          "op_files_print_entry")
+                                }
+                            }
                         }
 
                         Pages.PrinterPage {
+                            id: printerPage
                             objectName: "printerPage"
                             debugUi: root.debugUi
                             embeddedInTabsContainer: true

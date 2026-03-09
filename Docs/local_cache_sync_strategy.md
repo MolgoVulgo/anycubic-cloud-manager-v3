@@ -36,7 +36,8 @@ Tables:
 2. Trigger first cloud refresh asynchronously (forced).
 3. Persist printer base snapshot in DB and persist jobs in `jobs`.
 4. Start auto-refresh timer every 30 seconds after the first successful cloud refresh.
-5. Update UI from signal `printersUpdatedFromCloud`.
+5. Switch to fast refresh interval (5s) only when at least one printer is actively printing.
+6. Update UI from signal `printersUpdatedFromCloud`.
 
 ## Sync policy
 

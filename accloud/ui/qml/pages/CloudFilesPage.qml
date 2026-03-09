@@ -16,6 +16,7 @@ Item {
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
+    signal printIntentRequested(string fileId, string fileName)
 
     // UI state
     property bool loading: false
@@ -417,8 +418,18 @@ Item {
     }
 
     function requestPrint(fileId, fileName) {
-        root.statusMsg = qsTr("Open Printers > Details to start remote print for ") + String(fileName || fileId)
-        root.statusSev = "warn"
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+        if (normalizedFileId.length === 0) {
+            root.statusMsg = qsTr("Cannot start remote print: missing file id.")
+            root.statusSev = "warn"
+            return
+        }
+
+        root.statusMsg = qsTr("Opening Printers workflow for %1...")
+                .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
+        root.statusSev = "info"
+        root.printIntentRequested(normalizedFileId, normalizedFileName)
     }
 
     function loadMockFiles() {
