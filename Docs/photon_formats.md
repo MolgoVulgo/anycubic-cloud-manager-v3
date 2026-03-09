@@ -1,5 +1,11 @@
 # Formats Anycubic Photon — extraction des specs (PWMB / PWS / PHZ / PHOTONS / PWSZ)
 
+## Statut document
+
+- Type: `SPEC` (reference formats et hypotheses de reverse engineering).
+- Ce document n'implique pas l'implementation complete des decodeurs dans ce depot.
+- Etat implementation reel: `Docs/etat_reel_vs_cible.md`.
+
 ## 0) Cadre / sources internes utilisées
 
 - Code **manager_anycubic_cloud** : implémente surtout le parsing/décode **PWMB** (container + codecs `pw0Img`/`pwsImg`).
@@ -286,4 +292,3 @@ Interprétation : **métadonnées de scène / contours** ; pas de pixels, pas un
   - tailles raisonnables
   - remplissage exact `W*H` (sinon erreur/dégradé contrôlé)
 - Pour le rendu/mesures : **vérité matière** = pixel non-noir (seuil 0) ; les seuils “127” sont réservés aux heuristiques d’analyse. fileciteturn0file1
-

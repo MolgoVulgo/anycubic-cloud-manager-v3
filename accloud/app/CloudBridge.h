@@ -35,7 +35,8 @@ public:
     // Retourne { ok, message, url }  — ne pas afficher l'url dans l'UI
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
 
-    // Retourne { ok, message, endpoint, rawJson, printers:[{id,name,model,type,lastSeen,state,reason,available,progress,elapsedSec,remainingSec,currentFile}] }
+    // Retourne { ok, message, printers:[...] }
+    // Champs debug (uniquement si ACCLOUD_DEBUG=ON): endpoint, rawJson
     Q_INVOKABLE QVariantMap fetchPrinters() const;
     Q_INVOKABLE QVariantMap loadCachedPrinters() const;
     Q_INVOKABLE void refreshPrintersAsync(bool force = false);
@@ -45,7 +46,8 @@ public:
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByFileId(const QString& fileId) const;
-    // Retourne { ok, message, details:{...}, rawJson }
+    // Retourne { ok, message, details:{...} }
+    // Champ debug (uniquement si ACCLOUD_DEBUG=ON): rawJson
     Q_INVOKABLE QVariantMap fetchPrinterDetails(const QString& printerId) const;
     // Retourne { ok, message, reasons:[{reason,desc,helpUrl,type,push,popup}] }
     Q_INVOKABLE QVariantMap fetchReasonCatalog() const;
@@ -84,7 +86,7 @@ Q_SIGNALS:
 private:
     bool loadTokens(std::string& accessToken, std::string& xxToken) const;
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
-    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok) const;
+    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void cleanupDownload();

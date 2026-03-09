@@ -1,9 +1,19 @@
-## 10) Synthese d'alignement produit (CDF -> UI) — Photon Viewer
+## 10) Synthese d'alignement produit (CDF -> UI) - Photon Viewer
 
-Source de base: section 10 de `Docs/ui_views.md`.
+### Statut
+- `PARTIEL`.
 
-- **Viewer 3D**: OK (build progressif, cancel, cache, LOD via quality presets).
-- **UI reactive**: OK (pipeline async + polling, pas d'operation lourde sur le thread UI).
-- **Fidelite rendu**: OK (verite matiere via threshold minimal + bin_mode strict dans la vue 3D).
-- **Points de vigilance UX**: acces viewer en global + contextuel (Files tab) a clarifier selon strategie cloud-only.
-- **Dette produit liee au viewer**: consolider les flux reels et masquer les dialogs "draft" redondants depuis le header.
+### Etat reel
+- `ViewerDraftDialog.qml`: maquette UI de dialog viewer.
+- `ViewerPage.qml`: composition en trois panes (`PreviewPane`, `LayerInspectorPane`, `Viewer3DPane`).
+- Les panes sont encore des placeholders (pas de pipeline decode+render OpenGL final dans ce depot).
+
+### Ecart vs cible produit
+- Cible attendue: viewer 3D PWMB non bloquant avec build progressif, annulation, camera et export.
+- Etat actuel: composants visuels et structure de page presentes, logique metier viewer encore inachevee.
+
+### Consequence documentaire
+- Toute mention de viewer "operationnel" doit etre marquee comme `SPEC` tant que le pipeline backend+rendu n'est pas livre.
+- Les docs Cloud Client doivent presenter le viewer comme draft/debug, pas comme flux principal.
+
+---
