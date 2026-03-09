@@ -161,6 +161,46 @@ int jFirstInt(const nlohmann::json& obj,
     return fallback;
 }
 
+long long jLong(const nlohmann::json& v, long long fallback = 0) {
+    if (v.is_number_integer()) return v.get<long long>();
+    if (v.is_number_float())   return static_cast<long long>(v.get<double>());
+    if (v.is_boolean())        return v.get<bool>() ? 1 : 0;
+    if (v.is_string()) {
+        try { return std::stoll(v.get<std::string>()); }
+        catch (...) { return fallback; }
+    }
+    return fallback;
+}
+
+long long jFirstLong(const nlohmann::json& obj,
+                     std::initializer_list<const char*> keys,
+                     long long fallback = 0) {
+    for (const char* k : keys) {
+        if (!obj.contains(k)) continue;
+        return jLong(obj[k], fallback);
+    }
+    return fallback;
+}
+
+long long normalizeEpochSeconds(long long epoch) {
+    if (epoch <= 0) return 0;
+    if (epoch > 1000000000000LL)  // epoch ms -> epoch s
+        return epoch / 1000;
+    return epoch;
+}
+
+std::string joinJsonStringArray(const nlohmann::json& value) {
+    if (!value.is_array()) return {};
+    std::string out;
+    for (const auto& item : value) {
+        const std::string part = jStr(item);
+        if (part.empty()) continue;
+        if (!out.empty()) out += ", ";
+        out += part;
+    }
+    return out;
+}
+
 bool containsNoCase(const std::string& text, const std::string& needle) {
     std::string left = text;
     std::string right = needle;
@@ -202,42 +242,127 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
     f.sizeBytes    = e.value("size", uint64_t{0});
     f.gcodeId      = jStr(e.value("gcode_id", nlohmann::json{}));
     f.thumbnailUrl = jFirst(e, {"printer_image_id", "thumbnail", "img", "image"});
+    f.downloadUrl  = jFirst(e, {"url", "download_url", "downloadUrl"});
+    f.region       = jFirst(e, {"region"});
+    f.bucket       = jFirst(e, {"bucket", "bucket_id"});
+    f.path         = jFirst(e, {"path"});
+    f.md5          = jFirst(e, {"md5", "origin_file_md5"});
     f.status       = e.value("status", 0);
 
     const nlohmann::json sp = parseSliceParam(e);
+    f.createTime = jFirstLong(e, {"create_time", "createTime", "upload_time", "uploadTime", "time"}, 0);
+    if (f.createTime <= 0 && sp.is_object())
+        f.createTime = jFirstLong(sp, {"create_time", "createTime", "time", "timestamp"}, 0);
+    f.createTime = normalizeEpochSeconds(f.createTime);
+
+    f.updateTime = jFirstLong(e, {"update_time", "updateTime", "last_update_time", "lastUpdateTime"}, 0);
+    if (f.updateTime <= 0)
+        f.updateTime = jFirstLong(e, {"create_time", "createTime", "upload_time", "uploadTime"}, 0);
+    if (f.updateTime <= 0 && sp.is_object())
+        f.updateTime = jFirstLong(sp, {"update_time", "updateTime", "timestamp", "time", "create_time", "createTime"}, 0);
+    f.updateTime = normalizeEpochSeconds(f.updateTime);
+
     if (sp.is_object()) {
-        f.machine  = jFirst(sp, {"machineName", "machine_name", "machineType"});
+        f.machine = jFirst(sp, {"machineName", "machine_name", "machineType"});
+        if (f.machine.empty())
+            f.machine = jFirst(e, {"machine_name", "machineName", "model", "printer_name"});
+
+        if (f.printers.empty() && e.contains("printer_names"))
+            f.printers = joinJsonStringArray(e["printer_names"]);
+        if (f.printers.empty())
+            f.printers = jFirst(sp, {"printer_names", "printerNames"});
+        if (f.printers.empty())
+            f.printers = f.machine;
+
         f.material = jFirst(sp, {"materialName", "material_name", "resinType", "material"});
+        if (f.material.empty())
+            f.material = jFirst(e, {"material_name", "materialName", "material"});
 
         const auto ptRaw = jFirst(sp, {"printTime", "print_time", "estimate", "totalTime"});
         if (!ptRaw.empty()) {
             try { f.printTime = formatSeconds(std::stoll(ptRaw)); }
             catch (...) { f.printTime = ptRaw; }
         }
+        if (f.printTime.empty()) {
+            const auto topEstimate = jFirst(e, {"estimate", "print_time"});
+            if (!topEstimate.empty()) {
+                try { f.printTime = formatSeconds(std::stoll(topEstimate)); }
+                catch (...) { f.printTime = topEstimate; }
+            }
+        }
 
-        auto lh = jFirst(sp, {"layerHeight", "layer_height", "sliceHeight", "normalLayerHeight"});
+        auto lh = jFirst(sp, {"layerHeight", "layer_height", "sliceHeight", "normalLayerHeight", "zthick", "z_thick"});
+        if (lh.empty())
+            lh = jFirst(e, {"layer_height"});
         if (!lh.empty()) {
             if (lh.find("mm") == std::string::npos) lh += " mm";
             f.layerHeight = lh;
         }
 
-        f.layers = jFirst(sp, {"layerCount", "layer_count", "layers", "totalLayers"});
+        f.layers = jFirst(sp, {"layerCount", "layer_count", "layers", "totalLayers", "total_layers"});
+        if (f.layers.empty())
+            f.layers = jFirst(e, {"layers", "total_layers"});
 
-        auto rv = jFirst(sp, {"resinVolume", "resin_volume", "resinUsage", "weight"});
+        auto rv = jFirst(sp, {"resinVolume", "resin_volume", "resinUsage", "weight", "supplies_usage"});
+        if (rv.empty())
+            rv = jFirst(e, {"supplies_usage", "material"});
         if (!rv.empty()) {
             if (rv.find("ml") == std::string::npos && rv.find("g") == std::string::npos)
                 rv += " ml";
             f.resinUsage = rv;
         }
 
-        const auto sx = jFirst(sp, {"sizeX", "x", "width"});
-        const auto sy = jFirst(sp, {"sizeY", "y", "height"});
-        const auto sz = jFirst(sp, {"sizeZ", "z", "depth"});
+        f.bottomLayers = jFirst(sp, {"bottomLayers", "bottom_layers", "bott_layers"});
+
+        f.exposureTime = jFirst(sp, {"exposureTime", "exposure_time", "on_time"});
+        if (!f.exposureTime.empty() && !containsNoCase(f.exposureTime, "s"))
+            f.exposureTime += " s";
+
+        f.offTime = jFirst(sp, {"offTime", "off_time"});
+        if (!f.offTime.empty() && !containsNoCase(f.offTime, "s"))
+            f.offTime += " s";
+
+        if (f.md5.empty())
+            f.md5 = jFirst(sp, {"sliced_md5", "md5"});
+        if (f.bucket.empty())
+            f.bucket = jFirst(sp, {"bucket_id", "bucket"});
+
+        auto sx = jFirst(sp, {"sizeX", "size_x", "x", "width"});
+        auto sy = jFirst(sp, {"sizeY", "size_y", "y", "height"});
+        auto sz = jFirst(sp, {"sizeZ", "size_z", "z", "depth"});
+        if (sx.empty()) sx = jFirst(e, {"size_x"});
+        if (sy.empty()) sy = jFirst(e, {"size_y"});
+        if (sz.empty()) sz = jFirst(e, {"size_z"});
         if (!sx.empty() && !sy.empty() && !sz.empty())
             f.dimensions = sx + "x" + sy + "x" + sz;
         else
             f.dimensions = jFirst(sp, {"dimensions", "boundingBox"});
     }
+    if (f.machine.empty())
+        f.machine = jFirst(e, {"machine_name", "machineName", "model", "printer_name"});
+    if (f.printers.empty() && e.contains("printer_names"))
+        f.printers = joinJsonStringArray(e["printer_names"]);
+    if (f.printers.empty())
+        f.printers = f.machine;
+    if (f.material.empty())
+        f.material = jFirst(e, {"material_name", "materialName", "material"});
+    if (f.dimensions.empty()) {
+        const auto sx = jFirst(e, {"size_x", "sizeX"});
+        const auto sy = jFirst(e, {"size_y", "sizeY"});
+        const auto sz = jFirst(e, {"size_z", "sizeZ"});
+        if (!sx.empty() && !sy.empty() && !sz.empty())
+            f.dimensions = sx + "x" + sy + "x" + sz;
+    }
+    if (f.bottomLayers.empty())
+        f.bottomLayers = jFirst(e, {"bottom_layers", "bott_layers"});
+    if (f.exposureTime.empty())
+        f.exposureTime = jFirst(e, {"exposure_time"});
+    if (f.offTime.empty())
+        f.offTime = jFirst(e, {"off_time"});
+    if (!f.exposureTime.empty() && !containsNoCase(f.exposureTime, "s"))
+        f.exposureTime += " s";
+    if (!f.offTime.empty() && !containsNoCase(f.offTime, "s"))
+        f.offTime += " s";
     return f;
 }
 

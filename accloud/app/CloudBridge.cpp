@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QLocale>
 #include <QSaveFile>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
@@ -53,28 +54,58 @@ QString formatStatus(int status) {
     }
 }
 
+QString formatUploadTime(long long updateTimeEpochSec) {
+    if (updateTimeEpochSec <= 0)
+        return {};
+    qint64 epochSec = static_cast<qint64>(updateTimeEpochSec);
+    if (epochSec > 1000000000000LL)  // defensive: epoch ms
+        epochSec /= 1000;
+    const QDateTime dt = QDateTime::fromSecsSinceEpoch(epochSec).toLocalTime();
+    if (!dt.isValid())
+        return {};
+    const QLocale locale = QLocale::system();
+    QString value = locale.toString(dt.date(), QLocale::ShortFormat);
+    if (value.isEmpty())
+        value = dt.date().toString(QStringLiteral("yyyy-MM-dd"));
+    return value;
+}
+
 // ── Conversion CloudFileInfo → QVariantMap ────────────────────────────────
 
 QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     const QString name = QString::fromStdString(f.name);
     const bool isPwmb  = name.endsWith(".pwmb", Qt::CaseInsensitive)
                       || name.endsWith(".pwmb", Qt::CaseInsensitive);
+    bool layersOk = false;
+    const int layersValue = QString::fromStdString(f.layers).toInt(&layersOk);
 
     QVariantMap m;
     m.insert("fileId",        QString::fromStdString(f.id));
     m.insert("fileName",      name);
     m.insert("status",        formatStatus(f.status));
+    m.insert("statusCode",    f.status);
     m.insert("sizeBytes",     static_cast<qulonglong>(f.sizeBytes));
     m.insert("sizeText",      formatBytes(f.sizeBytes));
     m.insert("machine",       QString::fromStdString(f.machine));
+    m.insert("printers",      QString::fromStdString(f.printers));
     m.insert("material",      QString::fromStdString(f.material));
-    m.insert("uploadTime",    QString{});  // pas disponible dans le listing
+    m.insert("createTime",    formatUploadTime(f.createTime));
+    m.insert("updateTime",    formatUploadTime(f.updateTime));
+    m.insert("uploadTime",    formatUploadTime(f.updateTime));
     m.insert("printTime",     QString::fromStdString(f.printTime));
     m.insert("layerThickness",QString::fromStdString(f.layerHeight));
-    m.insert("layers",        f.layers.empty() ? 0 : std::stoi(f.layers));
+    m.insert("layers",        layersOk ? layersValue : 0);
     m.insert("isPwmb",        isPwmb);
     m.insert("resinUsage",    QString::fromStdString(f.resinUsage));
     m.insert("dimensions",    QString::fromStdString(f.dimensions));
+    m.insert("bottomLayers",  QString::fromStdString(f.bottomLayers));
+    m.insert("exposureTime",  QString::fromStdString(f.exposureTime));
+    m.insert("offTime",       QString::fromStdString(f.offTime));
+    m.insert("md5",           QString::fromStdString(f.md5));
+    m.insert("downloadUrl",   QString::fromStdString(f.downloadUrl));
+    m.insert("region",        QString::fromStdString(f.region));
+    m.insert("bucket",        QString::fromStdString(f.bucket));
+    m.insert("path",          QString::fromStdString(f.path));
     m.insert("thumbnailUrl",  QString::fromStdString(f.thumbnailUrl));
     m.insert("gcodeId",       QString::fromStdString(f.gcodeId));
     return m;

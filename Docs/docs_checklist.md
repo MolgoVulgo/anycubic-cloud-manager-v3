@@ -17,6 +17,7 @@
 2. Verifier que toute commande/tests cites ont ete executes ou marquer clairement "non execute".
 3. Ajouter les references code minimales pour toute page runtime.
 4. Garder les statuts (`IMPLEMENTE`, `PARTIEL`, `SPEC`, `SNAPSHOT`) coherents entre pages.
+5. Si la PR touche l'UI QML, executer `python3 accloud/tools/check_ui_migration.py` et reporter le statut.
 
 ## Revue periodique conseillee
 

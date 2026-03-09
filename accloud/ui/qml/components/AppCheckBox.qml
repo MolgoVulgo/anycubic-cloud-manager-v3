@@ -6,8 +6,13 @@ CheckBox {
     id: root
 
     spacing: 8
+    hoverEnabled: true
     focusPolicy: Qt.TabFocus
     font.pixelSize: Theme.fontBodyPx
+
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
 
     indicator: Rectangle {
         implicitWidth: 18

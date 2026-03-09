@@ -9,8 +9,13 @@ ComboBox {
     implicitHeight: Theme.controlHeight
     leftPadding: 10
     rightPadding: 30
+    hoverEnabled: true
     focusPolicy: Qt.TabFocus
     font.pixelSize: Theme.fontBodyPx
+
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
 
     contentItem: Text {
         leftPadding: root.leftPadding
@@ -47,6 +52,10 @@ ComboBox {
             root.currentIndex = index
             root.activated(index)
             root.popup.close()
+        }
+
+        HoverHandler {
+            cursorShape: Qt.PointingHandCursor
         }
 
         function delegateText() {
