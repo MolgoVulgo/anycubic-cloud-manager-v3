@@ -1,15 +1,14 @@
 #include "CloudClient.h"
-#include "SignHeaders.h"
+#include "infra/cloud/core/EndpointRegistry.h"
+#include "infra/cloud/core/HttpClient.h"
+#include "infra/cloud/core/ResponseEnvelopeParser.h"
+#include "infra/cloud/core/WorkbenchRequestBuilder.h"
 #include "infra/logging/JsonlLogger.h"
 
 #ifdef ACCLOUD_WITH_QT
-#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
 #include <QUrl>
 #include <QUrlQuery>
 #endif
@@ -34,88 +33,40 @@ struct RawResp {
     std::string error;
 };
 
-void applyWorkbenchHeadersBestEffort(QNetworkRequest& req, const std::string& xxToken) {
-    const WorkbenchHeaderStatus headerStatus = applyWorkbenchHeaders(req, QString::fromStdString(xxToken));
-    if (!headerStatus.ok) {
-        logging::warn("app", "cloud_client", "workbench_headers_missing",
-                      "Workbench signature headers are not configured; request sent without XX-*",
-                      {{"reason", headerStatus.error.toStdString()}});
+RawResp workbenchCall(core::EndpointId endpointId,
+                      const std::string& accessToken,
+                      const std::string& xxToken,
+                      const QByteArray& body = {},
+                      const QString& queryString = {}) {
+    const auto endpoint = core::EndpointRegistry::instance().find(endpointId);
+    if (!endpoint.has_value()) {
+        return RawResp{false, 0, {}, "Unknown endpoint id"};
     }
+
+    const core::WorkbenchRequestBuilder builder;
+    const auto built = builder.build(*endpoint, accessToken, xxToken, queryString, body);
+    if (!built.has_value()) {
+        return RawResp{false, 0, {}, "Failed to build request"};
+    }
+
+    const core::HttpClient client;
+    const core::HttpResponse response = client.execute(*built);
+    return RawResp{response.ok, response.httpStatus, response.body, response.error};
 }
 
-// Effectue un POST Workbench synchrone (QEventLoop)
-RawResp workbenchPost(const char* path, const std::string& accessToken,
+RawResp workbenchPost(core::EndpointId endpointId, const std::string& accessToken,
                       const std::string& xxToken, const QByteArray& jsonBody) {
-    QUrl url(QString("https://cloud-universe.anycubic.com") + path);
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    req.setRawHeader("Authorization",
-                     QByteArray("Bearer ") + QByteArray::fromStdString(accessToken));
-    req.setTransferTimeout(10000);
-    applyWorkbenchHeadersBestEffort(req, xxToken);
-
-    QNetworkAccessManager nam;
-    QEventLoop loop;
-    QNetworkReply* reply = nam.post(req, jsonBody);
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    RawResp r;
-    r.http  = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    r.error = reply->errorString().toStdString();
-    r.body  = reply->readAll().toStdString();
-    r.ok    = (reply->error() == QNetworkReply::NoError);
-    reply->deleteLater();
-    return r;
+    return workbenchCall(endpointId, accessToken, xxToken, jsonBody);
 }
 
-RawResp workbenchPostForm(const char* path, const std::string& accessToken,
+RawResp workbenchPostForm(core::EndpointId endpointId, const std::string& accessToken,
                           const std::string& xxToken, const QByteArray& formBody) {
-    QUrl url(QString("https://cloud-universe.anycubic.com") + path);
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-    req.setRawHeader("Authorization",
-                     QByteArray("Bearer ") + QByteArray::fromStdString(accessToken));
-    req.setTransferTimeout(10000);
-    applyWorkbenchHeadersBestEffort(req, xxToken);
-
-    QNetworkAccessManager nam;
-    QEventLoop loop;
-    QNetworkReply* reply = nam.post(req, formBody);
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    RawResp r;
-    r.http  = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    r.error = reply->errorString().toStdString();
-    r.body  = reply->readAll().toStdString();
-    r.ok    = (reply->error() == QNetworkReply::NoError);
-    reply->deleteLater();
-    return r;
+    return workbenchCall(endpointId, accessToken, xxToken, formBody);
 }
 
-RawResp workbenchGet(const char* path, const std::string& accessToken,
-                     const std::string& xxToken) {
-    QUrl url(QString("https://cloud-universe.anycubic.com") + path);
-    QNetworkRequest req(url);
-    req.setRawHeader("Authorization",
-                     QByteArray("Bearer ") + QByteArray::fromStdString(accessToken));
-    req.setTransferTimeout(10000);
-    applyWorkbenchHeadersBestEffort(req, xxToken);
-
-    QNetworkAccessManager nam;
-    QEventLoop loop;
-    QNetworkReply* reply = nam.get(req);
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    RawResp r;
-    r.http  = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    r.error = reply->errorString().toStdString();
-    r.body  = reply->readAll().toStdString();
-    r.ok    = (reply->error() == QNetworkReply::NoError);
-    reply->deleteLater();
-    return r;
+RawResp workbenchGet(core::EndpointId endpointId, const std::string& accessToken,
+                     const std::string& xxToken, const QString& queryString = {}) {
+    return workbenchCall(endpointId, accessToken, xxToken, {}, queryString);
 }
 
 // ── Helpers JSON ──────────────────────────────────────────────────────────
@@ -633,7 +584,7 @@ CloudCheckResult checkCloudAuth(const std::string& accessToken,
         return {false, "Pas d'access_token dans la session"};
 
     // Vérification primaire (session validate): getUserStore
-    const auto validate = workbenchPost("/p/p/workbench/api/work/index/getUserStore",
+    const auto validate = workbenchPost(core::EndpointId::AuthCheckSession,
                                         accessToken, xxToken, "{}");
     if (!validate.ok) {
         logging::warn("app", "cloud_client", "check_auth_network_error",
@@ -641,11 +592,10 @@ CloudCheckResult checkCloudAuth(const std::string& accessToken,
         return {false, "Erreur réseau: " + validate.error};
     }
 
-    try {
-        const auto j    = nlohmann::json::parse(validate.body);
-        const int  code = j.value("code", 0);
-        const auto msg  = j.value("msg", std::string{});
-        if (code == 1) {
+    const core::ResponseEnvelopeParser envelopeParser;
+    const core::EnvelopeParseResult validateEnvelope = envelopeParser.parse(validate.body);
+    if (validateEnvelope.jsonValid && validateEnvelope.envelopePresent) {
+        if (validateEnvelope.success) {
             logging::info("app", "cloud_client", "check_auth_ok",
                           "Connexion cloud validée (getUserStore)",
                           {{"http", std::to_string(validate.http)}});
@@ -653,43 +603,42 @@ CloudCheckResult checkCloudAuth(const std::string& accessToken,
         }
         logging::warn("app", "cloud_client", "check_auth_validate_rejected",
                       "getUserStore rejeté, fallback loginWithAccessToken",
-                      {{"code", std::to_string(code)}, {"msg", msg}});
-    } catch (const std::exception& e) {
+                      {{"code", std::to_string(validateEnvelope.code)},
+                       {"msg", validateEnvelope.message}});
+    } else {
         logging::warn("app", "cloud_client", "check_auth_validate_parse_error",
                       "Réponse getUserStore invalide, fallback loginWithAccessToken",
-                      {{"reason", e.what()}});
+                      {{"reason", validateEnvelope.error}});
     }
 
     // Fallback (Docs §1.4): loginWithAccessToken
     const QJsonObject payload{{"access_token", QString::fromStdString(accessToken)},
                               {"accessToken",  QString::fromStdString(accessToken)},
                               {"device_type",  "web"}};
-    const auto login = workbenchPost(
-        "/p/p/workbench/api/v3/public/loginWithAccessToken",
-        accessToken, xxToken,
-        QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    const auto login = workbenchPost(core::EndpointId::AuthLoginWithAccessToken,
+                                     accessToken, xxToken,
+                                     QJsonDocument(payload).toJson(QJsonDocument::Compact));
     if (!login.ok) {
         logging::warn("app", "cloud_client", "check_auth_login_network_error",
                       "Erreur réseau auth (loginWithAccessToken)", {{"error", login.error}});
         return {false, "Erreur réseau: " + login.error};
     }
 
-    try {
-        const auto j    = nlohmann::json::parse(login.body);
-        const int  code = j.value("code", 0);
-        const auto msg  = j.value("msg", std::string{});
-        if (code == 1) {
-            logging::info("app", "cloud_client", "check_auth_ok",
-                          "Connexion cloud validée (loginWithAccessToken)",
-                          {{"http", std::to_string(login.http)}});
-            return {true, "Connexion validée"};
-        }
-        logging::warn("app", "cloud_client", "check_auth_rejected",
-                      "Token rejeté", {{"code", std::to_string(code)}, {"msg", msg}});
-        return {false, "Token rejeté (code " + std::to_string(code) + "): " + msg};
-    } catch (...) {
+    const core::EnvelopeParseResult loginEnvelope = envelopeParser.parse(login.body);
+    if (!loginEnvelope.jsonValid || !loginEnvelope.envelopePresent) {
         return {false, "Réponse JSON invalide (HTTP " + std::to_string(login.http) + ")"};
     }
+    if (loginEnvelope.success) {
+        logging::info("app", "cloud_client", "check_auth_ok",
+                      "Connexion cloud validée (loginWithAccessToken)",
+                      {{"http", std::to_string(login.http)}});
+        return {true, "Connexion validée"};
+    }
+    logging::warn("app", "cloud_client", "check_auth_rejected",
+                  "Token rejeté", {{"code", std::to_string(loginEnvelope.code)},
+                                   {"msg", loginEnvelope.message}});
+    return {false, "Token rejeté (code " + std::to_string(loginEnvelope.code) + "): "
+                       + loginEnvelope.message};
 #endif
 }
 
@@ -707,7 +656,7 @@ CloudFilesResult fetchCloudFiles(const std::string& accessToken,
     const auto bodyBytes = QJsonDocument(bodyObj).toJson(QJsonDocument::Compact);
 
     // Essai principal : /files
-    auto r = workbenchPost("/p/p/workbench/api/work/index/files",
+    auto r = workbenchPost(core::EndpointId::FilesList,
                            accessToken, xxToken, bodyBytes);
     if (!r.ok) {
         logging::warn("app", "cloud_client", "fetch_files_network_error",
@@ -739,7 +688,7 @@ CloudFilesResult fetchCloudFiles(const std::string& accessToken,
         }
         // Fallback : /userFiles
         logging::info("app", "cloud_client", "fetch_files_fallback", "Fallback userFiles");
-        r = workbenchPost("/p/p/workbench/api/work/index/userFiles",
+        r = workbenchPost(core::EndpointId::FilesListFallback,
                           accessToken, xxToken, bodyBytes);
         if (!r.ok) return {false, "Erreur réseau: " + r.error};
         return tryParse(r.body);
@@ -758,9 +707,8 @@ CloudQuotaResult fetchCloudQuota(const std::string& accessToken,
 #else
     if (accessToken.empty()) return {false, "Pas d'access_token"};
 
-    const auto r = workbenchPost(
-        "/p/p/workbench/api/work/index/getUserStore",
-        accessToken, xxToken, "{}");
+    const auto r = workbenchPost(core::EndpointId::AuthCheckSession,
+                                 accessToken, xxToken, "{}");
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     try {
@@ -796,10 +744,9 @@ CloudOpResult deleteCloudFile(const std::string& accessToken,
     try { idInt = std::stoll(fileId); } catch (...) {}
 
     const QJsonObject bodyObj{{"idArr", QJsonArray{idInt}}};
-    const auto r = workbenchPost(
-        "/p/p/workbench/api/work/index/delFiles",
-        accessToken, xxToken,
-        QJsonDocument(bodyObj).toJson(QJsonDocument::Compact));
+    const auto r = workbenchPost(core::EndpointId::FilesDelete,
+                                 accessToken, xxToken,
+                                 QJsonDocument(bodyObj).toJson(QJsonDocument::Compact));
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     try {
@@ -824,10 +771,9 @@ CloudDownloadResult getCloudDownloadUrl(const std::string& accessToken,
     try { idInt = std::stoll(fileId); } catch (...) {}
 
     const QJsonObject bodyObj{{"id", idInt}};
-    const auto r = workbenchPost(
-        "/p/p/workbench/api/work/index/getDowdLoadUrl",
-        accessToken, xxToken,
-        QJsonDocument(bodyObj).toJson(QJsonDocument::Compact));
+    const auto r = workbenchPost(core::EndpointId::FilesDownloadUrl,
+                                 accessToken, xxToken,
+                                 QJsonDocument(bodyObj).toJson(QJsonDocument::Compact));
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     try {
@@ -862,9 +808,7 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
 #else
     if (accessToken.empty()) return {false, "Pas d'access_token"};
 
-    const auto r = workbenchGet(
-        "/p/p/workbench/api/work/printer/getPrinters",
-        accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::PrintersList, accessToken, xxToken);
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     CloudPrintersResult out;
@@ -908,9 +852,8 @@ CloudPrintersResult fetchCloudPrinters(const std::string& accessToken,
                 QUrlQuery projectQuery;
                 projectQuery.addQueryItem("printer_id", QString::fromStdString(printerId));
                 projectQuery.addQueryItem("print_status", "1");
-                const std::string projectPath =
-                    "/p/p/workbench/api/work/project/getProjects?" + projectQuery.toString().toStdString();
-                const auto projectResp = workbenchGet(projectPath.c_str(), accessToken, xxToken);
+                const auto projectResp = workbenchGet(core::EndpointId::ProjectsListByPrinter,
+                                                      accessToken, xxToken, projectQuery.toString());
                 if (projectResp.ok) {
                     auto projectJson = nlohmann::json::parse(projectResp.body, nullptr, false);
                     if (!projectJson.is_discarded()) {
@@ -968,10 +911,8 @@ CloudPrinterCompatResult fetchPrinterCompatibilityByExt(const std::string& acces
 
     QUrlQuery query;
     query.addQueryItem("file_ext", QString::fromStdString(fileExt));
-    const std::string path =
-        "/p/p/workbench/api/v2/printer/printersStatus?" + query.toString().toStdString();
-
-    const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::PrintersStatus,
+                                accessToken, xxToken, query.toString());
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     try {
@@ -1009,10 +950,8 @@ CloudPrinterCompatResult fetchPrinterCompatibilityByFileId(const std::string& ac
 
     QUrlQuery query;
     query.addQueryItem("file_id", QString::fromStdString(fileId));
-    const std::string path =
-        "/p/p/workbench/api/v2/printer/printersStatus?" + query.toString().toStdString();
-
-    const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::PrintersStatus,
+                                accessToken, xxToken, query.toString());
     if (!r.ok) return {false, "Erreur réseau: " + r.error};
 
     try {
@@ -1050,10 +989,8 @@ CloudPrinterDetailsResult fetchPrinterDetails(const std::string& accessToken,
 
     QUrlQuery query;
     query.addQueryItem("id", QString::fromStdString(printerId));
-    const std::string path =
-        "/p/p/workbench/api/v2/printer/info?" + query.toString().toStdString();
-
-    const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::PrintersDetails,
+                                accessToken, xxToken, query.toString());
     if (!r.ok) return {false, "Erreur reseau: " + r.error};
 
     CloudPrinterDetailsResult out;
@@ -1206,9 +1143,7 @@ CloudReasonCatalogResult fetchReasonCatalog(const std::string& accessToken,
 #else
     if (accessToken.empty()) return {false, "Pas d'access_token"};
 
-    const auto r = workbenchGet(
-        "/p/p/workbench/api/portal/index/reason",
-        accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::ReasonCatalog, accessToken, xxToken);
     if (!r.ok) return {false, "Erreur reseau: " + r.error};
 
     try {
@@ -1257,10 +1192,8 @@ CloudPrinterProjectsResult fetchPrinterProjects(const std::string& accessToken,
     query.addQueryItem("printer_id", QString::fromStdString(printerId));
     query.addQueryItem("page", QString::number(page));
     query.addQueryItem("limit", QString::number(limit));
-    const std::string path =
-        "/p/p/workbench/api/work/project/getProjects?" + query.toString().toStdString();
-
-    const auto r = workbenchGet(path.c_str(), accessToken, xxToken);
+    const auto r = workbenchGet(core::EndpointId::ProjectsListByPrinter,
+                                accessToken, xxToken, query.toString());
     if (!r.ok) return {false, "Erreur reseau: " + r.error};
 
     CloudPrinterProjectsResult out;
@@ -1333,9 +1266,8 @@ CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
                       QString::fromUtf8(QJsonDocument(dataObj).toJson(QJsonDocument::Compact)));
 
     const QByteArray body = form.query(QUrl::FullyEncoded).toUtf8();
-    const auto r = workbenchPostForm(
-        "/p/p/workbench/api/work/operation/sendOrder",
-        accessToken, xxToken, body);
+    const auto r = workbenchPostForm(core::EndpointId::OrdersSend,
+                                     accessToken, xxToken, body);
     if (!r.ok) return {false, "Erreur réseau: " + r.error, {}};
 
     try {

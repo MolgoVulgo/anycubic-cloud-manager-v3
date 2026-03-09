@@ -36,6 +36,11 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/CloudClient.cpp
     infra/cloud/HarImporter.cpp
     infra/cloud/SignHeaders.cpp
+    infra/cloud/core/HttpClient.cpp
+    infra/cloud/core/WorkbenchSigner.cpp
+    infra/cloud/core/WorkbenchRequestBuilder.cpp
+    infra/cloud/core/EndpointRegistry.cpp
+    infra/cloud/core/ResponseEnvelopeParser.cpp
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
