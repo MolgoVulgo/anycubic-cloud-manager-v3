@@ -9,6 +9,7 @@
 #if defined(ACCLOUD_WITH_QT)
 #include "AppI18nBridge.h"
 #include "CloudBridge.h"
+#include "MqttBridge.h"
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
 #if defined(ACCLOUD_DEBUG)
@@ -148,6 +149,7 @@ int main(int argc, char** argv) {
   QQmlApplicationEngine engine;
   accloud::SessionImportBridge sessionImportBridge;
   accloud::CloudBridge cloudBridge;
+  accloud::MqttBridge mqttBridge;
 #if defined(ACCLOUD_DEBUG)
   accloud::LogBridge logBridge;
 #endif
@@ -158,6 +160,7 @@ int main(int argc, char** argv) {
                                            kBuildDebugEnabled);
   engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
   engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
+  engine.rootContext()->setContextProperty("mqttBridge", &mqttBridge);
 #if defined(ACCLOUD_DEBUG)
   engine.rootContext()->setContextProperty("logBridge", &logBridge);
 #endif

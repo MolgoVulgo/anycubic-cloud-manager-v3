@@ -62,7 +62,13 @@ struct PrinterRealtimeEvent {
     std::string msgid;
     std::string topic;
     std::optional<PrintState> printState;
+    std::optional<int> progress;
+    std::optional<int> elapsedSec;
+    std::optional<int> remainingSec;
+    std::optional<int> currentLayer;
+    std::optional<int> totalLayers;
+    std::optional<std::string> currentFile;
+    std::optional<std::string> reason;
 };
 
 } // namespace accloud::realtime
-

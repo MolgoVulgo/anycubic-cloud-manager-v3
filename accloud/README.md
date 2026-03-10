@@ -14,6 +14,12 @@ Logging reference:
 
 ## Build
 
+Prerequisites:
+- CMake >= 3.24
+- Qt6 (Quick, QuickControls2, Network, Sql)
+- Qt6 MQTT module (`Qt6::Mqtt`, package `Qt6MqttConfig.cmake`)
+- OpenGL runtime/dev libraries
+
 ```bash
 cmake --preset default
 cmake --build --preset default
@@ -42,26 +48,23 @@ cmake --build --preset prod
 Detailed guide:
 - `../Docs/debug_build_modes.md`
 
-### MQTT build flags
+### MQTT build behavior
 
-- `ACCLOUD_ENABLE_MQTT=OFF` (default): MQTT stack excluded from build.
-- `ACCLOUD_ENABLE_MQTT=ON`: enables MQTT integration if `Qt6::Mqtt` is available.
-- `ACCLOUD_MQTT_V1_ENABLED_DEFAULT=OFF` (default): runtime feature flag default remains disabled.
-- `ACCLOUD_MQTT_V1_ENABLED_DEFAULT=ON`: runtime feature flag default enabled for test environments.
-
-Example:
-
-```bash
-cmake --preset default -DACCLOUD_ENABLE_MQTT=ON -DACCLOUD_MQTT_V1_ENABLED_DEFAULT=OFF
-cmake --build --preset default
-```
+- MQTT is enabled by default in Qt builds.
+- `Qt6::Mqtt` is required when `ACCLOUD_ENABLE_QT=ON`.
+- No dedicated MQTT enable/disable build flag is used.
 
 MQTT TLS environment variables:
 - `ACCLOUD_MQTT_TLS_CA_PATH`
 - `ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH`
 - `ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH`
 - `ACCLOUD_MQTT_TLS_ALLOW_INSECURE` (`0` by default)
-- `ACCLOUD_MQTT_TLS_DEV_FALLBACK` (`0` by default, set `1` to use `Docs/MQTT/resources` explicitly in dev)
+- `ACCLOUD_MQTT_TLS_DEV_FALLBACK` (`0` by default, set `1` to force local fallback)
+
+Default local TLS resource fallback:
+- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
+- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
+- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
 
 MQTT auth mode:
 - default mode is `slicer`

@@ -70,7 +70,14 @@ std::string getEnvString(const char* key) {
 
 std::filesystem::path repositoryRootFromSource() {
     std::filesystem::path p(__FILE__);
-    return p.parent_path().parent_path().parent_path().parent_path();
+    p = p.parent_path();
+    for (int i = 0; i < 8 && !p.empty(); ++i) {
+        if (std::filesystem::exists(p / "accloud" / "resources" / "mqtt" / "tls")) {
+            return p;
+        }
+        p = p.parent_path();
+    }
+    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
 }
 
 std::string readTextFile(const std::filesystem::path& path) {
@@ -338,8 +345,15 @@ std::optional<MqttCredentialCandidate> MqttCredentialProvider::buildSlicerCandid
     return std::nullopt;
 #else
     std::filesystem::path caPath(getEnvString(kEnvMqttCaPath));
+    if (caPath.empty()) {
+        const std::filesystem::path repoDefault =
+            repositoryRootFromSource() / "accloud" / "resources" / "mqtt" / "tls" / "anycubic_mqqt_tls_ca.crt";
+        if (std::filesystem::exists(repoDefault)) {
+            caPath = repoDefault;
+        }
+    }
     if (caPath.empty() && parseBoolEnv(kEnvMqttTlsDevFallback, false)) {
-        caPath = repositoryRootFromSource() / "Docs" / "MQTT" / "resources" / "anycubic_mqqt_tls_ca.crt";
+        caPath = repositoryRootFromSource() / "accloud" / "resources" / "mqtt" / "tls" / "anycubic_mqqt_tls_ca.crt";
     }
     if (caPath.empty()) {
         logging::error("cloud", "mqtt_credentials", "missing_ca_path",

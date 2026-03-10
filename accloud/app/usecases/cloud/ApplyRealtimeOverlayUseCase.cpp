@@ -8,7 +8,10 @@ std::vector<accloud::cloud::CloudPrinterInfo> ApplyRealtimeOverlayUseCase::execu
     std::vector<accloud::cloud::CloudPrinterInfo> printers) const {
     auto snapshots = accloud::realtime::PrinterRealtimeStore::instance().snapshotAll();
     for (auto& printer : printers) {
-        const auto it = snapshots.find(printer.id);
+        auto it = snapshots.find(printer.id);
+        if (it == snapshots.end() && !printer.printerKey.empty()) {
+            it = snapshots.find(printer.printerKey);
+        }
         if (it == snapshots.end()) {
             continue;
         }
@@ -42,4 +45,3 @@ std::vector<accloud::cloud::CloudPrinterInfo> ApplyRealtimeOverlayUseCase::execu
 }
 
 } // namespace accloud::usecases::cloud
-

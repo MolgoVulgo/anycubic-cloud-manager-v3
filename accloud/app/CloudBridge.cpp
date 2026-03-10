@@ -325,6 +325,8 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
 QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     QVariantMap m;
     m.insert("id",          QString::fromStdString(p.id));
+    m.insert("printerKey",  QString::fromStdString(p.printerKey));
+    m.insert("machineType", QString::fromStdString(p.machineType));
     m.insert("name",        QString::fromStdString(p.name));
     m.insert("model",       QString::fromStdString(p.model));
     m.insert("type",        QString::fromStdString(p.type));

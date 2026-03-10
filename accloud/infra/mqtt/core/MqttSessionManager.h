@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,10 @@ struct MqttSessionConfig {
     int port{8883};
     int keepAliveSeconds{1200};
     bool cleanSession{true};
+    std::string caCertificatePath;
+    std::string clientCertificatePath;
+    std::string clientKeyPath;
+    bool allowInsecureTls{false};
     int reconnectBaseDelayMs{5000};
     int reconnectMaxDelayMs{60000};
     int reconnectJitterMs{500};
@@ -37,6 +42,7 @@ struct MqttSessionCallbacks {
     std::function<void(const std::string&)> onDisconnected;
     std::function<void(int attempt, int delayMs)> onReconnecting;
     std::function<void()> onResyncRequired;
+    std::function<void(const std::string& topic, const std::string& payload)> onMessage;
 };
 
 struct MqttSessionStartResult {
@@ -58,6 +64,7 @@ public:
     MqttSessionStartResult start(const MqttSessionConfig& config,
                                  const MqttCredentials& credentials,
                                  const std::vector<std::string>& subscriptions);
+    std::size_t mergeSubscriptions(const std::vector<std::string>& subscriptions);
     void stop();
 
     [[nodiscard]] bool isAvailable() const;
@@ -69,4 +76,3 @@ private:
 };
 
 } // namespace accloud::mqtt::core
-

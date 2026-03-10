@@ -73,7 +73,8 @@ TestCase {
 
         var tabs = findObjectByName(window, "controlRoomTabs")
         verify(tabs !== null)
-        compare(tabs.count, 3)
+        compare(tabs.count, 4)
+        verify(findObjectByName(window, "mqttTabButton") !== null)
 
         var uploadButton = findObjectByName(window, "uploadDialogButton")
         verify(uploadButton !== null)
@@ -317,8 +318,8 @@ TestCase {
                     ok: true,
                     message: "ok",
                     sources: ["app", "fault", "printer"],
-                    components: ["bootstrap", "printer_agent"],
-                    events: ["startup", "refresh_failed"],
+                    components: ["bootstrap", "printer_agent", "mqtt_session"],
+                    events: ["startup", "refresh_failed", "mqtt_state_changed"],
                     entries: [
                         {
                             sink: "app",
@@ -341,6 +342,17 @@ TestCase {
                             opId: "op_printer_42",
                             message: "refresh failed",
                             formatted: "2026-03-04T10:00:01.000+01:00 [printer] printer ERROR printer_agent.refresh_failed - refresh failed op_id=op_printer_42"
+                        },
+                        {
+                            sink: "cloud",
+                            ts: "2026-03-04T10:00:02.000+01:00",
+                            level: "INFO",
+                            source: "cloud",
+                            component: "mqtt_session",
+                            event: "mqtt_state_changed",
+                            opId: "",
+                            message: "connected",
+                            formatted: "2026-03-04T10:00:02.000+01:00 [cloud] cloud INFO mqtt_session.mqtt_state_changed - connected"
                         }
                     ]
                 }
@@ -367,6 +379,7 @@ TestCase {
         compare(logsScroll.ScrollBar.vertical.active, true)
 
         verify(sourceFilter.find("printer") !== -1)
+        verify(sourceFilter.find("mqtt") !== -1)
         verify(componentFilter.find("printer_agent") !== -1)
         verify(eventFilter.find("refresh_failed") !== -1)
 
@@ -379,6 +392,34 @@ TestCase {
 
         opIdFilter.text = "op_printer_missing"
         compare(logsArea.text.trim(), "")
+
+        opIdFilter.clear()
+        sourceFilter.currentIndex = sourceFilter.find("mqtt")
+        verify(logsArea.text.indexOf("mqtt_session") !== -1)
+        verify(logsArea.text.indexOf("[printer]") === -1)
+
+        page.destroy()
+    }
+
+    function test_mqtt_page_shows_only_runtime_connection_fields() {
+        var page = createQmlObject("../../../ui/qml/pages/MqttPage.qml", {"width": 1280, "height": 800})
+
+        var hostField = findObjectByName(page, "mqttHostField")
+        var portField = findObjectByName(page, "mqttPortField")
+        var tlsCheck = findObjectByName(page, "mqttTlsCheck")
+        var topicsField = findObjectByName(page, "mqttTopicsField")
+
+        verify(hostField !== null)
+        verify(portField !== null)
+        verify(tlsCheck !== null)
+        verify(topicsField !== null)
+        compare(String(hostField.text), "mqtt-universe.anycubic.com")
+        verify(Number(portField.value) > 0)
+
+        // Manual credential inputs were removed from the UI.
+        verify(findObjectByName(page, "mqttClientIdField") === null)
+        verify(findObjectByName(page, "mqttUsernameField") === null)
+        verify(findObjectByName(page, "mqttPasswordField") === null)
 
         page.destroy()
     }

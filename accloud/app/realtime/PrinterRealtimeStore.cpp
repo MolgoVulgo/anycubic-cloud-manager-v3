@@ -59,7 +59,37 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
         }
     }
 
-    if (!snapshot.state.has_value() && !snapshot.printState.has_value()) {
+    if (event.progress.has_value()) {
+        snapshot.progress = event.progress;
+    }
+    if (event.elapsedSec.has_value()) {
+        snapshot.elapsedSec = event.elapsedSec;
+    }
+    if (event.remainingSec.has_value()) {
+        snapshot.remainingSec = event.remainingSec;
+    }
+    if (event.currentLayer.has_value()) {
+        snapshot.currentLayer = event.currentLayer;
+    }
+    if (event.totalLayers.has_value()) {
+        snapshot.totalLayers = event.totalLayers;
+    }
+    if (event.currentFile.has_value()) {
+        snapshot.currentFile = event.currentFile;
+    }
+    if (event.reason.has_value()) {
+        snapshot.reason = event.reason;
+    }
+
+    if (!snapshot.state.has_value()
+        && !snapshot.printState.has_value()
+        && !snapshot.progress.has_value()
+        && !snapshot.elapsedSec.has_value()
+        && !snapshot.remainingSec.has_value()
+        && !snapshot.currentLayer.has_value()
+        && !snapshot.totalLayers.has_value()
+        && !snapshot.currentFile.has_value()
+        && !snapshot.reason.has_value()) {
         return;
     }
     upsert(event.printerKey, snapshot);
@@ -88,4 +118,3 @@ void PrinterRealtimeStore::clear() {
 }
 
 } // namespace accloud::realtime
-

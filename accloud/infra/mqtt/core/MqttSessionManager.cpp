@@ -5,8 +5,14 @@
 
 #ifdef ACCLOUD_WITH_MQTT
 #include <QByteArray>
+#include <QFile>
+#include <QList>
 #include <QMetaObject>
 #include <QMqttClient>
+#include <QSslCertificate>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QString>
 #include <QTimer>
 #endif
 
@@ -14,6 +20,7 @@
 #include <cstdint>
 #include <limits>
 #include <random>
+#include <set>
 #include <utility>
 
 namespace accloud::mqtt::core {
@@ -56,10 +63,12 @@ struct MqttSessionManager::Impl {
     MqttSessionConfig config;
     MqttCredentials credentials;
     std::vector<std::string> subscriptions;
+    std::set<std::string> subscriptionSet;
     MqttSessionState sessionState{MqttSessionState::Stopped};
     bool running{false};
     bool stopping{false};
     bool hasConnectedOnce{false};
+    bool lastDisconnectFromClientError{false};
     int reconnectAttempt{0};
     std::mt19937 rng{std::random_device{}()};
 
@@ -86,7 +95,7 @@ struct MqttSessionManager::Impl {
         if (!client || client->state() != QMqttClient::Connected) {
             return;
         }
-        for (const std::string& topic : subscriptions) {
+        for (const std::string& topic : subscriptionSet) {
             if (topic.empty()) {
                 continue;
             }
@@ -99,10 +108,35 @@ struct MqttSessionManager::Impl {
         }
     }
 
+    std::size_t mergeSubscriptions(const std::vector<std::string>& topics) {
+        std::size_t added = 0;
+        for (const std::string& topic : topics) {
+            if (topic.empty()) {
+                continue;
+            }
+            if (subscriptionSet.insert(topic).second) {
+                subscriptions.push_back(topic);
+                ++added;
+#ifdef ACCLOUD_WITH_MQTT
+                if (client && client->state() == QMqttClient::Connected) {
+                    auto* subscription = client->subscribe(QString::fromStdString(topic), 0);
+                    if (subscription == nullptr) {
+                        logging::warn("cloud", "mqtt_session", "subscribe_failed",
+                                      "MQTT subscribe failed",
+                                      {{"topic", topic}});
+                    }
+                }
+#endif
+            }
+        }
+        return added;
+    }
+
     void connectToBroker() {
         if (!client) {
             return;
         }
+        lastDisconnectFromClientError = false;
         publishState(MqttSessionState::Connecting, "connect_request");
         client->setHostname(QString::fromStdString(config.host));
         client->setPort(config.port);
@@ -112,7 +146,44 @@ struct MqttSessionManager::Impl {
         client->setKeepAlive(config.keepAliveSeconds);
         client->setCleanSession(config.cleanSession);
         client->setProtocolVersion(QMqttClient::MQTT_3_1_1);
-        client->connectToHostEncrypted();
+        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+        if (config.allowInsecureTls) {
+            ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+        }
+
+        if (!config.caCertificatePath.empty()) {
+            QFile caFile(QString::fromStdString(config.caCertificatePath));
+            if (caFile.open(QIODevice::ReadOnly)) {
+                const QList<QSslCertificate> caCerts = QSslCertificate::fromData(
+                    caFile.readAll(), QSsl::Pem);
+                if (!caCerts.isEmpty()) {
+                    ssl.setCaCertificates(caCerts);
+                }
+            }
+        }
+
+        if (!config.clientCertificatePath.empty()) {
+            QFile clientCertFile(QString::fromStdString(config.clientCertificatePath));
+            if (clientCertFile.open(QIODevice::ReadOnly)) {
+                const QList<QSslCertificate> certs = QSslCertificate::fromData(
+                    clientCertFile.readAll(), QSsl::Pem);
+                if (!certs.isEmpty()) {
+                    ssl.setLocalCertificate(certs.front());
+                }
+            }
+        }
+
+        if (!config.clientKeyPath.empty()) {
+            QFile clientKeyFile(QString::fromStdString(config.clientKeyPath));
+            if (clientKeyFile.open(QIODevice::ReadOnly)) {
+                const QSslKey key(clientKeyFile.readAll(), QSsl::Rsa, QSsl::Pem);
+                if (!key.isNull()) {
+                    ssl.setPrivateKey(key);
+                }
+            }
+        }
+
+        client->connectToHostEncrypted(ssl);
     }
 
     void scheduleReconnect(const std::string& reason) {
@@ -151,6 +222,7 @@ struct MqttSessionManager::Impl {
 
             const bool isReconnect = hasConnectedOnce;
             hasConnectedOnce = true;
+            lastDisconnectFromClientError = false;
             reconnectAttempt = 0;
             subscribeAll();
             publishState(MqttSessionState::Connected, isReconnect ? "reconnected" : "connected");
@@ -171,6 +243,12 @@ struct MqttSessionManager::Impl {
                 publishState(MqttSessionState::Stopped, "stopped");
                 return;
             }
+            if (lastDisconnectFromClientError) {
+                publishState(MqttSessionState::Error, "client_error_no_reconnect");
+                logging::warn("cloud", "mqtt_session", "reconnect_disabled_on_error",
+                              "Auto-reconnect disabled after MQTT client error");
+                return;
+            }
             scheduleReconnect("disconnected");
         });
 
@@ -179,12 +257,24 @@ struct MqttSessionManager::Impl {
                 return;
             }
             observability::MqttTelemetry::instance().incrementConnectErrors();
+            lastDisconnectFromClientError = true;
             publishState(MqttSessionState::Error, "client_error");
             logging::warn("cloud", "mqtt_session", "client_error",
                           "MQTT client error signaled",
                           {
                               {"error_code", std::to_string(static_cast<int>(e))},
                           });
+            if (reconnectTimer) {
+                reconnectTimer->stop();
+            }
+        });
+
+        QObject::connect(client.get(), &QMqttClient::messageReceived,
+                         [this](const QByteArray& payload, const QMqttTopicName& topic) {
+            if (callbacks.onMessage) {
+                callbacks.onMessage(topic.name().toStdString(),
+                                    QString::fromUtf8(payload).toStdString());
+            }
         });
     }
 #endif
@@ -217,12 +307,14 @@ MqttSessionStartResult MqttSessionManager::start(const MqttSessionConfig& config
     m_impl->running = false;
     m_impl->publishState(MqttSessionState::Error, "mqtt_not_available");
     return {false, "mqtt_not_available",
-            "MQTT support is not available in this build (enable ACCLOUD_ENABLE_MQTT and Qt6::Mqtt)."};
+            "MQTT support is not available in this build (Qt6::Mqtt is required)."};
 #else
     stop();
     m_impl->config = config;
     m_impl->credentials = credentials;
-    m_impl->subscriptions = subscriptions;
+    m_impl->subscriptions.clear();
+    m_impl->subscriptionSet.clear();
+    m_impl->mergeSubscriptions(subscriptions);
     m_impl->running = true;
     m_impl->stopping = false;
     m_impl->hasConnectedOnce = false;
@@ -231,6 +323,13 @@ MqttSessionStartResult MqttSessionManager::start(const MqttSessionConfig& config
     m_impl->connectToBroker();
     return {true, "ok", "MQTT session startup requested"};
 #endif
+}
+
+std::size_t MqttSessionManager::mergeSubscriptions(const std::vector<std::string>& subscriptions) {
+    if (!m_impl) {
+        return 0;
+    }
+    return m_impl->mergeSubscriptions(subscriptions);
 }
 
 void MqttSessionManager::stop() {

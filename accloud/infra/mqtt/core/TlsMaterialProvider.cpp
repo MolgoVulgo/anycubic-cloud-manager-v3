@@ -45,11 +45,18 @@ std::filesystem::path getenvPath(const char* key) {
 
 std::filesystem::path repositoryRootFromSource() {
     std::filesystem::path p(__FILE__);
-    return p.parent_path().parent_path().parent_path().parent_path();
+    p = p.parent_path();
+    for (int i = 0; i < 8 && !p.empty(); ++i) {
+        if (std::filesystem::exists(p / "accloud" / "resources" / "mqtt" / "tls")) {
+            return p;
+        }
+        p = p.parent_path();
+    }
+    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
 }
 
 std::filesystem::path defaultDevPath(const char* filename) {
-    return repositoryRootFromSource() / "Docs" / "MQTT" / "resources" / filename;
+    return repositoryRootFromSource() / "accloud" / "resources" / "mqtt" / "tls" / filename;
 }
 
 std::string safePathForLogs(const std::filesystem::path& path) {
@@ -91,6 +98,20 @@ TlsMaterialLoadResult TlsMaterialProvider::loadFromEnvironment() const {
     paths.clientCertificatePath = getenvPath(kEnvClientCertPath);
     paths.clientKeyPath = getenvPath(kEnvClientKeyPath);
     paths.allowInsecureTls = parseBoolEnv(kEnvAllowInsecureTls, false);
+
+    // Automatic repository fallback (developer setup) if env is not set.
+    if (paths.caCertificatePath.empty() && paths.clientCertificatePath.empty()
+        && paths.clientKeyPath.empty()) {
+        const std::filesystem::path ca = defaultDevPath("anycubic_mqqt_tls_ca.crt");
+        const std::filesystem::path cert = defaultDevPath("anycubic_mqqt_tls_client.crt");
+        const std::filesystem::path key = defaultDevPath("anycubic_mqqt_tls_client.key");
+        if (std::filesystem::exists(ca) && std::filesystem::exists(cert) && std::filesystem::exists(key)) {
+            paths.caCertificatePath = ca;
+            paths.clientCertificatePath = cert;
+            paths.clientKeyPath = key;
+            paths.usingDevFallback = true;
+        }
+    }
 
     const bool devFallback = parseBoolEnv(kEnvDevFallback, false);
     if (devFallback) {

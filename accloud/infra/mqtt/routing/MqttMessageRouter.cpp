@@ -30,6 +30,61 @@ std::vector<std::string> splitTopic(const std::string& topic) {
     return parts;
 }
 
+std::optional<int> jsonToInt(const nlohmann::json& value) {
+    if (value.is_number_integer()) {
+        return value.get<int>();
+    }
+    if (value.is_number_float()) {
+        return static_cast<int>(value.get<double>());
+    }
+    if (value.is_string()) {
+        try {
+            return std::stoi(value.get<std::string>());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<int> firstIntField(const nlohmann::json& object,
+                                 std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        auto parsed = jsonToInt(object[key]);
+        if (parsed.has_value()) {
+            return parsed;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> firstStringField(const nlohmann::json& object,
+                                            std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        if (object[key].is_string()) {
+            const std::string value = object[key].get<std::string>();
+            if (!value.empty()) {
+                return value;
+            }
+        } else if (object[key].is_number_integer()) {
+            return std::to_string(object[key].get<long long>());
+        }
+    }
+    return std::nullopt;
+}
+
 bool isKnownPrintState(const std::string& state) {
     static const std::array<const char*, 13> kStates = {
         "downloading", "checking", "preheating", "printing", "pausing",
@@ -127,6 +182,13 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     if (event.type == accloud::realtime::MessageType::Print && !env.state.empty()) {
         event.printState = mapPrintState(env.state);
     }
+    event.progress = firstIntField(env.data, {"progress", "print_progress", "percent", "percentage"});
+    event.elapsedSec = firstIntField(env.data, {"elapsed_sec", "elapsed_time", "used_time", "duration"});
+    event.remainingSec = firstIntField(env.data, {"remaining_sec", "remaining_time", "left_time"});
+    event.currentLayer = firstIntField(env.data, {"current_layer", "layer_now", "layer"});
+    event.totalLayers = firstIntField(env.data, {"total_layers", "layer_total", "total_layer"});
+    event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
+    event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
 
     out.event = event;
     out.disposition = RouteDisposition::Routed;
@@ -287,6 +349,13 @@ std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::strin
 
     // anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/...
     if (parts.size() >= 7 && parts[3] == "printer" && parts[4] == "app") {
+        if (!parts[6].empty()) {
+            return parts[6];
+        }
+    }
+
+    // anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/...
+    if (parts.size() >= 7 && parts[3] == "printer" && parts[4] == "public") {
         if (!parts[6].empty()) {
             return parts[6];
         }

@@ -20,7 +20,8 @@ Integrer MQTT dans l'architecture `core-web` sans casser les flux HTTP existants
 ## Prerequis
 
 - Session cloud valide (`SessionProvider`).
-- Certificats presents dans `Docs/MQTT/resources`.
+- Certificats presents dans `accloud/resources/mqtt/tls`.
+- Module Qt MQTT disponible sur la machine de build (`Qt6::Mqtt` / `Qt6MqttConfig.cmake`).
 - Branche de travail: `MQTT`.
 
 ## Lot 1 - Build et dependances MQTT
@@ -176,3 +177,10 @@ Definition of Done:
 - Etat imprimante temps reel coherent apres reconnexions.
 - Resultats de commandes asynchrones fiables et tracables.
 - Aucun couplage MQTT direct dans `CloudBridge`/QML.
+
+## Etat applique (2026-03-10)
+
+- Lancement MQTT en mode manuel uniquement (pas d'auto-connexion au demarrage).
+- Reconnexion automatique desactivee apres erreur client MQTT, nouvel essai via bouton `Connect`.
+- Separation du token MQTT (`auth_token`) du token HTTP (`XX-Token`) dans le contexte session.
+- Le prefill MQTT expose explicitement le prerequis `auth_token` quand il manque.
