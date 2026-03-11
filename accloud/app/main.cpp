@@ -12,6 +12,7 @@
 #include "MqttBridge.h"
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
+#include "infra/mqtt/core/OpenSslCompat.h"
 #if defined(ACCLOUD_DEBUG)
 #include "LogBridge.h"
 #include "UiClickTracer.h"
@@ -127,6 +128,19 @@ int main(int argc, char** argv) {
   }
 
 #if defined(ACCLOUD_WITH_QT)
+  const auto opensslCompat = accloud::mqtt::core::ensureOpenSslSecurityLevelCompat(
+      accloud::mqtt::core::shouldEnableMqttOpenSslCompatFromEnv());
+  if (!opensslCompat.ok) {
+    accloud::logging::warn("app", "bootstrap", "openssl_compat_apply_failed",
+                           "Unable to apply OpenSSL SECLEVEL=0 compatibility profile",
+                           {{"code", opensslCompat.code},
+                            {"detail", opensslCompat.message}});
+  } else if (opensslCompat.applied) {
+    accloud::logging::info("app", "bootstrap", "openssl_compat_applied",
+                           "Applied OpenSSL SECLEVEL=0 compatibility profile",
+                           {{"conf_path", opensslCompat.configPath}});
+  }
+
   QGuiApplication app(argc, argv);
   qInstallMessageHandler(qtMessageHandler);
   {
