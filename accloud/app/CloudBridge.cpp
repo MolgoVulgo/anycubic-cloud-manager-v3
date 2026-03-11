@@ -125,6 +125,20 @@ QString normalizedThumbnailUrl(const QString& raw) {
     if (value.isEmpty()) {
         return {};
     }
+    const QFileInfo localInfo(value);
+    if (localInfo.isAbsolute() && localInfo.exists() && localInfo.isFile()) {
+        return QUrl::fromLocalFile(localInfo.absoluteFilePath()).toString();
+    }
+    const QUrl parsed(value);
+    if (parsed.isValid() && !parsed.scheme().isEmpty()) {
+        const QString scheme = parsed.scheme().toLower();
+        if (scheme == QStringLiteral("http")
+            || scheme == QStringLiteral("https")
+            || scheme == QStringLiteral("file")) {
+            return value;
+        }
+        return {};
+    }
     if (value.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
         || value.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)) {
         return value;
@@ -271,6 +285,26 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
         }
         return {};
     }
+
+    const QUrl normalizedUrl(normalized);
+    if (normalizedUrl.isLocalFile()) {
+        const QString localPath = normalizedUrl.toLocalFile();
+        QImageReader reader(localPath);
+        if (reader.canRead()) {
+            logging::info("app", "thumbnail_cache", "cache_hit",
+                          "Thumbnail served from local source",
+                          {{"url", normalized.toStdString()},
+                           {"path", localPath.toStdString()},
+                           {"mode", "local_source"}});
+            return normalized;
+        }
+        logging::warn("app", "thumbnail_cache", "local_source_unreadable",
+                      "Local thumbnail source is not readable",
+                      {{"url", normalized.toStdString()},
+                       {"path", localPath.toStdString()},
+                       {"error", reader.errorString().toStdString()}});
+    }
+
     const QString cacheBasePath = cacheBasePathForThumbnailUrl(normalized);
     if (cacheBasePath.isEmpty()) {
         return normalized;
@@ -574,12 +608,8 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
         return out;
     }
 
+    // Keep startup path fast: avoid eager thumbnail probing for the whole list on UI thread.
     QVariantList files = m_cache->loadFiles(page, limit);
-    for (int i = 0; i < files.size(); ++i) {
-        QVariantMap item = files[i].toMap();
-        resolveThumbnailInMap(item, false);
-        files[i] = item;
-    }
     out.insert("ok", true);
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
@@ -783,6 +813,130 @@ void CloudBridge::refreshPrintersAsync(bool force) {
         }
 
         m_refreshPrintersRunning.store(false);
+    }).detach();
+}
+
+void CloudBridge::refreshReasonCatalogAsync(bool force) {
+    if (m_refreshReasonCatalogRunning.exchange(true)) {
+        return;
+    }
+
+    std::thread([this, force]() {
+        const QString scope = QStringLiteral("reason_catalog");
+        if (!shouldRefresh(scope, 3600, force)) {
+            m_refreshReasonCatalogRunning.store(false);
+            return;
+        }
+
+        const usecases::cloud::FetchReasonCatalogUseCase useCase;
+        const auto r = useCase.execute();
+        const bool ok = r.ok;
+        const QString message = QString::fromStdString(r.message);
+
+        if (m_cache != nullptr) {
+            m_cache->updateSyncState(scope, ok, message);
+        }
+
+        if (ok) {
+            QVariantList reasons;
+            reasons.reserve(static_cast<qsizetype>(r.reasons.size()));
+            for (const auto& item : r.reasons) {
+                reasons.append(reasonCatalogItemToMap(item));
+            }
+            QMetaObject::invokeMethod(this, [this, reasons, message]() {
+                emit reasonCatalogUpdatedFromCloud(reasons, message);
+            }, Qt::QueuedConnection);
+        } else {
+            QMetaObject::invokeMethod(this, [this, message]() {
+                emit syncFailed(QStringLiteral("reason_catalog"), message);
+            }, Qt::QueuedConnection);
+        }
+
+        m_refreshReasonCatalogRunning.store(false);
+    }).detach();
+}
+
+void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page, int limit, bool force) {
+    std::thread([this, printerId, page, limit, force]() {
+        const QString normalizedPrinterId = printerId.trimmed();
+        if (normalizedPrinterId.isEmpty()) {
+            return;
+        }
+
+        const QString scope = QStringLiteral("printer_insights_%1").arg(normalizedPrinterId);
+        if (!shouldRefresh(scope, 15, force)) {
+            return;
+        }
+
+        const usecases::cloud::FetchPrinterDetailsUseCase detailsUseCase;
+        const auto detailsResult = detailsUseCase.execute(normalizedPrinterId.toStdString());
+        const usecases::cloud::FetchPrinterProjectsUseCase projectsUseCase;
+        const auto projectsResult = projectsUseCase.execute(normalizedPrinterId.toStdString(), page, limit);
+
+        QVariantMap detailsMap;
+        QString detailsRawJson;
+        if constexpr (kDebugBuildEnabled) {
+            detailsRawJson = QString::fromStdString(detailsResult.rawJson);
+        }
+        if (detailsResult.ok) {
+            detailsMap = printerDetailsToMap(detailsResult);
+        }
+
+        QVariantList projects;
+        QString projectsRawJson;
+        if constexpr (kDebugBuildEnabled) {
+            projectsRawJson = QString::fromStdString(projectsResult.rawJson);
+        }
+        if (projectsResult.ok) {
+            projects.reserve(static_cast<qsizetype>(projectsResult.items.size()));
+            for (const auto& item : projectsResult.items) {
+                projects.append(printerProjectToMap(item));
+            }
+            if (m_cache != nullptr) {
+                m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
+            }
+        } else if (m_cache != nullptr) {
+            projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+        }
+
+        const bool ok = detailsResult.ok || projectsResult.ok || !projects.isEmpty();
+        QString message;
+        if (detailsResult.ok && projectsResult.ok) {
+            message = QStringLiteral("Printer insights refreshed from cloud.");
+        } else if (ok) {
+            message = detailsResult.ok
+                    ? QStringLiteral("Printer details refreshed; projects loaded from cache.")
+                    : QStringLiteral("Printer projects refreshed; details unavailable.");
+        } else {
+            message = QString::fromStdString(!projectsResult.message.empty()
+                    ? projectsResult.message
+                    : detailsResult.message);
+        }
+
+        if (m_cache != nullptr) {
+            m_cache->updateSyncState(scope, ok, message);
+        }
+
+        if (ok) {
+            QMetaObject::invokeMethod(this, [this,
+                                             normalizedPrinterId,
+                                             detailsMap,
+                                             projects,
+                                             detailsRawJson,
+                                             projectsRawJson,
+                                             message]() {
+                emit printerInsightsUpdatedFromCloud(normalizedPrinterId,
+                                                     detailsMap,
+                                                     projects,
+                                                     detailsRawJson,
+                                                     projectsRawJson,
+                                                     message);
+            }, Qt::QueuedConnection);
+        } else {
+            QMetaObject::invokeMethod(this, [this, message]() {
+                emit syncFailed(QStringLiteral("printer_insights"), message);
+            }, Qt::QueuedConnection);
+        }
     }).detach();
 }
 

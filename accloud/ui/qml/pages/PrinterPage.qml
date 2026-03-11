@@ -41,6 +41,7 @@ Item {
     property bool reasonCatalogLoaded: false
     property bool reasonCatalogLoading: false
     property var reasonCatalogByCode: ({})
+    property bool startupInitialized: false
     property bool printerAutoRefreshStarted: false
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
@@ -482,26 +483,34 @@ Item {
     function ensureReasonCatalogLoaded() {
         if (reasonCatalogLoaded || reasonCatalogLoading)
             return
-        if (!hasCloudBridge() || typeof cloudBridge.fetchReasonCatalog !== "function")
+        if (!hasCloudBridge())
             return
 
-        reasonCatalogLoading = true
-        var r = cloudBridge.fetchReasonCatalog()
-        reasonCatalogLoading = false
-        if (r.ok !== true) {
-            statusMsg = qsTr("Reason catalog unavailable: ") + String(r.message || "")
-            statusSev = "warn"
+        if (typeof cloudBridge.refreshReasonCatalogAsync === "function") {
+            reasonCatalogLoading = true
+            cloudBridge.refreshReasonCatalogAsync(false)
             return
         }
 
-        var map = {}
-        var reasons = r.reasons !== undefined ? r.reasons : []
-        for (var i = 0; i < reasons.length; ++i) {
-            var entry = reasons[i]
-            map[String(entry.reason)] = entry
+        if (typeof cloudBridge.fetchReasonCatalog === "function") {
+            reasonCatalogLoading = true
+            var r = cloudBridge.fetchReasonCatalog()
+            reasonCatalogLoading = false
+            if (r.ok !== true) {
+                statusMsg = qsTr("Reason catalog unavailable: ") + String(r.message || "")
+                statusSev = "warn"
+                return
+            }
+
+            var map = {}
+            var reasons = r.reasons !== undefined ? r.reasons : []
+            for (var i = 0; i < reasons.length; ++i) {
+                var entry = reasons[i]
+                map[String(entry.reason)] = entry
+            }
+            reasonCatalogByCode = map
+            reasonCatalogLoaded = true
         }
-        reasonCatalogByCode = map
-        reasonCatalogLoaded = true
     }
 
     function reasonEntryFromText(reasonText) {
@@ -598,37 +607,43 @@ Item {
                 replaceRecentJobsCard(inlineProjects)
         }
 
-        if (typeof cloudBridge.fetchPrinterDetails === "function") {
+        if (typeof cloudBridge.refreshPrinterInsightsAsync === "function") {
             loadingPrinterDetails = true
-            var detailsRes = cloudBridge.fetchPrinterDetails(selectedPrinterId)
-            loadingPrinterDetails = false
-            if (detailsRes.ok === true && detailsRes.details !== undefined) {
-                var fetchedDetails = detailsRes.details
-                var hasFetchedDetails = fetchedDetails !== null
-                        && fetchedDetails !== undefined
-                        && Object.keys(fetchedDetails).length > 0
-                var hasCurrentDetails = selectedPrinterDetails !== null
-                        && selectedPrinterDetails !== undefined
-                        && Object.keys(selectedPrinterDetails).length > 0
-                if (hasFetchedDetails || !hasCurrentDetails)
-                    selectedPrinterDetails = fetchedDetails
-            }
-            if (detailsRes.rawJson !== undefined)
-                selectedPrinterDetailsRawJson = String(detailsRes.rawJson || selectedPrinterDetailsRawJson)
-        }
-
-        if (typeof cloudBridge.fetchPrinterProjects === "function") {
             loadingPrinterHistory = refreshRecentJobsCard
-            var projectsRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
-            loadingPrinterHistory = false
-            if (projectsRes.ok === true) {
-                var cloudProjects = projectsRes.projects !== undefined ? projectsRes.projects : []
-                setLiveProjectFromList(cloudProjects)
-                if (refreshRecentJobsCard)
-                    replaceRecentJobsCard(cloudProjects)
+            cloudBridge.refreshPrinterInsightsAsync(selectedPrinterId, 1, 20, false)
+        } else {
+            if (typeof cloudBridge.fetchPrinterDetails === "function") {
+                loadingPrinterDetails = true
+                var detailsRes = cloudBridge.fetchPrinterDetails(selectedPrinterId)
+                loadingPrinterDetails = false
+                if (detailsRes.ok === true && detailsRes.details !== undefined) {
+                    var fetchedDetails = detailsRes.details
+                    var hasFetchedDetails = fetchedDetails !== null
+                            && fetchedDetails !== undefined
+                            && Object.keys(fetchedDetails).length > 0
+                    var hasCurrentDetails = selectedPrinterDetails !== null
+                            && selectedPrinterDetails !== undefined
+                            && Object.keys(selectedPrinterDetails).length > 0
+                    if (hasFetchedDetails || !hasCurrentDetails)
+                        selectedPrinterDetails = fetchedDetails
+                }
+                if (detailsRes.rawJson !== undefined)
+                    selectedPrinterDetailsRawJson = String(detailsRes.rawJson || selectedPrinterDetailsRawJson)
             }
-            if (projectsRes.rawJson !== undefined)
-                selectedPrinterProjectsRawJson = String(projectsRes.rawJson || selectedPrinterProjectsRawJson)
+
+            if (typeof cloudBridge.fetchPrinterProjects === "function") {
+                loadingPrinterHistory = refreshRecentJobsCard
+                var projectsRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
+                loadingPrinterHistory = false
+                if (projectsRes.ok === true) {
+                    var cloudProjects = projectsRes.projects !== undefined ? projectsRes.projects : []
+                    setLiveProjectFromList(cloudProjects)
+                    if (refreshRecentJobsCard)
+                        replaceRecentJobsCard(cloudProjects)
+                }
+                if (projectsRes.rawJson !== undefined)
+                    selectedPrinterProjectsRawJson = String(projectsRes.rawJson || selectedPrinterProjectsRawJson)
+            }
         }
 
         updatePrintersAutoRefreshInterval()
@@ -711,8 +726,6 @@ Item {
 
         var printers = r.printers !== undefined ? r.printers : []
         replacePrintersModel(printers)
-
-        loadSelectedPrinterInsights()
         updatePrintersAutoRefreshInterval()
         if (printersModel.count > 0) {
             if (useCacheFlow) {
@@ -733,6 +746,14 @@ Item {
         }
         if (useCacheFlow)
             cloudBridge.refreshPrintersAsync(true)
+    }
+
+    function ensureStartupInitialized() {
+        if (startupInitialized)
+            return
+        startupInitialized = true
+        ensureReasonCatalogLoaded()
+        loadPrinters()
     }
 
     function replacePrintersModel(printers) {
@@ -1102,8 +1123,7 @@ Item {
     }
 
     Component.onCompleted: {
-        ensureReasonCatalogLoaded()
-        loadPrinters()
+        // Printers tab is secondary: defer heavy startup work until the tab is opened.
     }
 
     Timer {
@@ -1142,11 +1162,59 @@ Item {
             }
         }
 
-        function onSyncFailed(scope, message) {
-            if (String(scope) !== "printers")
+        function onReasonCatalogUpdatedFromCloud(reasons, message) {
+            var map = {}
+            var list = reasons !== undefined ? reasons : []
+            for (var i = 0; i < list.length; ++i) {
+                var entry = list[i]
+                map[String(entry.reason)] = entry
+            }
+            reasonCatalogByCode = map
+            reasonCatalogLoaded = true
+            reasonCatalogLoading = false
+        }
+
+        function onPrinterInsightsUpdatedFromCloud(printerId, details, projects, detailsRawJson, projectsRawJson, message) {
+            if (String(printerId || "") !== String(root.selectedPrinterId || ""))
                 return
-            statusMsg = qsTr("Background sync failed (printers): ") + String(message)
-            statusSev = "warn"
+
+            var resolvedDetails = details !== undefined ? details : ({})
+            if (resolvedDetails !== null && Object.keys(resolvedDetails).length > 0)
+                root.selectedPrinterDetails = resolvedDetails
+
+            var list = projects !== undefined ? projects : []
+            setLiveProjectFromList(list)
+            if (shouldRefreshRecentJobsCard())
+                replaceRecentJobsCard(list)
+
+            if (detailsRawJson !== undefined)
+                root.selectedPrinterDetailsRawJson = String(detailsRawJson || root.selectedPrinterDetailsRawJson)
+            if (projectsRawJson !== undefined)
+                root.selectedPrinterProjectsRawJson = String(projectsRawJson || root.selectedPrinterProjectsRawJson)
+
+            root.loadingPrinterDetails = false
+            root.loadingPrinterHistory = false
+        }
+
+        function onSyncFailed(scope, message) {
+            var normalizedScope = String(scope || "")
+            if (normalizedScope === "printers") {
+                statusMsg = qsTr("Background sync failed (printers): ") + String(message)
+                statusSev = "warn"
+                return
+            }
+            if (normalizedScope === "reason_catalog") {
+                reasonCatalogLoading = false
+                statusMsg = qsTr("Reason catalog unavailable: ") + String(message)
+                statusSev = "warn"
+                return
+            }
+            if (normalizedScope === "printer_insights") {
+                root.loadingPrinterDetails = false
+                root.loadingPrinterHistory = false
+                statusMsg = qsTr("Background sync failed (printer insights): ") + String(message)
+                statusSev = "warn"
+            }
         }
     }
 

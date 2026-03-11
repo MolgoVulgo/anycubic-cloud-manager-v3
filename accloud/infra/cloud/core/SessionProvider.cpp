@@ -4,7 +4,9 @@
 
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
+#include <mutex>
 #include <map>
 #include <optional>
 #include <string>
@@ -19,6 +21,17 @@
 
 namespace accloud::cloud::core {
 namespace {
+
+struct SessionCacheEntry {
+    std::filesystem::path path;
+    bool exists{false};
+    std::filesystem::file_time_type mtime{};
+    std::uintmax_t size{0};
+    cloud::LoadSessionResult loaded;
+};
+
+std::mutex gSessionCacheMutex;
+std::optional<SessionCacheEntry> gSessionCache;
 
 std::string firstNonEmptyToken(const cloud::SessionData& session,
                                std::initializer_list<const char*> keys) {
@@ -239,7 +252,46 @@ nlohmann::json decodeJwtPayload(const std::string& token) {
 
 cloud::LoadSessionResult SessionProvider::loadCurrentSession(
     const std::optional<std::filesystem::path>& pathOverride) const {
-    return cloud::loadSessionFile(pathOverride);
+    const std::filesystem::path resolvedPath = cloud::resolveSessionPath(pathOverride);
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(resolvedPath, ec) && !ec;
+    std::filesystem::file_time_type mtime{};
+    std::uintmax_t size = 0;
+    if (exists) {
+        mtime = std::filesystem::last_write_time(resolvedPath, ec);
+        if (ec) {
+            mtime = {};
+            ec.clear();
+        }
+        size = std::filesystem::file_size(resolvedPath, ec);
+        if (ec) {
+            size = 0;
+            ec.clear();
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(gSessionCacheMutex);
+        if (gSessionCache.has_value()
+            && gSessionCache->path == resolvedPath
+            && gSessionCache->exists == exists
+            && (!exists || (gSessionCache->mtime == mtime && gSessionCache->size == size))) {
+            return gSessionCache->loaded;
+        }
+    }
+
+    cloud::LoadSessionResult loaded = cloud::loadSessionFile(pathOverride);
+    {
+        std::lock_guard<std::mutex> lock(gSessionCacheMutex);
+        SessionCacheEntry entry;
+        entry.path = resolvedPath;
+        entry.exists = exists;
+        entry.mtime = mtime;
+        entry.size = size;
+        entry.loaded = loaded;
+        gSessionCache = std::move(entry);
+    }
+    return loaded;
 }
 
 std::optional<std::string> SessionProvider::requireAccessToken(const cloud::SessionData& session) const {
