@@ -7,6 +7,7 @@ import "../components"
 Item {
     id: root
     property bool embeddedInTabsContainer: false
+    property bool showExtendedDebug: false
     property string statusText: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
                                 ? String(mqttBridge.status || "idle")
                                 : "mqtt_unavailable"
@@ -24,7 +25,7 @@ Item {
         missingFields = suggested.missingFields !== undefined ? suggested.missingFields : []
         emailValue.text = String(suggested.email || "-")
         userIdValue.text = String(suggested.userId || "-")
-        tokenValue.text = String(suggested.authToken || "-")
+        tokenValue.text = Boolean(suggested.authTokenPresent) ? qsTr("present") : qsTr("missing")
         caPathValue.text = String(suggested.caPath || "-")
         clientCertPathValue.text = String(suggested.clientCertPath || "-")
         clientKeyPathValue.text = String(suggested.clientKeyPath || "-")
@@ -44,12 +45,7 @@ Item {
     }
 
     function mqttModeLabel() {
-        if (typeof uiSettingsBridge === "undefined" || uiSettingsBridge === null)
-            return qsTr("Slicer")
-        if (typeof uiSettingsBridge.getString !== "function")
-            return qsTr("Slicer")
-        var mode = String(uiSettingsBridge.getString("mqtt.authMode", "slicer")).toLowerCase().trim()
-        return mode === "android" ? qsTr("Android") : qsTr("Slicer")
+        return qsTr("Slicer")
     }
 
     AppPageFrame {
@@ -65,7 +61,7 @@ Item {
             SectionHeader {
                 Layout.fillWidth: true
                 title: qsTr("Auth Mode")
-                subtitle: qsTr("Default is Slicer; change from Settings menu")
+                subtitle: qsTr("Slicer is enforced in runtime")
             }
 
             Rectangle {
@@ -163,6 +159,7 @@ Item {
                 columns: 2
                 columnSpacing: Theme.gapRow
                 rowSpacing: 4
+                visible: root.showExtendedDebug
 
                 Text {
                     text: qsTr("Email")
@@ -247,6 +244,19 @@ Item {
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.gapRow
+
+                AppCheckBox {
+                    text: qsTr("Extended debug")
+                    checked: root.showExtendedDebug
+                    onToggled: root.showExtendedDebug = checked
+                }
+
+                Item { Layout.fillWidth: true }
             }
 
             RowLayout {

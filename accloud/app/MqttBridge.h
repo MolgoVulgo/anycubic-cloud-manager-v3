@@ -12,6 +12,7 @@ namespace accloud {
 class MqttBridge : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionStateChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString rawBuffer READ rawBuffer NOTIFY rawBufferChanged)
     Q_PROPERTY(QString telemetrySnapshot READ telemetrySnapshot NOTIFY telemetrySnapshotChanged)
@@ -27,6 +28,7 @@ public:
     ~MqttBridge() override;
 
     QString status() const;
+    QString connectionState() const;
     bool connected() const;
     QString rawBuffer() const;
     QString telemetrySnapshot() const;
@@ -50,6 +52,7 @@ public:
 
 signals:
     void statusChanged();
+    void connectionStateChanged();
     void connectedChanged();
     void rawBufferChanged();
     void telemetrySnapshotChanged();
@@ -60,11 +63,13 @@ private:
     bool attemptAutoConnect();
     void refreshDynamicSubscriptions();
     void setStatus(const QString& value);
+    void setConnectionState(const QString& value);
     void appendRawLine(const QString& line);
     void updateConnected(bool value);
     void refreshTelemetrySnapshot();
 
     QString m_status;
+    QString m_connectionState;
     bool m_connected{false};
     QString m_rawBuffer;
     QString m_telemetrySnapshot;

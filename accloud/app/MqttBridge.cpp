@@ -10,18 +10,20 @@
 #include "infra/mqtt/core/MqttSessionManager.h"
 #include "infra/mqtt/core/TlsMaterialProvider.h"
 #include "infra/mqtt/observability/MqttTelemetry.h"
+#include "infra/mqtt/observability/TelemetryObservationStore.h"
 #include "infra/mqtt/routing/MqttMessageRouter.h"
 #include "infra/mqtt/routing/MqttTopicBuilder.h"
+#include <nlohmann/json.hpp>
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QStringList>
 #include <QTimer>
 
 #include <algorithm>
+#include <cctype>
 #include <vector>
 
 namespace accloud {
@@ -31,19 +33,6 @@ std::string md5LowerHex(const std::string& input) {
     return QCryptographicHash::hash(QByteArray::fromStdString(input), QCryptographicHash::Md5)
         .toHex()
         .toStdString();
-}
-
-QString appSetting(const QString& key, const QString& fallback = {}) {
-    QString org = QCoreApplication::organizationName();
-    if (org.trimmed().isEmpty()) {
-        org = QStringLiteral("accloud");
-    }
-    QString app = QCoreApplication::applicationName();
-    if (app.trimmed().isEmpty()) {
-        app = QStringLiteral("accloud");
-    }
-    QSettings settings(org, app);
-    return settings.value(key, fallback).toString();
 }
 
 accloud::mqtt::core::MqttSessionManager& sessionManager() {
@@ -60,7 +49,6 @@ struct PreparedMqttProfile {
     bool ok{false};
     std::string code;
     std::string message;
-    std::string authMode{"slicer"};
     std::string email;
     std::string userId;
     std::string authToken;
@@ -70,6 +58,92 @@ struct PreparedMqttProfile {
     std::vector<std::string> subscriptions;
     std::map<std::string, std::string> printerKeyToId;
 };
+
+QString toUiConnectionState(mqtt::core::MqttSessionState state) {
+    using State = mqtt::core::MqttSessionState;
+    switch (state) {
+        case State::Stopped:
+            return QStringLiteral("Disconnected");
+        case State::Connecting:
+            return QStringLiteral("Connecting");
+        case State::Connected:
+            return QStringLiteral("Connected");
+        case State::Reconnecting:
+            return QStringLiteral("Reconnecting");
+        case State::Error:
+            return QStringLiteral("Degraded");
+    }
+    return QStringLiteral("Degraded");
+}
+
+std::string routeDispositionToString(mqtt::routing::RouteDisposition disposition) {
+    using D = mqtt::routing::RouteDisposition;
+    switch (disposition) {
+        case D::Routed:
+            return "Routed";
+        case D::UnknownMessage:
+            return "UnknownMessage";
+        case D::InvalidEnvelope:
+            return "InvalidEnvelope";
+        case D::InvalidJson:
+            return "InvalidJson";
+        case D::Ignored:
+            return "Ignored";
+    }
+    return "Ignored";
+}
+
+bool isSensitiveKey(const std::string& key) {
+    std::string lowered;
+    lowered.resize(key.size());
+    std::transform(key.begin(), key.end(), lowered.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return lowered == "token"
+        || lowered == "auth_token"
+        || lowered == "accesstoken"
+        || lowered == "access_token"
+        || lowered == "refresh_token"
+        || lowered == "password"
+        || lowered == "passwd"
+        || lowered == "secret"
+        || lowered == "client_secret"
+        || lowered == "private_key"
+        || lowered == "authorization";
+}
+
+void redactJsonInPlace(nlohmann::json& node) {
+    if (node.is_object()) {
+        for (auto it = node.begin(); it != node.end(); ++it) {
+            if (isSensitiveKey(it.key())) {
+                if (!it.value().is_null()) {
+                    it.value() = "***REDACTED***";
+                }
+                continue;
+            }
+            redactJsonInPlace(it.value());
+        }
+        return;
+    }
+    if (node.is_array()) {
+        for (auto& item : node) {
+            redactJsonInPlace(item);
+        }
+    }
+}
+
+std::string redactPayloadForDebug(const std::string& payload) {
+    if (payload.empty()) {
+        return payload;
+    }
+    try {
+        nlohmann::json root = nlohmann::json::parse(payload);
+        redactJsonInPlace(root);
+        return root.dump();
+    } catch (...) {
+        return payload;
+    }
+}
 
 PreparedMqttProfile buildPreparedProfile() {
     PreparedMqttProfile out;
@@ -120,18 +194,12 @@ PreparedMqttProfile buildPreparedProfile() {
         return out;
     }
 
-    const QString configuredMode = appSetting(QStringLiteral("mqtt.authMode"), QStringLiteral("slicer"));
-    const std::string preferredMode = configuredMode.trimmed().isEmpty()
-        ? (ctxResult.context.modeAuth.empty() ? std::string("slicer") : ctxResult.context.modeAuth)
-        : configuredMode.trimmed().toStdString();
-    out.authMode = preferredMode;
-
     mqtt::core::MqttCredentialInput credInput;
     credInput.brokerHost = out.config.host;
     credInput.email = email;
     credInput.userId = userId;
     credInput.authToken = authToken;
-    credInput.authMode = mqtt::core::MqttCredentialProvider::resolvePreferredMode(preferredMode);
+    credInput.authMode = mqtt::core::MqttAuthMode::Slicer;
 
     mqtt::core::MqttCredentialProvider credentialProvider;
     const auto built = credentialProvider.buildCandidates(credInput);
@@ -183,6 +251,7 @@ PreparedMqttProfile buildPreparedProfile() {
 
 QString formatTelemetrySnapshot() {
     const auto snapshot = accloud::mqtt::observability::MqttTelemetry::instance().snapshot();
+    const auto discoveryTop = accloud::mqtt::observability::TelemetryObservationStore::instance().topByCount(5);
 
     QStringList lines;
     lines << QStringLiteral("connectErrors=%1").arg(static_cast<qulonglong>(snapshot.connectErrors));
@@ -207,6 +276,15 @@ QString formatTelemetrySnapshot() {
                          .arg(static_cast<qulonglong>(unknown[i].second));
         }
     }
+    if (!discoveryTop.empty()) {
+        lines << QStringLiteral("discovery(top5):");
+        for (const auto& o : discoveryTop) {
+            lines << QStringLiteral("  %1 => %2 [%3]")
+                         .arg(QString::fromStdString(o.signature))
+                         .arg(static_cast<qulonglong>(o.count))
+                         .arg(QString::fromStdString(o.disposition));
+        }
+    }
     return lines.join('\n');
 }
 
@@ -215,6 +293,7 @@ QString formatTelemetrySnapshot() {
 MqttBridge::MqttBridge(QObject* parent)
     : QObject(parent) {
     setStatus(QStringLiteral("idle"));
+    setConnectionState(QStringLiteral("Disconnected"));
     m_subscriptionRefreshTimer = new QTimer(this);
     m_subscriptionRefreshTimer->setInterval(30000);
     QObject::connect(m_subscriptionRefreshTimer, &QTimer::timeout, this, [this]() {
@@ -231,6 +310,7 @@ MqttBridge::MqttBridge(QObject* parent)
     manager.setCallbacks({
         .onStateChanged = [this](mqtt::core::MqttSessionState state, const std::string& reason) {
             updateConnected(state == mqtt::core::MqttSessionState::Connected);
+            setConnectionState(toUiConnectionState(state));
             setStatus(QString::fromStdString(reason));
         },
         .onConnected = [this]() {
@@ -240,6 +320,14 @@ MqttBridge::MqttBridge(QObject* parent)
                 m_subscriptionRefreshTimer->start();
             }
             refreshDynamicSubscriptions();
+        },
+        .onSubscriptionsApplied = [this](std::size_t subscribedCount) {
+            if (subscribedCount == 0) {
+                return;
+            }
+            setConnectionState(QStringLiteral("Subscribed"));
+            setStatus(QStringLiteral("subscribed (%1 topic(s))")
+                          .arg(static_cast<qulonglong>(subscribedCount)));
         },
         .onDisconnected = [this](const std::string& reason) {
             updateConnected(false);
@@ -258,10 +346,22 @@ MqttBridge::MqttBridge(QObject* parent)
         },
         .onMessage = [this](const std::string& topic, const std::string& payload) {
             const QString ts = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+            const std::string redactedPayload = redactPayloadForDebug(payload);
             appendRawLine(ts + QStringLiteral(" | ") + QString::fromStdString(topic)
-                          + QStringLiteral(" | ") + QString::fromStdString(payload));
+                          + QStringLiteral(" | ") + QString::fromStdString(redactedPayload));
 
             const auto routed = messageRouter().route(topic, payload);
+            if (routed.disposition == mqtt::routing::RouteDisposition::UnknownMessage
+                || routed.disposition == mqtt::routing::RouteDisposition::InvalidEnvelope
+                || routed.disposition == mqtt::routing::RouteDisposition::InvalidJson) {
+                accloud::mqtt::observability::TelemetryObservationStore::instance().observe(
+                    routed.signature,
+                    routed.topic,
+                    routed.printerKey,
+                    redactedPayload,
+                    routeDispositionToString(routed.disposition),
+                    routed.reason);
+            }
             if (routed.event.has_value()) {
                 auto event = *routed.event;
                 if (!routed.printerKey.empty()) {
@@ -308,6 +408,10 @@ MqttBridge::~MqttBridge() {
 
 QString MqttBridge::status() const {
     return m_status;
+}
+
+QString MqttBridge::connectionState() const {
+    return m_connectionState;
 }
 
 bool MqttBridge::connected() const {
@@ -422,6 +526,9 @@ bool MqttBridge::connectRaw(const QString& host,
 
     const auto start = sessionManager().start(config, credentials, subscriptions);
     setStatus(QString::fromStdString(start.message));
+    if (!start.ok) {
+        setConnectionState(QStringLiteral("Degraded"));
+    }
     return start.ok;
 }
 
@@ -431,6 +538,7 @@ void MqttBridge::disconnectRaw() {
         m_subscriptionRefreshTimer->stop();
     }
     updateConnected(false);
+    setConnectionState(QStringLiteral("Disconnected"));
     setStatus(QStringLiteral("disconnected"));
 }
 
@@ -455,6 +563,9 @@ bool MqttBridge::attemptAutoConnect() {
                                                 profile.credentials,
                                                 profile.subscriptions);
     setStatus(QString::fromStdString(started.message));
+    if (!started.ok) {
+        setConnectionState(QStringLiteral("Degraded"));
+    }
     if (started.ok) {
         refreshDynamicSubscriptions();
     }
@@ -470,13 +581,10 @@ QVariantMap MqttBridge::suggestedConnection() const {
     out.insert(QStringLiteral("host"), QString::fromStdString(profile.config.host));
     out.insert(QStringLiteral("port"), profile.config.port);
     out.insert(QStringLiteral("useTls"), true);
-    out.insert(QStringLiteral("clientId"), QString::fromStdString(profile.credentials.clientId));
-    out.insert(QStringLiteral("username"), QString::fromStdString(profile.credentials.username));
-    out.insert(QStringLiteral("password"), QString::fromStdString(profile.credentials.password));
-    out.insert(QStringLiteral("authMode"), QString::fromStdString(profile.authMode));
+    out.insert(QStringLiteral("authMode"), QStringLiteral("slicer"));
     out.insert(QStringLiteral("email"), QString::fromStdString(profile.email));
     out.insert(QStringLiteral("userId"), QString::fromStdString(profile.userId));
-    out.insert(QStringLiteral("authToken"), QString::fromStdString(profile.authToken));
+    out.insert(QStringLiteral("authTokenPresent"), !profile.authToken.empty());
     QVariantList missingFields;
     for (const auto& field : profile.missingFields) {
         missingFields.push_back(QString::fromStdString(field));
@@ -537,6 +645,14 @@ void MqttBridge::setStatus(const QString& value) {
     emit statusChanged();
 }
 
+void MqttBridge::setConnectionState(const QString& value) {
+    if (m_connectionState == value) {
+        return;
+    }
+    m_connectionState = value;
+    emit connectionStateChanged();
+}
+
 void MqttBridge::appendRawLine(const QString& line) {
     static constexpr int kMaxChars = 200000;
     if (!m_rawBuffer.isEmpty()) {
@@ -558,6 +674,10 @@ void MqttBridge::updateConnected(bool value) {
 }
 
 void MqttBridge::refreshTelemetrySnapshot() {
+    const std::size_t expired = usecases::cloud::OrderResponseTracker::instance().expireTimeouts();
+    if (expired > 0) {
+        appendRawLine(QStringLiteral("[TRACKER] expired %1 order(s)").arg(static_cast<qulonglong>(expired)));
+    }
     const auto snapshot = accloud::mqtt::observability::MqttTelemetry::instance().snapshot();
     const QString next = formatTelemetrySnapshot();
 

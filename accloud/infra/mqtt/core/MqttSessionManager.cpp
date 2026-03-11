@@ -1,6 +1,7 @@
 #include "MqttSessionManager.h"
 
 #include "infra/logging/JsonlLogger.h"
+#include "infra/mqtt/core/OpenSslCompat.h"
 #include "infra/mqtt/observability/MqttTelemetry.h"
 
 #ifdef ACCLOUD_WITH_MQTT
@@ -91,10 +92,11 @@ struct MqttSessionManager::Impl {
     }
 
 #ifdef ACCLOUD_WITH_MQTT
-    void subscribeAll() {
+    std::size_t subscribeAll() {
         if (!client || client->state() != QMqttClient::Connected) {
-            return;
+            return 0;
         }
+        std::size_t subscribedCount = 0;
         for (const std::string& topic : subscriptionSet) {
             if (topic.empty()) {
                 continue;
@@ -104,8 +106,11 @@ struct MqttSessionManager::Impl {
                 logging::warn("cloud", "mqtt_session", "subscribe_failed",
                               "MQTT subscribe failed",
                               {{"topic", topic}});
+                continue;
             }
+            ++subscribedCount;
         }
+        return subscribedCount;
     }
 
     std::size_t mergeSubscriptions(const std::vector<std::string>& topics) {
@@ -124,6 +129,8 @@ struct MqttSessionManager::Impl {
                         logging::warn("cloud", "mqtt_session", "subscribe_failed",
                                       "MQTT subscribe failed",
                                       {{"topic", topic}});
+                    } else if (callbacks.onSubscriptionsApplied) {
+                        callbacks.onSubscriptionsApplied(1);
                     }
                 }
 #endif
@@ -146,9 +153,31 @@ struct MqttSessionManager::Impl {
         client->setKeepAlive(config.keepAliveSeconds);
         client->setCleanSession(config.cleanSession);
         client->setProtocolVersion(QMqttClient::MQTT_3_1_1);
-        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+
         if (config.allowInsecureTls) {
-            ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+            const auto opensslCompat = ensureOpenSslSecurityLevelCompat(true);
+            if (!opensslCompat.ok) {
+                logging::warn("cloud", "mqtt_session", "openssl_compat_apply_failed",
+                              "Unable to apply OpenSSL SECLEVEL=0 compatibility profile",
+                              {
+                                  {"code", opensslCompat.code},
+                                  {"detail", opensslCompat.message},
+                              });
+            } else if (opensslCompat.applied) {
+                logging::info("cloud", "mqtt_session", "openssl_compat_applied",
+                              "Applied OpenSSL SECLEVEL=0 compatibility profile",
+                              {
+                                  {"conf_path", opensslCompat.configPath},
+                              });
+            }
+        }
+
+        QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+        ssl.setProtocol(QSsl::TlsV1_2);
+        ssl.setPeerVerifyMode(config.allowInsecureTls ? QSslSocket::VerifyNone : QSslSocket::VerifyPeer);
+        if (config.allowInsecureTls) {
+            ssl.setBackendConfigurationOption(QByteArrayLiteral("CipherString"),
+                                              QStringLiteral("ALL:@SECLEVEL=0"));
         }
 
         if (!config.caCertificatePath.empty()) {
@@ -224,10 +253,13 @@ struct MqttSessionManager::Impl {
             hasConnectedOnce = true;
             lastDisconnectFromClientError = false;
             reconnectAttempt = 0;
-            subscribeAll();
+            const std::size_t subscribedCount = subscribeAll();
             publishState(MqttSessionState::Connected, isReconnect ? "reconnected" : "connected");
             if (callbacks.onConnected) {
                 callbacks.onConnected();
+            }
+            if (callbacks.onSubscriptionsApplied && subscribedCount > 0) {
+                callbacks.onSubscriptionsApplied(subscribedCount);
             }
             if (isReconnect && callbacks.onResyncRequired) {
                 callbacks.onResyncRequired();
@@ -298,6 +330,10 @@ MqttSessionStartResult MqttSessionManager::start(const MqttSessionConfig& config
     }
     if (credentials.clientId.empty() || credentials.username.empty() || credentials.password.empty()) {
         return {false, "mqtt_missing_credentials", "MQTT credentials are incomplete"};
+    }
+    if (config.caCertificatePath.empty() || config.clientCertificatePath.empty()
+        || config.clientKeyPath.empty()) {
+        return {false, "mqtt_tls_missing_paths", "MQTT mTLS paths are required"};
     }
 
 #ifndef ACCLOUD_WITH_MQTT

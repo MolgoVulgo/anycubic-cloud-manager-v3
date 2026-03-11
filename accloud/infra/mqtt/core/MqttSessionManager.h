@@ -39,6 +39,7 @@ struct MqttCredentials {
 struct MqttSessionCallbacks {
     std::function<void(MqttSessionState, const std::string&)> onStateChanged;
     std::function<void()> onConnected;
+    std::function<void(std::size_t subscribedCount)> onSubscriptionsApplied;
     std::function<void(const std::string&)> onDisconnected;
     std::function<void(int attempt, int delayMs)> onReconnecting;
     std::function<void()> onResyncRequired;

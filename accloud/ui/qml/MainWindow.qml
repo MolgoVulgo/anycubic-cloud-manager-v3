@@ -146,31 +146,15 @@ ApplicationWindow {
     }
 
     function normalizeMqttAuthMode(value) {
-        var lowered = String(value || "").toLowerCase().trim()
-        if (lowered === "android")
-            return "android"
         return "slicer"
     }
 
     function loadMqttAuthModeFromSettings() {
-        var modeValue = "slicer"
-        if (root.hasUiSettingsBridge())
-            modeValue = uiSettingsBridge.getString("mqtt.authMode", modeValue)
-        root.persistedMqttAuthMode = root.normalizeMqttAuthMode(modeValue)
-        if (root.hasUiSettingsBridge()) {
-            uiSettingsBridge.setString("mqtt.authMode", root.persistedMqttAuthMode)
-            if (typeof uiSettingsBridge.sync === "function")
-                uiSettingsBridge.sync()
-        }
+        root.persistedMqttAuthMode = "slicer"
     }
 
     function persistMqttAuthMode(modeValue) {
-        root.persistedMqttAuthMode = root.normalizeMqttAuthMode(modeValue)
-        if (root.hasUiSettingsBridge()) {
-            uiSettingsBridge.setString("mqtt.authMode", root.persistedMqttAuthMode)
-            if (typeof uiSettingsBridge.sync === "function")
-                uiSettingsBridge.sync()
-        }
+        root.persistedMqttAuthMode = "slicer"
     }
 
     function openUploadDialog() {
@@ -283,15 +267,10 @@ ApplicationWindow {
 
             MenuItem {
                 objectName: "menuSettingsMqttAuthMode"
-                text: root.persistedMqttAuthMode === "android"
-                      ? qsTr("MQTT auth mode: Android")
-                      : qsTr("MQTT auth mode: Slicer")
+                text: qsTr("MQTT auth mode: Slicer")
                 onTriggered: {
-                    var nextMode = root.persistedMqttAuthMode === "android" ? "slicer" : "android"
-                    root.persistMqttAuthMode(nextMode)
-                    root.statusText = root.persistedMqttAuthMode === "android"
-                            ? qsTr("MQTT auth mode set to Android.")
-                            : qsTr("MQTT auth mode set to Slicer.")
+                    root.persistMqttAuthMode("slicer")
+                    root.statusText = qsTr("MQTT auth mode is fixed to Slicer.")
                 }
             }
 
@@ -1160,7 +1139,8 @@ ApplicationWindow {
                             }
 
                             StatusChip {
-                                status: (mqttBridge && mqttBridge.connected) ? qsTr("connected") : qsTr("disconnected")
+                                status: mqttBridge ? String(mqttBridge.connectionState || "Disconnected")
+                                                   : "Disconnected"
                             }
 
                             Text {

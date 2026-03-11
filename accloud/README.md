@@ -58,18 +58,35 @@ MQTT TLS environment variables:
 - `ACCLOUD_MQTT_TLS_CA_PATH`
 - `ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH`
 - `ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH`
-- `ACCLOUD_MQTT_TLS_ALLOW_INSECURE` (`0` by default)
+- `ACCLOUD_MQTT_TLS_ALLOW_INSECURE` (default `1` for broker compatibility; set `0` to enforce peer verification)
 - `ACCLOUD_MQTT_TLS_DEV_FALLBACK` (`0` by default, set `1` to force local fallback)
+- `ACCLOUD_MQTT_OPENSSL_CONF_PATH` (optional explicit path for auto-generated OpenSSL compat profile when insecure TLS mode is enabled)
+
+Notes:
+- mTLS is mandatory (`CA + client cert + client key`).
+- TLS compatibility mode (`allow_insecure`) follows reference behavior and can be disabled explicitly.
+- On OpenSSL 3 hosts, compatibility mode now auto-sets `OPENSSL_CONF` with `SECLEVEL=0` (unless already set) to match reference client behavior.
 
 Default local TLS resource fallback:
-- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
-- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
-- `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
+- preferred:
+  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_ca.crt`
+  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.crt`
+  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.key`
+- legacy compatibility (still accepted):
+  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
+  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
+  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
 
 MQTT auth mode:
-- default mode is `slicer`
-- UI setting key: `mqtt.authMode` (`slicer` or `android`)
-- optional env override: `ACCLOUD_MQTT_AUTH_MODE`
+- mode is fixed to `slicer` in runtime.
+
+MQTT runtime state exposed to UI:
+- `Disconnected`, `Connecting`, `Connected`, `Subscribed`, `Degraded`, `Reconnecting`
+
+MQTT discovery behavior (M7-first):
+- Unknown/invalid MQTT envelopes are captured in an internal observation store.
+- Observations keep signature, topic, printer key, redacted payload sample, disposition, frequency, and last seen timestamp.
+- This discovery path does not block realtime store updates for already-supported messages.
 
 ## Workbench signature config
 

@@ -1,7 +1,9 @@
 #include "app/realtime/PrinterRealtimeStore.h"
 #include "app/usecases/cloud/ApplyRealtimeOverlayUseCase.h"
 #include "infra/mqtt/core/TlsMaterialProvider.h"
+#include "infra/mqtt/observability/TelemetryObservationStore.h"
 #include "infra/mqtt/routing/MqttMessageRouter.h"
+#include "infra/mqtt/routing/MqttTopicBuilder.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -94,6 +96,21 @@ bool test_store_applies_metrics() {
     return ok;
 }
 
+bool test_router_marks_unknown_message_for_discovery() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/releaseFilm/report";
+    const std::string payload = R"json(
+{"type":"releaseFilm","action":"report","state":"warn","data":{"film_temp":38}}
+)json";
+
+    const auto routed = router.route(topic, payload);
+    return expect(routed.disposition == accloud::mqtt::routing::RouteDisposition::UnknownMessage,
+                  "Unknown releaseFilm messages should go to discovery disposition")
+        && expect(!routed.signature.empty(), "Unknown message should still expose a signature")
+        && expect(!routed.event.has_value(), "Unknown message should not produce a realtime event");
+}
+
 bool test_overlay_matches_printer_key_fallback() {
     auto& store = accloud::realtime::PrinterRealtimeStore::instance();
     store.clear();
@@ -169,14 +186,72 @@ bool test_tls_provider_local_fallback_paths() {
                   "Fallback path should target accloud/resources/mqtt/tls");
 }
 
+bool test_printer_subscription_topics_match_spec() {
+    const auto topics = accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
+        "m7", "prod-key-01");
+    if (!expect(topics.size() == 2, "Printer topics should contain exactly 2 spec subscriptions")) {
+        return false;
+    }
+    return expect(topics[0] == "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/#",
+                  "First topic should be printer/public")
+        && expect(topics[1] == "anycubic/anycubicCloud/v1/+/public/m7/prod-key-01/#",
+                  "Second topic should be +/public");
+}
+
+bool test_telemetry_observation_store_tracks_unknown_signatures() {
+    auto& store = accloud::mqtt::observability::TelemetryObservationStore::instance();
+    store.clear();
+
+    store.observe("releaseFilm|report|-",
+                  "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/releaseFilm/report",
+                  "prod-key-01",
+                  R"json({"type":"releaseFilm","state":"warn"})json",
+                  "UnknownMessage",
+                  "unknown_type");
+    store.observe("releaseFilm|report|-",
+                  "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/releaseFilm/report",
+                  "prod-key-01",
+                  R"json({"type":"releaseFilm","state":"warn"})json",
+                  "UnknownMessage",
+                  "unknown_type");
+    store.observe("wifi|status|-",
+                  "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/wifi/report",
+                  "prod-key-01",
+                  R"json({"type":"wifi","state":"ok"})json",
+                  "UnknownMessage",
+                  "unknown_type");
+
+    const auto top = store.topByCount(2);
+    if (!expect(top.size() == 2, "Discovery store top list should return two signatures")) {
+        return false;
+    }
+    if (!expect(top[0].signature == "releaseFilm|report|-", "Most frequent signature should be first")) {
+        return false;
+    }
+    if (!expect(top[0].count == 2, "Most frequent signature count should be 2")) {
+        return false;
+    }
+    const auto releaseFilm = store.getBySignature("releaseFilm|report|-");
+    if (!expect(releaseFilm.has_value(), "releaseFilm signature must be retrievable")) {
+        return false;
+    }
+    return expect(releaseFilm->topic.find("/releaseFilm/") != std::string::npos,
+                  "Stored observation should keep topic")
+        && expect(releaseFilm->payload.find("\"releaseFilm\"") != std::string::npos,
+                  "Stored observation should keep payload sample");
+}
+
 } // namespace
 
 int main() {
     bool ok = true;
     ok = test_route_extracts_realtime_fields() && ok;
     ok = test_store_applies_metrics() && ok;
+    ok = test_router_marks_unknown_message_for_discovery() && ok;
     ok = test_overlay_matches_printer_key_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
+    ok = test_printer_subscription_topics_match_spec() && ok;
+    ok = test_telemetry_observation_store_tracks_unknown_signatures() && ok;
     if (!ok) {
         return 1;
     }

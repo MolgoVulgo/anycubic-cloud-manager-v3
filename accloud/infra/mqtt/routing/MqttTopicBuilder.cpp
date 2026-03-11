@@ -39,7 +39,6 @@ std::vector<std::string> MqttTopicBuilder::buildPrinterSubscriptionTopics(const 
     }
 
     return {
-        "anycubic/anycubicCloud/v1/printer/app/" + mt + "/" + pk + "/#",
         "anycubic/anycubicCloud/v1/printer/public/" + mt + "/" + pk + "/#",
         "anycubic/anycubicCloud/v1/+/public/" + mt + "/" + pk + "/#",
     };

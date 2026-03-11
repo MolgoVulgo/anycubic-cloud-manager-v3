@@ -48,6 +48,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/mqtt/routing/MqttTopicBuilder.cpp
     infra/mqtt/routing/MqttMessageRouter.cpp
     infra/mqtt/observability/MqttTelemetry.cpp
+    infra/mqtt/observability/TelemetryObservationStore.cpp
     infra/cloud/api/AuthApi.cpp
     infra/cloud/api/FilesApi.cpp
     infra/cloud/api/QuotaApi.cpp
@@ -245,3 +246,23 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_mqtt_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_mqtt_flow COMMAND accloud_mqtt_tests)
+
+add_executable(accloud_mqtt_live_check
+    tests/mqtt/test_mqtt_live_broker.cpp
+)
+target_link_libraries(accloud_mqtt_live_check PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Network)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Network)
+  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_QT=1)
+endif()
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Mqtt)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Mqtt)
+  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_MQTT=1)
+endif()
+add_test(NAME accloud_mqtt_live_broker COMMAND accloud_mqtt_live_check)

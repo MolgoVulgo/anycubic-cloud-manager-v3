@@ -59,6 +59,19 @@ std::filesystem::path defaultDevPath(const char* filename) {
     return repositoryRootFromSource() / "accloud" / "resources" / "mqtt" / "tls" / filename;
 }
 
+std::filesystem::path defaultDevPathCompat(const char* preferredFilename,
+                                           const char* legacyFilename) {
+    const std::filesystem::path preferred = defaultDevPath(preferredFilename);
+    if (std::filesystem::exists(preferred)) {
+        return preferred;
+    }
+    const std::filesystem::path legacy = defaultDevPath(legacyFilename);
+    if (std::filesystem::exists(legacy)) {
+        return legacy;
+    }
+    return preferred;
+}
+
 std::string safePathForLogs(const std::filesystem::path& path) {
     if (path.empty()) {
         return "<empty>";
@@ -97,14 +110,18 @@ TlsMaterialLoadResult TlsMaterialProvider::loadFromEnvironment() const {
     paths.caCertificatePath = getenvPath(kEnvCaPath);
     paths.clientCertificatePath = getenvPath(kEnvClientCertPath);
     paths.clientKeyPath = getenvPath(kEnvClientKeyPath);
-    paths.allowInsecureTls = parseBoolEnv(kEnvAllowInsecureTls, false);
+    // Compatibility default for Anycubic broker behavior observed with reference scripts.
+    paths.allowInsecureTls = parseBoolEnv(kEnvAllowInsecureTls, true);
 
     // Automatic repository fallback (developer setup) if env is not set.
     if (paths.caCertificatePath.empty() && paths.clientCertificatePath.empty()
         && paths.clientKeyPath.empty()) {
-        const std::filesystem::path ca = defaultDevPath("anycubic_mqqt_tls_ca.crt");
-        const std::filesystem::path cert = defaultDevPath("anycubic_mqqt_tls_client.crt");
-        const std::filesystem::path key = defaultDevPath("anycubic_mqqt_tls_client.key");
+        const std::filesystem::path ca = defaultDevPathCompat("anycubic_mqtt_tls_ca.crt",
+                                                              "anycubic_mqqt_tls_ca.crt");
+        const std::filesystem::path cert = defaultDevPathCompat("anycubic_mqtt_tls_client.crt",
+                                                                "anycubic_mqqt_tls_client.crt");
+        const std::filesystem::path key = defaultDevPathCompat("anycubic_mqtt_tls_client.key",
+                                                               "anycubic_mqqt_tls_client.key");
         if (std::filesystem::exists(ca) && std::filesystem::exists(cert) && std::filesystem::exists(key)) {
             paths.caCertificatePath = ca;
             paths.clientCertificatePath = cert;
@@ -116,20 +133,23 @@ TlsMaterialLoadResult TlsMaterialProvider::loadFromEnvironment() const {
     const bool devFallback = parseBoolEnv(kEnvDevFallback, false);
     if (devFallback) {
         if (paths.caCertificatePath.empty()) {
-            paths.caCertificatePath = defaultDevPath("anycubic_mqqt_tls_ca.crt");
+            paths.caCertificatePath = defaultDevPathCompat("anycubic_mqtt_tls_ca.crt",
+                                                           "anycubic_mqqt_tls_ca.crt");
         }
         if (paths.clientCertificatePath.empty()) {
-            paths.clientCertificatePath = defaultDevPath("anycubic_mqqt_tls_client.crt");
+            paths.clientCertificatePath = defaultDevPathCompat("anycubic_mqtt_tls_client.crt",
+                                                               "anycubic_mqqt_tls_client.crt");
         }
         if (paths.clientKeyPath.empty()) {
-            paths.clientKeyPath = defaultDevPath("anycubic_mqqt_tls_client.key");
+            paths.clientKeyPath = defaultDevPathCompat("anycubic_mqtt_tls_client.key",
+                                                       "anycubic_mqqt_tls_client.key");
         }
         paths.usingDevFallback = true;
     }
 
     if (paths.allowInsecureTls) {
         logging::warn("cloud", "mqtt_tls", "insecure_mode_enabled",
-                      "TLS insecure mode is enabled. This must remain disabled in production.");
+                      "TLS insecure mode is enabled (compat mode).");
     }
 
     return validate(paths);
