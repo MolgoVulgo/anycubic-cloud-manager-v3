@@ -554,8 +554,14 @@ Item {
             }
         }
 
-        if (useCacheFlow)
-            cloudBridge.refreshFilesAsync(1, 20, true)
+        if (useCacheFlow) {
+            Qt.callLater(function() {
+                if (hasCloudBridge()
+                        && typeof cloudBridge.refreshFilesAsync === "function") {
+                    cloudBridge.refreshFilesAsync(1, 20, true)
+                }
+            })
+        }
     }
 
     Component.onCompleted: loadFiles()

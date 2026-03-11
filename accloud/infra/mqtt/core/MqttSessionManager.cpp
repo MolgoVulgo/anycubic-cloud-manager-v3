@@ -108,6 +108,10 @@ struct MqttSessionManager::Impl {
                               {{"topic", topic}});
                 continue;
             }
+            logging::info("mqtt", "mqtt_flow", "subscribe_ok",
+                          "MQTT topic subscription applied",
+                          {{"topic", topic},
+                           {"qos", "0"}});
             ++subscribedCount;
         }
         return subscribedCount;
@@ -121,6 +125,9 @@ struct MqttSessionManager::Impl {
             }
             if (subscriptionSet.insert(topic).second) {
                 subscriptions.push_back(topic);
+                logging::info("mqtt", "mqtt_flow", "subscription_registered",
+                              "MQTT topic registered for subscription",
+                              {{"topic", topic}});
                 ++added;
 #ifdef ACCLOUD_WITH_MQTT
                 if (client && client->state() == QMqttClient::Connected) {
@@ -303,6 +310,10 @@ struct MqttSessionManager::Impl {
 
         QObject::connect(client.get(), &QMqttClient::messageReceived,
                          [this](const QByteArray& payload, const QMqttTopicName& topic) {
+            logging::info("mqtt", "mqtt_flow", "topic_rx",
+                          "MQTT message received",
+                          {{"topic", topic.name().toStdString()},
+                           {"payload_bytes", std::to_string(payload.size())}});
             if (callbacks.onMessage) {
                 callbacks.onMessage(topic.name().toStdString(),
                                     QString::fromUtf8(payload).toStdString());
@@ -370,6 +381,9 @@ std::size_t MqttSessionManager::mergeSubscriptions(const std::vector<std::string
 
 void MqttSessionManager::stop() {
     if (!m_impl) {
+        return;
+    }
+    if (m_impl->sessionState == MqttSessionState::Stopped && !m_impl->running) {
         return;
     }
     m_impl->stopping = true;

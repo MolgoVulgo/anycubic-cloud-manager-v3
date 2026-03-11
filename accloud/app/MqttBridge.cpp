@@ -366,6 +366,13 @@ MqttBridge::MqttBridge(QObject* parent)
             emit messageTickChanged();
 
             const auto routed = messageRouter().route(topic, payload);
+            logging::info("mqtt", "mqtt_flow", "topic_routed",
+                          "MQTT topic routed",
+                          {
+                              {"topic", topic},
+                              {"disposition", routeDispositionToString(routed.disposition)},
+                              {"reason", routed.reason},
+                          });
             if (routed.disposition == mqtt::routing::RouteDisposition::UnknownMessage
                 || routed.disposition == mqtt::routing::RouteDisposition::InvalidEnvelope
                 || routed.disposition == mqtt::routing::RouteDisposition::InvalidJson) {
@@ -418,7 +425,9 @@ MqttBridge::~MqttBridge() {
     if (m_telemetryTimer != nullptr) {
         m_telemetryTimer->stop();
     }
-    sessionManager().stop();
+    auto& manager = sessionManager();
+    manager.setCallbacks({});
+    manager.stop();
 }
 
 QString MqttBridge::status() const {
