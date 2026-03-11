@@ -11,6 +11,10 @@ namespace accloud::cloud::core {
 struct CloudRequestContext {
     std::string accessToken;
     std::string xxToken;
+    std::string mqttAuthToken;
+    std::string email;
+    std::string userId;
+    std::string modeAuth;
     std::filesystem::path sessionPath;
 };
 
@@ -27,6 +31,7 @@ public:
 
     std::optional<std::string> requireAccessToken(const cloud::SessionData& session) const;
     std::string optionalXxToken(const cloud::SessionData& session) const;
+    std::string optionalMqttAuthToken(const cloud::SessionData& session) const;
 
     SessionContextResult loadRequestContext(
         const std::optional<std::filesystem::path>& pathOverride = std::nullopt) const;

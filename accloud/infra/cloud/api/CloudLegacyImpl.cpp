@@ -345,6 +345,8 @@ std::vector<CloudFileInfo> parseFileArray(const nlohmann::json& data) {
 CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
     CloudPrinterInfo p;
     p.id = jStr(e.value("id", nlohmann::json{}));
+    p.printerKey = jFirst(e, {"printer_key", "device_key", "key"});
+    p.machineType = jFirst(e, {"machine_type", "machineType", "machine_type_id", "model_id"});
     p.name = jFirst(e, {"name", "printer_name", "device_name"});
     p.model = jFirst(e, {"model", "model_name", "machine_name", "machineType"});
     p.type = jFirst(e, {"type", "machine_type_name", "printer_type"});
@@ -392,6 +394,14 @@ CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
 
     if (p.type.empty())
         p.type = jFirst(base, {"type", "machine_type_name", "printer_type"});
+    if (p.printerKey.empty())
+        p.printerKey = jFirst(base, {"printer_key", "device_key", "key"});
+    if (p.machineType.empty())
+        p.machineType = jFirst(base, {"machine_type", "machineType", "machine_type_id", "model_id"});
+    if (p.printerKey.empty())
+        p.printerKey = p.id;
+    if (p.machineType.empty())
+        p.machineType = p.type;
     if (p.lastSeen.empty())
         p.lastSeen = jFirst(base, {"last_seen", "lastSeen", "last_online_time", "last_report_time", "last_active_time", "updated_at"});
     if (p.lastSeen.empty())
@@ -1277,9 +1287,16 @@ CloudPrintOrderResult legacySendCloudPrintOrder(const std::string& accessToken,
             return {false, j.value("msg", "Erreur sendOrder"), {}};
 
         std::string taskId;
+        std::string msgId;
         const auto& d = j.value("data", nlohmann::json::object());
-        if (d.is_object()) taskId = jStr(d.value("task_id", nlohmann::json{}));
-        return {true, "Print order envoyée", taskId};
+        if (d.is_object()) {
+            taskId = jStr(d.value("task_id", nlohmann::json{}));
+            msgId = jStr(d.value("msgid", nlohmann::json{}));
+            if (msgId.empty()) {
+                msgId = jStr(d.value("msg_id", nlohmann::json{}));
+            }
+        }
+        return {true, "Print order envoyée", taskId, msgId, {}, {}};
     } catch (...) {
         return {false, "Réponse invalide", {}};
     }

@@ -1,5 +1,6 @@
 #include "LoadPrintersDashboardUseCase.h"
 
+#include "ApplyRealtimeOverlayUseCase.h"
 #include "infra/cloud/api/PrintersApi.h"
 #include "infra/cloud/api/ProjectsApi.h"
 #include "infra/cloud/core/SessionProvider.h"
@@ -110,7 +111,9 @@ LoadPrintersDashboardResult LoadPrintersDashboardUseCase::execute() const {
         enrichPrinterFromProjects(printer, projects);
     }
 
-    return {true, listResult.message, listResult.rawJson, std::move(listResult.printers)};
+    const ApplyRealtimeOverlayUseCase overlayUseCase;
+    auto mergedPrinters = overlayUseCase.execute(std::move(listResult.printers));
+    return {true, listResult.message, listResult.rawJson, std::move(mergedPrinters)};
 }
 
 } // namespace accloud::usecases::cloud

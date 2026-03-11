@@ -1,6 +1,6 @@
 1. Objectif
 
-Définir un plan d’implémentation concret pour intégrer le canal MQTT décrit dans `Docs/MQTT/CDC-MQTT.md`, en tenant compte des certificats ajoutés dans `Docs/MQTT/resources`.
+Définir un plan d’implémentation concret pour intégrer le canal MQTT décrit dans `Docs/MQTT/CDC-MQTT.md`, en tenant compte des certificats ajoutés dans `accloud/resources/mqtt/tls`.
 
 2. Entrées de référence
 
@@ -10,11 +10,11 @@ Documents:
 
 Matériaux TLS présents:
 
-`Docs/MQTT/resources/anycubic_mqqt_tls_ca.crt`
+`accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
 
-`Docs/MQTT/resources/anycubic_mqqt_tls_client.crt`
+`accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
 
-`Docs/MQTT/resources/anycubic_mqqt_tls_client.key`
+`accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
 
 3. Décisions de cadrage
 
@@ -38,7 +38,7 @@ Créer un `TlsMaterialProvider` dédié.
 
 Interdire tout accès direct aux certificats depuis l’UI.
 
-Charger les chemins de certificats via configuration (variables d’environnement ou settings applicatifs), avec fallback dev explicite vers `Docs/MQTT/resources`.
+Charger les chemins de certificats via configuration (variables d’environnement ou settings applicatifs), avec fallback dev explicite vers `accloud/resources/mqtt/tls`.
 
 Ajouter un mode "compat/debug" explicite pour assouplissements TLS, jamais actif par défaut.
 
@@ -292,7 +292,7 @@ unitaires + intégration MQTT.
 
 6. Gestion des certificats dans ce repo
 
-Les fichiers de `Docs/MQTT/resources` servent de référence d’intégration et de test.
+Les fichiers de `accloud/resources/mqtt/tls` servent de référence d’intégration et de test.
 
 Règle de sécurité:
 

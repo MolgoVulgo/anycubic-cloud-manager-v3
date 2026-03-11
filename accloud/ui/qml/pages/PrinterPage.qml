@@ -44,6 +44,7 @@ Item {
     property bool printerAutoRefreshStarted: false
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
+    property int mqttRealtimeDebounceMs: 700
 
     function emitStatusToShell() {
         var msg = String(statusMsg || "").trim()
@@ -708,24 +709,8 @@ Item {
         printersEndpointPath = String(r.endpoint || printersEndpointPath)
         printersEndpointRawJson = String(r.rawJson || "")
 
-        printersModel.clear()
         var printers = r.printers !== undefined ? r.printers : []
-        for (var i = 0; i < printers.length; ++i)
-            printersModel.append(printers[i])
-
-        if (printersModel.count > 0) {
-            var keepSelection = false
-            for (var j = 0; j < printersModel.count; ++j) {
-                if (String(printersModel.get(j).id) === selectedPrinterId) {
-                    keepSelection = true
-                    break
-                }
-            }
-            if (!keepSelection)
-                selectedPrinterId = String(printersModel.get(0).id)
-        } else {
-            selectedPrinterId = ""
-        }
+        replacePrintersModel(printers)
 
         loadSelectedPrinterInsights()
         updatePrintersAutoRefreshInterval()
@@ -748,6 +733,42 @@ Item {
         }
         if (useCacheFlow)
             cloudBridge.refreshPrintersAsync(true)
+    }
+
+    function replacePrintersModel(printers) {
+        printersModel.clear()
+        var list = printers !== undefined ? printers : []
+        for (var i = 0; i < list.length; ++i)
+            printersModel.append(list[i])
+
+        if (printersModel.count > 0) {
+            var keepSelection = false
+            for (var j = 0; j < printersModel.count; ++j) {
+                if (String(printersModel.get(j).id) === selectedPrinterId) {
+                    keepSelection = true
+                    break
+                }
+            }
+            if (!keepSelection)
+                selectedPrinterId = String(printersModel.get(0).id)
+        } else {
+            selectedPrinterId = ""
+        }
+
+        loadSelectedPrinterInsights()
+        updatePrintersAutoRefreshInterval()
+    }
+
+    function refreshPrintersFromCacheOnly() {
+        if (!hasCloudBridge() || typeof cloudBridge.loadCachedPrinters !== "function")
+            return
+        var r = cloudBridge.loadCachedPrinters()
+        if (r.ok !== true)
+            return
+        printersEndpointPath = String(r.endpoint || printersEndpointPath)
+        printersEndpointRawJson = String(r.rawJson || "")
+        var list = r.printers !== undefined ? r.printers : []
+        replacePrintersModel(list)
     }
 
     function compatibilityAllowsPrinter(compatResult, printerId) {
@@ -1098,32 +1119,21 @@ Item {
         }
     }
 
+    Timer {
+        id: mqttRealtimeDebounceTimer
+        interval: root.mqttRealtimeDebounceMs
+        repeat: false
+        running: false
+        onTriggered: root.refreshPrintersFromCacheOnly()
+    }
+
     Connections {
         target: root.hasQObjectCloudBridge() ? cloudBridge : null
         ignoreUnknownSignals: true
 
         function onPrintersUpdatedFromCloud(printers, message) {
-            printersModel.clear()
             var list = printers !== undefined ? printers : []
-            for (var i = 0; i < list.length; ++i)
-                printersModel.append(list[i])
-
-            if (printersModel.count > 0) {
-                var keepSelection = false
-                for (var j = 0; j < printersModel.count; ++j) {
-                    if (String(printersModel.get(j).id) === selectedPrinterId) {
-                        keepSelection = true
-                        break
-                    }
-                }
-                if (!keepSelection)
-                    selectedPrinterId = String(printersModel.get(0).id)
-            } else {
-                selectedPrinterId = ""
-            }
-
-            loadSelectedPrinterInsights()
-            updatePrintersAutoRefreshInterval()
+            replacePrintersModel(list)
             statusMsg = qsTr("%1 printer(s) refreshed from cloud.").arg(String(list.length))
             statusSev = "success"
             if (!root.printerAutoRefreshStarted) {
@@ -1137,6 +1147,18 @@ Item {
                 return
             statusMsg = qsTr("Background sync failed (printers): ") + String(message)
             statusSev = "warn"
+        }
+    }
+
+    Connections {
+        target: (typeof mqttBridge !== "undefined" && mqttBridge !== null) ? mqttBridge : null
+        ignoreUnknownSignals: true
+
+        function onRealtimeEventTickChanged() {
+            if (mqttRealtimeDebounceTimer.running)
+                mqttRealtimeDebounceTimer.restart()
+            else
+                mqttRealtimeDebounceTimer.start()
         }
     }
 

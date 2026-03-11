@@ -185,6 +185,43 @@ bool test_query_fallback_and_session_roundtrip() {
   return ok;
 }
 
+bool test_session_metadata_fields_are_preserved() {
+  const std::string har = R"json(
+{
+  "log": {
+    "entries": [
+      {
+        "request": {
+          "url": "https://api.anycubic.com/v1/auth/login",
+          "method": "POST",
+          "headers": []
+        },
+        "response": {
+          "status": 200,
+          "content": {
+            "text": "{\"data\":{\"access_token\":\"meta_access\",\"token\":\"meta_token\",\"email\":\"demo@example.com\",\"user_id\":94829,\"mode_auth\":\"slicer\",\"auth_token\":\"meta_auth_token\"}}"
+          }
+        }
+      }
+    ]
+  }
+}
+)json";
+
+  HarImportOptions options;
+  options.mergeWithExistingSession = false;
+  options.persistSession = false;
+  const HarImportResult result = accloud::cloud::importHarText(har, options);
+
+  return expect(result.ok, result.message) &&
+         expectToken(result, "access_token", "meta_access") &&
+         expectToken(result, "token", "meta_token") &&
+         expectToken(result, "email", "demo@example.com") &&
+         expectToken(result, "user_id", "94829") &&
+         expectToken(result, "mode_auth", "slicer") &&
+         expectToken(result, "auth_token", "meta_auth_token");
+}
+
 } // namespace
 
 int main() {
@@ -192,6 +229,7 @@ int main() {
   ok = test_response_body_priority_and_header_merge() && ok;
   ok = test_base64_response_body() && ok;
   ok = test_query_fallback_and_session_roundtrip() && ok;
+  ok = test_session_metadata_fields_are_preserved() && ok;
 
   if (!ok) {
     return 1;
