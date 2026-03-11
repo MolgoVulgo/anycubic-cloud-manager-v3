@@ -124,8 +124,8 @@ AppPageFrame {
     }
 
     DebugTag {
-        anchors.left: printerDetailPanel.left
-        anchors.top: printerDetailPanel.top
+        anchors.left: printerTabsContainer.left
+        anchors.top: printerTabsContainer.top
         anchors.leftMargin: 8
         anchors.topMargin: 8
         label: "panel: deviceDetailsPanel"

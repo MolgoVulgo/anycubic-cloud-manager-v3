@@ -51,11 +51,16 @@ public:
     Q_INVOKABLE QVariantMap fetchPrinterDetails(const QString& printerId) const;
     // Retourne { ok, message, reasons:[{reason,desc,helpUrl,type,push,popup}] }
     Q_INVOKABLE QVariantMap fetchReasonCatalog() const;
+    Q_INVOKABLE void refreshReasonCatalogAsync(bool force = false);
     // Retourne { ok, message, projects:[{taskId,gcodeName,printerId,printerName,printStatus,progress,elapsedSec,remainingSec,currentLayer,totalLayers,currentFile,reason,createTime,endTime,img}] }
     // Champ debug (uniquement si ACCLOUD_DEBUG=ON): rawJson
     Q_INVOKABLE QVariantMap fetchPrinterProjects(const QString& printerId,
                                                  int page = 1,
                                                  int limit = 10) const;
+    Q_INVOKABLE void refreshPrinterInsightsAsync(const QString& printerId,
+                                                 int page = 1,
+                                                 int limit = 20,
+                                                 bool force = false);
     // Retourne { ok, message, projects:[...] } depuis la DB locale uniquement.
     Q_INVOKABLE QVariantMap loadCachedPrinterProjects(const QString& printerId,
                                                       int page = 1,
@@ -80,6 +85,13 @@ Q_SIGNALS:
     void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
     void printersUpdatedFromCache(const QVariantList& printers, const QString& message);
     void printersUpdatedFromCloud(const QVariantList& printers, const QString& message);
+    void reasonCatalogUpdatedFromCloud(const QVariantList& reasons, const QString& message);
+    void printerInsightsUpdatedFromCloud(const QString& printerId,
+                                         const QVariantMap& details,
+                                         const QVariantList& projects,
+                                         const QString& detailsRawJson,
+                                         const QString& projectsRawJson,
+                                         const QString& message);
     void quotaUpdatedFromCache(const QVariantMap& quota, const QString& message);
     void quotaUpdatedFromCloud(const QVariantMap& quota, const QString& message);
     void syncFailed(const QString& scope, const QString& message);
@@ -98,6 +110,7 @@ private:
     LocalCacheStore*       m_cache{nullptr};
     mutable std::atomic_bool m_refreshFilesRunning{false};
     mutable std::atomic_bool m_refreshPrintersRunning{false};
+    mutable std::atomic_bool m_refreshReasonCatalogRunning{false};
 };
 
 } // namespace accloud
