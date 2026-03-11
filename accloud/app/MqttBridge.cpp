@@ -29,6 +29,8 @@
 namespace accloud {
 namespace {
 
+constexpr std::size_t kMaxTopicMessageHistory = 1000;
+
 std::string md5LowerHex(const std::string& input) {
     return QCryptographicHash::hash(QByteArray::fromStdString(input), QCryptographicHash::Md5)
         .toHex()
@@ -139,7 +141,7 @@ std::string redactPayloadForDebug(const std::string& payload) {
     try {
         nlohmann::json root = nlohmann::json::parse(payload);
         redactJsonInPlace(root);
-        return root.dump();
+        return root.dump(2);
     } catch (...) {
         return payload;
     }
@@ -347,8 +349,21 @@ MqttBridge::MqttBridge(QObject* parent)
         .onMessage = [this](const std::string& topic, const std::string& payload) {
             const QString ts = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
             const std::string redactedPayload = redactPayloadForDebug(payload);
-            appendRawLine(ts + QStringLiteral(" | ") + QString::fromStdString(topic)
-                          + QStringLiteral(" | ") + QString::fromStdString(redactedPayload));
+            const QString topicName = QString::fromStdString(topic);
+            const QString messageLine = ts + QStringLiteral(" | topic=") + topicName
+                + QStringLiteral(" | payload=") + QString::fromStdString(redactedPayload);
+            appendRawLine(messageLine);
+
+            const bool topicAdded = m_receivedTopicSet.insert(topic).second;
+            if (topicAdded) {
+                emit receivedTopicsChanged();
+            }
+            m_topicMessageHistory.emplace_back(topicName, messageLine);
+            while (m_topicMessageHistory.size() > kMaxTopicMessageHistory) {
+                m_topicMessageHistory.pop_front();
+            }
+            ++m_messageTick;
+            emit messageTickChanged();
 
             const auto routed = messageRouter().route(topic, payload);
             if (routed.disposition == mqtt::routing::RouteDisposition::UnknownMessage
@@ -416,6 +431,28 @@ QString MqttBridge::connectionState() const {
 
 bool MqttBridge::connected() const {
     return m_connected;
+}
+
+QString MqttBridge::subscribedTopics() const {
+    QStringList out;
+    out.reserve(static_cast<int>(m_subscribedTopics.size()));
+    for (const auto& topic : m_subscribedTopics) {
+        out.push_back(QString::fromStdString(topic));
+    }
+    return out.join('\n');
+}
+
+QStringList MqttBridge::receivedTopics() const {
+    QStringList out;
+    out.reserve(static_cast<int>(m_receivedTopicSet.size()));
+    for (const auto& topic : m_receivedTopicSet) {
+        out.push_back(QString::fromStdString(topic));
+    }
+    return out;
+}
+
+quint64 MqttBridge::messageTick() const {
+    return m_messageTick;
 }
 
 QString MqttBridge::rawBuffer() const {
@@ -528,7 +565,20 @@ bool MqttBridge::connectRaw(const QString& host,
     setStatus(QString::fromStdString(start.message));
     if (!start.ok) {
         setConnectionState(QStringLiteral("Degraded"));
+        if (!m_subscribedTopics.empty()) {
+            m_subscribedTopics.clear();
+            emit subscribedTopicsChanged();
+        }
+        return start.ok;
     }
+    m_subscribedTopics.clear();
+    for (const auto& topic : subscriptions) {
+        if (!topic.empty()) {
+            m_subscribedTopics.insert(topic);
+            appendRawLine(QStringLiteral("[SUBSCRIBE] topic=%1").arg(QString::fromStdString(topic)));
+        }
+    }
+    emit subscribedTopicsChanged();
     return start.ok;
 }
 
@@ -540,11 +590,38 @@ void MqttBridge::disconnectRaw() {
     updateConnected(false);
     setConnectionState(QStringLiteral("Disconnected"));
     setStatus(QStringLiteral("disconnected"));
+    if (!m_subscribedTopics.empty()) {
+        m_subscribedTopics.clear();
+        emit subscribedTopicsChanged();
+    }
 }
 
 void MqttBridge::clearRaw() {
+    const bool hadTopics = !m_receivedTopicSet.empty();
+    const bool hadMessages = !m_topicMessageHistory.empty();
+    m_receivedTopicSet.clear();
+    m_topicMessageHistory.clear();
+    if (hadTopics) {
+        emit receivedTopicsChanged();
+    }
+    if (hadMessages) {
+        ++m_messageTick;
+        emit messageTickChanged();
+    }
     m_rawBuffer.clear();
     emit rawBufferChanged();
+}
+
+QString MqttBridge::messagesForTopic(const QString& topic) const {
+    const QString needle = topic.trimmed();
+    QStringList out;
+    out.reserve(static_cast<int>(m_topicMessageHistory.size()));
+    for (const auto& [entryTopic, entryLine] : m_topicMessageHistory) {
+        if (needle.isEmpty() || entryTopic == needle) {
+            out.push_back(entryLine);
+        }
+    }
+    return out.join('\n');
 }
 
 bool MqttBridge::attemptAutoConnect() {
@@ -565,8 +642,20 @@ bool MqttBridge::attemptAutoConnect() {
     setStatus(QString::fromStdString(started.message));
     if (!started.ok) {
         setConnectionState(QStringLiteral("Degraded"));
+        if (!m_subscribedTopics.empty()) {
+            m_subscribedTopics.clear();
+            emit subscribedTopicsChanged();
+        }
     }
     if (started.ok) {
+        m_subscribedTopics.clear();
+        for (const auto& topic : profile.subscriptions) {
+            if (!topic.empty()) {
+                m_subscribedTopics.insert(topic);
+                appendRawLine(QStringLiteral("[SUBSCRIBE] topic=%1").arg(QString::fromStdString(topic)));
+            }
+        }
+        emit subscribedTopicsChanged();
         refreshDynamicSubscriptions();
     }
     return started.ok;
@@ -631,8 +720,23 @@ void MqttBridge::refreshDynamicSubscriptions() {
         topics.insert(topics.end(), printerTopics.begin(), printerTopics.end());
     }
     m_printerKeyToId = std::move(keyToId);
+    std::vector<std::string> newlyTracked;
+    newlyTracked.reserve(topics.size());
+    for (const auto& topic : topics) {
+        if (topic.empty()) {
+            continue;
+        }
+        if (m_subscribedTopics.insert(topic).second) {
+            newlyTracked.push_back(topic);
+        }
+    }
     const std::size_t added = sessionManager().mergeSubscriptions(topics);
-    if (added > 0) {
+    if (!newlyTracked.empty()) {
+        for (const auto& topic : newlyTracked) {
+            appendRawLine(QStringLiteral("[SUBSCRIBE] topic=%1").arg(QString::fromStdString(topic)));
+        }
+        emit subscribedTopicsChanged();
+    } else if (added > 0) {
         appendRawLine(QStringLiteral("[SUBSCRIPTIONS] +%1 topic(s)").arg(static_cast<qulonglong>(added)));
     }
 }

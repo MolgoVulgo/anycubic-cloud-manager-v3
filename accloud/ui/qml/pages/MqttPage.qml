@@ -7,45 +7,91 @@ import "../components"
 Item {
     id: root
     property bool embeddedInTabsContainer: false
-    property bool showExtendedDebug: false
     property string statusText: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
                                 ? String(mqttBridge.status || "idle")
                                 : "mqtt_unavailable"
-    property string prefillInfo: ""
-    property bool prefillApplied: false
-    property var missingFields: []
+    property string topicFilter: ""
+    property string selectedTopic: ""
+    property var topicSelectorModel: [qsTr("All topics")]
 
-    function applySuggestedConnection(force) {
-        if (typeof mqttBridge === "undefined" || mqttBridge === null)
-            return
-        if (typeof mqttBridge.suggestedConnection !== "function")
-            return
-        var suggested = mqttBridge.suggestedConnection()
-        prefillInfo = String(suggested.message || suggested.code || "")
-        missingFields = suggested.missingFields !== undefined ? suggested.missingFields : []
-        emailValue.text = String(suggested.email || "-")
-        userIdValue.text = String(suggested.userId || "-")
-        tokenValue.text = Boolean(suggested.authTokenPresent) ? qsTr("present") : qsTr("missing")
-        caPathValue.text = String(suggested.caPath || "-")
-        clientCertPathValue.text = String(suggested.clientCertPath || "-")
-        clientKeyPathValue.text = String(suggested.clientKeyPath || "-")
+    function filteredRawStream() {
+        var raw = (typeof mqttBridge !== "undefined" && mqttBridge !== null)
+                ? String(mqttBridge.rawBuffer || "")
+                : ""
+        var filter = String(root.topicFilter || "").trim().toLowerCase()
+        if (filter.length === 0)
+            return raw
 
-        var hasHost = String(hostField.text || "").trim().length > 0
-        var hasTopics = String(topicsField.text || "").trim().length > 0
-        var shouldApply = force === true || !hasHost || !hasTopics
-        if (!shouldApply)
-            return
+        var lines = raw.split("\n")
+        var out = []
+        var currentBlock = []
+        var currentBlockMatches = false
 
-        hostField.text = String(suggested.host || "mqtt-universe.anycubic.com")
-        var portValue = Number(suggested.port)
-        portField.value = isFinite(portValue) && portValue > 0 ? Math.round(portValue) : 8883
-        tlsCheck.checked = Boolean(suggested.useTls !== false)
-        topicsField.text = String(suggested.topics || "anycubic/anycubicCloud/v1/#")
-        prefillApplied = true
+        function flushCurrentBlock() {
+            if (currentBlock.length === 0)
+                return
+            if (currentBlockMatches)
+                out.push(currentBlock.join("\n"))
+            currentBlock = []
+            currentBlockMatches = false
+        }
+
+        for (var i = 0; i < lines.length; ++i) {
+            var line = String(lines[i] || "")
+            var lowered = line.toLowerCase()
+            var hasTopicHeader = lowered.indexOf("topic=") !== -1
+
+            if (hasTopicHeader) {
+                flushCurrentBlock()
+                currentBlock = [line]
+                currentBlockMatches = (lowered.indexOf("topic=" + filter) !== -1
+                                       || lowered.indexOf(filter) !== -1)
+                continue
+            }
+
+            if (currentBlock.length > 0) {
+                currentBlock.push(line)
+                continue
+            }
+
+            if (lowered.indexOf(filter) !== -1)
+                out.push(line)
+        }
+        flushCurrentBlock()
+        return out.join("\n")
     }
 
-    function mqttModeLabel() {
-        return qsTr("Slicer")
+    function rebuildTopicSelectorModel() {
+        var previous = String(root.selectedTopic || "")
+        var model = [qsTr("All topics")]
+        if (typeof mqttBridge !== "undefined" && mqttBridge !== null) {
+            var topics = mqttBridge.receivedTopics || []
+            for (var i = 0; i < topics.length; ++i) {
+                model.push(String(topics[i]))
+            }
+        }
+        root.topicSelectorModel = model
+
+        var index = 0
+        if (previous.length > 0) {
+            for (var j = 1; j < model.length; ++j) {
+                if (String(model[j]) === previous) {
+                    index = j
+                    break
+                }
+            }
+        }
+
+        root.selectedTopic = index > 0 ? String(model[index]) : ""
+        if (topicPicker.currentIndex !== index)
+            topicPicker.currentIndex = index
+    }
+
+    function selectedTopicMessages() {
+        if (typeof mqttBridge === "undefined" || mqttBridge === null)
+            return ""
+        var _tick = mqttBridge.messageTick
+        return String(mqttBridge.messagesForTopic(root.selectedTopic))
     }
 
     AppPageFrame {
@@ -56,6 +102,7 @@ Item {
 
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: true
             spacing: Theme.gapRow
 
             SectionHeader {
@@ -84,7 +131,7 @@ Item {
                     }
 
                     StatusChip {
-                        status: root.mqttModeLabel()
+                        status: qsTr("Slicer")
                     }
 
                     Item { Layout.fillWidth: true }
@@ -93,170 +140,6 @@ Item {
                         status: root.statusText
                     }
                 }
-            }
-
-            SectionHeader {
-                Layout.fillWidth: true
-                title: qsTr("Raw Connection")
-                subtitle: qsTr("Fields are auto-prefilled from current session before connect")
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.gapRow
-
-                AppTextField {
-                    id: hostField
-                    objectName: "mqttHostField"
-                    Layout.fillWidth: true
-                    text: "mqtt-universe.anycubic.com"
-                    placeholderText: qsTr("Host")
-                }
-                AppSpinBox {
-                    id: portField
-                    objectName: "mqttPortField"
-                    from: 1
-                    to: 65535
-                    value: 8883
-                }
-                AppCheckBox {
-                    id: tlsCheck
-                    objectName: "mqttTlsCheck"
-                    text: qsTr("TLS")
-                    checked: true
-                }
-            }
-
-            AppTextField {
-                id: topicsField
-                objectName: "mqttTopicsField"
-                Layout.fillWidth: true
-                text: "anycubic/anycubicCloud/v1/#"
-                placeholderText: qsTr("Topics (comma separated)")
-            }
-
-            Text {
-                Layout.fillWidth: true
-                text: root.prefillInfo.length > 0
-                      ? qsTr("Prefill: %1").arg(root.prefillInfo)
-                      : qsTr("Prefill: waiting")
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontBodyPx
-                wrapMode: Text.WordWrap
-            }
-
-            Text {
-                Layout.fillWidth: true
-                visible: root.missingFields && root.missingFields.length > 0
-                text: qsTr("Missing fields: %1").arg(String(root.missingFields.join(", ")))
-                color: Theme.warning
-                font.pixelSize: Theme.fontBodyPx
-                wrapMode: Text.WordWrap
-            }
-
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Theme.gapRow
-                rowSpacing: 4
-                visible: root.showExtendedDebug
-
-                Text {
-                    text: qsTr("Email")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: emailValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: qsTr("User ID")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: userIdValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: qsTr("Token")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: tokenValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: qsTr("CA cert")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: caPathValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: qsTr("Client cert")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: clientCertPathValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: qsTr("Client key")
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontBodyPx
-                }
-                Text {
-                    id: clientKeyPathValue
-                    text: "-"
-                    color: Theme.fgPrimary
-                    font.pixelSize: Theme.fontBodyPx
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.gapRow
-
-                AppCheckBox {
-                    text: qsTr("Extended debug")
-                    checked: root.showExtendedDebug
-                    onToggled: root.showExtendedDebug = checked
-                }
-
-                Item { Layout.fillWidth: true }
             }
 
             RowLayout {
@@ -269,15 +152,7 @@ Item {
                     onClicked: {
                         if (typeof mqttBridge === "undefined" || mqttBridge === null)
                             return
-                        if (!root.prefillApplied)
-                            root.applySuggestedConnection(true)
-                        mqttBridge.connectRaw(hostField.text,
-                                              portField.value,
-                                              "",
-                                              "",
-                                              "",
-                                              topicsField.text,
-                                              tlsCheck.checked)
+                        mqttBridge.connectRaw("", 0, "", "", "", "", true)
                     }
                 }
 
@@ -306,10 +181,84 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Raw stream")
+                text: qsTr("Subscribed topics")
                 color: Theme.fgPrimary
                 font.pixelSize: Theme.fontSectionPx
                 font.bold: true
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 110
+                clip: true
+                TextArea {
+                    readOnly: true
+                    wrapMode: TextEdit.NoWrap
+                    text: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
+                          ? String(mqttBridge.subscribedTopics || "")
+                          : ""
+                    placeholderText: qsTr("No topic subscribed yet")
+                    color: Theme.fgPrimary
+                    background: Rectangle {
+                        color: Theme.bgSurface
+                        border.width: Theme.borderWidth
+                        border.color: Theme.borderDefault
+                        radius: Theme.radiusControl
+                    }
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Messages by topic")
+                color: Theme.fgPrimary
+                font.pixelSize: Theme.fontSectionPx
+                font.bold: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.gapRow
+
+                AppComboBox {
+                    id: topicPicker
+                    Layout.fillWidth: true
+                    model: root.topicSelectorModel
+                    onActivated: {
+                        if (currentIndex <= 0) {
+                            root.selectedTopic = ""
+                        } else {
+                            root.selectedTopic = String(root.topicSelectorModel[currentIndex] || "")
+                        }
+                    }
+                }
+
+                Text {
+                    text: qsTr("Topics: %1").arg(Math.max(0, root.topicSelectorModel.length - 1))
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontBodyPx
+                }
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 220
+                clip: true
+                TextArea {
+                    readOnly: true
+                    wrapMode: TextEdit.NoWrap
+                    text: root.selectedTopicMessages()
+                    placeholderText: root.selectedTopic.length > 0
+                                     ? qsTr("No message received yet for this topic")
+                                     : qsTr("No message received yet")
+                    color: Theme.fgPrimary
+                    background: Rectangle {
+                        color: Theme.bgSurface
+                        border.width: Theme.borderWidth
+                        border.color: Theme.borderDefault
+                        radius: Theme.radiusControl
+                    }
+                }
             }
 
             Text {
@@ -340,6 +289,34 @@ Item {
                 }
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.gapRow
+
+                Text {
+                    text: qsTr("Raw stream")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                }
+
+                Item { Layout.fillWidth: true }
+
+                AppTextField {
+                    id: topicFilterField
+                    Layout.preferredWidth: 360
+                    placeholderText: qsTr("Filter by topic")
+                    text: root.topicFilter
+                    onTextChanged: root.topicFilter = text
+                }
+
+                AppButton {
+                    text: qsTr("Reset filter")
+                    variant: "secondary"
+                    onClicked: root.topicFilter = ""
+                }
+            }
+
             ScrollView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -347,9 +324,7 @@ Item {
                 TextArea {
                     readOnly: true
                     wrapMode: TextEdit.NoWrap
-                    text: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
-                          ? String(mqttBridge.rawBuffer || "")
-                          : ""
+                    text: root.filteredRawStream()
                     color: Theme.fgPrimary
                     background: Rectangle {
                         color: Theme.bgSurface
@@ -366,10 +341,16 @@ Item {
         target: (typeof mqttBridge !== "undefined") ? mqttBridge : null
         function onStatusChanged() {
             root.statusText = String(mqttBridge.status || "idle")
-            if (!root.prefillApplied)
-                root.applySuggestedConnection(false)
+        }
+        function onReceivedTopicsChanged() {
+            root.rebuildTopicSelectorModel()
+        }
+        function onMessageTickChanged() {
+            if (root.selectedTopic.length > 0) {
+                root.rebuildTopicSelectorModel()
+            }
         }
     }
 
-    Component.onCompleted: root.applySuggestedConnection(false)
+    Component.onCompleted: root.rebuildTopicSelectorModel()
 }

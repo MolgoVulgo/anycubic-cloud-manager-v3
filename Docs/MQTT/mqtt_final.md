@@ -723,3 +723,36 @@ Le but du premier jet est :
 5. capturer le reste pour analyse ;
 6. permettre l’évolution progressive du support M7.
 
+---
+
+## 19. État implémenté: onglet MQTT debug
+
+L’onglet MQTT expose désormais un flux debug orienté topics, sans configuration manuelle de connexion.
+
+### 19.1 Connexion et mode
+
+- Le mode runtime affiché est `Slicer`.
+- Le bouton `Connect` déclenche la connexion MQTT préparée (profil session + TLS + credentials runtime).
+- Le bouton `Disconnect` stoppe la session et nettoie l’état de souscription affiché.
+
+### 19.2 Visibilité des topics
+
+- Une zone dédiée affiche les topics actuellement souscrits.
+- Les opérations de souscription sont aussi tracées dans le raw stream (`[SUBSCRIBE] topic=...`).
+
+### 19.3 Messages reçus
+
+- Le raw stream affiche le topic explicite sur chaque entrée (`topic=... | payload=...`).
+- Une vue `Messages by topic` permet de sélectionner un topic reçu et d’afficher son historique.
+- Les payloads JSON des messages topic sont formatés en multi-lignes (indentation) pour faciliter l’analyse.
+
+### 19.4 Filtrage
+
+- Un filtre par topic est disponible sur le raw stream.
+- Le filtre conserve les blocs JSON multi-lignes d’un message topic, sans perdre les lignes du payload.
+
+### 19.5 Nettoyage UI
+
+- La carte `Raw Connection` a été supprimée de l’onglet MQTT.
+- Le toggle `Extended debug` a été supprimé.
+- La carte MQTT runtime du footer de la fenêtre principale a été retirée.

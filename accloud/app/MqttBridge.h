@@ -2,9 +2,12 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QtGlobal>
 #include <QVariantMap>
+#include <deque>
 #include <map>
+#include <set>
 class QTimer;
 
 namespace accloud {
@@ -14,6 +17,9 @@ class MqttBridge : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionStateChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
+    Q_PROPERTY(QString subscribedTopics READ subscribedTopics NOTIFY subscribedTopicsChanged)
+    Q_PROPERTY(QStringList receivedTopics READ receivedTopics NOTIFY receivedTopicsChanged)
+    Q_PROPERTY(quint64 messageTick READ messageTick NOTIFY messageTickChanged)
     Q_PROPERTY(QString rawBuffer READ rawBuffer NOTIFY rawBufferChanged)
     Q_PROPERTY(QString telemetrySnapshot READ telemetrySnapshot NOTIFY telemetrySnapshotChanged)
     Q_PROPERTY(quint64 connectErrors READ connectErrors NOTIFY telemetryMetricsChanged)
@@ -30,6 +36,9 @@ public:
     QString status() const;
     QString connectionState() const;
     bool connected() const;
+    QString subscribedTopics() const;
+    QStringList receivedTopics() const;
+    quint64 messageTick() const;
     QString rawBuffer() const;
     QString telemetrySnapshot() const;
     quint64 connectErrors() const;
@@ -49,11 +58,15 @@ public:
     Q_INVOKABLE void disconnectRaw();
     Q_INVOKABLE void clearRaw();
     Q_INVOKABLE QVariantMap suggestedConnection() const;
+    Q_INVOKABLE QString messagesForTopic(const QString& topic) const;
 
 signals:
     void statusChanged();
     void connectionStateChanged();
     void connectedChanged();
+    void subscribedTopicsChanged();
+    void receivedTopicsChanged();
+    void messageTickChanged();
     void rawBufferChanged();
     void telemetrySnapshotChanged();
     void telemetryMetricsChanged();
@@ -71,6 +84,10 @@ private:
     QString m_status;
     QString m_connectionState;
     bool m_connected{false};
+    std::set<std::string> m_subscribedTopics;
+    std::set<std::string> m_receivedTopicSet;
+    std::deque<std::pair<QString, QString>> m_topicMessageHistory;
+    quint64 m_messageTick{0};
     QString m_rawBuffer;
     QString m_telemetrySnapshot;
     quint64 m_connectErrors{0};

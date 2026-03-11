@@ -1118,50 +1118,6 @@ ApplicationWindow {
                         operationId: root.globalStatusOpId
                     }
 
-                    Rectangle {
-                        objectName: "mqttRuntimeBar"
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 44
-                        visible: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
-                        color: Theme.bgSurfaceAlt
-                        border.width: Theme.borderWidth
-                        border.color: Theme.borderDefault
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: Theme.gapRow
-
-                            Text {
-                                text: qsTr("MQTT runtime")
-                                color: Theme.fgSecondary
-                                font.pixelSize: Theme.fontBodyPx
-                            }
-
-                            StatusChip {
-                                status: mqttBridge ? String(mqttBridge.connectionState || "Disconnected")
-                                                   : "Disconnected"
-                            }
-
-                            Text {
-                                text: qsTr("ErrC:%1 ErrP:%2 Reco:%3 Pending:%4")
-                                      .arg(mqttBridge ? Number(mqttBridge.connectErrors) : 0)
-                                      .arg(mqttBridge ? Number(mqttBridge.parseErrors) : 0)
-                                      .arg(mqttBridge ? Number(mqttBridge.reconnectCount) : 0)
-                                      .arg(mqttBridge ? Number(mqttBridge.pendingOrders) : 0)
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                            }
-
-                            Text {
-                                text: qsTr("Unknown: %1").arg(mqttBridge ? String(mqttBridge.unknownTopSummary || "-") : "-")
-                                color: Theme.fgSecondary
-                                font.pixelSize: Theme.fontBodyPx
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                        }
-                    }
                 }
             }
         }
