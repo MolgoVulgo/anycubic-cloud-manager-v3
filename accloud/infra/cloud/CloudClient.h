@@ -82,6 +82,8 @@ struct CloudDownloadResult {
 
 struct CloudPrinterInfo {
     std::string id;
+    std::string printerKey;
+    std::string machineType;
     std::string name;
     std::string model;
     std::string type;
@@ -120,6 +122,9 @@ struct CloudPrintOrderResult {
     bool ok = false;
     std::string message;
     std::string taskId;
+    std::string msgId;
+    std::string correlationTicket;
+    std::string correlationStatus;
 };
 
 struct CloudPrinterDetailsResult {

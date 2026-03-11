@@ -61,7 +61,7 @@ public:
                                                       int page = 1,
                                                       int limit = 20) const;
 
-    // Retourne { ok, message, taskId }
+    // Retourne { ok, message, taskId, msgId, correlationTicket, correlationStatus }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
                                            const QString& fileId,
                                            bool deleteAfterPrint = false,
@@ -85,7 +85,6 @@ Q_SIGNALS:
     void syncFailed(const QString& scope, const QString& message);
 
 private:
-    bool loadTokens(std::string& accessToken, std::string& xxToken) const;
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
     QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;

@@ -20,6 +20,7 @@
     <file alias="qml/pages/PrinterMainPanel.qml">../ui/qml/pages/PrinterMainPanel.qml</file>
     <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
     <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
+    <file alias="qml/pages/MqttPage.qml">../ui/qml/pages/MqttPage.qml</file>
     <file alias="qml/dialogs/SessionSettingsDialog.qml">../ui/qml/dialogs/SessionSettingsDialog.qml</file>
     <file alias="qml/dialogs/UploadDraftDialog.qml">../ui/qml/dialogs/UploadDraftDialog.qml</file>
     <file alias="qml/dialogs/PrintDraftDialog.qml">../ui/qml/dialogs/PrintDraftDialog.qml</file>
