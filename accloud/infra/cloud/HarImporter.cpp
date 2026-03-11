@@ -199,6 +199,21 @@ SessionData normalizeSessionTokens(const std::map<std::string, std::string>& raw
     session.tokens["token"] = token;
   }
 
+  if (auto value = firstNonEmpty(raw, {"email", "user_email", "useremail"})) {
+    session.tokens["email"] = *value;
+  }
+  if (auto value = firstNonEmpty(raw, {"user_id", "userId", "userid", "uid"})) {
+    session.tokens["user_id"] = *value;
+  }
+  if (auto value = firstNonEmpty(raw, {"mode_auth", "auth_mode", "modeauth", "authmode"})) {
+    session.tokens["mode_auth"] = *value;
+  }
+  if (auto value = firstNonEmpty(raw, {"auth_token", "authtoken"})) {
+    session.tokens["auth_token"] = *value;
+  } else if (!token.empty()) {
+    session.tokens["auth_token"] = token;
+  }
+
   return session;
 }
 
@@ -248,7 +263,11 @@ std::map<std::string, std::string> extractResponseTokens(const nlohmann::json& r
   std::map<std::string, std::string> raw;
   if (auto value = firstNonEmpty(flat, {"accesstoken"}))                    raw["access_token"]  = *value;
   if (auto value = firstNonEmpty(flat, {"token"}))                          raw["token"]         = *value;
+  if (auto value = firstNonEmpty(flat, {"authtoken"}))                      raw["auth_token"]    = *value;
   if (auto value = firstNonEmpty(flat, {"idtoken"}))                        raw["id_token"]      = *value;
+  if (auto value = firstNonEmpty(flat, {"email", "useremail"}))             raw["email"]         = *value;
+  if (auto value = firstNonEmpty(flat, {"userid", "uid"}))                  raw["user_id"]       = *value;
+  if (auto value = firstNonEmpty(flat, {"modeauth", "authmode"}))           raw["mode_auth"]     = *value;
   if (auto value = firstNonEmpty(flat, {"refreshtoken"}))                   raw["refresh_token"] = *value;
   if (auto value = firstNonEmpty(flat, {"tokentype"}))                      raw["token_type"]    = *value;
   if (auto value = firstNonEmpty(flat, {"authorization", "auth", "bearer"})) raw["Authorization"] = *value;
@@ -347,6 +366,10 @@ std::map<std::string, std::string> extractHeaderTokens(const nlohmann::json& hea
     if (normalized == "accesstoken")  raw["access_token"] = headerValue;
     else if (normalized == "idtoken") raw["id_token"]     = headerValue;
     else if (normalized == "token")   raw["token"]        = headerValue;
+    else if (normalized == "authtoken") raw["auth_token"] = headerValue;
+    else if (normalized == "email" || normalized == "useremail") raw["email"] = headerValue;
+    else if (normalized == "userid" || normalized == "uid") raw["user_id"] = headerValue;
+    else if (normalized == "modeauth" || normalized == "authmode") raw["mode_auth"] = headerValue;
   }
 
   return raw;
@@ -428,9 +451,13 @@ std::map<std::string, std::string> extractQueryTokens(std::string_view url) {
     const std::string normalized = normalizeLookupKey(key);
     if (normalized == "accesstoken")       raw["access_token"]  = value;
     else if (normalized == "idtoken")      raw["id_token"]      = value;
+    else if (normalized == "authtoken")    raw["auth_token"]    = value;
     else if (normalized == "refreshtoken") raw["refresh_token"] = value;
     else if (normalized == "tokentype")    raw["token_type"]    = value;
     else if (normalized == "token")        raw["token"]         = value;
+    else if (normalized == "email" || normalized == "useremail") raw["email"] = value;
+    else if (normalized == "userid" || normalized == "uid") raw["user_id"] = value;
+    else if (normalized == "modeauth" || normalized == "authmode") raw["mode_auth"] = value;
     else if (normalized == "authorization") raw["Authorization"] = value;
   }
 
@@ -567,8 +594,9 @@ std::map<std::string, std::string> extractQueryTokens(std::string_view url) {
 }
 
 [[nodiscard]] std::string buildSessionJson(const SessionData& session) {
-  constexpr std::array<std::string_view, 3> kCanonicalOrder = {
-      "access_token", "id_token", "token",
+  constexpr std::array<std::string_view, 7> kCanonicalOrder = {
+      "access_token", "id_token", "token", "auth_token",
+      "email", "user_id", "mode_auth",
   };
 
   nlohmann::ordered_json j;
@@ -624,7 +652,8 @@ std::map<std::string, std::string> extractQueryTokens(std::string_view url) {
     }
   }
 
-  for (const auto& key : {"Authorization", "access_token", "id_token", "token"}) {
+  for (const auto& key : {"Authorization", "access_token", "id_token", "token",
+                          "auth_token", "email", "user_id", "mode_auth"}) {
     if (root.contains(key)) {
       const auto& val = root[key];
       if (val.is_string() || val.is_boolean() || val.is_number()) {

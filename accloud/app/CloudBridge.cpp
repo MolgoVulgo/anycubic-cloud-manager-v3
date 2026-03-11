@@ -325,6 +325,8 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
 QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     QVariantMap m;
     m.insert("id",          QString::fromStdString(p.id));
+    m.insert("printerKey",  QString::fromStdString(p.printerKey));
+    m.insert("machineType", QString::fromStdString(p.machineType));
     m.insert("name",        QString::fromStdString(p.name));
     m.insert("model",       QString::fromStdString(p.model));
     m.insert("type",        QString::fromStdString(p.type));
@@ -1036,6 +1038,9 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
         out.insert("taskId", QString());
+        out.insert("msgId", QString());
+        out.insert("correlationTicket", QString());
+        out.insert("correlationStatus", QStringLiteral("Pending"));
         finalizeUiMessage(out);
         return out;
     }
@@ -1046,6 +1051,9 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     out.insert("taskId",  QString::fromStdString(r.taskId));
+    out.insert("msgId", QString::fromStdString(r.msgId));
+    out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
+    out.insert("correlationStatus", QString::fromStdString(r.correlationStatus));
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }

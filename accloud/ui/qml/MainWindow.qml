@@ -32,6 +32,7 @@ ApplicationWindow {
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
+    property string persistedMqttAuthMode: "slicer"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -144,6 +145,18 @@ ApplicationWindow {
         root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
     }
 
+    function normalizeMqttAuthMode(value) {
+        return "slicer"
+    }
+
+    function loadMqttAuthModeFromSettings() {
+        root.persistedMqttAuthMode = "slicer"
+    }
+
+    function persistMqttAuthMode(modeValue) {
+        root.persistedMqttAuthMode = "slicer"
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -174,6 +187,7 @@ ApplicationWindow {
     Component.onCompleted: {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
+        root.loadMqttAuthModeFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -248,6 +262,15 @@ ApplicationWindow {
                 onTriggered: {
                     root.statusText = qsTr("Opening theme settings panel.")
                     themeDialog.open()
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsMqttAuthMode"
+                text: qsTr("MQTT auth mode: Slicer")
+                onTriggered: {
+                    root.persistMqttAuthMode("slicer")
+                    root.statusText = qsTr("MQTT auth mode is fixed to Slicer.")
                 }
             }
 
@@ -1000,6 +1023,11 @@ ApplicationWindow {
                         }
 
                         AppTabButton {
+                            objectName: "mqttTabButton"
+                            text: qsTr("MQTT")
+                        }
+
+                        AppTabButton {
                             objectName: "logTabButton"
                             text: root.buildDebugEnabled
                                   ? qsTr("Logs")
@@ -1040,6 +1068,12 @@ ApplicationWindow {
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
+                        }
+
+                        Pages.MqttPage {
+                            id: mqttPage
+                            objectName: "mqttPage"
+                            embeddedInTabsContainer: true
                         }
 
                         Item {
@@ -1083,6 +1117,7 @@ ApplicationWindow {
                         severity: root.globalStatusSev
                         operationId: root.globalStatusOpId
                     }
+
                 }
             }
         }
