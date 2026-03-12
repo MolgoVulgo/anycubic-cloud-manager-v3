@@ -31,6 +31,7 @@ AppPageFrame {
     signal refreshRequested()
     signal debugToggled(bool checked)
     signal printerSelected(string printerId)
+    signal printerMqttDetailsRequested(string printerId)
     signal cloudFileRequested(string printerId)
     signal localFileRequested()
 
@@ -93,6 +94,7 @@ AppPageFrame {
                 selectedPrinterId: root.selectedPrinterId
                 tabTitleProvider: root.tabTitleProvider
                 onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
+                onPrinterDetailsRequested: function(printerId) { root.printerMqttDetailsRequested(printerId) }
             }
 
             PrinterDetailPanel {
@@ -124,8 +126,8 @@ AppPageFrame {
     }
 
     DebugTag {
-        anchors.left: printerDetailPanel.left
-        anchors.top: printerDetailPanel.top
+        anchors.left: printerTabsContainer.left
+        anchors.top: printerTabsContainer.top
         anchors.leftMargin: 8
         anchors.topMargin: 8
         label: "panel: deviceDetailsPanel"

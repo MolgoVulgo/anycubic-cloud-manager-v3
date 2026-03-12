@@ -18,12 +18,14 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QTimer>
 
 #include <algorithm>
 #include <cctype>
+#include <future>
 #include <vector>
 
 namespace accloud {
@@ -366,6 +368,13 @@ MqttBridge::MqttBridge(QObject* parent)
             emit messageTickChanged();
 
             const auto routed = messageRouter().route(topic, payload);
+            logging::info("mqtt", "mqtt_flow", "topic_routed",
+                          "MQTT topic routed",
+                          {
+                              {"topic", topic},
+                              {"disposition", routeDispositionToString(routed.disposition)},
+                              {"reason", routed.reason},
+                          });
             if (routed.disposition == mqtt::routing::RouteDisposition::UnknownMessage
                 || routed.disposition == mqtt::routing::RouteDisposition::InvalidEnvelope
                 || routed.disposition == mqtt::routing::RouteDisposition::InvalidJson) {
@@ -407,18 +416,86 @@ MqttBridge::MqttBridge(QObject* parent)
         },
     });
 
-    // Manual-first flow: MQTT connection starts only when user clicks Connect.
-    setStatus(QStringLiteral("manual_connect_required"));
+    setStatus(QStringLiteral("idle"));
+    QTimer::singleShot(0, this, [this]() {
+        if (m_shuttingDown || m_manualMode || m_backgroundAutoConnectStarted || connected()) {
+            return;
+        }
+        m_backgroundAutoConnectStarted = true;
+        setConnectionState(QStringLiteral("Connecting"));
+        setStatus(QStringLiteral("mqtt_background_connecting"));
+
+        QPointer<MqttBridge> self(this);
+        m_backgroundAutoConnectTask = std::async(std::launch::async, [self]() {
+            const auto profile = buildPreparedProfile();
+            if (self.isNull()) {
+                return;
+            }
+            if (self->m_shuttingDown) {
+                return;
+            }
+            QMetaObject::invokeMethod(
+                self.data(),
+                [self, profile]() {
+                    if (self.isNull()) {
+                        return;
+                    }
+                    MqttBridge* bridge = self.data();
+                    if (bridge->m_shuttingDown || bridge->m_manualMode || bridge->connected()) {
+                        return;
+                    }
+                    if (!profile.ok) {
+                        bridge->setStatus(QString::fromStdString(
+                            profile.code.empty() ? "mqtt_profile_not_ready" : profile.code));
+                        bridge->setConnectionState(QStringLiteral("Degraded"));
+                        return;
+                    }
+                    bridge->m_printerKeyToId = profile.printerKeyToId;
+
+                    const auto started = sessionManager().start(profile.config,
+                                                                profile.credentials,
+                                                                profile.subscriptions);
+                    bridge->setStatus(QString::fromStdString(started.message));
+                    if (!started.ok) {
+                        bridge->setConnectionState(QStringLiteral("Degraded"));
+                        if (!bridge->m_subscribedTopics.empty()) {
+                            bridge->m_subscribedTopics.clear();
+                            emit bridge->subscribedTopicsChanged();
+                        }
+                        return;
+                    }
+
+                    bridge->m_subscribedTopics.clear();
+                    for (const auto& topic : profile.subscriptions) {
+                        if (topic.empty()) {
+                            continue;
+                        }
+                        bridge->m_subscribedTopics.insert(topic);
+                        bridge->appendRawLine(QStringLiteral("[SUBSCRIBE] topic=%1")
+                                                  .arg(QString::fromStdString(topic)));
+                    }
+                    emit bridge->subscribedTopicsChanged();
+                    bridge->refreshDynamicSubscriptions();
+                },
+                Qt::QueuedConnection);
+        });
+    });
 }
 
 MqttBridge::~MqttBridge() {
+    m_shuttingDown = true;
     if (m_subscriptionRefreshTimer != nullptr) {
         m_subscriptionRefreshTimer->stop();
     }
     if (m_telemetryTimer != nullptr) {
         m_telemetryTimer->stop();
     }
-    sessionManager().stop();
+    auto& manager = sessionManager();
+    manager.setCallbacks({});
+    manager.stop();
+    if (m_backgroundAutoConnectTask.valid()) {
+        m_backgroundAutoConnectTask.wait();
+    }
 }
 
 QString MqttBridge::status() const {

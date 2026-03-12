@@ -1033,6 +1033,14 @@ ApplicationWindow {
                                   ? qsTr("Logs")
                                   : qsTr("Logs (disabled in this build)")
                         }
+
+                        onCurrentIndexChanged: {
+                            if (currentIndex === 1
+                                    && printerPage
+                                    && typeof printerPage.ensureStartupInitialized === "function") {
+                                printerPage.ensureStartupInitialized()
+                            }
+                        }
                     }
 
                     StackLayout {
@@ -1050,6 +1058,9 @@ ApplicationWindow {
                             }
                             onPrintIntentRequested: function(fileId, fileName) {
                                 controlTabs.currentIndex = 1
+                                if (typeof printerPage.ensureStartupInitialized === "function") {
+                                    printerPage.ensureStartupInitialized()
+                                }
                                 if (typeof printerPage.openRemotePrintFromFile === "function") {
                                     printerPage.openRemotePrintFromFile(fileId, fileName)
                                 } else {

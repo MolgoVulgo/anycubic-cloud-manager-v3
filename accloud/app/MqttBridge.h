@@ -6,6 +6,7 @@
 #include <QtGlobal>
 #include <QVariantMap>
 #include <deque>
+#include <future>
 #include <map>
 #include <set>
 class QTimer;
@@ -96,7 +97,10 @@ private:
     quint64 m_pendingOrders{0};
     QString m_unknownTopSummary;
     quint64 m_realtimeEventTick{0};
+    bool m_shuttingDown{false};
     bool m_manualMode{false};
+    bool m_backgroundAutoConnectStarted{false};
+    std::future<void> m_backgroundAutoConnectTask;
     QTimer* m_subscriptionRefreshTimer{nullptr};
     QTimer* m_telemetryTimer{nullptr};
     std::map<std::string, std::string> m_printerKeyToId;

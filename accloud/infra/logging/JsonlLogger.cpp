@@ -285,12 +285,18 @@ void writeLineToSinkLocked(State& s, std::string_view sinkName, std::string_view
   sink.stream.flush();
 }
 
-std::vector<std::string> sinksForEvent(std::string_view source, Level level) {
+std::vector<std::string> sinksForEvent(std::string_view source, std::string_view component,
+                                       std::string_view event, Level level) {
   std::vector<std::string> sinks;
   sinks.emplace_back("app");
   const std::string sourceSink = sanitizeSinkName(source);
   if (sourceSink != "app") {
     sinks.push_back(sourceSink);
+  }
+  const bool mqttRelated = sourceSink == "mqtt" || component.find("mqtt") != std::string_view::npos ||
+                           event.find("mqtt") != std::string_view::npos;
+  if (mqttRelated && std::find(sinks.begin(), sinks.end(), "mqtt") == sinks.end()) {
+    sinks.emplace_back("mqtt");
   }
   if (isErrorLevel(level) &&
       std::find(sinks.begin(), sinks.end(), "fault") == sinks.end()) {
@@ -344,7 +350,7 @@ void log(Level level, std::string source, std::string component, std::string eve
   const std::string jsonLine = buildJsonLine(timestamp, level, source, component, event,
                                              redactedMessage, redactedFields);
 
-  for (const std::string& sinkName : sinksForEvent(source, level)) {
+  for (const std::string& sinkName : sinksForEvent(source, component, event, level)) {
     writeLineToSinkLocked(s, sinkName, jsonLine);
   }
 
