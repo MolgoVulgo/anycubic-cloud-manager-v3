@@ -1745,6 +1745,49 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <source>Endpoint JSON: </source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="385"/>
+        <source>MQTT details: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="388"/>
+        <source>MQTT bridge unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="396"/>
+        <source>Missing printer identifier.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="409"/>
+        <source>No MQTT message captured yet for this printer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="422"/>
+        <source>No MQTT payload available for matched topics.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1408"/>
+        <source>MQTT details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1409"/>
+        <source>All captured broker messages for this printer</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PrintersTabsBar</name>
+    <message>
+        <location filename="../ui/qml/pages/PrintersTabsBar.qml" line="78"/>
+        <source>Details: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SectionHeader</name>

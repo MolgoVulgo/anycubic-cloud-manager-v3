@@ -42,7 +42,8 @@ Item {
     property bool reasonCatalogLoading: false
     property var reasonCatalogByCode: ({})
     property bool startupInitialized: false
-    property bool printerAutoRefreshStarted: false
+    property string mqttDetailsTitle: ""
+    property string mqttDetailsText: ""
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
     property int mqttRealtimeDebounceMs: 700
@@ -362,6 +363,63 @@ Item {
                 return f
         }
         return null
+    }
+
+    function printerDataById(printerId) {
+        var targetId = String(printerId || "")
+        if (targetId.length === 0)
+            return null
+        for (var i = 0; i < printersModel.count; ++i) {
+            var p = printersModel.get(i)
+            if (String(p.id) === targetId)
+                return p
+        }
+        return null
+    }
+
+    function buildPrinterMqttDetails(printerId) {
+        var printer = printerDataById(printerId)
+        var printerName = printer && String(printer.name || "").length > 0
+                ? String(printer.name)
+                : String(printerId || "-")
+        mqttDetailsTitle = qsTr("MQTT details: %1").arg(printerName)
+
+        if (typeof mqttBridge === "undefined" || mqttBridge === null) {
+            mqttDetailsText = qsTr("MQTT bridge unavailable.")
+            return
+        }
+
+        var key = printer && String(printer.printerKey || "").trim().length > 0
+                ? String(printer.printerKey).trim()
+                : String(printerId || "").trim()
+        if (key.length === 0) {
+            mqttDetailsText = qsTr("Missing printer identifier.")
+            return
+        }
+
+        var topics = mqttBridge.receivedTopics || []
+        var matched = []
+        for (var i = 0; i < topics.length; ++i) {
+            var topic = String(topics[i] || "")
+            if (topic.indexOf("/" + key + "/") !== -1 || topic.indexOf("/" + String(printerId || "") + "/") !== -1)
+                matched.push(topic)
+        }
+
+        if (matched.length === 0) {
+            mqttDetailsText = qsTr("No MQTT message captured yet for this printer.")
+            return
+        }
+
+        var blocks = []
+        for (var j = 0; j < matched.length; ++j) {
+            var t = matched[j]
+            var body = String(mqttBridge.messagesForTopic(t) || "").trim()
+            if (body.length > 0)
+                blocks.push("### " + t + "\n" + body)
+        }
+        mqttDetailsText = blocks.length > 0
+                ? blocks.join("\n\n")
+                : qsTr("No MQTT payload available for matched topics.")
     }
 
     function activeProjectFromHistory() {
@@ -756,7 +814,7 @@ Item {
         loadPrinters()
     }
 
-    function replacePrintersModel(printers) {
+    function replacePrintersModel(printers, refreshInsights) {
         printersModel.clear()
         var list = printers !== undefined ? printers : []
         for (var i = 0; i < list.length; ++i)
@@ -776,7 +834,9 @@ Item {
             selectedPrinterId = ""
         }
 
-        loadSelectedPrinterInsights()
+        var shouldRefreshInsights = (refreshInsights === undefined) ? true : (refreshInsights === true)
+        if (shouldRefreshInsights)
+            loadSelectedPrinterInsights()
         updatePrintersAutoRefreshInterval()
     }
 
@@ -789,7 +849,7 @@ Item {
         printersEndpointPath = String(r.endpoint || printersEndpointPath)
         printersEndpointRawJson = String(r.rawJson || "")
         var list = r.printers !== undefined ? r.printers : []
-        replacePrintersModel(list)
+        replacePrintersModel(list, false)
     }
 
     function compatibilityAllowsPrinter(compatResult, printerId) {
@@ -1133,10 +1193,7 @@ Item {
         repeat: true
         running: false
         triggeredOnStart: false
-        onTriggered: {
-            if (hasCloudBridge() && typeof cloudBridge.refreshPrintersAsync === "function")
-                cloudBridge.refreshPrintersAsync(true)
-        }
+        onTriggered: {}
     }
 
     Timer {
@@ -1156,10 +1213,6 @@ Item {
             replacePrintersModel(list)
             statusMsg = qsTr("%1 printer(s) refreshed from cloud.").arg(String(list.length))
             statusSev = "success"
-            if (!root.printerAutoRefreshStarted) {
-                root.printerAutoRefreshStarted = true
-                printersAutoRefreshTimer.start()
-            }
         }
 
         function onReasonCatalogUpdatedFromCloud(reasons, message) {
@@ -1343,6 +1396,39 @@ Item {
         onLocalFileRequested: {
             root.statusMsg = qsTr("Local file remote print entrypoint is not implemented yet.")
             root.statusSev = "warn"
+        }
+        onPrinterMqttDetailsRequested: function(printerId) {
+            root.buildPrinterMqttDetails(printerId)
+            mqttDetailsDialog.open()
+        }
+    }
+
+    AppDialogFrame {
+        id: mqttDetailsDialog
+        title: root.mqttDetailsTitle.length > 0 ? root.mqttDetailsTitle : qsTr("MQTT details")
+        subtitle: qsTr("All captured broker messages for this printer")
+        minimumWidth: 980
+        maximumWidth: 1280
+        minimumHeight: 560
+        maximumHeight: 980
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+
+            TextArea {
+                readOnly: true
+                text: root.mqttDetailsText
+                wrapMode: TextEdit.NoWrap
+                color: Theme.fgPrimary
+                font.family: "monospace"
+                font.pixelSize: Theme.fontCaptionPx
+                selectByMouse: true
+                background: Rectangle {
+                    color: "transparent"
+                }
+            }
         }
     }
 }

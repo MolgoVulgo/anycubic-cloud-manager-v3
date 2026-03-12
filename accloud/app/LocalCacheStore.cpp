@@ -37,6 +37,14 @@ QString newConnectionName() {
   return QStringLiteral("accloud_cache_") + QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
+void closeAndRemoveDatabase(QSqlDatabase& db, const QString& connectionName) {
+  if (db.isValid()) {
+    db.close();
+    db = QSqlDatabase();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+}
+
 QVariantMap decodePayloadText(const QString& payload) {
   const QJsonDocument doc = QJsonDocument::fromJson(payload.toUtf8());
   if (!doc.isObject()) {
@@ -324,7 +332,7 @@ bool LocalCacheStore::ensureReady() const {
     if (!db.open()) {
       logging::error("app", "local_cache", "db_open_failed", "Unable to open local cache database",
                      {{"path", m_dbPath.toStdString()}, {"error", db.lastError().text().toStdString()}});
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -367,7 +375,7 @@ QVariantList LocalCacheStore::loadFiles(int page, int limit) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return out;
     }
 
@@ -432,7 +440,7 @@ QVariantList LocalCacheStore::loadPrinters() const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return out;
     }
 
@@ -494,7 +502,7 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return out;
     }
 
@@ -539,7 +547,7 @@ QVariantMap LocalCacheStore::loadQuota() const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return out;
     }
 
@@ -566,14 +574,13 @@ bool LocalCacheStore::replaceFiles(const QVariantList& files) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
     const qint64 now = nowEpochSec();
     if (!db.transaction()) {
-      db.close();
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -644,14 +651,13 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
     const qint64 now = nowEpochSec();
     if (!db.transaction()) {
-      db.close();
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -713,14 +719,13 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
     const qint64 now = nowEpochSec();
     if (!db.transaction()) {
-      db.close();
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -788,14 +793,13 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
     const qint64 now = nowEpochSec();
     if (!db.transaction()) {
-      db.close();
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -859,7 +863,7 @@ bool LocalCacheStore::saveQuota(const QVariantMap& quota) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
@@ -892,7 +896,7 @@ void LocalCacheStore::removeFile(const QString& fileId) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return;
     }
 
@@ -929,7 +933,7 @@ void LocalCacheStore::updateSyncState(const QString& scope, bool ok, const QStri
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return;
     }
 
@@ -968,6 +972,7 @@ std::optional<LocalCacheStore::SyncState> LocalCacheStore::syncState(const QStri
   }
 
   SyncState state;
+  bool found = false;
 
   QMutexLocker lock(&g_dbMutex);
   const QString connectionName = newConnectionName();
@@ -975,7 +980,7 @@ std::optional<LocalCacheStore::SyncState> LocalCacheStore::syncState(const QStri
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return std::nullopt;
     }
 
@@ -983,21 +988,21 @@ std::optional<LocalCacheStore::SyncState> LocalCacheStore::syncState(const QStri
     q.prepare(QStringLiteral("SELECT last_success_at, last_attempt_at, last_status_ok, last_error "
                              "FROM sync_state WHERE scope = :scope"));
     q.bindValue(QStringLiteral(":scope"), normalized);
-    if (!q.exec() || !q.next()) {
-      db.close();
-      QSqlDatabase::removeDatabase(connectionName);
-      return std::nullopt;
+    if (q.exec() && q.next()) {
+      state.hasSuccess = q.value(0).toLongLong() > 0;
+      state.lastSuccessAt = q.value(0).toLongLong();
+      state.lastAttemptAt = q.value(1).toLongLong();
+      state.lastStatusOk = q.value(2).toInt() == 1;
+      state.lastError = q.value(3).toString();
+      found = true;
     }
-
-    state.hasSuccess = q.value(0).toLongLong() > 0;
-    state.lastSuccessAt = q.value(0).toLongLong();
-    state.lastAttemptAt = q.value(1).toLongLong();
-    state.lastStatusOk = q.value(2).toInt() == 1;
-    state.lastError = q.value(3).toString();
 
     db.close();
   }
   QSqlDatabase::removeDatabase(connectionName);
+  if (!found) {
+    return std::nullopt;
+  }
   return state;
 }
 
@@ -1017,7 +1022,7 @@ void LocalCacheStore::invalidateScope(const QString& scope) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return;
     }
 
@@ -1044,7 +1049,7 @@ void LocalCacheStore::cleanupRetention() const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
-      QSqlDatabase::removeDatabase(connectionName);
+      closeAndRemoveDatabase(db, connectionName);
       return;
     }
     enforceMaxRows(db, QStringLiteral("cloud_files"), QStringLiteral("file_id"), 1500);
