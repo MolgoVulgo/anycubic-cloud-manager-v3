@@ -10,11 +10,14 @@ Rectangle {
 
     property var selectedPrinter: null
     property var selectedPrinterDetails: ({})
+    property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
     property var printerHistoryModel: null
     property bool showDebugLabels: false
     property string printersEndpointPath: ""
     property string printersEndpointRawJson: ""
+    property string selectedPrinterDetailsRawJson: ""
+    property string selectedPrinterProjectsRawJson: ""
     property string selectedPrinterHelpUrlText: ""
 
     property var statusChipTextProvider: null
@@ -23,6 +26,7 @@ Rectangle {
     property var unixTimeTextProvider: null
     property var printStatusTextProvider: null
     property var prettyJsonProvider: null
+    property bool embeddedInTabsContainer: false
 
     signal cloudFileRequested(string printerId)
     signal localFileRequested()
@@ -31,11 +35,151 @@ Rectangle {
         return typeof provider === "function" ? String(provider(arg)) : fallback
     }
 
+    function prettyPayload(rawPayload) {
+        if (typeof root.prettyJsonProvider === "function")
+            return String(root.prettyJsonProvider(rawPayload || ""))
+        return String(rawPayload || "")
+    }
+
+    function nonNegativeInt(value) {
+        var n = Number(value)
+        if (!isFinite(n) || n < 0)
+            return -1
+        return Math.round(n)
+    }
+
+    function layersProgressText(printer) {
+        var printed = nonNegativeInt(printer ? printer.currentLayer : -1)
+        var total = nonNegativeInt(printer ? printer.totalLayers : -1)
+        if (printed < 0 || total <= 0)
+            return "-"
+        var normalizedPrinted = Math.max(0, Math.min(printed, total))
+        var remaining = Math.max(0, total - normalizedPrinted)
+        return qsTr("%1 printed | %2 remaining").arg(normalizedPrinted).arg(remaining)
+    }
+
+    function debugEndpointPayloadText() {
+        var blocks = []
+
+        var liveJobBlock = debugLiveJobDetailsText()
+        if (liveJobBlock.length > 0)
+            blocks.push(liveJobBlock)
+
+        var printersPayload = String(root.printersEndpointRawJson || "").trim()
+        if (printersPayload.length > 0) {
+            blocks.push(qsTr("getPrinters + inline getProjects:\n%1")
+                        .arg(prettyPayload(printersPayload)))
+        }
+
+        var detailsPayload = String(root.selectedPrinterDetailsRawJson || "").trim()
+        if (detailsPayload.length > 0) {
+            blocks.push(qsTr("v2/printer/info:\n%1")
+                        .arg(prettyPayload(detailsPayload)))
+        }
+
+        var projectsPayload = String(root.selectedPrinterProjectsRawJson || "").trim()
+        if (projectsPayload.length > 0) {
+            blocks.push(qsTr("work/project/getProjects:\n%1")
+                        .arg(prettyPayload(projectsPayload)))
+        }
+
+        if (blocks.length === 0)
+            return qsTr("No debug endpoint payload captured.")
+        return blocks.join("\n\n")
+    }
+
+    function debugLiveJobDetailsText() {
+        var selectedPrinterId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                       ? root.selectedPrinter.id
+                                       : "").trim()
+        var selectedPrinterState = String(root.selectedPrinter && root.selectedPrinter.state !== undefined
+                                          ? root.selectedPrinter.state
+                                          : "").trim()
+
+        var liveJob = root.selectedLiveJobData !== null && root.selectedLiveJobData !== undefined
+                ? root.selectedLiveJobData
+                : ({})
+
+        function pickText(primary, fallback) {
+            var first = String(primary || "").trim()
+            if (first.length > 0)
+                return first
+            var second = String(fallback || "").trim()
+            return second.length > 0 ? second : "-"
+        }
+
+        function pickInt(primary, fallback) {
+            var p = Number(primary)
+            if (isFinite(p) && p >= 0)
+                return Math.round(p)
+            var f = Number(fallback)
+            if (isFinite(f) && f >= 0)
+                return Math.round(f)
+            return -1
+        }
+
+        var taskId = pickText(liveJob.taskId, "")
+        var fileName = pickText(liveJob.currentFile,
+                                pickText(liveJob.gcodeName,
+                                         root.selectedPrinter ? root.selectedPrinter.currentFile : ""))
+        var printStatusCode = pickInt(liveJob.printStatus, -1)
+        var printStatusText = (printStatusCode >= 0 && typeof root.printStatusTextProvider === "function")
+                ? root.printStatusTextProvider(printStatusCode)
+                : "-"
+        var progressRaw = pickInt(liveJob.progress,
+                                  root.selectedPrinter ? root.selectedPrinter.progress : -1)
+        var currentLayerRaw = pickInt(liveJob.currentLayer,
+                                      root.selectedPrinter ? root.selectedPrinter.currentLayer : -1)
+        var totalLayersRaw = pickInt(liveJob.totalLayers,
+                                     root.selectedPrinter ? root.selectedPrinter.totalLayers : -1)
+        var elapsedSecRaw = pickInt(liveJob.elapsedSec,
+                                    root.selectedPrinter ? root.selectedPrinter.elapsedSec : -1)
+        var remainingSecRaw = pickInt(liveJob.remainingSec,
+                                      root.selectedPrinter ? root.selectedPrinter.remainingSec : -1)
+        var reasonText = pickText(liveJob.reason, "")
+        var startText = (typeof root.unixTimeTextProvider === "function")
+                ? root.unixTimeTextProvider(pickInt(liveJob.createTime, 0))
+                : "-"
+        var endText = (typeof root.unixTimeTextProvider === "function")
+                ? root.unixTimeTextProvider(pickInt(liveJob.endTime, 0))
+                : "-"
+        var elapsedText = (typeof root.timeTextProvider === "function")
+                ? root.timeTextProvider(elapsedSecRaw)
+                : "-"
+        var remainingText = (typeof root.timeTextProvider === "function")
+                ? root.timeTextProvider(remainingSecRaw)
+                : "-"
+
+        var lines = []
+        lines.push("Live Job Details:")
+        lines.push("  printer_id: " + (selectedPrinterId.length > 0 ? selectedPrinterId : "-"))
+        lines.push("  printer_state: " + (selectedPrinterState.length > 0 ? selectedPrinterState : "-"))
+        lines.push("  task_id: " + taskId)
+        lines.push("  file: " + fileName)
+        lines.push("  print_status: " + (printStatusCode >= 0 ? String(printStatusCode) : "-")
+                   + " (" + String(printStatusText || "-") + ")")
+        lines.push("  progress_raw: " + (progressRaw >= 0 ? String(progressRaw) : "-"))
+        lines.push("  layers: printed=" + (currentLayerRaw >= 0 ? String(currentLayerRaw) : "-")
+                   + " total=" + (totalLayersRaw >= 0 ? String(totalLayersRaw) : "-")
+                   + " remaining="
+                   + ((currentLayerRaw >= 0 && totalLayersRaw >= 0)
+                      ? String(Math.max(0, totalLayersRaw - Math.min(currentLayerRaw, totalLayersRaw)))
+                      : "-"))
+        lines.push("  elapsed: " + String(elapsedText || "-")
+                   + " (raw=" + (elapsedSecRaw >= 0 ? String(elapsedSecRaw) : "-") + ")")
+        lines.push("  remaining: " + String(remainingText || "-")
+                   + " (raw=" + (remainingSecRaw >= 0 ? String(remainingSecRaw) : "-") + ")")
+        lines.push("  reason: " + reasonText)
+        lines.push("  start: " + String(startText || "-"))
+        lines.push("  end: " + String(endText || "-"))
+        return lines.join("\n")
+    }
+
     Layout.fillWidth: true
     Layout.fillHeight: true
-    radius: Theme.radiusControl
+    radius: embeddedInTabsContainer ? 0 : Theme.radiusControl
     color: Theme.bgSurface
-    border.width: Theme.borderWidth
+    border.width: embeddedInTabsContainer ? 0 : Theme.borderWidth
     border.color: Theme.borderDefault
 
     ColumnLayout {
@@ -129,13 +273,14 @@ Rectangle {
                         }
 
                         Text {
-                            text: qsTr("Current job: %1 | Progress: %2 | Elapsed: %3 | Remaining: %4")
+                            text: qsTr("Current job: %1 | Progress: %2 | Layers: %3 | Elapsed: %4 | Remaining: %5")
                                 .arg(root.selectedPrinter && String(root.selectedPrinter.currentFile || "").length > 0
                                      ? String(root.selectedPrinter.currentFile)
                                      : "-")
                                 .arg(root.providerText(root.progressTextProvider,
                                                        root.selectedPrinter ? root.selectedPrinter.progress : -1,
                                                        "-"))
+                                .arg(root.layersProgressText(root.selectedPrinter))
                                 .arg(root.providerText(root.timeTextProvider,
                                                        root.selectedPrinter ? root.selectedPrinter.elapsedSec : -1,
                                                        "-"))
@@ -273,9 +418,8 @@ Rectangle {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: qsTr("Task %1 | Progress %2 | Start %3 | End %4")
+                                        text: qsTr("Task %1 | Start %2 | End %3")
                                             .arg(String(model.taskId || "-"))
-                                            .arg(root.providerText(root.progressTextProvider, model.progress, "-"))
                                             .arg(root.providerText(root.unixTimeTextProvider, model.createTime, "-"))
                                             .arg(root.providerText(root.unixTimeTextProvider, model.endTime, "-"))
                                         color: Theme.fgSecondary
@@ -318,7 +462,7 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Endpoint JSON: ") + root.printersEndpointPath
+                        text: qsTr("Endpoint responses (debug): ") + root.printersEndpointPath
                         color: Theme.warning
                         font.pixelSize: Theme.fontCaptionPx
                         font.bold: true
@@ -332,9 +476,7 @@ Rectangle {
 
                         TextArea {
                             readOnly: true
-                            text: typeof root.prettyJsonProvider === "function"
-                                  ? String(root.prettyJsonProvider(root.printersEndpointRawJson))
-                                  : String(root.printersEndpointRawJson || "")
+                            text: root.debugEndpointPayloadText()
                             wrapMode: TextEdit.NoWrap
                             color: Theme.fgPrimary
                             font.family: "monospace"

@@ -13,6 +13,9 @@ AppPageFrame {
     property var tabTitleProvider: null
     property var selectedPrinter: null
     property var selectedPrinterDetails: ({})
+    property var selectedLiveJobData: ({})
+    property string selectedPrinterDetailsRawJson: ""
+    property string selectedPrinterProjectsRawJson: ""
     property bool loadingPrinterHistory: false
     property var printerHistoryModel: null
     property string printersEndpointPath: ""
@@ -28,6 +31,7 @@ AppPageFrame {
     signal refreshRequested()
     signal debugToggled(bool checked)
     signal printerSelected(string printerId)
+    signal printerMqttDetailsRequested(string printerId)
     signal cloudFileRequested(string printerId)
     signal localFileRequested()
 
@@ -70,36 +74,60 @@ AppPageFrame {
         elide: Text.ElideRight
     }
 
-    PrintersTabsBar {
-        printersModel: root.printersModel
-        selectedPrinterId: root.selectedPrinterId
-        tabTitleProvider: root.tabTitleProvider
-        onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
-    }
+    Rectangle {
+        id: printerTabsContainer
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        radius: Theme.radiusControl
+        color: Theme.bgSurface
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
-    PrinterDetailPanel {
-        id: printerDetailPanel
-        selectedPrinter: root.selectedPrinter
-        selectedPrinterDetails: root.selectedPrinterDetails
-        loadingPrinterHistory: root.loadingPrinterHistory
-        printerHistoryModel: root.printerHistoryModel
-        showDebugLabels: root.showDebugLabels
-        printersEndpointPath: root.printersEndpointPath
-        printersEndpointRawJson: root.printersEndpointRawJson
-        selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText
-        statusChipTextProvider: root.statusChipTextProvider
-        progressTextProvider: root.progressTextProvider
-        timeTextProvider: root.timeTextProvider
-        unixTimeTextProvider: root.unixTimeTextProvider
-        printStatusTextProvider: root.printStatusTextProvider
-        prettyJsonProvider: root.prettyJsonProvider
-        onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
-        onLocalFileRequested: root.localFileRequested()
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
+
+            PrintersTabsBar {
+                Layout.fillWidth: true
+                embeddedInTabsContainer: true
+                printersModel: root.printersModel
+                selectedPrinterId: root.selectedPrinterId
+                tabTitleProvider: root.tabTitleProvider
+                onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
+                onPrinterDetailsRequested: function(printerId) { root.printerMqttDetailsRequested(printerId) }
+            }
+
+            PrinterDetailPanel {
+                id: printerDetailPanel
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                embeddedInTabsContainer: true
+                selectedPrinter: root.selectedPrinter
+                selectedPrinterDetails: root.selectedPrinterDetails
+                selectedLiveJobData: root.selectedLiveJobData
+                selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
+                selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
+                loadingPrinterHistory: root.loadingPrinterHistory
+                printerHistoryModel: root.printerHistoryModel
+                showDebugLabels: root.showDebugLabels
+                printersEndpointPath: root.printersEndpointPath
+                printersEndpointRawJson: root.printersEndpointRawJson
+                selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText
+                statusChipTextProvider: root.statusChipTextProvider
+                progressTextProvider: root.progressTextProvider
+                timeTextProvider: root.timeTextProvider
+                unixTimeTextProvider: root.unixTimeTextProvider
+                printStatusTextProvider: root.printStatusTextProvider
+                prettyJsonProvider: root.prettyJsonProvider
+                onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
+                onLocalFileRequested: root.localFileRequested()
+            }
+        }
     }
 
     DebugTag {
-        anchors.left: printerDetailPanel.left
-        anchors.top: printerDetailPanel.top
+        anchors.left: printerTabsContainer.left
+        anchors.top: printerTabsContainer.top
         anchors.leftMargin: 8
         anchors.topMargin: 8
         label: "panel: deviceDetailsPanel"

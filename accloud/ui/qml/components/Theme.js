@@ -46,6 +46,9 @@ var controlHeight = 36
 var radiusControl = 8
 var radiusDialog = 12
 var borderWidth = 1
+var tabStrokeWidth = 1
+var tabStrokeColor = "#d4c7af"
+var tabBaselineColor = "#d4c7af"
 
 // Dialog / overlay helper token
 var modalScrimOpacity = 0.35
@@ -196,6 +199,9 @@ function applyTheme() {
     fgDisabled = palette.fgDisabled
     borderDefault = palette.borderDefault
     borderSubtle = palette.borderSubtle
+    tabStrokeWidth = borderWidth
+    tabStrokeColor = palette.borderDefault
+    tabBaselineColor = palette.borderDefault
     danger = palette.danger
     warning = palette.warning
     success = palette.success

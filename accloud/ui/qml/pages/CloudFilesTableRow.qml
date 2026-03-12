@@ -229,9 +229,14 @@ Rectangle {
                 }
 
                 AppButton {
+                    objectName: "fileRowPrintButton"
                     text: qsTr("Print")
                     variant: "primary"
                     width: root.actionPrintWidth
+                    enabled: root.fileId.length > 0
+                    ToolTip.visible: hovered && enabled
+                    ToolTip.delay: 350
+                    ToolTip.text: qsTr("Remote print via Printers workflow")
                     onClicked: root.printRequested(root.fileId, root.fileName)
                 }
 

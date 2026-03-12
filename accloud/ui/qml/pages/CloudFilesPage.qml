@@ -11,10 +11,12 @@ Item {
     objectName: "cloudFilesPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    property bool embeddedInTabsContainer: false
     readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
+    signal printIntentRequested(string fileId, string fileName)
 
     // UI state
     property bool loading: false
@@ -141,7 +143,7 @@ Item {
     }
 
     function quotaBarColor() {
-        return "#2f6ecb"
+        return Theme.accent
     }
 
     function quotaBackgroundColor() {
@@ -416,8 +418,18 @@ Item {
     }
 
     function requestPrint(fileId, fileName) {
-        root.statusMsg = qsTr("Open Printers > Details to start remote print for ") + String(fileName || fileId)
-        root.statusSev = "warn"
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+        if (normalizedFileId.length === 0) {
+            root.statusMsg = qsTr("Cannot start remote print: missing file id.")
+            root.statusSev = "warn"
+            return
+        }
+
+        root.statusMsg = qsTr("Opening Printers workflow for %1...")
+                .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
+        root.statusSev = "info"
+        root.printIntentRequested(normalizedFileId, normalizedFileName)
     }
 
     function loadMockFiles() {
@@ -542,8 +554,14 @@ Item {
             }
         }
 
-        if (useCacheFlow)
-            cloudBridge.refreshFilesAsync(1, 20, true)
+        if (useCacheFlow) {
+            Qt.callLater(function() {
+                if (hasCloudBridge()
+                        && typeof cloudBridge.refreshFilesAsync === "function") {
+                    cloudBridge.refreshFilesAsync(1, 20, true)
+                }
+            })
+        }
     }
 
     Component.onCompleted: loadFiles()
@@ -759,6 +777,7 @@ Item {
     AppPageFrame {
         id: pageFrame
         anchors.fill: parent
+        embeddedInTabsContainer: root.embeddedInTabsContainer
 
         CloudFilesToolbar {
             loading: root.loading

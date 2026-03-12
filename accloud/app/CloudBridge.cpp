@@ -1,7 +1,18 @@
 #include "CloudBridge.h"
 
 #include "LocalCacheStore.h"
-#include "infra/cloud/CloudClient.h"
+#include "app/realtime/PrinterRealtimeStore.h"
+#include "app/usecases/cloud/DeleteCloudFileUseCase.h"
+#include "app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.h"
+#include "app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.h"
+#include "app/usecases/cloud/FetchPrinterDetailsUseCase.h"
+#include "app/usecases/cloud/FetchPrinterProjectsUseCase.h"
+#include "app/usecases/cloud/FetchReasonCatalogUseCase.h"
+#include "app/usecases/cloud/GetDownloadUrlUseCase.h"
+#include "app/usecases/cloud/LoadCloudFilesUseCase.h"
+#include "app/usecases/cloud/LoadCloudQuotaUseCase.h"
+#include "app/usecases/cloud/LoadPrintersDashboardUseCase.h"
+#include "app/usecases/cloud/SendPrintOrderUseCase.h"
 #include "infra/cloud/HarImporter.h"
 #include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
@@ -22,10 +33,10 @@
 #include <QVariantList>
 #include <QCryptographicHash>
 
-#include <chrono>
 #include <cmath>
+#include <chrono>
+#include <map>
 #include <string>
-#include <thread>
 
 namespace accloud {
 namespace {
@@ -114,6 +125,20 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
 QString normalizedThumbnailUrl(const QString& raw) {
     const QString value = raw.trimmed();
     if (value.isEmpty()) {
+        return {};
+    }
+    const QFileInfo localInfo(value);
+    if (localInfo.isAbsolute() && localInfo.exists() && localInfo.isFile()) {
+        return QUrl::fromLocalFile(localInfo.absoluteFilePath()).toString();
+    }
+    const QUrl parsed(value);
+    if (parsed.isValid() && !parsed.scheme().isEmpty()) {
+        const QString scheme = parsed.scheme().toLower();
+        if (scheme == QStringLiteral("http")
+            || scheme == QStringLiteral("https")
+            || scheme == QStringLiteral("file")) {
+            return value;
+        }
         return {};
     }
     if (value.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
@@ -262,6 +287,26 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
         }
         return {};
     }
+
+    const QUrl normalizedUrl(normalized);
+    if (normalizedUrl.isLocalFile()) {
+        const QString localPath = normalizedUrl.toLocalFile();
+        QImageReader reader(localPath);
+        if (reader.canRead()) {
+            logging::info("app", "thumbnail_cache", "cache_hit",
+                          "Thumbnail served from local source",
+                          {{"url", normalized.toStdString()},
+                           {"path", localPath.toStdString()},
+                           {"mode", "local_source"}});
+            return normalized;
+        }
+        logging::warn("app", "thumbnail_cache", "local_source_unreadable",
+                      "Local thumbnail source is not readable",
+                      {{"url", normalized.toStdString()},
+                       {"path", localPath.toStdString()},
+                       {"error", reader.errorString().toStdString()}});
+    }
+
     const QString cacheBasePath = cacheBasePathForThumbnailUrl(normalized);
     if (cacheBasePath.isEmpty()) {
         return normalized;
@@ -316,6 +361,8 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
 QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     QVariantMap m;
     m.insert("id",          QString::fromStdString(p.id));
+    m.insert("printerKey",  QString::fromStdString(p.printerKey));
+    m.insert("machineType", QString::fromStdString(p.machineType));
     m.insert("name",        QString::fromStdString(p.name));
     m.insert("model",       QString::fromStdString(p.model));
     m.insert("type",        QString::fromStdString(p.type));
@@ -326,6 +373,8 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("progress",    p.progress);
     m.insert("elapsedSec",  p.elapsedSec);
     m.insert("remainingSec",p.remainingSec);
+    m.insert("currentLayer",p.currentLayer);
+    m.insert("totalLayers", p.totalLayers);
     m.insert("currentFile", QString::fromStdString(p.currentFile));
     return m;
 }
@@ -338,8 +387,55 @@ QVariantMap printerCompatToMap(const cloud::CloudPrinterCompatItem& p) {
     return m;
 }
 
+void applyRealtimeOverlayToPrinterMap(
+    QVariantMap& printer,
+    const std::map<std::string, accloud::realtime::PrinterRealtimeSnapshot>& snapshots) {
+    const QString printerId = printer.value(QStringLiteral("id")).toString().trimmed();
+    const QString printerKey = printer.value(QStringLiteral("printerKey")).toString().trimmed();
+
+    auto it = snapshots.find(printerId.toStdString());
+    if (it == snapshots.end() && !printerKey.isEmpty()) {
+        it = snapshots.find(printerKey.toStdString());
+    }
+    if (it == snapshots.end()) {
+        return;
+    }
+
+    const auto& rt = it->second;
+    if (rt.state.has_value()) {
+        printer.insert(QStringLiteral("state"), QString::fromStdString(*rt.state));
+    }
+    if (rt.progress.has_value()) {
+        printer.insert(QStringLiteral("progress"), *rt.progress);
+    }
+    if (rt.elapsedSec.has_value()) {
+        printer.insert(QStringLiteral("elapsedSec"), *rt.elapsedSec);
+    }
+    if (rt.remainingSec.has_value()) {
+        printer.insert(QStringLiteral("remainingSec"), *rt.remainingSec);
+    }
+    if (rt.currentLayer.has_value()) {
+        printer.insert(QStringLiteral("currentLayer"), *rt.currentLayer);
+    }
+    if (rt.totalLayers.has_value()) {
+        printer.insert(QStringLiteral("totalLayers"), *rt.totalLayers);
+    }
+    if (rt.currentFile.has_value()) {
+        printer.insert(QStringLiteral("currentFile"), QString::fromStdString(*rt.currentFile));
+    }
+    if (rt.reason.has_value()) {
+        printer.insert(QStringLiteral("reason"), QString::fromStdString(*rt.reason));
+    }
+}
+
 QVariantMap printerDetailsToMap(const cloud::CloudPrinterDetailsResult& d) {
     QVariantMap m;
+    m.insert("progress", d.progress);
+    m.insert("elapsedSec", d.elapsedSec);
+    m.insert("remainingSec", d.remainingSec);
+    m.insert("currentLayer", d.currentLayer);
+    m.insert("totalLayers", d.totalLayers);
+    m.insert("currentFile", QString::fromStdString(d.currentFile));
     m.insert("firmwareVersion", QString::fromStdString(d.firmwareVersion));
     m.insert("printCount", QString::fromStdString(d.printCount));
     m.insert("printTotalTime", QString::fromStdString(d.printTotalTime));
@@ -383,6 +479,11 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("printerName", QString::fromStdString(item.printerName));
     m.insert("printStatus", item.printStatus);
     m.insert("progress", item.progress);
+    m.insert("elapsedSec", item.elapsedSec);
+    m.insert("remainingSec", item.remainingSec);
+    m.insert("currentLayer", item.currentLayer);
+    m.insert("totalLayers", item.totalLayers);
+    m.insert("currentFile", QString::fromStdString(item.currentFile));
     m.insert("reason", QString::fromStdString(item.reason));
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
@@ -454,30 +555,60 @@ CloudBridge::CloudBridge(QObject* parent)
     , m_cache(new LocalCacheStore()) {}
 
 CloudBridge::~CloudBridge() {
+    m_shuttingDown.store(true);
+    waitBackgroundTasks();
     cleanupDownload();
-    // m_cache intentionally kept alive until process teardown to avoid races
-    // with detached refresh tasks during app shutdown.
+    delete m_cache;
+    m_cache = nullptr;
 }
 
-// ── loadTokens ────────────────────────────────────────────────────────────
+void CloudBridge::reapFinishedBackgroundTasksLocked() {
+    auto it = m_backgroundTasks.begin();
+    while (it != m_backgroundTasks.end()) {
+        if (it->valid() && it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            try {
+                it->get();
+            } catch (...) {
+                // Best effort cleanup of async tasks.
+            }
+            it = m_backgroundTasks.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 
-bool CloudBridge::loadTokens(std::string& accessToken, std::string& xxToken) const {
-    const auto loaded = cloud::loadSessionFile();
-    if (!loaded.ok) {
-        logging::warn("app", "cloud_bridge", "load_tokens_failed",
-                      "Session introuvable", {{"path", loaded.path.string()}});
-        return false;
+void CloudBridge::launchBackgroundTask(std::function<void()> task) {
+    if (m_shuttingDown.load()) {
+        return;
     }
-    const auto accIt = loaded.session.tokens.find("access_token");
-    if (accIt == loaded.session.tokens.end()) {
-        logging::warn("app", "cloud_bridge", "load_tokens_no_access",
-                      "access_token absent de la session");
-        return false;
+    std::lock_guard<std::mutex> lock(m_backgroundTasksMutex);
+    reapFinishedBackgroundTasksLocked();
+    m_backgroundTasks.emplace_back(std::async(std::launch::async, [this, task = std::move(task)]() mutable {
+        if (m_shuttingDown.load()) {
+            return;
+        }
+        task();
+    }));
+}
+
+void CloudBridge::waitBackgroundTasks() {
+    std::vector<std::future<void>> tasks;
+    {
+        std::lock_guard<std::mutex> lock(m_backgroundTasksMutex);
+        tasks.swap(m_backgroundTasks);
     }
-    accessToken = accIt->second;
-    const auto tokIt = loaded.session.tokens.find("token");
-    xxToken = (tokIt != loaded.session.tokens.end()) ? tokIt->second : std::string{};
-    return true;
+    for (auto& task : tasks) {
+        if (!task.valid()) {
+            continue;
+        }
+        try {
+            task.wait();
+            task.get();
+        } catch (...) {
+            // Ignore task exceptions during shutdown.
+        }
+    }
 }
 
 bool CloudBridge::shouldRefresh(const QString& scope, int ttlSec, bool force) const {
@@ -497,37 +628,16 @@ bool CloudBridge::shouldRefresh(const QString& scope, int ttlSec, bool force) co
 QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const {
     ok = false;
     QVariantList files;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        message = QStringLiteral("Session invalide ou introuvable.");
+    const usecases::cloud::LoadCloudFilesUseCase useCase;
+    const usecases::cloud::LoadCloudFilesResult result = useCase.execute(page, limit);
+    message = QString::fromStdString(result.message);
+    ok = result.ok;
+    if (!result.ok) {
         return files;
     }
 
-    const std::chrono::milliseconds delays[] = {
-        std::chrono::milliseconds(0),
-        std::chrono::milliseconds(250),
-        std::chrono::milliseconds(900),
-    };
-
-    cloud::CloudFilesResult res;
-    for (std::size_t i = 0; i < std::size(delays); ++i) {
-        if (delays[i].count() > 0) {
-            std::this_thread::sleep_for(delays[i]);
-        }
-        res = cloud::fetchCloudFiles(at, tok, page, limit);
-        if (res.ok) {
-            break;
-        }
-    }
-
-    message = QString::fromStdString(res.message);
-    ok = res.ok;
-    if (!res.ok) {
-        return files;
-    }
-
-    files.reserve(static_cast<qsizetype>(res.files.size()));
-    for (const auto& f : res.files) {
+    files.reserve(static_cast<qsizetype>(result.files.size()));
+    for (const auto& f : result.files) {
         QVariantMap item = fileInfoToMap(f);
         resolveThumbnailInMap(item, downloadThumbnails);
         files.append(item);
@@ -539,73 +649,22 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
     ok = false;
     rawJson.clear();
     QVariantList printers;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        message = QStringLiteral("Session invalide.");
-        return printers;
-    }
-
-    const std::chrono::milliseconds delays[] = {
-        std::chrono::milliseconds(0),
-        std::chrono::milliseconds(350),
-        std::chrono::milliseconds(1200),
-    };
-
-    cloud::CloudPrintersResult res;
-    for (std::size_t i = 0; i < std::size(delays); ++i) {
-        if (delays[i].count() > 0) {
-            std::this_thread::sleep_for(delays[i]);
-        }
-        res = cloud::fetchCloudPrinters(at, tok);
-        if (res.ok) {
-            break;
-        }
-    }
-
-    message = QString::fromStdString(res.message);
+    const usecases::cloud::LoadPrintersDashboardUseCase useCase;
+    const usecases::cloud::LoadPrintersDashboardResult result = useCase.execute();
+    message = QString::fromStdString(result.message);
     if constexpr (kDebugBuildEnabled) {
-        rawJson = QString::fromStdString(res.rawJson);
+        rawJson = QString::fromStdString(result.rawJson);
     } else {
         rawJson.clear();
     }
-    ok = res.ok;
-    if (!res.ok) {
+    ok = result.ok;
+    if (!result.ok) {
         return printers;
     }
 
-    printers.reserve(static_cast<qsizetype>(res.printers.size()));
-    for (const auto& p : res.printers) {
-        QVariantMap printer = printerInfoToMap(p);
-
-        // Enrich cache payload with full per-printer insights.
-        const cloud::CloudPrinterDetailsResult details =
-            cloud::fetchPrinterDetails(at, tok, p.id);
-        if (details.ok) {
-            printer.insert("details", printerDetailsToMap(details));
-            if constexpr (kDebugBuildEnabled) {
-                printer.insert("detailsRawJson", QString::fromStdString(details.rawJson));
-            }
-        } else {
-            printer.insert("details", QVariantMap{});
-            if constexpr (kDebugBuildEnabled) {
-                printer.insert("detailsRawJson", QString{});
-            }
-        }
-
-        const cloud::CloudPrinterProjectsResult projects =
-            cloud::fetchPrinterProjects(at, tok, p.id, 1, 20);
-        if (projects.ok) {
-            QVariantList projectItems;
-            projectItems.reserve(static_cast<qsizetype>(projects.items.size()));
-            for (const auto& item : projects.items) {
-                projectItems.append(printerProjectToMap(item));
-            }
-            printer.insert("projects", projectItems);
-        } else {
-            printer.insert("projects", QVariantList{});
-        }
-
-        printers.append(printer);
+    printers.reserve(static_cast<qsizetype>(result.printers.size()));
+    for (const auto& p : result.printers) {
+        printers.append(printerInfoToMap(p));
     }
     return printers;
 }
@@ -613,29 +672,8 @@ QVariantList CloudBridge::fetchPrintersWithRetry(QString& message, bool& ok, QSt
 QVariantMap CloudBridge::fetchQuotaWithRetry(QString& message, bool& ok) const {
     ok = false;
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        message = QStringLiteral("Session invalide.");
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const std::chrono::milliseconds delays[] = {
-        std::chrono::milliseconds(0),
-        std::chrono::milliseconds(200),
-        std::chrono::milliseconds(800),
-    };
-
-    cloud::CloudQuotaResult q;
-    for (std::size_t i = 0; i < std::size(delays); ++i) {
-        if (delays[i].count() > 0) {
-            std::this_thread::sleep_for(delays[i]);
-        }
-        q = cloud::fetchCloudQuota(at, tok);
-        if (q.ok) {
-            break;
-        }
-    }
+    const usecases::cloud::LoadCloudQuotaUseCase useCase;
+    const cloud::CloudQuotaResult q = useCase.execute();
 
     message = QString::fromStdString(q.message);
     ok = q.ok;
@@ -664,12 +702,8 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
         return out;
     }
 
+    // Keep startup path fast: avoid eager thumbnail probing for the whole list on UI thread.
     QVariantList files = m_cache->loadFiles(page, limit);
-    for (int i = 0; i < files.size(); ++i) {
-        QVariantMap item = files[i].toMap();
-        resolveThumbnailInMap(item, false);
-        files[i] = item;
-    }
     out.insert("ok", true);
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
@@ -700,6 +734,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     }
 
     const QVariantList cachedPrinters = m_cache->loadPrinters();
+    const auto realtimeSnapshots = accloud::realtime::PrinterRealtimeStore::instance().snapshotAll();
     QVariantList printers;
     printers.reserve(cachedPrinters.size());
     for (const QVariant& item : cachedPrinters) {
@@ -708,11 +743,45 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("progress"), -1);
         printer.insert(QStringLiteral("elapsedSec"), -1);
         printer.insert(QStringLiteral("remainingSec"), -1);
+        printer.insert(QStringLiteral("currentLayer"), -1);
+        printer.insert(QStringLiteral("totalLayers"), -1);
         printer.insert(QStringLiteral("details"), QVariantMap{});
+        const QVariantList cachedProjects = m_cache->loadJobsForPrinter(printerId, 1, 20);
+        if (!cachedProjects.isEmpty()) {
+            const QVariantMap firstProject = cachedProjects.first().toMap();
+            const QString firstName = firstProject.value(QStringLiteral("currentFile")).toString().trimmed().isEmpty()
+                    ? firstProject.value(QStringLiteral("gcodeName")).toString()
+                    : firstProject.value(QStringLiteral("currentFile")).toString();
+            if (!firstName.trimmed().isEmpty()) {
+                printer.insert(QStringLiteral("currentFile"), firstName);
+            }
+            const int firstProgress = firstProject.value(QStringLiteral("progress"), -1).toInt();
+            if (firstProgress >= 0) {
+                printer.insert(QStringLiteral("progress"), firstProgress);
+            }
+            const int firstElapsedSec = firstProject.value(QStringLiteral("elapsedSec"), -1).toInt();
+            if (firstElapsedSec >= 0) {
+                printer.insert(QStringLiteral("elapsedSec"), firstElapsedSec);
+            }
+            const int firstRemainingSec = firstProject.value(QStringLiteral("remainingSec"), -1).toInt();
+            if (firstRemainingSec >= 0) {
+                printer.insert(QStringLiteral("remainingSec"), firstRemainingSec);
+            }
+            const int firstCurrentLayer = firstProject.value(QStringLiteral("currentLayer"), -1).toInt();
+            if (firstCurrentLayer >= 0) {
+                printer.insert(QStringLiteral("currentLayer"), firstCurrentLayer);
+            }
+            const int firstTotalLayers = firstProject.value(QStringLiteral("totalLayers"), -1).toInt();
+            if (firstTotalLayers >= 0) {
+                printer.insert(QStringLiteral("totalLayers"), firstTotalLayers);
+            }
+        }
         if constexpr (kDebugBuildEnabled) {
             printer.insert(QStringLiteral("detailsRawJson"), QString{});
+            printer.insert(QStringLiteral("projectsRawJson"), QString{});
         }
-        printer.insert(QStringLiteral("projects"), m_cache->loadJobsForPrinter(printerId, 1, 20));
+        printer.insert(QStringLiteral("projects"), cachedProjects);
+        applyRealtimeOverlayToPrinterMap(printer, realtimeSnapshots);
         printers.append(printer);
     }
     out.insert("ok", true);
@@ -757,11 +826,18 @@ QVariantMap CloudBridge::loadCachedQuota() const {
 }
 
 void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
     if (m_refreshFilesRunning.exchange(true)) {
         return;
     }
 
-    std::thread([this, page, limit, force]() {
+    launchBackgroundTask([this, page, limit, force]() {
+        if (m_shuttingDown.load()) {
+            m_refreshFilesRunning.store(false);
+            return;
+        }
         QString message;
         bool ok = false;
 
@@ -804,15 +880,22 @@ void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
         }
 
         m_refreshFilesRunning.store(false);
-    }).detach();
+    });
 }
 
 void CloudBridge::refreshPrintersAsync(bool force) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
     if (m_refreshPrintersRunning.exchange(true)) {
         return;
     }
 
-    std::thread([this, force]() {
+    launchBackgroundTask([this, force]() {
+        if (m_shuttingDown.load()) {
+            m_refreshPrintersRunning.store(false);
+            return;
+        }
         QString message;
         QString rawJson;
         bool ok = false;
@@ -840,7 +923,144 @@ void CloudBridge::refreshPrintersAsync(bool force) {
         }
 
         m_refreshPrintersRunning.store(false);
-    }).detach();
+    });
+}
+
+void CloudBridge::refreshReasonCatalogAsync(bool force) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    if (m_refreshReasonCatalogRunning.exchange(true)) {
+        return;
+    }
+
+    launchBackgroundTask([this, force]() {
+        if (m_shuttingDown.load()) {
+            m_refreshReasonCatalogRunning.store(false);
+            return;
+        }
+        const QString scope = QStringLiteral("reason_catalog");
+        if (!shouldRefresh(scope, 3600, force)) {
+            m_refreshReasonCatalogRunning.store(false);
+            return;
+        }
+
+        const usecases::cloud::FetchReasonCatalogUseCase useCase;
+        const auto r = useCase.execute();
+        const bool ok = r.ok;
+        const QString message = QString::fromStdString(r.message);
+
+        if (m_cache != nullptr) {
+            m_cache->updateSyncState(scope, ok, message);
+        }
+
+        if (ok) {
+            QVariantList reasons;
+            reasons.reserve(static_cast<qsizetype>(r.reasons.size()));
+            for (const auto& item : r.reasons) {
+                reasons.append(reasonCatalogItemToMap(item));
+            }
+            QMetaObject::invokeMethod(this, [this, reasons, message]() {
+                emit reasonCatalogUpdatedFromCloud(reasons, message);
+            }, Qt::QueuedConnection);
+        } else {
+            QMetaObject::invokeMethod(this, [this, message]() {
+                emit syncFailed(QStringLiteral("reason_catalog"), message);
+            }, Qt::QueuedConnection);
+        }
+
+        m_refreshReasonCatalogRunning.store(false);
+    });
+}
+
+void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page, int limit, bool force) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    launchBackgroundTask([this, printerId, page, limit, force]() {
+        if (m_shuttingDown.load()) {
+            return;
+        }
+        const QString normalizedPrinterId = printerId.trimmed();
+        if (normalizedPrinterId.isEmpty()) {
+            return;
+        }
+
+        const QString scope = QStringLiteral("printer_insights_%1").arg(normalizedPrinterId);
+        if (!shouldRefresh(scope, 15, force)) {
+            return;
+        }
+
+        const usecases::cloud::FetchPrinterDetailsUseCase detailsUseCase;
+        const auto detailsResult = detailsUseCase.execute(normalizedPrinterId.toStdString());
+        const usecases::cloud::FetchPrinterProjectsUseCase projectsUseCase;
+        const auto projectsResult = projectsUseCase.execute(normalizedPrinterId.toStdString(), page, limit);
+
+        QVariantMap detailsMap;
+        QString detailsRawJson;
+        if constexpr (kDebugBuildEnabled) {
+            detailsRawJson = QString::fromStdString(detailsResult.rawJson);
+        }
+        if (detailsResult.ok) {
+            detailsMap = printerDetailsToMap(detailsResult);
+        }
+
+        QVariantList projects;
+        QString projectsRawJson;
+        if constexpr (kDebugBuildEnabled) {
+            projectsRawJson = QString::fromStdString(projectsResult.rawJson);
+        }
+        if (projectsResult.ok) {
+            projects.reserve(static_cast<qsizetype>(projectsResult.items.size()));
+            for (const auto& item : projectsResult.items) {
+                projects.append(printerProjectToMap(item));
+            }
+            if (m_cache != nullptr) {
+                m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
+            }
+        } else if (m_cache != nullptr) {
+            projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+        }
+
+        const bool ok = detailsResult.ok || projectsResult.ok || !projects.isEmpty();
+        QString message;
+        if (detailsResult.ok && projectsResult.ok) {
+            message = QStringLiteral("Printer insights refreshed from cloud.");
+        } else if (ok) {
+            message = detailsResult.ok
+                    ? QStringLiteral("Printer details refreshed; projects loaded from cache.")
+                    : QStringLiteral("Printer projects refreshed; details unavailable.");
+        } else {
+            message = QString::fromStdString(!projectsResult.message.empty()
+                    ? projectsResult.message
+                    : detailsResult.message);
+        }
+
+        if (m_cache != nullptr) {
+            m_cache->updateSyncState(scope, ok, message);
+        }
+
+        if (ok) {
+            QMetaObject::invokeMethod(this, [this,
+                                             normalizedPrinterId,
+                                             detailsMap,
+                                             projects,
+                                             detailsRawJson,
+                                             projectsRawJson,
+                                             message]() {
+                emit printerInsightsUpdatedFromCloud(normalizedPrinterId,
+                                                     detailsMap,
+                                                     projects,
+                                                     detailsRawJson,
+                                                     projectsRawJson,
+                                                     message);
+            }, Qt::QueuedConnection);
+        } else {
+            QMetaObject::invokeMethod(this, [this, message]() {
+                emit syncFailed(QStringLiteral("printer_insights"), message);
+            }, Qt::QueuedConnection);
+        }
+    });
 }
 
 // ── fetchFiles ────────────────────────────────────────────────────────────
@@ -895,17 +1115,10 @@ QVariantMap CloudBridge::fetchQuota() const {
 
 QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
     logging::info("app", "cloud_bridge", "delete_file_start", "Suppression fichier",
                   {{"file_id", fileId.toStdString()}});
-    const auto r = cloud::deleteCloudFile(at, tok, fileId.toStdString());
+    const usecases::cloud::DeleteCloudFileUseCase useCase;
+    const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok && m_cache != nullptr) {
@@ -920,15 +1133,8 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
 
 QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::getCloudDownloadUrl(at, tok, fileId.toStdString());
+    const usecases::cloud::GetDownloadUrlUseCase useCase;
+    const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok)
@@ -972,16 +1178,8 @@ QVariantMap CloudBridge::fetchPrinters() const {
 
 QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::fetchPrinterCompatibilityByExt(
-        at, tok, fileExt.trimmed().toLower().toStdString());
+    const usecases::cloud::FetchPrinterCompatibilityByExtUseCase useCase;
+    const auto r = useCase.execute(fileExt.trimmed().toLower().toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok) {
@@ -997,16 +1195,8 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) co
 
 QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::fetchPrinterCompatibilityByFileId(
-        at, tok, fileId.trimmed().toStdString());
+    const usecases::cloud::FetchPrinterCompatibilityByFileIdUseCase useCase;
+    const auto r = useCase.execute(fileId.trimmed().toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok) {
@@ -1022,18 +1212,8 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) 
 
 QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        if constexpr (kDebugBuildEnabled) {
-            out.insert("rawJson", QString{});
-        }
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::fetchPrinterDetails(at, tok, printerId.trimmed().toStdString());
+    const usecases::cloud::FetchPrinterDetailsUseCase useCase;
+    const auto r = useCase.execute(printerId.trimmed().toStdString());
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if constexpr (kDebugBuildEnabled) {
@@ -1047,15 +1227,8 @@ QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
 
 QVariantMap CloudBridge::fetchReasonCatalog() const {
     QVariantMap out;
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::fetchReasonCatalog(at, tok);
+    const usecases::cloud::FetchReasonCatalogUseCase useCase;
+    const auto r = useCase.execute();
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
     if (r.ok) {
@@ -1072,18 +1245,13 @@ QVariantMap CloudBridge::fetchReasonCatalog() const {
 QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page, int limit) const {
     QVariantMap out;
     const QString normalizedPrinterId = printerId.trimmed();
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::fetchPrinterProjects(
-        at, tok, normalizedPrinterId.toStdString(), page, limit);
+    const usecases::cloud::FetchPrinterProjectsUseCase useCase;
+    const auto r = useCase.execute(normalizedPrinterId.toStdString(), page, limit);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString::fromStdString(r.rawJson));
+    }
     if (r.ok) {
         QVariantList projects;
         projects.reserve(static_cast<qsizetype>(r.items.size()));
@@ -1110,6 +1278,9 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
     out.insert("projects", QVariantList{});
+    if constexpr (kDebugBuildEnabled) {
+        out.insert("rawJson", QString{});
+    }
 
     const QString normalizedPrinterId = printerId.trimmed();
     if (normalizedPrinterId.isEmpty()) {
@@ -1144,23 +1315,22 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
         out.insert("taskId", QString());
+        out.insert("msgId", QString());
+        out.insert("correlationTicket", QString());
+        out.insert("correlationStatus", QStringLiteral("Pending"));
         finalizeUiMessage(out);
         return out;
     }
 
-    std::string at, tok;
-    if (!loadTokens(at, tok)) {
-        out.insert("ok", false);
-        out.insert("message", QString("Session invalide."));
-        finalizeUiMessage(out);
-        return out;
-    }
-
-    const auto r = cloud::sendCloudPrintOrder(
-        at, tok, printerId.toStdString(), fileId.toStdString(), deleteAfterPrint);
+    const usecases::cloud::SendPrintOrderUseCase useCase;
+    const auto r = useCase.execute(
+        printerId.toStdString(), fileId.toStdString(), deleteAfterPrint);
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
     out.insert("taskId",  QString::fromStdString(r.taskId));
+    out.insert("msgId", QString::fromStdString(r.msgId));
+    out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
+    out.insert("correlationStatus", QString::fromStdString(r.correlationStatus));
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }

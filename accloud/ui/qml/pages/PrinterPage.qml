@@ -9,6 +9,7 @@ Item {
     objectName: "printerPage"
     Layout.fillWidth: true
     Layout.fillHeight: true
+    property bool embeddedInTabsContainer: false
     signal statusBroadcast(string message, string severity, string operationId)
 
     property bool loading: false
@@ -30,13 +31,22 @@ Item {
     property bool remotePrintAllowed: true
     property string remotePrintBlockReason: ""
     property var selectedPrinterDetails: ({})
+    property string selectedPrinterDetailsRawJson: ""
+    property string selectedPrinterProjectsRawJson: ""
+    property var liveProjectData: ({})
+    property bool freezeRecentJobsCard: true
+    property string recentJobsSnapshotPrinterId: ""
     property bool loadingPrinterDetails: false
     property bool loadingPrinterHistory: false
     property bool reasonCatalogLoaded: false
     property bool reasonCatalogLoading: false
     property var reasonCatalogByCode: ({})
-    property bool printerAutoRefreshStarted: false
+    property bool startupInitialized: false
+    property string mqttDetailsTitle: ""
+    property string mqttDetailsText: ""
     property int autoRefreshIntervalMs: 30000
+    property int autoRefreshPrintingIntervalMs: 5000
+    property int mqttRealtimeDebounceMs: 700
 
     function emitStatusToShell() {
         var msg = String(statusMsg || "").trim()
@@ -47,6 +57,7 @@ Item {
 
     onStatusMsgChanged: root.emitStatusToShell()
     onStatusSevChanged: root.emitStatusToShell()
+    onSelectedPrinterIdChanged: root.updatePrintersAutoRefreshInterval()
 
     ListModel {
         id: printersModel
@@ -198,19 +209,19 @@ Item {
         var state = String(printer.state || "").toUpperCase()
         if (state === "PRINTING")
             return true
-        if (String(printer.currentFile || "").length > 0)
+
+        var directStatus = Number(printer.printStatus)
+        if (isFinite(directStatus) && Math.round(directStatus) === 1)
             return true
 
-        var progress = Number(printer.progress)
-        if (isFinite(progress) && progress >= 0)
-            return true
-
-        var elapsed = Number(printer.elapsedSec)
-        if (isFinite(elapsed) && elapsed >= 0)
-            return true
-
-        var remaining = Number(printer.remainingSec)
-        return isFinite(remaining) && remaining >= 0
+        var projects = printer.projects
+        if (projects !== undefined && projects !== null && projects.length !== undefined) {
+            for (var i = 0; i < projects.length; ++i) {
+                if (Number(projects[i].printStatus) === 1)
+                    return true
+            }
+        }
+        return false
     }
 
     function printerSecondaryText(printer) {
@@ -354,34 +365,210 @@ Item {
         return null
     }
 
+    function printerDataById(printerId) {
+        var targetId = String(printerId || "")
+        if (targetId.length === 0)
+            return null
+        for (var i = 0; i < printersModel.count; ++i) {
+            var p = printersModel.get(i)
+            if (String(p.id) === targetId)
+                return p
+        }
+        return null
+    }
+
+    function buildPrinterMqttDetails(printerId) {
+        var printer = printerDataById(printerId)
+        var printerName = printer && String(printer.name || "").length > 0
+                ? String(printer.name)
+                : String(printerId || "-")
+        mqttDetailsTitle = qsTr("MQTT details: %1").arg(printerName)
+
+        if (typeof mqttBridge === "undefined" || mqttBridge === null) {
+            mqttDetailsText = qsTr("MQTT bridge unavailable.")
+            return
+        }
+
+        var key = printer && String(printer.printerKey || "").trim().length > 0
+                ? String(printer.printerKey).trim()
+                : String(printerId || "").trim()
+        if (key.length === 0) {
+            mqttDetailsText = qsTr("Missing printer identifier.")
+            return
+        }
+
+        var topics = mqttBridge.receivedTopics || []
+        var matched = []
+        for (var i = 0; i < topics.length; ++i) {
+            var topic = String(topics[i] || "")
+            if (topic.indexOf("/" + key + "/") !== -1 || topic.indexOf("/" + String(printerId || "") + "/") !== -1)
+                matched.push(topic)
+        }
+
+        if (matched.length === 0) {
+            mqttDetailsText = qsTr("No MQTT message captured yet for this printer.")
+            return
+        }
+
+        var blocks = []
+        for (var j = 0; j < matched.length; ++j) {
+            var t = matched[j]
+            var body = String(mqttBridge.messagesForTopic(t) || "").trim()
+            if (body.length > 0)
+                blocks.push("### " + t + "\n" + body)
+        }
+        mqttDetailsText = blocks.length > 0
+                ? blocks.join("\n\n")
+                : qsTr("No MQTT payload available for matched topics.")
+    }
+
+    function activeProjectFromHistory() {
+        for (var i = 0; i < printerHistoryModel.count; ++i) {
+            var item = printerHistoryModel.get(i)
+            if (Number(item.printStatus) === 1)
+                return item
+        }
+        return printerHistoryModel.count > 0 ? printerHistoryModel.get(0) : null
+    }
+
+    function firstActiveProject(projectsList) {
+        var list = projectsList !== undefined && projectsList !== null ? projectsList : []
+        if (list.length === undefined || list.length <= 0)
+            return null
+        for (var i = 0; i < list.length; ++i) {
+            if (Number(list[i].printStatus) === 1)
+                return list[i]
+        }
+        return list[0]
+    }
+
+    function setLiveProjectFromList(projectsList) {
+        var active = firstActiveProject(projectsList)
+        liveProjectData = active ? active : ({})
+    }
+
+    function hasLiveProjectData() {
+        return liveProjectData !== null
+                && liveProjectData !== undefined
+                && Object.keys(liveProjectData).length > 0
+    }
+
+    function shouldRefreshRecentJobsCard() {
+        if (!freezeRecentJobsCard)
+            return true
+        return recentJobsSnapshotPrinterId !== selectedPrinterId || printerHistoryModel.count === 0
+    }
+
+    function replaceRecentJobsCard(projectsList) {
+        printerHistoryModel.clear()
+        var list = projectsList !== undefined && projectsList !== null ? projectsList : []
+        for (var i = 0; i < list.length; ++i)
+            printerHistoryModel.append(list[i])
+        recentJobsSnapshotPrinterId = selectedPrinterId
+    }
+
+    function selectedPrinterLiveData() {
+        var selected = selectedPrinterData()
+        if (!selected)
+            return null
+
+        var merged = {}
+        for (var key in selected)
+            merged[key] = selected[key]
+
+        function mergeTextField(fieldName, incomingValue) {
+            var current = String(merged[fieldName] || "").trim()
+            if (current.length > 0)
+                return
+            var incoming = String(incomingValue || "").trim()
+            if (incoming.length > 0)
+                merged[fieldName] = incoming
+        }
+
+        function mergeNumberField(fieldName, incomingValue) {
+            var current = Number(merged[fieldName])
+            if (isFinite(current) && current >= 0)
+                return
+            var incoming = Number(incomingValue)
+            if (isFinite(incoming) && incoming >= 0)
+                merged[fieldName] = incoming
+        }
+
+        var details = selectedPrinterDetails || ({})
+        mergeTextField("currentFile", details.currentFile)
+        mergeNumberField("progress", details.progress)
+        mergeNumberField("elapsedSec", details.elapsedSec)
+        mergeNumberField("remainingSec", details.remainingSec)
+        mergeNumberField("currentLayer", details.currentLayer)
+        mergeNumberField("totalLayers", details.totalLayers)
+
+        var activeProject = hasLiveProjectData() ? liveProjectData : activeProjectFromHistory()
+        if (activeProject) {
+            mergeTextField("currentFile", String(activeProject.currentFile || activeProject.gcodeName || ""))
+            mergeNumberField("progress", activeProject.progress)
+            mergeNumberField("elapsedSec", activeProject.elapsedSec)
+            mergeNumberField("remainingSec", activeProject.remainingSec)
+            mergeNumberField("currentLayer", activeProject.currentLayer)
+            mergeNumberField("totalLayers", activeProject.totalLayers)
+        }
+
+        return merged
+    }
+
     function choosePrinter(printerId) {
         selectedPrinterId = String(printerId || "")
+        updatePrintersAutoRefreshInterval()
         loadSelectedPrinterInsights()
+    }
+
+    function hasAnyPrintingPrinter() {
+        for (var i = 0; i < printersModel.count; ++i) {
+            if (hasPrinterJob(printersModel.get(i)))
+                return true
+        }
+        return false
+    }
+
+    function updatePrintersAutoRefreshInterval() {
+        var targetInterval = hasAnyPrintingPrinter()
+                ? Math.min(autoRefreshIntervalMs, autoRefreshPrintingIntervalMs)
+                : autoRefreshIntervalMs
+        targetInterval = Math.max(20, Number(targetInterval))
+        if (printersAutoRefreshTimer.interval !== targetInterval)
+            printersAutoRefreshTimer.interval = targetInterval
     }
 
     function ensureReasonCatalogLoaded() {
         if (reasonCatalogLoaded || reasonCatalogLoading)
             return
-        if (!hasCloudBridge() || typeof cloudBridge.fetchReasonCatalog !== "function")
+        if (!hasCloudBridge())
             return
 
-        reasonCatalogLoading = true
-        var r = cloudBridge.fetchReasonCatalog()
-        reasonCatalogLoading = false
-        if (r.ok !== true) {
-            statusMsg = qsTr("Reason catalog unavailable: ") + String(r.message || "")
-            statusSev = "warn"
+        if (typeof cloudBridge.refreshReasonCatalogAsync === "function") {
+            reasonCatalogLoading = true
+            cloudBridge.refreshReasonCatalogAsync(false)
             return
         }
 
-        var map = {}
-        var reasons = r.reasons !== undefined ? r.reasons : []
-        for (var i = 0; i < reasons.length; ++i) {
-            var entry = reasons[i]
-            map[String(entry.reason)] = entry
+        if (typeof cloudBridge.fetchReasonCatalog === "function") {
+            reasonCatalogLoading = true
+            var r = cloudBridge.fetchReasonCatalog()
+            reasonCatalogLoading = false
+            if (r.ok !== true) {
+                statusMsg = qsTr("Reason catalog unavailable: ") + String(r.message || "")
+                statusSev = "warn"
+                return
+            }
+
+            var map = {}
+            var reasons = r.reasons !== undefined ? r.reasons : []
+            for (var i = 0; i < reasons.length; ++i) {
+                var entry = reasons[i]
+                map[String(entry.reason)] = entry
+            }
+            reasonCatalogByCode = map
+            reasonCatalogLoaded = true
         }
-        reasonCatalogByCode = map
-        reasonCatalogLoaded = true
     }
 
     function reasonEntryFromText(reasonText) {
@@ -439,15 +626,25 @@ Item {
 
     function loadSelectedPrinterInsights() {
         selectedPrinterDetails = ({})
-        printerHistoryModel.clear()
+        selectedPrinterDetailsRawJson = ""
+        selectedPrinterProjectsRawJson = ""
+        liveProjectData = ({})
 
         if (selectedPrinterId.length === 0)
             return
+
+        var refreshRecentJobsCard = shouldRefreshRecentJobsCard()
+        if (refreshRecentJobsCard)
+            printerHistoryModel.clear()
 
         var selected = selectedPrinterData()
         if (selected) {
             if (selected.details !== undefined)
                 selectedPrinterDetails = selected.details
+            if (selected.detailsRawJson !== undefined)
+                selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
+            if (selected.projectsRawJson !== undefined)
+                selectedPrinterProjectsRawJson = String(selected.projectsRawJson || "")
         }
 
         if (!hasCloudBridge())
@@ -457,24 +654,57 @@ Item {
             var cachedProjectsRes = cloudBridge.loadCachedPrinterProjects(selectedPrinterId, 1, 20)
             if (cachedProjectsRes.ok === true) {
                 var cachedProjectsList = cachedProjectsRes.projects !== undefined ? cachedProjectsRes.projects : []
-                for (var cp = 0; cp < cachedProjectsList.length; ++cp)
-                    printerHistoryModel.append(cachedProjectsList[cp])
+                setLiveProjectFromList(cachedProjectsList)
+                if (refreshRecentJobsCard)
+                    replaceRecentJobsCard(cachedProjectsList)
             }
         } else if (selected && selected.projects !== undefined) {
             var inlineProjects = selected.projects
-            for (var p = 0; p < inlineProjects.length; ++p)
-                printerHistoryModel.append(inlineProjects[p])
+            setLiveProjectFromList(inlineProjects)
+            if (refreshRecentJobsCard)
+                replaceRecentJobsCard(inlineProjects)
         }
 
-        // Fallback cloud fetch only when cached enriched data is missing.
-        if ((selectedPrinterDetails === undefined || Object.keys(selectedPrinterDetails).length === 0)
-                && typeof cloudBridge.fetchPrinterDetails === "function") {
+        if (typeof cloudBridge.refreshPrinterInsightsAsync === "function") {
             loadingPrinterDetails = true
-            var detailsRes = cloudBridge.fetchPrinterDetails(selectedPrinterId)
-            loadingPrinterDetails = false
-            if (detailsRes.ok === true && detailsRes.details !== undefined)
-                selectedPrinterDetails = detailsRes.details
+            loadingPrinterHistory = refreshRecentJobsCard
+            cloudBridge.refreshPrinterInsightsAsync(selectedPrinterId, 1, 20, false)
+        } else {
+            if (typeof cloudBridge.fetchPrinterDetails === "function") {
+                loadingPrinterDetails = true
+                var detailsRes = cloudBridge.fetchPrinterDetails(selectedPrinterId)
+                loadingPrinterDetails = false
+                if (detailsRes.ok === true && detailsRes.details !== undefined) {
+                    var fetchedDetails = detailsRes.details
+                    var hasFetchedDetails = fetchedDetails !== null
+                            && fetchedDetails !== undefined
+                            && Object.keys(fetchedDetails).length > 0
+                    var hasCurrentDetails = selectedPrinterDetails !== null
+                            && selectedPrinterDetails !== undefined
+                            && Object.keys(selectedPrinterDetails).length > 0
+                    if (hasFetchedDetails || !hasCurrentDetails)
+                        selectedPrinterDetails = fetchedDetails
+                }
+                if (detailsRes.rawJson !== undefined)
+                    selectedPrinterDetailsRawJson = String(detailsRes.rawJson || selectedPrinterDetailsRawJson)
+            }
+
+            if (typeof cloudBridge.fetchPrinterProjects === "function") {
+                loadingPrinterHistory = refreshRecentJobsCard
+                var projectsRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
+                loadingPrinterHistory = false
+                if (projectsRes.ok === true) {
+                    var cloudProjects = projectsRes.projects !== undefined ? projectsRes.projects : []
+                    setLiveProjectFromList(cloudProjects)
+                    if (refreshRecentJobsCard)
+                        replaceRecentJobsCard(cloudProjects)
+                }
+                if (projectsRes.rawJson !== undefined)
+                    selectedPrinterProjectsRawJson = String(projectsRes.rawJson || selectedPrinterProjectsRawJson)
+            }
         }
+
+        updatePrintersAutoRefreshInterval()
     }
 
     function loadMockPrinters() {
@@ -552,26 +782,9 @@ Item {
         printersEndpointPath = String(r.endpoint || printersEndpointPath)
         printersEndpointRawJson = String(r.rawJson || "")
 
-        printersModel.clear()
         var printers = r.printers !== undefined ? r.printers : []
-        for (var i = 0; i < printers.length; ++i)
-            printersModel.append(printers[i])
-
-        if (printersModel.count > 0) {
-            var keepSelection = false
-            for (var j = 0; j < printersModel.count; ++j) {
-                if (String(printersModel.get(j).id) === selectedPrinterId) {
-                    keepSelection = true
-                    break
-                }
-            }
-            if (!keepSelection)
-                selectedPrinterId = String(printersModel.get(0).id)
-        } else {
-            selectedPrinterId = ""
-        }
-
-        loadSelectedPrinterInsights()
+        replacePrintersModel(printers)
+        updatePrintersAutoRefreshInterval()
         if (printersModel.count > 0) {
             if (useCacheFlow) {
                 statusMsg = qsTr("%1 printer(s) loaded from local cache. Syncing cloud...").arg(String(printersModel.count))
@@ -593,6 +806,52 @@ Item {
             cloudBridge.refreshPrintersAsync(true)
     }
 
+    function ensureStartupInitialized() {
+        if (startupInitialized)
+            return
+        startupInitialized = true
+        ensureReasonCatalogLoaded()
+        loadPrinters()
+    }
+
+    function replacePrintersModel(printers, refreshInsights) {
+        printersModel.clear()
+        var list = printers !== undefined ? printers : []
+        for (var i = 0; i < list.length; ++i)
+            printersModel.append(list[i])
+
+        if (printersModel.count > 0) {
+            var keepSelection = false
+            for (var j = 0; j < printersModel.count; ++j) {
+                if (String(printersModel.get(j).id) === selectedPrinterId) {
+                    keepSelection = true
+                    break
+                }
+            }
+            if (!keepSelection)
+                selectedPrinterId = String(printersModel.get(0).id)
+        } else {
+            selectedPrinterId = ""
+        }
+
+        var shouldRefreshInsights = (refreshInsights === undefined) ? true : (refreshInsights === true)
+        if (shouldRefreshInsights)
+            loadSelectedPrinterInsights()
+        updatePrintersAutoRefreshInterval()
+    }
+
+    function refreshPrintersFromCacheOnly() {
+        if (!hasCloudBridge() || typeof cloudBridge.loadCachedPrinters !== "function")
+            return
+        var r = cloudBridge.loadCachedPrinters()
+        if (r.ok !== true)
+            return
+        printersEndpointPath = String(r.endpoint || printersEndpointPath)
+        printersEndpointRawJson = String(r.rawJson || "")
+        var list = r.printers !== undefined ? r.printers : []
+        replacePrintersModel(list, false)
+    }
+
     function compatibilityAllowsPrinter(compatResult, printerId) {
         if (compatResult === null || compatResult === undefined)
             return true
@@ -608,6 +867,187 @@ Item {
             return isFinite(available) ? available > 0 : true
         }
         return false
+    }
+
+    function printerExists(printerId) {
+        var normalizedId = String(printerId || "")
+        if (normalizedId.length === 0)
+            return false
+        for (var i = 0; i < printersModel.count; ++i) {
+            if (String(printersModel.get(i).id) === normalizedId)
+                return true
+        }
+        return false
+    }
+
+    function firstPrinterId() {
+        if (printersModel.count <= 0)
+            return ""
+        return String(printersModel.get(0).id || "")
+    }
+
+    function compatibilityEntryAllows(item) {
+        var available = Number(item && item.available !== undefined ? item.available : 1)
+        return isFinite(available) ? available > 0 : true
+    }
+
+    function compatibilityFailureReason(compatResult, fallbackMessage) {
+        if (compatResult === null || compatResult === undefined || compatResult.ok !== true)
+            return fallbackMessage
+        var list = compatResult.printers !== undefined ? compatResult.printers : []
+        if (list.length <= 0)
+            return fallbackMessage
+        for (var i = 0; i < list.length; ++i) {
+            var item = list[i]
+            if (compatibilityEntryAllows(item))
+                continue
+            var reason = normalizedCompatReason(item.reason)
+            if (reason.length > 0)
+                return reason
+        }
+        return fallbackMessage
+    }
+
+    function preferredCompatiblePrinterId(compatResult, preferredPrinterId) {
+        if (compatResult === null || compatResult === undefined || compatResult.ok !== true)
+            return ""
+
+        var preferredId = String(preferredPrinterId || "")
+        var fallbackId = ""
+        var list = compatResult.printers !== undefined ? compatResult.printers : []
+        for (var i = 0; i < list.length; ++i) {
+            var item = list[i]
+            var candidateId = String(item.id || "")
+            if (candidateId.length === 0 || !printerExists(candidateId))
+                continue
+            if (!compatibilityEntryAllows(item))
+                continue
+            if (preferredId.length > 0 && candidateId === preferredId)
+                return candidateId
+            if (fallbackId.length === 0)
+                fallbackId = candidateId
+        }
+        return fallbackId
+    }
+
+    function setSingleRemotePrintFile(fileId, fileName) {
+        var normalizedFileId = String(fileId || "").trim()
+        if (normalizedFileId.length === 0)
+            return
+
+        var normalizedFileName = String(fileName || "").trim()
+        var existing = null
+        for (var i = 0; i < printCloudFilesModel.count; ++i) {
+            var item = printCloudFilesModel.get(i)
+            if (String(item.fileId) === normalizedFileId) {
+                existing = item
+                break
+            }
+        }
+
+        var entry = existing ? existing : ({})
+        entry.fileId = normalizedFileId
+        entry.fileName = normalizedFileName.length > 0
+                ? normalizedFileName
+                : String(entry.fileName || qsTr("Cloud file"))
+        entry.sizeText = String(entry.sizeText || "-")
+        entry.status = String(entry.status || "READY")
+        entry.printTime = String(entry.printTime || "-")
+        entry.resinUsage = String(entry.resinUsage || "-")
+
+        printCloudFilesModel.clear()
+        printCloudFilesModel.append(entry)
+        selectedCloudFileId = normalizedFileId
+    }
+
+    function openRemotePrintFromFile(fileId, fileName) {
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+        if (normalizedFileId.length === 0) {
+            statusMsg = qsTr("Cannot start remote print: missing file id.")
+            statusSev = "warn"
+            return
+        }
+
+        if (printersModel.count <= 0)
+            loadPrinters()
+        if (printersModel.count <= 0) {
+            statusMsg = qsTr("No printer available for remote print.")
+            statusSev = "warn"
+            return
+        }
+
+        var preferredPrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
+        var targetPrinterId = preferredPrinterId
+        var compatResult = null
+        var compatibilityChecked = false
+        var compatibilityFailed = false
+
+        if (hasCompatibilityByFileIdEndpoint()) {
+            compatibilityChecked = true
+            var fileCompat = cloudBridge.fetchCompatiblePrintersByFileId(normalizedFileId)
+            if (fileCompat.ok === true) {
+                compatResult = fileCompat
+                var byFilePrinterId = preferredCompatiblePrinterId(fileCompat, preferredPrinterId)
+                if (byFilePrinterId.length > 0)
+                    targetPrinterId = byFilePrinterId
+                else {
+                    statusMsg = qsTr("Print blocked: %1")
+                            .arg(compatibilityFailureReason(fileCompat,
+                                                            qsTr("No compatible printer available for this file.")))
+                    statusSev = "warn"
+                    return
+                }
+            } else {
+                compatibilityFailed = true
+            }
+        }
+
+        if ((compatResult === null || compatResult === undefined) && hasCompatibilityEndpoint()) {
+            var ext = fileType(normalizedFileName)
+            if (ext !== "other" && ext.length > 0) {
+                compatibilityChecked = true
+                var extCompat = cloudBridge.fetchCompatiblePrintersByExt(ext)
+                if (extCompat.ok === true) {
+                    compatResult = extCompat
+                    var byExtPrinterId = preferredCompatiblePrinterId(extCompat, preferredPrinterId)
+                    if (byExtPrinterId.length > 0)
+                        targetPrinterId = byExtPrinterId
+                    else {
+                        statusMsg = qsTr("Print blocked: %1")
+                                .arg(compatibilityFailureReason(extCompat,
+                                                                qsTr("No compatible printer available for this file type.")))
+                        statusSev = "warn"
+                        return
+                    }
+                } else {
+                    compatibilityFailed = true
+                }
+            }
+        }
+
+        if (targetPrinterId.length === 0)
+            targetPrinterId = firstPrinterId()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("No printer available for remote print.")
+            statusSev = "warn"
+            return
+        }
+
+        choosePrinter(targetPrinterId)
+        remotePrinterId = targetPrinterId
+        setSingleRemotePrintFile(normalizedFileId, normalizedFileName)
+        openRemotePrintConfig()
+
+        if (compatibilityChecked && compatibilityFailed && (compatResult === null || compatResult === undefined)) {
+            statusMsg = qsTr("Compatibility check failed. Continuing with best-effort printer selection.")
+            statusSev = "warn"
+            return
+        }
+
+        statusMsg = qsTr("Remote print prepared for %1")
+                .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
+        statusSev = "info"
     }
 
     function loadCloudFilesForRemotePrint(printerId) {
@@ -743,8 +1183,7 @@ Item {
     }
 
     Component.onCompleted: {
-        ensureReasonCatalogLoaded()
-        loadPrinters()
+        // Printers tab is secondary: defer heavy startup work until the tab is opened.
     }
 
     Timer {
@@ -754,10 +1193,15 @@ Item {
         repeat: true
         running: false
         triggeredOnStart: false
-        onTriggered: {
-            if (hasCloudBridge() && typeof cloudBridge.refreshPrintersAsync === "function")
-                cloudBridge.refreshPrintersAsync(true)
-        }
+        onTriggered: {}
+    }
+
+    Timer {
+        id: mqttRealtimeDebounceTimer
+        interval: root.mqttRealtimeDebounceMs
+        repeat: false
+        running: false
+        onTriggered: root.refreshPrintersFromCacheOnly()
     }
 
     Connections {
@@ -765,39 +1209,77 @@ Item {
         ignoreUnknownSignals: true
 
         function onPrintersUpdatedFromCloud(printers, message) {
-            printersModel.clear()
             var list = printers !== undefined ? printers : []
-            for (var i = 0; i < list.length; ++i)
-                printersModel.append(list[i])
-
-            if (printersModel.count > 0) {
-                var keepSelection = false
-                for (var j = 0; j < printersModel.count; ++j) {
-                    if (String(printersModel.get(j).id) === selectedPrinterId) {
-                        keepSelection = true
-                        break
-                    }
-                }
-                if (!keepSelection)
-                    selectedPrinterId = String(printersModel.get(0).id)
-            } else {
-                selectedPrinterId = ""
-            }
-
-            loadSelectedPrinterInsights()
+            replacePrintersModel(list)
             statusMsg = qsTr("%1 printer(s) refreshed from cloud.").arg(String(list.length))
             statusSev = "success"
-            if (!root.printerAutoRefreshStarted) {
-                root.printerAutoRefreshStarted = true
-                printersAutoRefreshTimer.start()
+        }
+
+        function onReasonCatalogUpdatedFromCloud(reasons, message) {
+            var map = {}
+            var list = reasons !== undefined ? reasons : []
+            for (var i = 0; i < list.length; ++i) {
+                var entry = list[i]
+                map[String(entry.reason)] = entry
             }
+            reasonCatalogByCode = map
+            reasonCatalogLoaded = true
+            reasonCatalogLoading = false
+        }
+
+        function onPrinterInsightsUpdatedFromCloud(printerId, details, projects, detailsRawJson, projectsRawJson, message) {
+            if (String(printerId || "") !== String(root.selectedPrinterId || ""))
+                return
+
+            var resolvedDetails = details !== undefined ? details : ({})
+            if (resolvedDetails !== null && Object.keys(resolvedDetails).length > 0)
+                root.selectedPrinterDetails = resolvedDetails
+
+            var list = projects !== undefined ? projects : []
+            setLiveProjectFromList(list)
+            if (shouldRefreshRecentJobsCard())
+                replaceRecentJobsCard(list)
+
+            if (detailsRawJson !== undefined)
+                root.selectedPrinterDetailsRawJson = String(detailsRawJson || root.selectedPrinterDetailsRawJson)
+            if (projectsRawJson !== undefined)
+                root.selectedPrinterProjectsRawJson = String(projectsRawJson || root.selectedPrinterProjectsRawJson)
+
+            root.loadingPrinterDetails = false
+            root.loadingPrinterHistory = false
         }
 
         function onSyncFailed(scope, message) {
-            if (String(scope) !== "printers")
+            var normalizedScope = String(scope || "")
+            if (normalizedScope === "printers") {
+                statusMsg = qsTr("Background sync failed (printers): ") + String(message)
+                statusSev = "warn"
                 return
-            statusMsg = qsTr("Background sync failed (printers): ") + String(message)
-            statusSev = "warn"
+            }
+            if (normalizedScope === "reason_catalog") {
+                reasonCatalogLoading = false
+                statusMsg = qsTr("Reason catalog unavailable: ") + String(message)
+                statusSev = "warn"
+                return
+            }
+            if (normalizedScope === "printer_insights") {
+                root.loadingPrinterDetails = false
+                root.loadingPrinterHistory = false
+                statusMsg = qsTr("Background sync failed (printer insights): ") + String(message)
+                statusSev = "warn"
+            }
+        }
+    }
+
+    Connections {
+        target: (typeof mqttBridge !== "undefined" && mqttBridge !== null) ? mqttBridge : null
+        ignoreUnknownSignals: true
+
+        function onRealtimeEventTickChanged() {
+            if (mqttRealtimeDebounceTimer.running)
+                mqttRealtimeDebounceTimer.restart()
+            else
+                mqttRealtimeDebounceTimer.start()
         }
     }
 
@@ -867,13 +1349,17 @@ Item {
     }
 
     PrinterMainPanel {
+        embeddedInTabsContainer: root.embeddedInTabsContainer
         loading: root.loading
         showDebugLabels: root.showDebugLabels
         printersModel: printersModel
         selectedPrinterId: root.selectedPrinterId
         tabTitleProvider: root.printerTabTitle
-        selectedPrinter: root.selectedPrinterData()
+        selectedPrinter: root.selectedPrinterLiveData()
         selectedPrinterDetails: root.selectedPrinterDetails
+        selectedLiveJobData: root.liveProjectData
+        selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
+        selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
         loadingPrinterHistory: root.loadingPrinterHistory
         printerHistoryModel: printerHistoryModel
         printersEndpointPath: root.printersEndpointPath
@@ -910,6 +1396,39 @@ Item {
         onLocalFileRequested: {
             root.statusMsg = qsTr("Local file remote print entrypoint is not implemented yet.")
             root.statusSev = "warn"
+        }
+        onPrinterMqttDetailsRequested: function(printerId) {
+            root.buildPrinterMqttDetails(printerId)
+            mqttDetailsDialog.open()
+        }
+    }
+
+    AppDialogFrame {
+        id: mqttDetailsDialog
+        title: root.mqttDetailsTitle.length > 0 ? root.mqttDetailsTitle : qsTr("MQTT details")
+        subtitle: qsTr("All captured broker messages for this printer")
+        minimumWidth: 980
+        maximumWidth: 1280
+        minimumHeight: 560
+        maximumHeight: 980
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+
+            TextArea {
+                readOnly: true
+                text: root.mqttDetailsText
+                wrapMode: TextEdit.NoWrap
+                color: Theme.fgPrimary
+                font.family: "monospace"
+                font.pixelSize: Theme.fontCaptionPx
+                selectByMouse: true
+                background: Rectangle {
+                    color: "transparent"
+                }
+            }
         }
     }
 }

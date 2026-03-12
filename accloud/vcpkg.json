@@ -5,6 +5,8 @@
   "dependencies": [
     "catch2",
     "gtest",
-    "nlohmann-json"
+    "nlohmann-json",
+    "openssl",
+    "qtmqtt"
   ]
 }

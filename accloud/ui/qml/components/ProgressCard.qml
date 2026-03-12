@@ -9,10 +9,10 @@ Rectangle {
     property string stage: "idle"
     property int percent: 0
 
-    radius: 12
-    color: Theme.card
-    border.width: 1
-    border.color: Theme.panelStroke
+    radius: Theme.radiusDialog
+    color: Theme.bgDialog
+    border.width: Theme.borderWidth
+    border.color: Theme.borderDefault
     implicitHeight: 90
 
     ColumnLayout {
@@ -24,14 +24,15 @@ Rectangle {
             Layout.fillWidth: true
             Text {
                 text: stage
-                color: Theme.textPrimary
+                color: Theme.fgPrimary
+                font.pixelSize: Theme.fontBodyPx
                 font.bold: true
             }
             Text {
                 Layout.alignment: Qt.AlignRight
                 text: percent + "%"
-                color: Theme.textSecondary
-                font.family: "JetBrains Mono"
+                color: Theme.fgSecondary
+                font.pixelSize: Theme.fontCaptionPx
             }
         }
 
@@ -45,7 +46,7 @@ Rectangle {
             background: Rectangle {
                 implicitHeight: 6
                 radius: 3
-                color: Theme.panelStroke
+                color: Theme.borderSubtle
             }
             contentItem: Item {
                 implicitHeight: 6
