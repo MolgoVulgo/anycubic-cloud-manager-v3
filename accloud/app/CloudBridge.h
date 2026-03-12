@@ -8,6 +8,10 @@
 #include <QVariantMap>
 
 #include <atomic>
+#include <future>
+#include <functional>
+#include <mutex>
+#include <vector>
 
 namespace accloud {
 
@@ -102,6 +106,9 @@ private:
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void cleanupDownload();
+    void launchBackgroundTask(std::function<void()> task);
+    void reapFinishedBackgroundTasksLocked();
+    void waitBackgroundTasks();
 
     QNetworkAccessManager* m_nam{nullptr};
     QNetworkReply*         m_dlReply{nullptr};
@@ -111,6 +118,9 @@ private:
     mutable std::atomic_bool m_refreshFilesRunning{false};
     mutable std::atomic_bool m_refreshPrintersRunning{false};
     mutable std::atomic_bool m_refreshReasonCatalogRunning{false};
+    std::atomic_bool m_shuttingDown{false};
+    std::mutex m_backgroundTasksMutex;
+    std::vector<std::future<void>> m_backgroundTasks;
 };
 
 } // namespace accloud

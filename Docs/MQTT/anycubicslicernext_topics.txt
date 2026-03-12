@@ -1,0 +1,8 @@
+anycubic/anycubicCloud/v1/+/public/{}/{}/#
+anycubic/anycubicCloud/v1/printer/public/{}/{}/#
+anycubic/anycubicCloud/v1/printer/public/{}/{}/file/report
+anycubic/anycubicCloud/v1/printer/public/{}/{}/print/report
+anycubic/anycubicCloud/v1/printer/public/{}/{}/releaseFilm/report
+anycubic/anycubicCloud/v1/printer/public/{}/{}/status/report
+anycubic/anycubicCloud/v1/printer/public/{}/{}/wifi/report
+anycubic/anycubicCloud/v1/slicer/printer/{}/{}/{}

@@ -134,6 +134,7 @@ Style attendu :
 
 - Faire des commits par unité logique cohérente et testable
 - Messages en anglais
+- ne jamais les pousser soi meme toujours demander
 - Conventional commit recommandé :
 
 ```text
