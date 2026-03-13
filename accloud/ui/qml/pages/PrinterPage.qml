@@ -1,6 +1,8 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Dialogs
 import QtQuick.Layouts 1.15
+import QtCore
 import "../components/Theme.js" as Theme
 import "../components"
 
@@ -17,12 +19,13 @@ Item {
     property string statusSev: "info" // info | success | warn | error
     property string selectedPrinterId: ""
     property bool debugUi: false
-    property bool showDebugLabels: debugUi
+    property bool showDebugLabels: false
     property string printersEndpointPath: "/p/p/workbench/api/work/printer/getPrinters + /p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"
     property string printersEndpointRawJson: ""
 
     property string remotePrinterId: ""
     property string selectedCloudFileId: ""
+    property string pendingLocalPrintTargetPrinterId: ""
     property bool optionDeleteAfterPrint: false
     property bool optionDryRun: false
     property bool optionHighPriority: false
@@ -125,6 +128,13 @@ Item {
             "用户不存在": qsTr("User does not exist"),
             "设备离线": qsTr("Printer offline"),
             "打印中": qsTr("Printing in progress"),
+            "料盒清理": qsTr("Vat cleaning"),
+            "曝光检测": qsTr("Exposure test"),
+            "移动Z轴": qsTr("Move Z axis"),
+            "文件管理": qsTr("File management"),
+            "离型膜状态": qsTr("Release film status"),
+            "智能料盒": qsTr("Smart resin vat"),
+            "打印功能设置": qsTr("Print feature settings"),
             "失败": qsTr("Failed"),
             "成功": qsTr("Success"),
             "错误": qsTr("Error"),
@@ -136,9 +146,6 @@ Item {
                 text = text.split(key).join(replacements[key])
         }
 
-        if (/[\u4e00-\u9fff]/.test(text))
-            text = text.replace(/[\u4e00-\u9fff]+/g, qsTr("localized backend message"))
-
         return text
     }
 
@@ -148,6 +155,30 @@ Item {
         if (dot < 0 || dot + 1 >= name.length)
             return "other"
         return name.slice(dot + 1).toLowerCase()
+    }
+
+    function uploadInputToDisplayName(fileInput) {
+        var raw = String(fileInput || "").trim()
+        if (raw.length === 0)
+            return ""
+
+        var stripped = raw.replace(/^file:\/\/localhost/i, "file://")
+        if (stripped.indexOf("file://") === 0)
+            stripped = stripped.replace(/^file:\/\//i, "")
+
+        var tail = stripped.split("/").pop()
+        if (tail.length === 0)
+            tail = stripped
+        tail = tail.replace(/[?#].*$/, "")
+        try {
+            return decodeURIComponent(tail)
+        } catch (err) {
+            return tail
+        }
+    }
+
+    function uploadIsReady(uploadStatus, gcodeId) {
+        return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
     }
 
     function statusChipText(state) {
@@ -609,12 +640,12 @@ Item {
 
         var entry = reasonEntryFromText(text)
         if (!entry)
-            return text
+            return translateLocalizedText(text)
 
         var desc = String(entry.desc || "").trim()
         if (desc.length === 0)
-            return text
-        return desc + " (" + text + ")"
+            return translateLocalizedText(text)
+        return translateLocalizedText(desc) + " (" + translateLocalizedText(text) + ")"
     }
 
     function reasonHelpUrl(reasonText) {
@@ -893,19 +924,19 @@ Item {
 
     function compatibilityFailureReason(compatResult, fallbackMessage) {
         if (compatResult === null || compatResult === undefined || compatResult.ok !== true)
-            return fallbackMessage
+            return translateLocalizedText(fallbackMessage)
         var list = compatResult.printers !== undefined ? compatResult.printers : []
         if (list.length <= 0)
-            return fallbackMessage
+            return translateLocalizedText(fallbackMessage)
         for (var i = 0; i < list.length; ++i) {
             var item = list[i]
             if (compatibilityEntryAllows(item))
                 continue
             var reason = normalizedCompatReason(item.reason)
             if (reason.length > 0)
-                return reason
+                return translateLocalizedText(reason)
         }
-        return fallbackMessage
+        return translateLocalizedText(fallbackMessage)
     }
 
     function preferredCompatiblePrinterId(compatResult, preferredPrinterId) {
@@ -1121,6 +1152,94 @@ Item {
         selectCloudFileDialog.open()
     }
 
+    function startCloudFileRemotePrint(printerId) {
+        var targetPrinterId = String(printerId || selectedPrinterId).trim()
+        if (targetPrinterId.length === 0 && printersModel.count <= 0)
+            loadPrinters()
+        if (targetPrinterId.length === 0)
+            targetPrinterId = firstPrinterId()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("No printer available for remote print.")
+            statusSev = "warn"
+            return
+        }
+
+        choosePrinter(targetPrinterId)
+        openSelectCloudFileDialog(targetPrinterId)
+        var targetPrinter = printerDataById(targetPrinterId)
+        statusMsg = qsTr("Select a cloud file for %1.")
+                .arg(targetPrinter ? String(targetPrinter.name || targetPrinterId) : targetPrinterId)
+        statusSev = "info"
+    }
+
+    function openLocalFileDialogForRemotePrint(printerId) {
+        var targetPrinterId = String(printerId || selectedPrinterId).trim()
+        if (targetPrinterId.length === 0 && printersModel.count <= 0)
+            loadPrinters()
+        if (targetPrinterId.length === 0)
+            targetPrinterId = firstPrinterId()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("No printer available for remote print.")
+            statusSev = "warn"
+            return
+        }
+
+        choosePrinter(targetPrinterId)
+        pendingLocalPrintTargetPrinterId = targetPrinterId
+        localPrintFileDialog.open()
+    }
+
+    function uploadLocalFileForRemotePrint(fileInput) {
+        var selectedInput = String(fileInput || "").trim()
+        if (selectedInput.length === 0) {
+            statusMsg = qsTr("No local file selected.")
+            statusSev = "warn"
+            return
+        }
+
+        var targetPrinterId = String(pendingLocalPrintTargetPrinterId || selectedPrinterId).trim()
+        pendingLocalPrintTargetPrinterId = ""
+        if (targetPrinterId.length > 0)
+            choosePrinter(targetPrinterId)
+
+        var displayName = uploadInputToDisplayName(selectedInput)
+        if (!hasCloudBridge() || typeof cloudBridge.uploadLocalFile !== "function") {
+            statusMsg = qsTr("Local file print requires upload support in backend.")
+            statusSev = "warn"
+            return
+        }
+
+        loading = true
+        statusMsg = qsTr("Uploading %1 for remote print...")
+                .arg(displayName.length > 0 ? displayName : qsTr("local file"))
+        statusSev = "info"
+
+        var uploadRes = cloudBridge.uploadLocalFile(selectedInput)
+        loading = false
+        if (uploadRes.ok !== true) {
+            statusMsg = qsTr("Upload failed: ") + String(uploadRes.message || "")
+            statusSev = "error"
+            return
+        }
+
+        var uploadedFileId = String(uploadRes.fileId || "").trim()
+        if (uploadedFileId.length === 0) {
+            statusMsg = qsTr("Upload succeeded but file id is missing.")
+            statusSev = "error"
+            return
+        }
+
+        openRemotePrintFromFile(uploadedFileId, displayName)
+
+        var ready = uploadIsReady(uploadRes.uploadStatus, uploadRes.gcodeId)
+        if (!ready || uploadRes.unlockOk === false) {
+            statusMsg = String(uploadRes.message || "").trim().length > 0
+                    ? String(uploadRes.message || "")
+                    : qsTr("Upload transferred. Cloud processing is still running.")
+            statusSev = "warn"
+        }
+    }
+
     function openRemotePrintConfig() {
         if (selectedCloudFileId.length === 0)
             return
@@ -1298,6 +1417,19 @@ Item {
         }
     }
 
+    FileDialog {
+        id: localPrintFileDialog
+        title: qsTr("Select local file to print")
+        fileMode: FileDialog.OpenFile
+        options: FileDialog.DontUseNativeDialog
+        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        nameFilters: [
+            qsTr("Slice files (*.photon *.pws *.pwsz *.photons *.pw0 *.pwx *.pwmo *.pwma *.pwms *.pwmx *.pmx2 *.pmsq *.dlp *.dl2p *.pwmb *.pm3 *.pm3m *.pm3r *.pm3n *.px6s *.pm5 *.pm5s *.m5sp)"),
+            qsTr("All files (*)")
+        ]
+        onAccepted: root.uploadLocalFileForRemotePrint(selectedFile)
+    }
+
     PrinterRemotePrintConfigDialog {
         id: remotePrintConfigDialog
         printersModel: printersModel
@@ -1371,6 +1503,7 @@ Item {
         unixTimeTextProvider: root.unixTimeText
         printStatusTextProvider: root.printStatusText
         prettyJsonProvider: root.prettyJson
+        localizedTextProvider: root.translateLocalizedText
         onRefreshRequested: {
             if (!root.hasCloudBridge()) {
                 root.loadPrinters()
@@ -1391,11 +1524,10 @@ Item {
             root.choosePrinter(printerId)
         }
         onCloudFileRequested: function(printerId) {
-            root.openSelectCloudFileDialog(printerId)
+            root.startCloudFileRemotePrint(printerId)
         }
-        onLocalFileRequested: {
-            root.statusMsg = qsTr("Local file remote print entrypoint is not implemented yet.")
-            root.statusSev = "warn"
+        onLocalFileRequested: function(printerId) {
+            root.openLocalFileDialogForRemotePrint(printerId)
         }
         onPrinterMqttDetailsRequested: function(printerId) {
             root.buildPrinterMqttDetails(printerId)
