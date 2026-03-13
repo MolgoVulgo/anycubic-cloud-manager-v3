@@ -55,6 +55,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/PrintersApi.cpp
     infra/cloud/api/ProjectsApi.cpp
     infra/cloud/api/DownloadsApi.cpp
+    infra/cloud/api/UploadsApi.cpp
     infra/cloud/api/ReasonCatalogApi.cpp
     infra/cloud/api/PrintOrderApi.cpp
     infra/cloud/api/CloudLegacyImpl.cpp
@@ -79,6 +80,7 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/LoadCloudQuotaUseCase.cpp
     app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
     app/usecases/cloud/GetDownloadUrlUseCase.cpp
+    app/usecases/cloud/UploadLocalFileUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
     app/usecases/cloud/FetchPrinterDetailsUseCase.cpp

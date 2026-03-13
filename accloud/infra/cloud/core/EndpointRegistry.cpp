@@ -35,6 +35,22 @@ std::optional<EndpointDefinition> EndpointRegistry::find(EndpointId id) const {
             return EndpointDefinition{EndpointId::FilesDownloadUrl, HttpMethod::Post,
                                       "/p/p/workbench/api/work/index/getDowdLoadUrl", true, true,
                                       "application/json", 10000};
+        case EndpointId::UploadLockStorage:
+            return EndpointDefinition{EndpointId::UploadLockStorage, HttpMethod::Post,
+                                      "/p/p/workbench/api/v2/cloud_storage/lockStorageSpace", true, true,
+                                      "application/json", 15000};
+        case EndpointId::UploadRegisterFile:
+            return EndpointDefinition{EndpointId::UploadRegisterFile, HttpMethod::Post,
+                                      "/p/p/workbench/api/v2/profile/newUploadFile", true, true,
+                                      "application/json", 10000};
+        case EndpointId::UploadStatus:
+            return EndpointDefinition{EndpointId::UploadStatus, HttpMethod::Post,
+                                      "/p/p/workbench/api/work/index/getUploadStatus", true, true,
+                                      "application/json", 10000};
+        case EndpointId::UploadUnlockStorage:
+            return EndpointDefinition{EndpointId::UploadUnlockStorage, HttpMethod::Post,
+                                      "/p/p/workbench/api/v2/cloud_storage/unlockStorageSpace", true, true,
+                                      "application/json", 10000};
         case EndpointId::PrintersList:
             return EndpointDefinition{EndpointId::PrintersList, HttpMethod::Get,
                                       "/p/p/workbench/api/work/printer/getPrinters", true, true,
