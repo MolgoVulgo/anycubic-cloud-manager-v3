@@ -1,8 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Dialogs
 import QtQuick.Layouts 1.15
-import QtCore
 import "../components/Theme.js" as Theme
 import "../components"
 
@@ -25,7 +23,14 @@ Item {
 
     property string remotePrinterId: ""
     property string selectedCloudFileId: ""
-    property string pendingLocalPrintTargetPrinterId: ""
+    property string selectedPrinterLocalFileName: ""
+    property string localFilesTargetPrinterId: ""
+    property bool localFilesLoading: false
+    property bool cloudFilesLoading: false
+    property int localFilesPrepareOrderId: 1231
+    property int localFilesListOrderId: 103
+    property int localUdiskListOrderId: 101
+    property int localFileStartPrintOrderId: 999
     property bool optionDeleteAfterPrint: false
     property bool optionDryRun: false
     property bool optionHighPriority: false
@@ -50,6 +55,21 @@ Item {
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
     property int mqttRealtimeDebounceMs: 700
+    readonly property var cloudFileKnownExtensions: [
+        "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
+        "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
+        "pm3r", "pm3n", "px6s", "pm5", "pm5s", "m5sp"
+    ]
+    readonly property var cloudFileCompatibilityStopTokens: ({
+        "anycubic": true,
+        "photon": true,
+        "mono": true,
+        "printer": true,
+        "printers": true,
+        "series": true,
+        "resin": true,
+        "lcd": true
+    })
 
     function emitStatusToShell() {
         var msg = String(statusMsg || "").trim()
@@ -68,6 +88,10 @@ Item {
 
     ListModel {
         id: printCloudFilesModel
+    }
+
+    ListModel {
+        id: printerLocalFilesModel
     }
 
     ListModel {
@@ -116,6 +140,16 @@ Item {
         return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByFileId === "function"
     }
 
+    function hasPrinterOrderEndpoint() {
+        return hasCloudBridge() && typeof cloudBridge.sendPrinterOrder === "function"
+    }
+
+    function hasConnectedMqttBridge() {
+        return (typeof mqttBridge !== "undefined")
+                && mqttBridge !== null
+                && mqttBridge.connected === true
+    }
+
     function translateLocalizedText(rawText) {
         var text = String(rawText || "")
         if (text.length === 0)
@@ -157,6 +191,138 @@ Item {
         return name.slice(dot + 1).toLowerCase()
     }
 
+    function normalizedCompatText(value) {
+        var text = String(value || "").toLowerCase().trim()
+        if (text.length === 0)
+            return ""
+        text = text.replace(/[_\-./]+/g, " ")
+        text = text.replace(/\s+/g, " ").trim()
+        return text
+    }
+
+    function compatTokens(value) {
+        var text = normalizedCompatText(value)
+        if (text.length === 0)
+            return []
+
+        var rawTokens = text.split(" ")
+        var out = []
+        var seen = {}
+        for (var i = 0; i < rawTokens.length; ++i) {
+            var token = String(rawTokens[i] || "").trim()
+            if (token.length <= 1)
+                continue
+            if (cloudFileCompatibilityStopTokens[token] !== undefined)
+                continue
+            if (seen[token] === true)
+                continue
+            seen[token] = true
+            out.push(token)
+        }
+        return out
+    }
+
+    function compatTokenOverlapCount(tokensA, tokensB) {
+        var lookup = {}
+        for (var i = 0; i < tokensA.length; ++i)
+            lookup[String(tokensA[i])] = true
+
+        var count = 0
+        for (var j = 0; j < tokensB.length; ++j) {
+            var token = String(tokensB[j] || "")
+            if (lookup[token] === true)
+                count += 1
+        }
+        return count
+    }
+
+    function compatTextContains(haystack, needle) {
+        var h = normalizedCompatText(haystack)
+        var n = normalizedCompatText(needle)
+        if (h.length === 0 || n.length === 0)
+            return false
+        return h.indexOf(n) !== -1
+    }
+
+    function isKnownCloudSliceExtension(ext) {
+        var normalizedExt = String(ext || "").toLowerCase()
+        if (normalizedExt.length === 0 || normalizedExt === "other")
+            return false
+        for (var i = 0; i < cloudFileKnownExtensions.length; ++i) {
+            if (String(cloudFileKnownExtensions[i]) === normalizedExt)
+                return true
+        }
+        return false
+    }
+
+    function fileHasLocalCompatibilityMetadata(fileEntry) {
+        if (!fileEntry)
+            return false
+
+        var machineText = normalizedCompatText(fileEntry.machine)
+        var printersText = normalizedCompatText(fileEntry.printers)
+        var fileMachineType = normalizedCompatText(fileEntry.machineType)
+        if (fileMachineType.length === 0)
+            fileMachineType = normalizedCompatText(fileEntry.machineTypeId)
+
+        return machineText.length > 0 || printersText.length > 0 || fileMachineType.length > 0
+    }
+
+    function localCompatibilityForPrinterFile(fileEntry, printerId) {
+        var printer = printerDataById(printerId)
+        if (!printer)
+            return { "ok": false, "score": 0, "reason": qsTr("Select a printer first.") }
+        if (!fileEntry)
+            return { "ok": false, "score": 0, "reason": qsTr("Select a cloud file first.") }
+
+        var ext = fileType(fileEntry.fileName)
+        if (!isKnownCloudSliceExtension(ext))
+            return { "ok": false, "score": 0, "reason": qsTr("Unsupported file format.") }
+
+        var printerMachineType = normalizedCompatText(printer.machineType)
+        var fileMachineType = normalizedCompatText(fileEntry.machineType)
+        if (fileMachineType.length === 0)
+            fileMachineType = normalizedCompatText(fileEntry.machineTypeId)
+
+        if (fileMachineType.length > 0 && printerMachineType.length > 0) {
+            if (fileMachineType === printerMachineType)
+                return { "ok": true, "score": 500, "reason": "" }
+            return { "ok": false, "score": 0, "reason": qsTr("Slice file does not match machine type.") }
+        }
+
+        var machineText = normalizedCompatText(fileEntry.machine)
+        var printersText = normalizedCompatText(fileEntry.printers)
+        var metadataText = (machineText + " " + printersText).trim()
+        if (metadataText.length <= 0)
+            return { "ok": false, "score": 0, "reason": qsTr("Missing local compatibility metadata.") }
+
+        var printerModel = normalizedCompatText(printer.model)
+        var printerName = normalizedCompatText(printer.name)
+
+        if (machineText.length > 0 && (machineText === printerModel || machineText === printerName))
+            return { "ok": true, "score": 420, "reason": "" }
+        if (compatTextContains(machineText, printerModel)
+                || compatTextContains(printerModel, machineText)
+                || compatTextContains(machineText, printerName)
+                || compatTextContains(printerName, machineText)) {
+            return { "ok": true, "score": 360, "reason": "" }
+        }
+        if (compatTextContains(printersText, printerModel)
+                || compatTextContains(printersText, printerName)
+                || compatTextContains(printerModel, printersText)
+                || compatTextContains(printerName, printersText)) {
+            return { "ok": true, "score": 330, "reason": "" }
+        }
+
+        var metadataTokens = compatTokens(metadataText)
+        var printerTokens = compatTokens(printerModel + " " + printerName + " " + printerMachineType)
+        var overlapCount = compatTokenOverlapCount(metadataTokens, printerTokens)
+        if (overlapCount > 0)
+            return { "ok": true, "score": 280 + overlapCount, "reason": "" }
+
+        return { "ok": false, "score": 0, "reason": qsTr("Slice file does not match selected printer model.") }
+    }
+
     function uploadInputToDisplayName(fileInput) {
         var raw = String(fileInput || "").trim()
         if (raw.length === 0)
@@ -179,6 +345,19 @@ Item {
 
     function uploadIsReady(uploadStatus, gcodeId) {
         return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
+    }
+
+    function bytesText(sizeBytes) {
+        var value = Number(sizeBytes)
+        if (!isFinite(value) || value < 0)
+            return "-"
+        if (value >= 1024 * 1024 * 1024)
+            return (value / (1024 * 1024 * 1024)).toFixed(1) + " GB"
+        if (value >= 1024 * 1024)
+            return (value / (1024 * 1024)).toFixed(1) + " MB"
+        if (value >= 1024)
+            return (value / 1024).toFixed(1) + " KB"
+        return Math.round(value) + " B"
     }
 
     function statusChipText(state) {
@@ -328,33 +507,19 @@ Item {
         if (selectedCloudFileId.length === 0)
             return { "ok": false, "reason": qsTr("Select a cloud file first.") }
 
-        if (!hasCompatibilityByFileIdEndpoint())
+        var fileData = selectedCloudFileData()
+        if (!fileData)
+            return { "ok": true, "reason": "" }
+        if (!fileHasLocalCompatibilityMetadata(fileData))
             return { "ok": true, "reason": "" }
 
-        var compat = cloudBridge.fetchCompatiblePrintersByFileId(selectedCloudFileId)
-        if (compat.ok !== true)
-            return {
-                "ok": false,
-                "reason": qsTr("Compatibility check failed: %1")
-                        .arg(String(compat.message || qsTr("unknown error")))
-            }
-
-        var list = compat.printers !== undefined ? compat.printers : []
-        for (var j = 0; j < list.length; ++j) {
-            var item = list[j]
-            if (String(item.id) !== String(remotePrinterId))
-                continue
-            var available = Number(item.available)
-            if (isFinite(available) && available > 0)
-                return { "ok": true, "reason": "" }
-            var reason = normalizedCompatReason(item.reason)
-            return {
-                "ok": false,
-                "reason": reason.length > 0 ? reason : qsTr("Printer is not compatible with this file.")
-            }
+        var localCompat = localCompatibilityForPrinterFile(fileData, remotePrinterId)
+        if (localCompat.ok === true)
+            return { "ok": true, "reason": "" }
+        return {
+            "ok": false,
+            "reason": String(localCompat.reason || qsTr("Printer is not compatible with this file."))
         }
-
-        return { "ok": false, "reason": qsTr("Selected printer not returned by compatibility check.") }
     }
 
     function refreshRemotePrintGuard() {
@@ -1082,24 +1247,47 @@ Item {
     }
 
     function loadCloudFilesForRemotePrint(printerId) {
+        var targetPrinterId = String(printerId || "").trim()
+        cloudFilesLoading = true
         printCloudFilesModel.clear()
         selectedCloudFileId = ""
 
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("No printer selected for cloud file filtering.")
+            statusSev = "warn"
+            cloudFilesLoading = false
+            return
+        }
+
         var files = []
+        var loadedFromLocalCache = false
         if (hasCloudBridge()) {
-            var listing = cloudBridge.fetchFiles(1, 100)
-            if (listing.ok === true) {
-                files = listing.files !== undefined ? listing.files : []
-            } else {
-                statusMsg = qsTr("Cannot load cloud files for print: ") + String(listing.message)
-                statusSev = "error"
-                return
+            if (typeof cloudBridge.loadCachedFiles === "function") {
+                var cached = cloudBridge.loadCachedFiles(1, 200)
+                if (cached.ok === true) {
+                    files = cached.files !== undefined ? cached.files : []
+                    loadedFromLocalCache = true
+                }
+            }
+
+            if (files.length <= 0) {
+                var listing = cloudBridge.fetchFiles(1, 200)
+                if (listing.ok === true) {
+                    files = listing.files !== undefined ? listing.files : []
+                    loadedFromLocalCache = false
+                } else {
+                    statusMsg = qsTr("Cannot load cloud files for print: ") + String(listing.message)
+                    statusSev = "error"
+                    cloudFilesLoading = false
+                    return
+                }
             }
         } else {
             files = [
                 {
                     "fileId": "demo-001",
                     "fileName": "rook_plate_v12.pwmb",
+                    "machine": "Anycubic Photon Mono M7 Pro",
                     "sizeText": "42.6 MB",
                     "status": "READY",
                     "printTime": "02h 15m",
@@ -1108,6 +1296,7 @@ Item {
                 {
                     "fileId": "demo-002",
                     "fileName": "calibration_tower.pws",
+                    "machine": "Anycubic Photon M3 Plus",
                     "sizeText": "11.8 MB",
                     "status": "READY",
                     "printTime": "00h 48m",
@@ -1116,40 +1305,93 @@ Item {
             ]
         }
 
-        var compatCache = {}
-        var compatFailed = false
+        var compatibleRows = []
+        var hiddenIncompatibleCount = 0
+        var hiddenMissingMetadataCount = 0
 
         for (var i = 0; i < files.length; ++i) {
             var file = files[i]
-            var ext = fileType(file.fileName)
-            var compat = null
-
-            if (hasCompatibilityEndpoint()) {
-                if (compatCache[ext] === undefined) {
-                    compatCache[ext] = cloudBridge.fetchCompatiblePrintersByExt(ext)
-                }
-                compat = compatCache[ext]
-                if (compat.ok !== true)
-                    compatFailed = true
+            var localCompat = localCompatibilityForPrinterFile(file, targetPrinterId)
+            if (localCompat.ok === true) {
+                compatibleRows.push({
+                    "score": Number(localCompat.score || 0),
+                    "file": file
+                })
+                continue
             }
-
-            if (compatibilityAllowsPrinter(compat, printerId))
-                printCloudFilesModel.append(file)
+            hiddenIncompatibleCount += 1
+            if (String(localCompat.reason || "").toLowerCase().indexOf("metadata") !== -1)
+                hiddenMissingMetadataCount += 1
         }
 
-        if (compatFailed) {
-            statusMsg = qsTr("Compatibility endpoint partial failure. Showing best-effort list.")
-            statusSev = "warn"
+        compatibleRows.sort(function(a, b) {
+            var scoreA = Number(a.score || 0)
+            var scoreB = Number(b.score || 0)
+            if (scoreA !== scoreB)
+                return scoreB - scoreA
+            var nameA = String(a.file && a.file.fileName !== undefined ? a.file.fileName : "").toLowerCase()
+            var nameB = String(b.file && b.file.fileName !== undefined ? b.file.fileName : "").toLowerCase()
+            if (nameA < nameB)
+                return -1
+            if (nameA > nameB)
+                return 1
+            return 0
+        })
+
+        for (var rowIndex = 0; rowIndex < compatibleRows.length; ++rowIndex) {
+            var row = compatibleRows[rowIndex]
+            if (row.file !== undefined)
+                printCloudFilesModel.append(row.file)
         }
 
-        if (printCloudFilesModel.count > 0)
+        if (printCloudFilesModel.count > 0) {
             selectedCloudFileId = String(printCloudFilesModel.get(0).fileId)
+            if (hiddenIncompatibleCount > 0) {
+                statusMsg = qsTr("%1 compatible cloud file(s) shown. %2 hidden as incompatible.")
+                        .arg(String(printCloudFilesModel.count))
+                        .arg(String(hiddenIncompatibleCount))
+                statusSev = "info"
+            } else {
+                statusMsg = loadedFromLocalCache
+                        ? qsTr("%1 compatible cloud file(s) loaded from local cache.")
+                            .arg(String(printCloudFilesModel.count))
+                        : qsTr("%1 compatible cloud file(s) loaded.")
+                            .arg(String(printCloudFilesModel.count))
+                statusSev = "success"
+            }
+            cloudFilesLoading = false
+            return
+        }
+
+        if (files.length <= 0) {
+            statusMsg = loadedFromLocalCache
+                    ? qsTr("No local cloud cache yet.")
+                    : qsTr("No cloud file available.")
+            statusSev = "warn"
+            cloudFilesLoading = false
+            return
+        }
+        if (hiddenMissingMetadataCount > 0 && hiddenMissingMetadataCount === files.length) {
+            statusMsg = qsTr("No compatible cloud file: local metadata missing for all files.")
+            statusSev = "warn"
+            cloudFilesLoading = false
+            return
+        }
+        statusMsg = qsTr("No compatible cloud file available for this printer.")
+        statusSev = "warn"
+        cloudFilesLoading = false
     }
 
     function openSelectCloudFileDialog(printerId) {
         remotePrinterId = String(printerId || selectedPrinterId)
-        loadCloudFilesForRemotePrint(remotePrinterId)
         selectCloudFileDialog.open()
+        if (typeof Qt.callLater === "function") {
+            Qt.callLater(function() {
+                root.loadCloudFilesForRemotePrint(root.remotePrinterId)
+            })
+        } else {
+            loadCloudFilesForRemotePrint(remotePrinterId)
+        }
     }
 
     function startCloudFileRemotePrint(printerId) {
@@ -1184,60 +1426,190 @@ Item {
             return
         }
 
-        choosePrinter(targetPrinterId)
-        pendingLocalPrintTargetPrinterId = targetPrinterId
-        localPrintFileDialog.open()
-    }
-
-    function uploadLocalFileForRemotePrint(fileInput) {
-        var selectedInput = String(fileInput || "").trim()
-        if (selectedInput.length === 0) {
-            statusMsg = qsTr("No local file selected.")
+        var printer = printerDataById(targetPrinterId)
+        var stateCheck = canStartFromPrinterState(printer)
+        if (stateCheck.ok !== true) {
+            statusMsg = translateLocalizedText(String(stateCheck.reason || qsTr("Printer is not ready.")))
             statusSev = "warn"
             return
         }
 
-        var targetPrinterId = String(pendingLocalPrintTargetPrinterId || selectedPrinterId).trim()
-        pendingLocalPrintTargetPrinterId = ""
-        if (targetPrinterId.length > 0)
-            choosePrinter(targetPrinterId)
+        choosePrinter(targetPrinterId)
+        localFilesTargetPrinterId = targetPrinterId
+        selectedPrinterLocalFileName = ""
+        printerLocalFilesModel.clear()
+        localFilesLoading = true
+        selectLocalPrinterFileDialog.open()
 
-        var displayName = uploadInputToDisplayName(selectedInput)
-        if (!hasCloudBridge() || typeof cloudBridge.uploadLocalFile !== "function") {
-            statusMsg = qsTr("Local file print requires upload support in backend.")
+        if (!hasPrinterOrderEndpoint()) {
+            localFilesLoading = false
+            statusMsg = qsTr("Printer local file listing requires sendOrder backend support.")
+            statusSev = "warn"
+            return
+        }
+        if (!hasConnectedMqttBridge()) {
+            localFilesLoading = false
+            statusMsg = qsTr("MQTT must be connected to receive printer local file list.")
+            statusSev = "warn"
+            return
+        }
+
+        var prepareResult = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                         localFilesPrepareOrderId,
+                                                         {},
+                                                         targetPrinterId)
+        if (prepareResult.ok !== true) {
+            statusMsg = qsTr("Printer file manager warmup failed: %1")
+                    .arg(String(prepareResult.message || ""))
+            statusSev = "warn"
+        }
+
+        var listResult = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      localFilesListOrderId,
+                                                      { "path": "/" },
+                                                      targetPrinterId)
+        if (listResult.ok !== true) {
+            localFilesLoading = false
+            statusMsg = qsTr("Cannot request printer local files: %1")
+                    .arg(String(listResult.message || ""))
+            statusSev = "error"
+            return
+        }
+
+        statusMsg = qsTr("Loading local files from printer...")
+        statusSev = "info"
+    }
+
+    function applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message) {
+        var normalizedPrinterId = String(printerId || "").trim()
+        var normalizedSource = String(source || "").toLowerCase()
+        if (normalizedSource !== "local")
+            return
+        if (normalizedPrinterId.length === 0)
+            return
+
+        var targetPrinterId = String(localFilesTargetPrinterId || "").trim()
+        var targetPrinter = printerDataById(targetPrinterId)
+        var targetPrinterKey = targetPrinter
+                ? String(targetPrinter.printerKey || "").trim()
+                : ""
+        if (normalizedPrinterId !== targetPrinterId
+                && (targetPrinterKey.length === 0 || normalizedPrinterId !== targetPrinterKey))
+            return
+
+        localFilesLoading = false
+        printerLocalFilesModel.clear()
+        selectedPrinterLocalFileName = ""
+
+        var list = records !== undefined ? records : []
+        for (var i = 0; i < list.length; ++i) {
+            var record = list[i]
+            var fileName = String(record.filename || "").trim()
+            if (fileName.length === 0)
+                continue
+            var isDir = record.isDir === true || Number(record.isDir) > 0
+            if (isDir)
+                continue
+
+            var sizeValue = Number(record.size)
+            if (!isFinite(sizeValue) || sizeValue < 0)
+                sizeValue = 0
+            var timestampValue = Number(record.timestamp)
+            if (!isFinite(timestampValue) || timestampValue < 0)
+                timestampValue = 0
+
+            printerLocalFilesModel.append({
+                "fileId": fileName,
+                "fileName": fileName,
+                "sizeText": bytesText(sizeValue),
+                "status": qsTr("On printer"),
+                "printTime": timestampValue > 0 ? unixTimeText(timestampValue) : "-"
+            })
+        }
+
+        if (printerLocalFilesModel.count > 0) {
+            selectedPrinterLocalFileName = String(printerLocalFilesModel.get(0).fileId || "")
+            statusMsg = qsTr("%1 local file(s) loaded from printer.")
+                    .arg(String(printerLocalFilesModel.count))
+            statusSev = "success"
+            return
+        }
+
+        var normalizedState = String(state || "").toLowerCase()
+        if (normalizedState === "failed" || Number(code) >= 400) {
+            statusMsg = String(message || "").trim().length > 0
+                    ? String(message || "")
+                    : qsTr("Failed to load printer local files.")
+            statusSev = "error"
+            return
+        }
+
+        statusMsg = qsTr("No local file available on printer.")
+        statusSev = "warn"
+    }
+
+    function startPrintFromPrinterLocalFile() {
+        var targetPrinterId = String(localFilesTargetPrinterId || selectedPrinterId).trim()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+
+        var printer = printerDataById(targetPrinterId)
+        var stateCheck = canStartFromPrinterState(printer)
+        if (stateCheck.ok !== true) {
+            statusMsg = translateLocalizedText(String(stateCheck.reason || qsTr("Printer is not ready.")))
+            statusSev = "warn"
+            return
+        }
+
+        var selectedFileName = String(selectedPrinterLocalFileName || "").trim()
+        if (selectedFileName.length === 0) {
+            statusMsg = qsTr("Select a printer local file first.")
+            statusSev = "warn"
+            return
+        }
+
+        if (!hasPrinterOrderEndpoint()) {
+            statusMsg = qsTr("Local printer print requires sendOrder backend support.")
             statusSev = "warn"
             return
         }
 
         loading = true
-        statusMsg = qsTr("Uploading %1 for remote print...")
-                .arg(displayName.length > 0 ? displayName : qsTr("local file"))
+        statusMsg = qsTr("Sending local print command for %1...")
+                .arg(selectedFileName)
         statusSev = "info"
 
-        var uploadRes = cloudBridge.uploadLocalFile(selectedInput)
+        var uploadRes = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                     localFileStartPrintOrderId,
+                                                     {
+                                                         "filename": selectedFileName,
+                                                         "path": "/"
+                                                     },
+                                                     targetPrinterId)
         loading = false
         if (uploadRes.ok !== true) {
-            statusMsg = qsTr("Upload failed: ") + String(uploadRes.message || "")
+            statusMsg = qsTr("Local print command failed: %1")
+                    .arg(String(uploadRes.message || ""))
             statusSev = "error"
             return
         }
 
-        var uploadedFileId = String(uploadRes.fileId || "").trim()
-        if (uploadedFileId.length === 0) {
-            statusMsg = qsTr("Upload succeeded but file id is missing.")
-            statusSev = "error"
-            return
-        }
-
-        openRemotePrintFromFile(uploadedFileId, displayName)
-
-        var ready = uploadIsReady(uploadRes.uploadStatus, uploadRes.gcodeId)
-        if (!ready || uploadRes.unlockOk === false) {
-            statusMsg = String(uploadRes.message || "").trim().length > 0
-                    ? String(uploadRes.message || "")
-                    : qsTr("Upload transferred. Cloud processing is still running.")
+        var msgId = String(uploadRes.msgId || "").trim()
+        if (localFileStartPrintOrderId === 999) {
+            statusMsg = qsTr("Local print command sent with placeholder order_id=999 (msgid=%1).")
+                    .arg(msgId.length > 0 ? msgId : "-")
             statusSev = "warn"
+        } else {
+            statusMsg = qsTr("Local print command sent (order_id=%1, msgid=%2).")
+                    .arg(String(localFileStartPrintOrderId))
+                    .arg(msgId.length > 0 ? msgId : "-")
+            statusSev = "success"
         }
+        selectLocalPrinterFileDialog.close()
+        loadPrinters()
     }
 
     function openRemotePrintConfig() {
@@ -1400,10 +1772,20 @@ Item {
             else
                 mqttRealtimeDebounceTimer.start()
         }
+
+        function onPrinterFileListReceived(printerId, source, records, state, code, message) {
+            root.applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message)
+        }
     }
 
     PrinterSelectCloudFileDialog {
         id: selectCloudFileDialog
+        dialogTitle: qsTr("Select Cloud File")
+        dialogSubtitle: qsTr("Compatible files for the selected printer")
+        emptyText: root.cloudFilesLoading
+                   ? qsTr("Loading compatible cloud files...")
+                   : qsTr("No compatible cloud file for this printer.")
+        startButtonText: qsTr("Start Printing")
         filesModel: printCloudFilesModel
         selectedFileId: root.selectedCloudFileId
         fileTypeProvider: root.fileType
@@ -1417,17 +1799,22 @@ Item {
         }
     }
 
-    FileDialog {
-        id: localPrintFileDialog
-        title: qsTr("Select local file to print")
-        fileMode: FileDialog.OpenFile
-        options: FileDialog.DontUseNativeDialog
-        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
-        nameFilters: [
-            qsTr("Slice files (*.photon *.pws *.pwsz *.photons *.pw0 *.pwx *.pwmo *.pwma *.pwms *.pwmx *.pmx2 *.pmsq *.dlp *.dl2p *.pwmb *.pm3 *.pm3m *.pm3r *.pm3n *.px6s *.pm5 *.pm5s *.m5sp)"),
-            qsTr("All files (*)")
-        ]
-        onAccepted: root.uploadLocalFileForRemotePrint(selectedFile)
+    PrinterSelectCloudFileDialog {
+        id: selectLocalPrinterFileDialog
+        dialogTitle: qsTr("Select Printer Local File")
+        dialogSubtitle: qsTr("Files currently stored on the selected printer")
+        emptyText: root.localFilesLoading
+                   ? qsTr("Waiting for printer file list...")
+                   : qsTr("No local file available on printer.")
+        startButtonText: qsTr("Start Local Print")
+        filesModel: printerLocalFilesModel
+        selectedFileId: root.selectedPrinterLocalFileName
+        fileTypeProvider: root.fileType
+        onSelectedFileChanged: function(fileId) {
+            root.selectedPrinterLocalFileName = fileId
+        }
+        onCloseRequested: selectLocalPrinterFileDialog.close()
+        onStartRequested: root.startPrintFromPrinterLocalFile()
     }
 
     PrinterRemotePrintConfigDialog {
