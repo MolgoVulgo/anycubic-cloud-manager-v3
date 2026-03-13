@@ -12,6 +12,13 @@
 #include <utility>
 
 namespace accloud::usecases::cloud {
+namespace {
+
+bool isUploadReady(const accloud::cloud::CloudUploadStatusResult& status) {
+    return !status.gcodeId.empty() || status.status == 1;
+}
+
+} // namespace
 
 UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPath,
                                                       const ProgressCallback& onProgress) const {
@@ -161,7 +168,7 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
                                                   registerResult.fileId);
         if (statusResult.ok) {
             statusReceived = true;
-            if (!statusResult.gcodeId.empty() || statusResult.status == 1 || statusResult.status == 2) {
+            if (isUploadReady(statusResult)) {
                 break;
             }
         }
@@ -172,7 +179,8 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
     out.fileId = registerResult.fileId;
     out.uploadStatus = statusReceived ? statusResult.status : 0;
     out.gcodeId = statusReceived ? statusResult.gcodeId : std::string{};
-    if (statusReceived) {
+    const bool uploadReady = statusReceived && isUploadReady(statusResult);
+    if (uploadReady) {
         out.message = statusResult.message.empty()
                           ? "Upload terminé."
                           : statusResult.message;
@@ -181,8 +189,15 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
                       {{"file_id", out.fileId},
                        {"status", std::to_string(out.uploadStatus)},
                        {"gcode_id", out.gcodeId.empty() ? "0" : out.gcodeId}});
+    } else if (statusReceived) {
+        out.message = "Upload transfere (traitement cloud en cours).";
+        logging::warn("cloud", "upload_local_file", "status_processing",
+                      "Upload registered and transfered, waiting cloud processing",
+                      {{"file_id", out.fileId},
+                       {"status", std::to_string(out.uploadStatus)},
+                       {"gcode_id", out.gcodeId.empty() ? "0" : out.gcodeId}});
     } else {
-        out.message = "Upload terminé (status en cours).";
+        out.message = "Upload transfere (statut cloud indisponible pour le moment).";
         logging::warn("cloud", "upload_local_file", "status_pending",
                       "Upload registered but no confirmed status yet",
                       {{"file_id", out.fileId}});

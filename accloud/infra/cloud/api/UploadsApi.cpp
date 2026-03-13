@@ -19,6 +19,8 @@
 
 #endif
 
+#include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace accloud::cloud::api {
@@ -32,6 +34,21 @@ struct WorkbenchCallResult {
     std::string body;
     std::string error;
 };
+
+constexpr int kPutMinTimeoutMs = 120000;
+constexpr int kPutMaxTimeoutMs = 3600000;
+constexpr double kPutAssumedMinThroughputBps = 256.0 * 1024.0;
+constexpr double kPutSafetyFactor = 4.0;
+
+int computePutTransferTimeoutMs(qint64 sizeBytes) {
+    if (sizeBytes <= 0) {
+        return kPutMinTimeoutMs;
+    }
+    const double estimatedSeconds = (static_cast<double>(sizeBytes) / kPutAssumedMinThroughputBps)
+                                    * kPutSafetyFactor;
+    const int estimatedMs = static_cast<int>(std::ceil(estimatedSeconds * 1000.0));
+    return std::clamp(estimatedMs, kPutMinTimeoutMs, kPutMaxTimeoutMs);
+}
 
 std::string jsonToString(const nlohmann::json& value) {
     if (value.is_string()) {
@@ -200,15 +217,18 @@ CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
         return {false, "Impossible d'ouvrir le fichier local", 0};
     }
 
+    const qint64 uploadSizeBytes = uploadFile.size();
+    const int transferTimeoutMs = computePutTransferTimeoutMs(uploadSizeBytes);
     logging::info("cloud", "uploads_api", "put_presigned_start",
                   "Start binary upload to presigned URL",
                   {{"file_name", localFilePath.filename().string()},
-                   {"size_bytes", std::to_string(static_cast<std::uint64_t>(uploadFile.size()))}});
+                   {"size_bytes", std::to_string(static_cast<std::uint64_t>(uploadSizeBytes))},
+                   {"timeout_ms", std::to_string(transferTimeoutMs)}});
 
     QNetworkAccessManager nam;
     QNetworkRequest req(QUrl(QString::fromStdString(preSignUrl)));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
-    req.setTransferTimeout(120000);
+    req.setTransferTimeout(transferTimeoutMs);
 
     QEventLoop loop;
     QNetworkReply* reply = nam.put(req, &uploadFile);

@@ -206,6 +206,10 @@ if(ACCLOUD_ENABLE_QT)
         NAME accloud_ui_qml
         COMMAND accloud_qml_tests -platform offscreen
       )
+      add_test(
+        NAME accloud_ui_qml_upload
+        COMMAND accloud_qml_tests -platform offscreen -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml/tst_cloud_files_upload.qml
+      )
     else()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
     endif()

@@ -438,15 +438,39 @@ Item {
         uploadFileDialog.open()
     }
 
+    function uploadInputToDisplayName(fileInput) {
+        var raw = String(fileInput || "").trim()
+        if (raw.length === 0)
+            return ""
+
+        var stripped = raw.replace(/^file:\/\/localhost/i, "file://")
+        if (stripped.indexOf("file://") === 0)
+            stripped = stripped.replace(/^file:\/\//i, "")
+
+        var tail = stripped.split("/").pop()
+        if (tail.length === 0)
+            tail = stripped
+        tail = tail.replace(/[?#].*$/, "")
+        try {
+            return decodeURIComponent(tail)
+        } catch (err) {
+            return tail
+        }
+    }
+
+    function uploadIsReady(uploadStatus, gcodeId) {
+        return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
+    }
+
     function uploadSelectedLocalFile(fileUrl) {
-        var selectedPath = decodeURIComponent(String(fileUrl || "").replace(/^file:\/\//, ""))
-        if (selectedPath.length === 0) {
+        var selectedInput = String(fileUrl || "").trim()
+        if (selectedInput.length === 0) {
             root.statusMsg = qsTr("No file selected.")
             root.statusSev = "warn"
             return
         }
 
-        var fileName = selectedPath.split("/").pop()
+        var fileName = uploadInputToDisplayName(selectedInput)
         if (!hasCloudBridge()) {
             root.statusMsg = qsTr("Selected for upload: %1").arg(fileName)
             root.statusSev = "info"
@@ -460,7 +484,7 @@ Item {
             uploadOverlay.visible = true
             root.statusMsg = qsTr("Uploading %1...").arg(fileName)
             root.statusSev = "info"
-            cloudBridge.startUploadLocalFile(selectedPath)
+            cloudBridge.startUploadLocalFile(selectedInput)
             return
         }
 
@@ -468,15 +492,17 @@ Item {
             root.loading = true
             root.statusMsg = qsTr("Uploading %1...").arg(fileName)
             root.statusSev = "info"
-            var r = cloudBridge.uploadLocalFile(selectedPath)
+            var r = cloudBridge.uploadLocalFile(selectedInput)
             root.loading = false
 
             if (r.ok === true) {
                 var backendMessage = String(r.message || "").trim()
+                var ready = uploadIsReady(r.uploadStatus, r.gcodeId)
                 root.statusMsg = backendMessage.length > 0
                         ? backendMessage
-                        : qsTr("Uploaded: %1").arg(fileName)
-                root.statusSev = (r.unlockOk === false) ? "warn" : "success"
+                        : (ready ? qsTr("Uploaded: %1").arg(fileName)
+                                 : qsTr("Upload transferred. Cloud processing in progress."))
+                root.statusSev = (!ready || r.unlockOk === false) ? "warn" : "success"
                 loadFiles()
             } else {
                 root.statusMsg = qsTr("Upload failed: ") + String(r.message)
@@ -659,10 +685,12 @@ Item {
             uploadOverlay.visible = false
             var backendMessage = String(message || "").trim()
             if (ok) {
+                var ready = uploadIsReady(uploadStatus, gcodeId)
                 root.statusMsg = backendMessage.length > 0
                         ? backendMessage
-                        : qsTr("Upload completed.")
-                root.statusSev = unlockOk === false ? "warn" : "success"
+                        : (ready ? qsTr("Upload completed.")
+                                 : qsTr("Upload transferred. Cloud processing in progress."))
+                root.statusSev = (!ready || unlockOk === false) ? "warn" : "success"
                 root.loadFiles()
             } else {
                 root.statusMsg = qsTr("Upload failed: ") + backendMessage

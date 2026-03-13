@@ -82,6 +82,33 @@ QString formatUploadTime(long long updateTimeEpochSec) {
     return value;
 }
 
+QString normalizeUploadLocalPath(const QString& pathOrUrl) {
+    const QString trimmed = pathOrUrl.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    const QUrl parsed(trimmed);
+    if (parsed.isValid() && parsed.isLocalFile()) {
+        const QString localPath = parsed.toLocalFile().trimmed();
+        if (!localPath.isEmpty()) {
+            return localPath;
+        }
+    }
+
+    if (trimmed.startsWith(QStringLiteral("file://"), Qt::CaseInsensitive)) {
+        const QUrl fallback = QUrl::fromUserInput(trimmed);
+        if (fallback.isValid() && fallback.isLocalFile()) {
+            const QString localPath = fallback.toLocalFile().trimmed();
+            if (!localPath.isEmpty()) {
+                return localPath;
+            }
+        }
+    }
+
+    return trimmed;
+}
+
 // ── Conversion CloudFileInfo → QVariantMap ────────────────────────────────
 
 QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
@@ -1151,7 +1178,7 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
 
 QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     QVariantMap out;
-    const QString normalizedPath = localPath.trimmed();
+    const QString normalizedPath = normalizeUploadLocalPath(localPath);
     const QFileInfo localFileInfo(normalizedPath);
     const QString localFileName = localFileInfo.fileName().trimmed().isEmpty()
                                       ? normalizedPath
@@ -1196,7 +1223,7 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
 }
 
 void CloudBridge::startUploadLocalFile(const QString& localPath) {
-    const QString normalizedPath = localPath.trimmed();
+    const QString normalizedPath = normalizeUploadLocalPath(localPath);
     if (normalizedPath.isEmpty()) {
         emit uploadFinished(false,
                             QStringLiteral("Chemin fichier vide."),
