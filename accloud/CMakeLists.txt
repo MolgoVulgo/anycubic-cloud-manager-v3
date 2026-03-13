@@ -87,6 +87,7 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/FetchReasonCatalogUseCase.cpp
     app/usecases/cloud/FetchPrinterProjectsUseCase.cpp
     app/usecases/cloud/SendPrintOrderUseCase.cpp
+    app/usecases/cloud/SendPrinterOrderUseCase.cpp
     app/usecases/cloud/DeleteCloudFileUseCase.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp

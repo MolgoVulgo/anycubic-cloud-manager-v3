@@ -11,6 +11,12 @@ public:
                                const std::string& printerId,
                                const std::string& fileId,
                                bool deleteAfterPrint) const;
+    CloudPrintOrderResult sendCommand(const std::string& accessToken,
+                                      const std::string& xxToken,
+                                      const std::string& printerId,
+                                      int orderId,
+                                      const std::string& projectId,
+                                      const std::string& dataJson) const;
 };
 
 } // namespace accloud::cloud::api
