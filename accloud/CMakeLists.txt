@@ -55,6 +55,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/PrintersApi.cpp
     infra/cloud/api/ProjectsApi.cpp
     infra/cloud/api/DownloadsApi.cpp
+    infra/cloud/api/UploadsApi.cpp
     infra/cloud/api/ReasonCatalogApi.cpp
     infra/cloud/api/PrintOrderApi.cpp
     infra/cloud/api/CloudLegacyImpl.cpp
@@ -79,6 +80,7 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/LoadCloudQuotaUseCase.cpp
     app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
     app/usecases/cloud/GetDownloadUrlUseCase.cpp
+    app/usecases/cloud/UploadLocalFileUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
     app/usecases/cloud/FetchPrinterDetailsUseCase.cpp
@@ -203,6 +205,10 @@ if(ACCLOUD_ENABLE_QT)
       add_test(
         NAME accloud_ui_qml
         COMMAND accloud_qml_tests -platform offscreen
+      )
+      add_test(
+        NAME accloud_ui_qml_upload
+        COMMAND accloud_qml_tests -platform offscreen -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml/tst_cloud_files_upload.qml
       )
     else()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")

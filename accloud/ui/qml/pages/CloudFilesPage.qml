@@ -432,6 +432,89 @@ Item {
         root.printIntentRequested(normalizedFileId, normalizedFileName)
     }
 
+    function pickUploadFile() {
+        if (uploadOverlay.visible)
+            return
+        uploadFileDialog.open()
+    }
+
+    function uploadInputToDisplayName(fileInput) {
+        var raw = String(fileInput || "").trim()
+        if (raw.length === 0)
+            return ""
+
+        var stripped = raw.replace(/^file:\/\/localhost/i, "file://")
+        if (stripped.indexOf("file://") === 0)
+            stripped = stripped.replace(/^file:\/\//i, "")
+
+        var tail = stripped.split("/").pop()
+        if (tail.length === 0)
+            tail = stripped
+        tail = tail.replace(/[?#].*$/, "")
+        try {
+            return decodeURIComponent(tail)
+        } catch (err) {
+            return tail
+        }
+    }
+
+    function uploadIsReady(uploadStatus, gcodeId) {
+        return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
+    }
+
+    function uploadSelectedLocalFile(fileUrl) {
+        var selectedInput = String(fileUrl || "").trim()
+        if (selectedInput.length === 0) {
+            root.statusMsg = qsTr("No file selected.")
+            root.statusSev = "warn"
+            return
+        }
+
+        var fileName = uploadInputToDisplayName(selectedInput)
+        if (!hasCloudBridge()) {
+            root.statusMsg = qsTr("Selected for upload: %1").arg(fileName)
+            root.statusSev = "info"
+            return
+        }
+
+        if (typeof cloudBridge.startUploadLocalFile === "function") {
+            uploadOverlay.fileName = fileName
+            uploadOverlay.phase = qsTr("Starting upload...")
+            uploadOverlay.progress = 0
+            uploadOverlay.visible = true
+            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
+            root.statusSev = "info"
+            cloudBridge.startUploadLocalFile(selectedInput)
+            return
+        }
+
+        if (typeof cloudBridge.uploadLocalFile === "function") {
+            root.loading = true
+            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
+            root.statusSev = "info"
+            var r = cloudBridge.uploadLocalFile(selectedInput)
+            root.loading = false
+
+            if (r.ok === true) {
+                var backendMessage = String(r.message || "").trim()
+                var ready = uploadIsReady(r.uploadStatus, r.gcodeId)
+                root.statusMsg = backendMessage.length > 0
+                        ? backendMessage
+                        : (ready ? qsTr("Uploaded: %1").arg(fileName)
+                                 : qsTr("Upload transferred. Cloud processing in progress."))
+                root.statusSev = (!ready || r.unlockOk === false) ? "warn" : "success"
+                loadFiles()
+            } else {
+                root.statusMsg = qsTr("Upload failed: ") + String(r.message)
+                root.statusSev = "error"
+            }
+            return
+        }
+
+        root.statusMsg = qsTr("Upload unavailable without backend.")
+        root.statusSev = "warn"
+    }
+
     function loadMockFiles() {
         root.currentPage = 0
         cloudFilesModel.clear()
@@ -591,6 +674,30 @@ Item {
             }
         }
 
+        function onUploadProgressChanged(progress, phase) {
+            uploadOverlay.progress = Math.max(0, Math.min(1, Number(progress)))
+            uploadOverlay.phase = String(phase || "")
+            if (!uploadOverlay.visible)
+                uploadOverlay.visible = true
+        }
+
+        function onUploadFinished(ok, message, fileId, gcodeId, uploadStatus, unlockOk) {
+            uploadOverlay.visible = false
+            var backendMessage = String(message || "").trim()
+            if (ok) {
+                var ready = uploadIsReady(uploadStatus, gcodeId)
+                root.statusMsg = backendMessage.length > 0
+                        ? backendMessage
+                        : (ready ? qsTr("Upload completed.")
+                                 : qsTr("Upload transferred. Cloud processing in progress."))
+                root.statusSev = (!ready || unlockOk === false) ? "warn" : "success"
+                root.loadFiles()
+            } else {
+                root.statusMsg = qsTr("Upload failed: ") + backendMessage
+                root.statusSev = "error"
+            }
+        }
+
         function onFilesUpdatedFromCloud(files, message) {
             cloudFilesModel.clear()
             var list = files !== undefined ? files : []
@@ -677,6 +784,22 @@ Item {
     }
 
     FileDialog {
+        id: uploadFileDialog
+        title: qsTr("Select file to upload")
+        fileMode: FileDialog.OpenFile
+        options: FileDialog.DontUseNativeDialog
+        nameFilters: [
+            qsTr("Slice files (*.photon *.pws *.pwsz *.photons *.pw0 *.pwx *.pwmo *.pwma *.pwms *.pwmx *.pmx2 *.pmsq *.dlp *.dl2p *.pwmb *.pm3 *.pm3m *.pm3r *.pm3n *.px6s *.pm5 *.pm5s *.m5sp)"),
+            qsTr("All files (*)")
+        ]
+        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+
+        onAccepted: {
+            root.uploadSelectedLocalFile(selectedFile)
+        }
+    }
+
+    FileDialog {
         id: saveDialog
         property string pendingUrl: ""
         property string suggestName: "file"
@@ -700,6 +823,67 @@ Item {
             downloadOverlay.received = 0
             downloadOverlay.total = 0
             cloudBridge.startDownload(pendingUrl, dest)
+        }
+    }
+
+    Rectangle {
+        id: uploadOverlay
+        anchors.fill: parent
+        color: Theme.overlayScrim
+        visible: false
+        z: 21
+
+        property real progress: 0
+        property string phase: ""
+        property string fileName: ""
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 420
+            height: 180
+            radius: Theme.radiusDialog
+            color: Theme.bgDialog
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.paddingDialog
+                spacing: Theme.gapRow
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Uploading file...")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontSectionPx
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: uploadOverlay.fileName
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                    elide: Text.ElideMiddle
+                }
+
+                ProgressBar {
+                    from: 0
+                    to: 1
+                    value: uploadOverlay.progress
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: uploadOverlay.phase.length > 0
+                          ? uploadOverlay.phase
+                          : qsTr("Preparing upload...")
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                    wrapMode: Text.WordWrap
+                }
+            }
         }
     }
 
@@ -797,8 +981,7 @@ Item {
                 }
             }
             onUploadRequested: {
-                root.statusMsg = qsTr("Upload workflow will be connected in next lot.")
-                root.statusSev = "warn"
+                root.pickUploadFile()
             }
             onTypeFilterSelected: function(index, code) {
                 root.typeFilterValue = code
