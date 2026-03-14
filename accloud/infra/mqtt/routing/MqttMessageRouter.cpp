@@ -86,10 +86,10 @@ std::optional<std::string> firstStringField(const nlohmann::json& object,
 }
 
 bool isKnownPrintState(const std::string& state) {
-    static const std::array<const char*, 13> kStates = {
+    static const std::array<const char*, 14> kStates = {
         "downloading", "checking", "preheating", "printing", "pausing",
         "paused", "resuming", "resumed", "finished", "stoped",
-        "stopping", "updated", "failed",
+        "stopping", "updated", "failed", "monitoring",
     };
     return std::any_of(kStates.begin(), kStates.end(), [&](const char* v) {
         return state == v;
@@ -183,9 +183,9 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
         event.printState = mapPrintState(env.state);
     }
     event.progress = firstIntField(env.data, {"progress", "print_progress", "percent", "percentage"});
-    event.elapsedSec = firstIntField(env.data, {"elapsed_sec", "elapsed_time", "used_time", "duration"});
-    event.remainingSec = firstIntField(env.data, {"remaining_sec", "remaining_time", "left_time"});
-    event.currentLayer = firstIntField(env.data, {"current_layer", "layer_now", "layer"});
+    event.elapsedSec = firstIntField(env.data, {"elapsed_sec", "elapsed_time", "used_time", "duration", "print_time"});
+    event.remainingSec = firstIntField(env.data, {"remaining_sec", "remaining_time", "left_time", "remain_time", "remain_sec"});
+    event.currentLayer = firstIntField(env.data, {"current_layer", "curr_layer", "layer_now", "layer"});
     event.totalLayers = firstIntField(env.data, {"total_layers", "layer_total", "total_layer"});
     event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
     event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
@@ -282,6 +282,7 @@ std::optional<accloud::realtime::PrintState> MqttMessageRouter::mapPrintState(co
     if (lowered == "stopping") return accloud::realtime::PrintState::Stopping;
     if (lowered == "updated") return accloud::realtime::PrintState::Updated;
     if (lowered == "failed") return accloud::realtime::PrintState::Failed;
+    if (lowered == "monitoring") return accloud::realtime::PrintState::Printing;
     return accloud::realtime::PrintState::Unknown;
 }
 
@@ -363,6 +364,13 @@ std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::strin
 
     // anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/...
     if (parts.size() >= 7 && parts[4] == "public") {
+        if (!parts[6].empty()) {
+            return parts[6];
+        }
+    }
+
+    // anycubic/anycubicCloud/v1/slicer/printer/<machine_type>/<printer_key>/...
+    if (parts.size() >= 7 && parts[3] == "slicer" && parts[4] == "printer") {
         if (!parts[6].empty()) {
             return parts[6];
         }

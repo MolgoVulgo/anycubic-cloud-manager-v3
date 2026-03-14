@@ -55,6 +55,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/PrintersApi.cpp
     infra/cloud/api/ProjectsApi.cpp
     infra/cloud/api/DownloadsApi.cpp
+    infra/cloud/api/UploadsApi.cpp
     infra/cloud/api/ReasonCatalogApi.cpp
     infra/cloud/api/PrintOrderApi.cpp
     infra/cloud/api/CloudLegacyImpl.cpp
@@ -79,12 +80,14 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/LoadCloudQuotaUseCase.cpp
     app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
     app/usecases/cloud/GetDownloadUrlUseCase.cpp
+    app/usecases/cloud/UploadLocalFileUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
     app/usecases/cloud/FetchPrinterDetailsUseCase.cpp
     app/usecases/cloud/FetchReasonCatalogUseCase.cpp
     app/usecases/cloud/FetchPrinterProjectsUseCase.cpp
     app/usecases/cloud/SendPrintOrderUseCase.cpp
+    app/usecases/cloud/SendPrinterOrderUseCase.cpp
     app/usecases/cloud/DeleteCloudFileUseCase.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
@@ -204,6 +207,10 @@ if(ACCLOUD_ENABLE_QT)
         NAME accloud_ui_qml
         COMMAND accloud_qml_tests -platform offscreen
       )
+      add_test(
+        NAME accloud_ui_qml_upload
+        COMMAND accloud_qml_tests -platform offscreen -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml/tst_cloud_files_upload.qml
+      )
     else()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
     endif()
@@ -234,6 +241,40 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_har_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)
+
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Sql)
+  add_executable(accloud_cloud_core_tests
+      tests/cloud/test_cloud_core_regressions.cpp
+      app/LocalCacheStore.cpp
+  )
+  target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
+  add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)
+else()
+  message(WARNING "Qt6::Sql unavailable: skipping accloud_cloud_core_regressions test")
+endif()
+
+add_executable(accloud_security_tests
+    tests/cloud/test_redactor.cpp
+)
+target_link_libraries(accloud_security_tests PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_security_tests PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_security_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
+
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_log_tests
+      tests/cloud/test_log_bridge.cpp
+      app/LogBridge.cpp
+  )
+  target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
+  add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
+else()
+  message(WARNING "Qt6::Core unavailable: skipping accloud_log_flow regression guard test")
+endif()
 
 add_executable(accloud_mqtt_tests
     tests/mqtt/test_mqtt_flow.cpp

@@ -26,10 +26,11 @@ Rectangle {
     property var unixTimeTextProvider: null
     property var printStatusTextProvider: null
     property var prettyJsonProvider: null
+    property var localizedTextProvider: null
     property bool embeddedInTabsContainer: false
 
     signal cloudFileRequested(string printerId)
-    signal localFileRequested()
+    signal localFileRequested(string printerId)
 
     function providerText(provider, arg, fallback) {
         return typeof provider === "function" ? String(provider(arg)) : fallback
@@ -46,6 +47,27 @@ Rectangle {
         if (!isFinite(n) || n < 0)
             return -1
         return Math.round(n)
+    }
+
+    function localizedText(value) {
+        var raw = String(value === undefined || value === null ? "" : value)
+        if (typeof root.localizedTextProvider === "function")
+            return String(root.localizedTextProvider(raw))
+        return raw
+    }
+
+    function localizedListText(values, maxItems) {
+        if (!values || values.length === undefined || values.length <= 0)
+            return ""
+        var list = []
+        var cap = Number(maxItems)
+        if (!isFinite(cap) || cap <= 0)
+            cap = values.length
+        var upper = Math.min(values.length, cap)
+        for (var i = 0; i < upper; ++i) {
+            list.push(localizedText(values[i]))
+        }
+        return list.join(", ")
     }
 
     function layersProgressText(printer) {
@@ -327,9 +349,7 @@ Rectangle {
                         Text {
                             visible: Number(root.selectedPrinterDetails.tools ? root.selectedPrinterDetails.tools.length : 0) > 0
                             text: qsTr("Tools: ")
-                                  + (root.selectedPrinterDetails.tools
-                                     ? root.selectedPrinterDetails.tools.slice(0, 6).join(", ")
-                                     : "")
+                                  + root.localizedListText(root.selectedPrinterDetails.tools, 6)
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                             wrapMode: Text.WordWrap
@@ -338,9 +358,7 @@ Rectangle {
                         Text {
                             visible: Number(root.selectedPrinterDetails.advances ? root.selectedPrinterDetails.advances.length : 0) > 0
                             text: qsTr("Advanced: ")
-                                  + (root.selectedPrinterDetails.advances
-                                     ? root.selectedPrinterDetails.advances.slice(0, 4).join(", ")
-                                     : "")
+                                  + root.localizedListText(root.selectedPrinterDetails.advances, 4)
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                             wrapMode: Text.WordWrap
@@ -362,7 +380,10 @@ Rectangle {
                             AppButton {
                                 text: qsTr("From Local File")
                                 variant: "secondary"
-                                onClicked: root.localFileRequested()
+                                onClicked: root.localFileRequested(
+                                               String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                      ? root.selectedPrinter.id
+                                                      : ""))
                             }
                         }
                     }

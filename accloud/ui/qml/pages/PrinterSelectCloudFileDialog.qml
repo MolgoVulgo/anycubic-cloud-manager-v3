@@ -6,11 +6,16 @@ import "../components"
 
 AppDialogFrame {
     id: root
-    title: qsTr("Select Cloud File")
-    subtitle: qsTr("Compatible files for the selected printer")
+    title: root.dialogTitle
+    subtitle: root.dialogSubtitle
     minimumWidth: 820
     maximumWidth: 980
+    minimumHeight: 560
 
+    property string dialogTitle: qsTr("Select Cloud File")
+    property string dialogSubtitle: qsTr("Compatible files for the selected printer")
+    property string emptyText: qsTr("No compatible cloud file for this printer.")
+    property string startButtonText: qsTr("Start Printing")
     property var filesModel: null
     property string selectedFileId: ""
     property var fileTypeProvider: null
@@ -46,6 +51,8 @@ AppDialogFrame {
     ListView {
         Layout.fillWidth: true
         Layout.fillHeight: true
+        Layout.minimumHeight: 280
+        Layout.preferredHeight: 360
         clip: true
         model: root.filesModel
         spacing: 0
@@ -105,7 +112,7 @@ AppDialogFrame {
         footer: Text {
             width: parent ? parent.width : 0
             visible: root.filesModel && root.filesModel.count === 0
-            text: qsTr("No compatible cloud file for this printer.")
+            text: root.emptyText
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontBodyPx
             horizontalAlignment: Text.AlignHCenter
@@ -121,7 +128,7 @@ AppDialogFrame {
             onClicked: root.closeRequested()
         },
         AppButton {
-            text: qsTr("Start Printing")
+            text: root.startButtonText
             variant: "primary"
             enabled: root.selectedFileId.length > 0
             onClicked: root.startRequested()

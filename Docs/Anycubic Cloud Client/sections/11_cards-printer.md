@@ -26,7 +26,7 @@
 
 4) **Actions**
 - `From Cloud File` (principal).
-- `From Local File` (secondaire, placeholder possible).
+- `From Local File` (secondaire, listing local imprimante via `order_id=103`).
 
 5) **Historique recent**
 - Liste compacte des derniers projets de l'imprimante (task/status/progress/start/end).
@@ -43,3 +43,5 @@
 - JSON debug dans la zone principale utilisateur.
 - Trop de metriques simultanees qui degradent la lisibilite.
 - Status visuel sans texte.
+
+Reference snapshot: `Docs/print_tab_official_logs_snapshot.md`

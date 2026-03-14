@@ -85,6 +85,11 @@ ctest --preset default -R accloud_mqtt_flow --output-on-failure
 - Si un changement impacte le debug MQTT ou le comportement utilisateur, mettre à jour la doc associée dans `Docs/`
 - En cas de doute architectural, préférer une correction minimale dans le module déjà responsable
 
+### Collaboration obligatoire
+
+- Ne jamais générer du code en solo
+- Toujours détailler ce qui va être fait avant toute modification de code
+
 ---
 
 ## Validation attendue
@@ -133,7 +138,9 @@ Style attendu :
 ## Commits Git
 
 - Faire des commits par unité logique cohérente et testable
+- Ne jamais faire de commit automatiquement sans demande explicite de l’utilisateur
 - Messages en anglais
+- ne jamais les pousser soi meme toujours demander
 - Conventional commit recommandé :
 
 ```text
@@ -161,4 +168,3 @@ Style attendu :
 Tests: <commande> (<résultat>)
 Docs: <liste de fichiers ou "none">
 ```
-

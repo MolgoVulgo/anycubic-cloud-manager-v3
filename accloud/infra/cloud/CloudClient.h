@@ -247,4 +247,12 @@ CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
                                           const std::string& fileId,
                                           bool deleteAfterPrint);
 
+// Envoi generique d'une commande sendOrder (printer local files, usb files, etc.)
+CloudPrintOrderResult sendCloudPrinterOrder(const std::string& accessToken,
+                                            const std::string& xxToken,
+                                            const std::string& printerId,
+                                            int orderId,
+                                            const std::string& projectId,
+                                            const std::string& dataJson = {});
+
 } // namespace accloud::cloud

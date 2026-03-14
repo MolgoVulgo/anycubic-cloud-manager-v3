@@ -53,7 +53,7 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
                        || event.state == "downloading" || event.state == "checking"
                        || event.state == "pausing" || event.state == "paused"
                        || event.state == "resuming" || event.state == "resumed"
-                       || event.state == "stopping") {
+                       || event.state == "stopping" || event.state == "monitoring") {
                 snapshot.state = std::string("PRINTING");
             }
         }

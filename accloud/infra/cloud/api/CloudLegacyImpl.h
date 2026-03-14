@@ -53,4 +53,11 @@ CloudPrintOrderResult legacySendCloudPrintOrder(const std::string& accessToken,
                                                 const std::string& fileId,
                                                 bool deleteAfterPrint);
 
+CloudPrintOrderResult legacySendCloudPrinterOrder(const std::string& accessToken,
+                                                  const std::string& xxToken,
+                                                  const std::string& printerId,
+                                                  int orderId,
+                                                  const std::string& projectId,
+                                                  const std::string& dataJson);
+
 } // namespace accloud::cloud::api::legacy

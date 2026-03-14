@@ -1747,6 +1747,49 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         <source>Endpoint JSON: </source>
         <translation>JSON du point de terminaison : </translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="385" />
+        <source>MQTT details: %1</source>
+        <translation>Détails MQTT : %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="388" />
+        <source>MQTT bridge unavailable.</source>
+        <translation>Passerelle MQTT indisponible.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="396" />
+        <source>Missing printer identifier.</source>
+        <translation>Identifiant d'imprimante manquant.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="409" />
+        <source>No MQTT message captured yet for this printer.</source>
+        <translation>Aucun message MQTT capturé pour cette imprimante.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="422" />
+        <source>No MQTT payload available for matched topics.</source>
+        <translation>Aucune charge utile MQTT disponible pour les topics correspondants.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1408" />
+        <source>MQTT details</source>
+        <translation>Détails MQTT</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1409" />
+        <source>All captured broker messages for this printer</source>
+        <translation>Tous les messages broker capturés pour cette imprimante</translation>
+    </message>
+</context>
+<context>
+    <name>PrintersTabsBar</name>
+    <message>
+        <location filename="../ui/qml/pages/PrintersTabsBar.qml" line="78" />
+        <source>Details: %1</source>
+        <translation>Détails : %1</translation>
+    </message>
 </context>
 <context>
     <name>SectionHeader</name>
