@@ -26,6 +26,26 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
+Core regression guard run (MQTT + LOG + HAR + CLOUD CORE + SECURITY):
+
+```bash
+./tools/ci/run_core_tests.sh
+```
+
+MQTT topics baseline guard:
+- The fixture-based regression test currently asserts 6 topics
+  (2 user topics + 2 printer topics x 2 printers).
+- This is the baseline as of 2026-03-14.
+- If Anycubic evolves topic contracts, update the test in the same commit as MQTT adaptation.
+
+Cloud core regression guards:
+- Response envelope parser contract (`code/msg/data` and invalid payload handling).
+- Local cache store roundtrip and sync-state behavior (`ACCLOUD_DB_PATH` isolated temp DB).
+- Order response tracker lifecycle (duplicate msgid, timeout, ambiguous fallback).
+
+Security regression guards:
+- Sensitive key/value and message token redaction checks.
+
 When Qt6 is unavailable, the build falls back to a headless skeleton mode.
 
 ### Debug tooling split

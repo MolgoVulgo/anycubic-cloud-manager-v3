@@ -79,6 +79,11 @@ public:
                                            const QString& fileId,
                                            bool deleteAfterPrint = false,
                                            bool dryRun = false) const;
+    // Retourne { ok, message, taskId, msgId }
+    Q_INVOKABLE QVariantMap sendPrinterOrder(const QString& printerId,
+                                             int orderId,
+                                             const QVariantMap& data = QVariantMap(),
+                                             const QString& projectId = QString()) const;
 
     // ── Téléchargement asynchrone ─────────────────────────────────────────
     // signedUrl : URL obtenue via getDownloadUrl()

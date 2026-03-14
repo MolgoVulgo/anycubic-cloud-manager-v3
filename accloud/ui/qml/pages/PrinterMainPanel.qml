@@ -27,13 +27,14 @@ AppPageFrame {
     property var unixTimeTextProvider: null
     property var printStatusTextProvider: null
     property var prettyJsonProvider: null
+    property var localizedTextProvider: null
 
     signal refreshRequested()
     signal debugToggled(bool checked)
     signal printerSelected(string printerId)
     signal printerMqttDetailsRequested(string printerId)
     signal cloudFileRequested(string printerId)
-    signal localFileRequested()
+    signal localFileRequested(string printerId)
 
     component DebugTag: Rectangle {
         property string label: ""
@@ -119,8 +120,9 @@ AppPageFrame {
                 unixTimeTextProvider: root.unixTimeTextProvider
                 printStatusTextProvider: root.printStatusTextProvider
                 prettyJsonProvider: root.prettyJsonProvider
+                localizedTextProvider: root.localizedTextProvider
                 onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
-                onLocalFileRequested: root.localFileRequested()
+                onLocalFileRequested: function(printerId) { root.localFileRequested(printerId) }
             }
         }
     }

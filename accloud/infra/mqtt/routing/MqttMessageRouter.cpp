@@ -369,6 +369,13 @@ std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::strin
         }
     }
 
+    // anycubic/anycubicCloud/v1/slicer/printer/<machine_type>/<printer_key>/...
+    if (parts.size() >= 7 && parts[3] == "slicer" && parts[4] == "printer") {
+        if (!parts[6].empty()) {
+            return parts[6];
+        }
+    }
+
     return std::nullopt;
 }
 
