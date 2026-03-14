@@ -242,6 +242,15 @@ if(ACCLOUD_CRYPT_LIBRARY)
 endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)
 
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_log_tests
+      tests/cloud/test_log_bridge.cpp
+      app/LogBridge.cpp
+  )
+  target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
+  add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
+endif()
+
 add_executable(accloud_mqtt_tests
     tests/mqtt/test_mqtt_flow.cpp
 )
