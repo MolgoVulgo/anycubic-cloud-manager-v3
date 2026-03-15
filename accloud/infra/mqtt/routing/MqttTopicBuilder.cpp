@@ -50,11 +50,20 @@ std::vector<std::string> MqttTopicBuilder::buildUserReportTopics(const std::stri
 }
 
 std::vector<std::string> MqttTopicBuilder::buildPrinterSubscriptionTopics(const std::string& machineType,
-                                                                          const std::string& deviceId) {
+                                                                          const std::string& deviceId,
+                                                                          bool includeExtendedTopics) {
     const std::string mt = trimAscii(machineType);
     const std::string did = trimAscii(deviceId);
     if (mt.empty() || did.empty()) {
         return {};
+    }
+
+    std::vector<std::string> topics = {
+        "anycubic/anycubicCloud/v1/printer/public/" + mt + "/" + did + "/#",
+        "anycubic/anycubicCloud/v1/+/public/" + mt + "/" + did + "/#",
+    };
+    if (!includeExtendedTopics) {
+        return topics;
     }
 
     static constexpr std::array<const char*, 14> kCommandEndpoints = {
@@ -78,8 +87,7 @@ std::vector<std::string> MqttTopicBuilder::buildPrinterSubscriptionTopics(const 
         "user",
         "video",
     };
-    std::vector<std::string> topics;
-    topics.reserve(kCommandEndpoints.size() + kServerEndpoints.size() + 2);
+    topics.reserve(topics.size() + kCommandEndpoints.size() + kServerEndpoints.size() + 2);
 
     for (const char* endpoint : kCommandEndpoints) {
         topics.push_back(joinTopic("anycubic/anycubicCloud/v1/+/printer/", mt, did, endpoint));

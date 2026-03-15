@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <future>
 #include <vector>
 
@@ -44,6 +45,18 @@ std::string trimAscii(std::string value) {
     value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
     value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
     return value;
+}
+
+bool shouldEnableExtendedTopicsFromEnv() {
+    const char* raw = std::getenv("ACCLOUD_MQTT_EXTENDED_TOPICS");
+    if (raw == nullptr) {
+        return false;
+    }
+    std::string v = trimAscii(raw);
+    std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return v == "1" || v == "true" || v == "yes" || v == "on";
 }
 
 accloud::mqtt::core::MqttSessionManager& sessionManager() {
@@ -298,6 +311,7 @@ PreparedMqttProfile buildPreparedProfile() {
     const std::string userMd5 = md5LowerHex(userId);
     out.subscriptions = mqtt::routing::MqttTopicBuilder::buildUserReportTopics(userId, userMd5);
 
+    const bool includeExtendedTopics = shouldEnableExtendedTopicsFromEnv();
     usecases::cloud::LoadPrintersDashboardUseCase printersUseCase;
     const auto dashboard = printersUseCase.execute();
     if (dashboard.ok) {
@@ -324,7 +338,7 @@ PreparedMqttProfile buildPreparedProfile() {
                 continue;
             }
             const auto printerTopics = mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
-                machineType, deviceId);
+                machineType, deviceId, includeExtendedTopics);
             out.subscriptions.insert(out.subscriptions.end(), printerTopics.begin(), printerTopics.end());
         }
         const std::set<std::string> uniqueTopics(out.subscriptions.begin(), out.subscriptions.end());
@@ -339,6 +353,7 @@ PreparedMqttProfile buildPreparedProfile() {
                           {"skipped_duplicate_target", std::to_string(skippedDuplicateTarget)},
                           {"topics_total", std::to_string(out.subscriptions.size())},
                           {"topics_unique", std::to_string(uniqueTopics.size())},
+                          {"extended_topics", includeExtendedTopics ? "1" : "0"},
                       });
     }
 
@@ -951,6 +966,7 @@ void MqttBridge::refreshDynamicSubscriptions() {
         return;
     }
 
+    const bool includeExtendedTopics = shouldEnableExtendedTopicsFromEnv();
     usecases::cloud::LoadPrintersDashboardUseCase printersUseCase;
     const auto dashboard = printersUseCase.execute();
     if (!dashboard.ok) {
@@ -982,7 +998,7 @@ void MqttBridge::refreshDynamicSubscriptions() {
             continue;
         }
         const auto printerTopics = mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
-            machineType, deviceId);
+            machineType, deviceId, includeExtendedTopics);
         topics.insert(topics.end(), printerTopics.begin(), printerTopics.end());
     }
     m_printerKeyToId = std::move(keyToId);
@@ -1011,6 +1027,7 @@ void MqttBridge::refreshDynamicSubscriptions() {
                       {"topics_unique", std::to_string(uniqueTopics.size())},
                       {"topics_newly_tracked", std::to_string(newlyTracked.size())},
                       {"topics_newly_applied", std::to_string(added)},
+                      {"extended_topics", includeExtendedTopics ? "1" : "0"},
                   });
     if (!newlyTracked.empty()) {
         for (const auto& topic : newlyTracked) {
