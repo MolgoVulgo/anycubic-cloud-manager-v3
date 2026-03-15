@@ -191,6 +191,15 @@ L’UI et la logique métier ne doivent jamais reconstruire ces éléments.
 
 ### 5.6 Souscriptions MQTT
 
+#### Reference firmware complete (M7 / PRO / MAX / M4 ULTRA)
+
+La liste complete des topics extraite firmware est maintenue dans :
+- `Docs/MQTT/apk_1.1.27_mqtt_analysis/mqtt_topics_inventory.md` (section 6)
+
+Convention de placeholders utilisee dans cette liste :
+- `%s` = `deviceId` numerique
+- `%d` = type/modele imprimante
+
 #### Topics de niveau utilisateur
 
 Souscriptions à prévoir pour les retours liés au compte :
@@ -204,10 +213,14 @@ Ces topics servent principalement aux flux transverses rattachés au compte util
 
 Souscriptions à prévoir pour chaque imprimante surveillée :
 
-- `anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/#`
-- `anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/#`
+- famille `anycubic/anycubicCloud/v1/+/printer/<type>/<deviceId>/<endpoint>`
+- famille `anycubic/anycubicCloud/v1/server/printer/<type>/<deviceId>/<endpoint>`
+- famille `anycubic/anycubicCloud/v1/printer/public/<type>/<deviceId>/<endpoint>/report`
+- compat legacy :
+  - `anycubic/anycubicCloud/+/printer/<type>/<deviceId>/print`
+  - `anycubic/anycubicCloud/printer/public/<type>/<deviceId>/online/status`
 
-Ces topics sont la base du suivi temps réel des imprimantes.
+Le detail exhaustif des endpoints est maintenu dans l'inventaire firmware (section 6).
 
 #### Remarque de cadrage
 
@@ -1040,4 +1053,3 @@ Elle doit :
 - résister aux évolutions de protocole ;
 - capturer le maximum d’informations réelles ;
 - permettre une montée en couverture méthodique, notamment pour la M7.
-

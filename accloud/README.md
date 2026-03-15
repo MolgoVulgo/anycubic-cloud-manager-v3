@@ -35,8 +35,12 @@ Core regression guard run (MQTT + LOG + HAR + CLOUD CORE + SECURITY):
 MQTT topics baseline guard:
 - The fixture-based regression test currently asserts 6 topics
   (2 user topics + 2 printer topics x 2 printers).
-- This is the baseline as of 2026-03-14.
+- This is the baseline as of 2026-03-15.
 - If Anycubic evolves topic contracts, update the test in the same commit as MQTT adaptation.
+
+MQTT topic modes:
+- Default (stable): user report topics + printer wildcard topics only.
+- Extended (optional): set `ACCLOUD_MQTT_EXTENDED_TOPICS=1` to enable extra topic families for diagnostics/interop.
 
 Cloud core regression guards:
 - Response envelope parser contract (`code/msg/data` and invalid payload handling).
