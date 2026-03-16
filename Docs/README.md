@@ -34,6 +34,8 @@ Ce fichier devient le point d'entree unique de la documentation du depot.
 - [Vue UI centrale](./ui_views.md) - `IMPLEMENTE`
 - [Spec visuelle Cloud + Remote Print](./ui_spec_cloud_remote_print_visual.md) - `SPEC`
 - [Implementation lots 1 a 5](./ui_lots_1_5_implementation.md) - `IMPLEMENTE`
+- [Printer live remote print flow](./printer_live_remote_print_flow.md) - `IMPLEMENTE`
+- [Print tab official logs snapshot](./print_tab_official_logs_snapshot.md) - `SNAPSHOT`
 - [Anycubic Cloud Client (sections)](./Anycubic%20Cloud%20Client/README.md) - `IMPLEMENTE`
 
 ### UI (Photon Viewer)

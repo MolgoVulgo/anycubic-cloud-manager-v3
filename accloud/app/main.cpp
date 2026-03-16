@@ -9,8 +9,10 @@
 #if defined(ACCLOUD_WITH_QT)
 #include "AppI18nBridge.h"
 #include "CloudBridge.h"
+#include "MqttBridge.h"
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
+#include "infra/mqtt/core/OpenSslCompat.h"
 #if defined(ACCLOUD_DEBUG)
 #include "LogBridge.h"
 #include "UiClickTracer.h"
@@ -126,51 +128,81 @@ int main(int argc, char** argv) {
   }
 
 #if defined(ACCLOUD_WITH_QT)
-  QGuiApplication app(argc, argv);
-  qInstallMessageHandler(qtMessageHandler);
-  {
-    QStringList formats;
-    const auto supported = QImageReader::supportedImageFormats();
-    for (const QByteArray& f : supported) {
-      formats.append(QString::fromLatin1(f).toLower());
-    }
-    accloud::logging::info("app", "bootstrap", "image_formats",
-                           "QImageReader supported formats",
-                           {{"formats", formats.join(',').toStdString()}});
+  const char* controlsStyle = std::getenv("QT_QUICK_CONTROLS_STYLE");
+  if (controlsStyle == nullptr || *controlsStyle == '\0') {
+#if defined(_WIN32)
+    _putenv_s("QT_QUICK_CONTROLS_STYLE", "Fusion");
+#else
+    setenv("QT_QUICK_CONTROLS_STYLE", "Fusion", 0);
+#endif
+    accloud::logging::info("app", "bootstrap", "qt_controls_style_defaulted",
+                           "Defaulted Qt Quick Controls style to Fusion",
+                           {{"style", "Fusion"}});
   }
-#if defined(ACCLOUD_DEBUG)
-  accloud::UiClickTracer uiClickTracer;
-  app.installEventFilter(&uiClickTracer);
-#endif
-  accloud::logging::info("app", "bootstrap", "qt_initialized", "Qt GUI initialized",
-                         {{"log_dir", accloud::logging::logDirectory().string()}});
 
-  QQmlApplicationEngine engine;
-  accloud::SessionImportBridge sessionImportBridge;
-  accloud::CloudBridge cloudBridge;
+  {
+    const auto opensslCompat = accloud::mqtt::core::ensureOpenSslSecurityLevelCompat(
+        accloud::mqtt::core::shouldEnableMqttOpenSslCompatFromEnv());
+    if (!opensslCompat.ok) {
+      accloud::logging::warn("app", "bootstrap", "openssl_compat_apply_failed",
+                             "Unable to apply OpenSSL SECLEVEL=0 compatibility profile",
+                             {{"code", opensslCompat.code},
+                              {"detail", opensslCompat.message}});
+    } else if (opensslCompat.applied) {
+      accloud::logging::info("app", "bootstrap", "openssl_compat_applied",
+                             "Applied OpenSSL SECLEVEL=0 compatibility profile",
+                             {{"conf_path", opensslCompat.configPath}});
+    }
+
+    QGuiApplication app(argc, argv);
+    qInstallMessageHandler(qtMessageHandler);
+    {
+      QStringList formats;
+      const auto supported = QImageReader::supportedImageFormats();
+      for (const QByteArray& f : supported) {
+        formats.append(QString::fromLatin1(f).toLower());
+      }
+      accloud::logging::info("app", "bootstrap", "image_formats",
+                             "QImageReader supported formats",
+                             {{"formats", formats.join(',').toStdString()}});
+    }
 #if defined(ACCLOUD_DEBUG)
-  accloud::LogBridge logBridge;
+    accloud::UiClickTracer uiClickTracer;
+    app.installEventFilter(&uiClickTracer);
 #endif
-  accloud::UiSettingsBridge uiSettingsBridge;
-  accloud::AppI18nBridge appI18nBridge(&app, &engine);
-  appI18nBridge.applyStartupLanguage();
-  engine.rootContext()->setContextProperty("accloudBuildDebugEnabled",
-                                           kBuildDebugEnabled);
-  engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
-  engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
+    accloud::logging::info("app", "bootstrap", "qt_initialized", "Qt GUI initialized",
+                           {{"log_dir", accloud::logging::logDirectory().string()}});
+
+    QQmlApplicationEngine engine;
+    accloud::SessionImportBridge sessionImportBridge;
+    accloud::CloudBridge cloudBridge;
+    accloud::MqttBridge mqttBridge;
 #if defined(ACCLOUD_DEBUG)
-  engine.rootContext()->setContextProperty("logBridge", &logBridge);
+    accloud::LogBridge logBridge;
 #endif
-  engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
-  engine.rootContext()->setContextProperty("appI18nBridge", &appI18nBridge);
-  engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));
-  if (engine.rootObjects().isEmpty()) {
-    accloud::logging::error("app", "bootstrap", "qml_load_failed",
-                            "No QML root object returned by engine");
-    exitCode = 1;
-  } else {
-    accloud::logging::info("app", "bootstrap", "qml_loaded", "MainWindow QML loaded");
-    exitCode = app.exec();
+    accloud::UiSettingsBridge uiSettingsBridge;
+    accloud::AppI18nBridge appI18nBridge(&app, &engine);
+    appI18nBridge.applyStartupLanguage();
+    engine.rootContext()->setContextProperty("accloudBuildDebugEnabled",
+                                             kBuildDebugEnabled);
+    engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
+    engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
+    engine.rootContext()->setContextProperty("mqttBridge", &mqttBridge);
+#if defined(ACCLOUD_DEBUG)
+    engine.rootContext()->setContextProperty("logBridge", &logBridge);
+#endif
+    engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
+    engine.rootContext()->setContextProperty("appI18nBridge", &appI18nBridge);
+    engine.load(QUrl(QStringLiteral("qrc:/qml/MainWindow.qml")));
+    if (engine.rootObjects().isEmpty()) {
+      accloud::logging::error("app", "bootstrap", "qml_load_failed",
+                              "No QML root object returned by engine");
+      exitCode = 1;
+    } else {
+      accloud::logging::info("app", "bootstrap", "qml_loaded", "MainWindow QML loaded");
+      exitCode = app.exec();
+    }
+    qInstallMessageHandler(nullptr);
   }
 #else
   accloud::logging::warn("app", "bootstrap", "headless_mode", "Qt disabled, running headless CLI");

@@ -36,6 +36,29 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/CloudClient.cpp
     infra/cloud/HarImporter.cpp
     infra/cloud/SignHeaders.cpp
+    infra/cloud/core/HttpClient.cpp
+    infra/cloud/core/WorkbenchSigner.cpp
+    infra/cloud/core/WorkbenchRequestBuilder.cpp
+    infra/cloud/core/EndpointRegistry.cpp
+    infra/cloud/core/ResponseEnvelopeParser.cpp
+    infra/cloud/core/SessionProvider.cpp
+    infra/mqtt/core/TlsMaterialProvider.cpp
+    infra/mqtt/core/MqttSessionManager.cpp
+    infra/mqtt/core/MqttCredentialProvider.cpp
+    infra/mqtt/routing/MqttTopicBuilder.cpp
+    infra/mqtt/routing/MqttMessageRouter.cpp
+    infra/mqtt/observability/MqttTelemetry.cpp
+    infra/mqtt/observability/TelemetryObservationStore.cpp
+    infra/cloud/api/AuthApi.cpp
+    infra/cloud/api/FilesApi.cpp
+    infra/cloud/api/QuotaApi.cpp
+    infra/cloud/api/PrintersApi.cpp
+    infra/cloud/api/ProjectsApi.cpp
+    infra/cloud/api/DownloadsApi.cpp
+    infra/cloud/api/UploadsApi.cpp
+    infra/cloud/api/ReasonCatalogApi.cpp
+    infra/cloud/api/PrintOrderApi.cpp
+    infra/cloud/api/CloudLegacyImpl.cpp
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
@@ -48,6 +71,24 @@ set(ACCLOUD_INFRA_SOURCES
     infra/jobs/Jobs_Build3D.cpp
     infra/jobs/Jobs_Cloud.cpp
     infra/jobs/Jobs_ExportReport.cpp
+    app/realtime/PrinterRealtimeStore.cpp
+    app/usecases/cloud/ApplyRealtimeOverlayUseCase.cpp
+    app/usecases/cloud/OrderResponseTracker.cpp
+    app/usecases/cloud/ResyncCloudStateUseCase.cpp
+    app/usecases/cloud/CheckCloudSessionUseCase.cpp
+    app/usecases/cloud/LoadCloudFilesUseCase.cpp
+    app/usecases/cloud/LoadCloudQuotaUseCase.cpp
+    app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
+    app/usecases/cloud/GetDownloadUrlUseCase.cpp
+    app/usecases/cloud/UploadLocalFileUseCase.cpp
+    app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
+    app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
+    app/usecases/cloud/FetchPrinterDetailsUseCase.cpp
+    app/usecases/cloud/FetchReasonCatalogUseCase.cpp
+    app/usecases/cloud/FetchPrinterProjectsUseCase.cpp
+    app/usecases/cloud/SendPrintOrderUseCase.cpp
+    app/usecases/cloud/SendPrinterOrderUseCase.cpp
+    app/usecases/cloud/DeleteCloudFileUseCase.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
     render3d/gl/MeshlessVolume.cpp
@@ -65,6 +106,20 @@ add_executable(accloud_cli
 set_source_files_properties(app/main.cpp PROPERTIES SKIP_AUTOMOC ON)
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
 
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_infra PRIVATE OpenSSL::Crypto)
+  target_link_libraries(accloud_cli PRIVATE OpenSSL::Crypto)
+  target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_OPENSSL=1)
+  target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_OPENSSL=1)
+endif()
+
+find_library(ACCLOUD_CRYPT_LIBRARY crypt)
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_infra PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+  target_link_libraries(accloud_cli PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+
 if(ACCLOUD_DEBUG)
   target_compile_definitions(accloud_infra PRIVATE ACCLOUD_DEBUG=1)
   target_compile_definitions(accloud_cli PRIVATE ACCLOUD_DEBUG=1)
@@ -75,6 +130,15 @@ if(ACCLOUD_ENABLE_QT)
   if(Qt6_FOUND)
     target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
     target_link_libraries(accloud_infra PRIVATE Qt6::Network)
+    find_package(Qt6 QUIET COMPONENTS Mqtt)
+    if(TARGET Qt6::Mqtt)
+      target_link_libraries(accloud_infra PRIVATE Qt6::Mqtt)
+      target_link_libraries(accloud_cli PRIVATE Qt6::Mqtt)
+      target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_MQTT=1)
+      target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_MQTT=1)
+    else()
+      message(WARNING "Qt6::Mqtt not found: MQTT runtime is unavailable on this machine")
+    endif()
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
     set(ACCLOUD_APP_QT_SOURCES
         app/resources.qrc
@@ -82,6 +146,8 @@ if(ACCLOUD_ENABLE_QT)
         app/AppI18nBridge.h
         app/CloudBridge.cpp
         app/CloudBridge.h
+        app/MqttBridge.cpp
+        app/MqttBridge.h
         app/LocalCacheStore.cpp
         app/LocalCacheStore.h
         app/UiSettingsBridge.cpp
@@ -141,6 +207,10 @@ if(ACCLOUD_ENABLE_QT)
         NAME accloud_ui_qml
         COMMAND accloud_qml_tests -platform offscreen
       )
+      add_test(
+        NAME accloud_ui_qml_upload
+        COMMAND accloud_qml_tests -platform offscreen -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml/tst_cloud_files_upload.qml
+      )
     else()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
     endif()
@@ -150,8 +220,90 @@ endif()
 enable_testing()
 add_test(NAME accloud_smoke COMMAND accloud_cli --smoke)
 
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME accloud_ui_migration_check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_ui_migration.py
+  )
+else()
+  message(WARNING "Python3 interpreter not found: skipping UI migration guard test")
+endif()
+
 add_executable(accloud_har_tests
     tests/cloud/test_har_import.cpp
 )
 target_link_libraries(accloud_har_tests PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_har_tests PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_har_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)
+
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Sql)
+  add_executable(accloud_cloud_core_tests
+      tests/cloud/test_cloud_core_regressions.cpp
+      app/LocalCacheStore.cpp
+  )
+  target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
+  add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)
+else()
+  message(WARNING "Qt6::Sql unavailable: skipping accloud_cloud_core_regressions test")
+endif()
+
+add_executable(accloud_security_tests
+    tests/cloud/test_redactor.cpp
+)
+target_link_libraries(accloud_security_tests PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_security_tests PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_security_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
+
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_log_tests
+      tests/cloud/test_log_bridge.cpp
+      app/LogBridge.cpp
+  )
+  target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
+  add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
+else()
+  message(WARNING "Qt6::Core unavailable: skipping accloud_log_flow regression guard test")
+endif()
+
+add_executable(accloud_mqtt_tests
+    tests/mqtt/test_mqtt_flow.cpp
+)
+target_link_libraries(accloud_mqtt_tests PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_mqtt_tests PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_mqtt_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+add_test(NAME accloud_mqtt_flow COMMAND accloud_mqtt_tests)
+
+add_executable(accloud_mqtt_live_check
+    tests/mqtt/test_mqtt_live_broker.cpp
+)
+target_link_libraries(accloud_mqtt_live_check PRIVATE accloud_domain accloud_infra)
+if(OpenSSL_FOUND)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE OpenSSL::Crypto)
+endif()
+if(ACCLOUD_CRYPT_LIBRARY)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+endif()
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Network)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Network)
+  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_QT=1)
+endif()
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Mqtt)
+  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Mqtt)
+  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_MQTT=1)
+endif()
+add_test(NAME accloud_mqtt_live_broker COMMAND accloud_mqtt_live_check)

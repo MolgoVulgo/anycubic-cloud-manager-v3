@@ -28,10 +28,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: 14
-        color: Theme.cardAlt
-        border.width: 1
-        border.color: Theme.panelStroke
+        radius: Theme.radiusDialog
+        color: Theme.bgDialog
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
         RowLayout {
             anchors.fill: parent
@@ -81,8 +81,8 @@ Item {
                         objectName: "fileNameLabel"
                         Layout.fillWidth: true
                         text: root.fileName
-                        color: Theme.textPrimary
-                        font.pixelSize: 18
+                        color: Theme.fgPrimary
+                        font.pixelSize: Theme.fontTitlePx
                         font.bold: true
                         elide: Text.ElideRight
                     }
@@ -101,20 +101,20 @@ Item {
                     columnSpacing: 18
                     rowSpacing: 4
 
-                    Text { text: qsTr("Layers: ") + root.layers; color: Theme.textSecondary }
-                    Text { text: qsTr("Print time: ") + root.printTime; color: Theme.textSecondary }
-                    Text { text: qsTr("Upload time: ") + root.uploadTime; color: Theme.textSecondary }
-                    Text { text: qsTr("Layer thickness: ") + root.layerThickness; color: Theme.textSecondary }
-                    Text { text: qsTr("Machine: ") + root.machine; color: Theme.textSecondary }
-                    Text { text: qsTr("Material: ") + root.material; color: Theme.textSecondary }
-                    Text { text: qsTr("Resin usage: ") + root.resinUsage; color: Theme.textSecondary }
-                    Text { text: qsTr("Size XYZ: ") + root.dimensions; color: Theme.textSecondary }
+                    Text { text: qsTr("Layers: ") + root.layers; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Print time: ") + root.printTime; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Upload time: ") + root.uploadTime; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Layer thickness: ") + root.layerThickness; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Machine: ") + root.machine; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Material: ") + root.material; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Resin usage: ") + root.resinUsage; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
+                    Text { text: qsTr("Size XYZ: ") + root.dimensions; color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
                 }
 
                 Text {
                     text: qsTr("Size ") + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
-                    color: Theme.textPrimary
-                    font.pixelSize: 13
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
                 }
 
                 RowLayout {

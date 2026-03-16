@@ -17,3 +17,8 @@ accloud/logs/*.jsonl
 accloud/session.json
 accloud/accloud_cache.db
 uc.makeronline.com.har
+
+# Local IDE / temporary artifacts
+accloud/.qtcreator/
+accloud/CMakeLists.txt.qtds
+accloud/ui.zip

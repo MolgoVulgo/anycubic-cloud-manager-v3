@@ -32,6 +32,7 @@ ApplicationWindow {
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
+    property string persistedMqttAuthMode: "slicer"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -144,6 +145,18 @@ ApplicationWindow {
         root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
     }
 
+    function normalizeMqttAuthMode(value) {
+        return "slicer"
+    }
+
+    function loadMqttAuthModeFromSettings() {
+        root.persistedMqttAuthMode = "slicer"
+    }
+
+    function persistMqttAuthMode(modeValue) {
+        root.persistedMqttAuthMode = "slicer"
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -174,6 +187,7 @@ ApplicationWindow {
     Component.onCompleted: {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
+        root.loadMqttAuthModeFromSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -252,6 +266,15 @@ ApplicationWindow {
             }
 
             MenuItem {
+                objectName: "menuSettingsMqttAuthMode"
+                text: qsTr("MQTT auth mode: Slicer")
+                onTriggered: {
+                    root.persistMqttAuthMode("slicer")
+                    root.statusText = qsTr("MQTT auth mode is fixed to Slicer.")
+                }
+            }
+
+            MenuItem {
                 objectName: "menuSettingsRender3d"
                 text: qsTr("3D rendering")
                 onTriggered: {
@@ -314,131 +337,98 @@ ApplicationWindow {
         objectName: "viewerDraftDialog"
     }
 
-    Dialog {
+    AppDialogFrame {
         id: sessionPathDialog
         objectName: "sessionPathDialog"
         title: qsTr("Session Settings")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 640
-        height: 260
+        subtitle: qsTr("Target session.json path used by Session > Import HAR.")
+        minimumWidth: 640
+        maximumWidth: 640
+        minimumHeight: 260
+        maximumHeight: 260
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        AppTextField {
+            id: sessionPathField
+            objectName: "sessionPathField"
+            Layout.fillWidth: true
+            text: root.sessionTargetPath
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Target session.json path used by Session > Import HAR.")
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            AppTextField {
-                id: sessionPathField
-                objectName: "sessionPathField"
-                Layout.fillWidth: true
-                text: root.sessionTargetPath
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Default")
-                    onClicked: {
-                        if (typeof sessionImportBridge !== "undefined"
-                                && sessionImportBridge !== null
-                                && typeof sessionImportBridge.defaultSessionPath === "function") {
-                            sessionPathField.text = String(sessionImportBridge.defaultSessionPath())
-                        }
+        footerLeadingData: [
+            AppButton {
+                text: qsTr("Default")
+                onClicked: {
+                    if (typeof sessionImportBridge !== "undefined"
+                            && sessionImportBridge !== null
+                            && typeof sessionImportBridge.defaultSessionPath === "function") {
+                        sessionPathField.text = String(sessionImportBridge.defaultSessionPath())
                     }
                 }
-                AppButton {
-                    text: qsTr("Apply")
-                    onClicked: {
-                        root.sessionTargetPath = sessionPathField.text.trim().length > 0
-                                ? sessionPathField.text.trim()
-                                : root.sessionTargetPath
-                        root.statusText = qsTr("Session target: %1").arg(root.sessionTargetPath)
-                        sessionPathDialog.close()
-                    }
-                }
-                AppButton {
-                    text: qsTr("Close")
-                    onClicked: sessionPathDialog.close()
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: sessionPathDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    root.sessionTargetPath = sessionPathField.text.trim().length > 0
+                            ? sessionPathField.text.trim()
+                            : root.sessionTargetPath
+                    root.statusText = qsTr("Session target: %1").arg(root.sessionTargetPath)
+                    sessionPathDialog.close()
                 }
             }
-        }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: sessionDetailsDialog
         objectName: "sessionDetailsDialog"
         title: qsTr("Session details")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 330
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 330
+        maximumHeight: 330
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            ScrollView {
-                id: sessionDetailsScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-
-                TextArea {
-                    id: sessionDetailsTextArea
-                    objectName: "sessionDetailsTextArea"
-                    width: sessionDetailsScroll.availableWidth
-                    height: Math.max(sessionDetailsScroll.availableHeight, sessionDetailsTextArea.contentHeight)
-                    readOnly: true
-                    text: root.sessionDetailsText
-                    wrapMode: TextEdit.Wrap
-                    background: null
-                }
+        ScrollView {
+            id: sessionDetailsScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Close")
-                    onClicked: sessionDetailsDialog.close()
-                }
+            TextArea {
+                id: sessionDetailsTextArea
+                objectName: "sessionDetailsTextArea"
+                width: sessionDetailsScroll.availableWidth
+                height: Math.max(sessionDetailsScroll.availableHeight, sessionDetailsTextArea.contentHeight)
+                readOnly: true
+                text: root.sessionDetailsText
+                wrapMode: TextEdit.Wrap
+                color: Theme.fgPrimary
+                background: null
             }
         }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: sessionDetailsDialog.close()
+            }
+        ]
     }
 
     AppDialogFrame {
@@ -448,7 +438,6 @@ ApplicationWindow {
         subtitle: qsTr("Choose app language. System language is used by default.")
         minimumWidth: 520
         maximumWidth: 680
-        showCloseButton: false
         property string pendingLanguage: root.persistedLanguageCode
         property var languageCodes: ["system", "en", "fr"]
         property var languageLabels: []
@@ -533,7 +522,6 @@ ApplicationWindow {
         subtitle: qsTr("Preset + accent applied live. Persistence is saved on validation.")
         minimumWidth: 560
         maximumWidth: 680
-        showCloseButton: false
         property string pendingTheme: root.persistedThemeName
         property string pendingAccent: root.persistedAccentName
         property bool committed: false
@@ -604,7 +592,7 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
+                anchors.margins: 15
                 spacing: 8
 
                 Text {
@@ -696,261 +684,212 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    AppDialogFrame {
         id: render3dDefaultsDialog
         objectName: "render3dDefaultsDialog"
         title: qsTr("Default 3D Rendering Settings")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 410
+        subtitle: qsTr("Set default 3D rendering values here (without opening the viewer).")
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 410
+        maximumHeight: 410
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Quality"); Layout.preferredWidth: 130 }
+            AppComboBox {
+                id: renderQualityCombo
+                objectName: "renderQualityCombo"
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "q33", "label": qsTr("Quality 33") },
+                    { "value": "q66", "label": qsTr("Quality 66") },
+                    { "value": "q100", "label": qsTr("Quality 100") }
+                ]
+                currentIndex: root.render3dDefaultQualityIndex
+            }
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Palette"); Layout.preferredWidth: 130 }
+            AppComboBox {
+                id: renderPaletteCombo
+                objectName: "renderPaletteCombo"
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "Palette Steel", "label": qsTr("Palette Steel") },
+                    { "value": "Palette Resin", "label": qsTr("Palette Resin") },
+                    { "value": "Palette Heat", "label": qsTr("Palette Heat") }
+                ]
+                Component.onCompleted: {
+                    for (var i = 0; i < model.length; ++i) {
+                        if (String(model[i].value) === root.render3dDefaultPalette) {
+                            currentIndex = i
+                            return
+                        }
+                    }
+                    currentIndex = 0
+                }
+            }
+        }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Layer cutoff"); Layout.preferredWidth: 130 }
+            AppSlider {
+                id: renderCutoffSlider
+                objectName: "renderCutoffSlider"
+                Layout.fillWidth: true
+                from: 0
+                to: 100
+                stepSize: 1
+                value: root.render3dDefaultCutoff
+            }
             Text {
-                Layout.fillWidth: true
-                text: qsTr("Set default 3D rendering values here (without opening the viewer).")
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: qsTr("Quality"); Layout.preferredWidth: 130 }
-                AppComboBox {
-                    id: renderQualityCombo
-                    objectName: "renderQualityCombo"
-                    Layout.fillWidth: true
-                    textRole: "label"
-                    model: [
-                        { "value": "q33", "label": qsTr("Quality 33") },
-                        { "value": "q66", "label": qsTr("Quality 66") },
-                        { "value": "q100", "label": qsTr("Quality 100") }
-                    ]
-                    currentIndex: root.render3dDefaultQualityIndex
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: qsTr("Palette"); Layout.preferredWidth: 130 }
-                AppComboBox {
-                    id: renderPaletteCombo
-                    objectName: "renderPaletteCombo"
-                    Layout.fillWidth: true
-                    textRole: "label"
-                    model: [
-                        { "value": "Palette Steel", "label": qsTr("Palette Steel") },
-                        { "value": "Palette Resin", "label": qsTr("Palette Resin") },
-                        { "value": "Palette Heat", "label": qsTr("Palette Heat") }
-                    ]
-                    Component.onCompleted: {
-                        for (var i = 0; i < model.length; ++i) {
-                            if (String(model[i].value) === root.render3dDefaultPalette) {
-                                currentIndex = i
-                                return
-                            }
-                        }
-                        currentIndex = 0
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: qsTr("Layer cutoff"); Layout.preferredWidth: 130 }
-                AppSlider {
-                    id: renderCutoffSlider
-                    objectName: "renderCutoffSlider"
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    stepSize: 1
-                    value: root.render3dDefaultCutoff
-                }
-                Text {
-                    text: Math.round(renderCutoffSlider.value) + "%"
-                    color: Theme.textSecondary
-                    Layout.preferredWidth: 46
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: qsTr("Stride"); Layout.preferredWidth: 130 }
-                AppSpinBox {
-                    id: renderStrideSpin
-                    objectName: "renderStrideSpin"
-                    from: 1
-                    to: 8
-                    value: root.render3dDefaultStride
-                }
-                Item { Layout.fillWidth: true }
-                AppCheckBox {
-                    id: renderContourOnlyCheck
-                    objectName: "renderContourOnlyCheck"
-                    text: qsTr("Contour only")
-                    checked: root.render3dDefaultContourOnly
-                }
-            }
-
-            Item { Layout.fillHeight: true }
-
-            RowLayout {
-                Layout.fillWidth: true
-                AppButton {
-                    text: qsTr("Reset")
-                    onClicked: {
-                        renderQualityCombo.currentIndex = 2
-                        renderPaletteCombo.currentIndex = 0
-                        renderCutoffSlider.value = 100
-                        renderStrideSpin.value = 1
-                        renderContourOnlyCheck.checked = false
-                    }
-                }
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Apply")
-                    onClicked: {
-                        root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
-                        if (renderPaletteCombo.currentIndex >= 0
-                                && renderPaletteCombo.currentIndex < renderPaletteCombo.model.length) {
-                            root.render3dDefaultPalette = String(renderPaletteCombo.model[renderPaletteCombo.currentIndex].value)
-                        }
-                        root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
-                        root.render3dDefaultStride = renderStrideSpin.value
-                        root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
-                        root.statusText = qsTr("Applied 3D defaults: %1, %2, cutoff %3%")
-                                .arg(String(renderQualityCombo.currentText))
-                                .arg(root.render3dDefaultPalette)
-                                .arg(root.render3dDefaultCutoff)
-                    }
-                }
-                AppButton {
-                    text: qsTr("Close")
-                    onClicked: render3dDefaultsDialog.close()
-                }
+                text: Math.round(renderCutoffSlider.value) + "%"
+                color: Theme.fgSecondary
+                Layout.preferredWidth: 46
+                horizontalAlignment: Text.AlignRight
             }
         }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: qsTr("Stride"); Layout.preferredWidth: 130 }
+            AppSpinBox {
+                id: renderStrideSpin
+                objectName: "renderStrideSpin"
+                from: 1
+                to: 8
+                value: root.render3dDefaultStride
+            }
+            Item { Layout.fillWidth: true }
+            AppCheckBox {
+                id: renderContourOnlyCheck
+                objectName: "renderContourOnlyCheck"
+                text: qsTr("Contour only")
+                checked: root.render3dDefaultContourOnly
+            }
+        }
+
+        Item { Layout.fillHeight: true }
+
+        footerLeadingData: [
+            AppButton {
+                text: qsTr("Reset")
+                onClicked: {
+                    renderQualityCombo.currentIndex = 2
+                    renderPaletteCombo.currentIndex = 0
+                    renderCutoffSlider.value = 100
+                    renderStrideSpin.value = 1
+                    renderContourOnlyCheck.checked = false
+                }
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: render3dDefaultsDialog.close()
+            },
+            AppButton {
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
+                    if (renderPaletteCombo.currentIndex >= 0
+                            && renderPaletteCombo.currentIndex < renderPaletteCombo.model.length) {
+                        root.render3dDefaultPalette = String(renderPaletteCombo.model[renderPaletteCombo.currentIndex].value)
+                    }
+                    root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
+                    root.render3dDefaultStride = renderStrideSpin.value
+                    root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
+                    root.statusText = qsTr("Applied 3D defaults: %1, %2, cutoff %3%")
+                            .arg(String(renderQualityCombo.currentText))
+                            .arg(root.render3dDefaultPalette)
+                            .arg(root.render3dDefaultCutoff)
+                }
+            }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: aboutDialog
         objectName: "aboutDialog"
         title: qsTr("About")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 560
-        height: 280
+        minimumWidth: 560
+        maximumWidth: 560
+        minimumHeight: 280
+        maximumHeight: 280
+        dialogSize: "small"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering.")
+            color: Theme.fgPrimary
+            wrapMode: Text.WordWrap
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+        Item { Layout.fillHeight: true }
 
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering.")
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: aboutDialog.close()
             }
-
-            Item { Layout.fillHeight: true }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Close")
-                    onClicked: aboutDialog.close()
-                }
-            }
-        }
+        ]
     }
 
-    Dialog {
+    AppDialogFrame {
         id: gitDialog
         objectName: "gitDialog"
         title: qsTr("git")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: Overlay.overlay
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: 620
-        height: 320
+        minimumWidth: 620
+        maximumWidth: 620
+        minimumHeight: 320
+        maximumHeight: 320
+        dialogSize: "medium"
 
-        background: Rectangle {
-            radius: 12
-            color: Theme.card
-            border.width: 1
-            border.color: Theme.panelStroke
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            ScrollView {
-                id: gitInfoScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-                ScrollBar.horizontal: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    active: true
-                }
-
-                TextArea {
-                    id: gitInfoTextArea
-                    objectName: "gitInfoTextArea"
-                    width: Math.max(gitInfoScroll.availableWidth, gitInfoTextArea.contentWidth)
-                    height: Math.max(gitInfoScroll.availableHeight, gitInfoTextArea.contentHeight)
-                    readOnly: true
-                    wrapMode: TextEdit.NoWrap
-                    text: qsTr("Useful shortcuts:\n")
-                        + "- git status --short\n"
-                        + "- git log --oneline -n 20\n"
-                        + "- git branch --show-current\n"
-                        + "- git diff --stat"
-                    background: null
-                }
+        ScrollView {
+            id: gitInfoScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                active: true
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Close")
-                    onClicked: gitDialog.close()
-                }
+            TextArea {
+                id: gitInfoTextArea
+                objectName: "gitInfoTextArea"
+                width: Math.max(gitInfoScroll.availableWidth, gitInfoTextArea.contentWidth)
+                height: Math.max(gitInfoScroll.availableHeight, gitInfoTextArea.contentHeight)
+                readOnly: true
+                wrapMode: TextEdit.NoWrap
+                text: qsTr("Useful shortcuts:\n")
+                    + "- git status --short\n"
+                    + "- git log --oneline -n 20\n"
+                    + "- git branch --show-current\n"
+                    + "- git diff --stat"
+                color: Theme.fgPrimary
+                background: null
             }
         }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                onClicked: gitDialog.close()
+            }
+        ]
     }
 
     Loader {
@@ -1057,13 +996,21 @@ ApplicationWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.paddingPage
-                    spacing: Theme.gapRow
+                    anchors.margins: 0
+                    spacing: 0
 
                     AppTabBar {
                         id: controlTabs
                         objectName: "controlRoomTabs"
                         Layout.fillWidth: true
+                        tabVariant: "navigation"
+                        tabLook: "classic"
+                        tabSizingMode: "equal"
+                        minTabWidth: 140
+                        connectActiveToPanel: true
+                        panelColor: Theme.bgSurface
+                        stripColor: Theme.bgSurface
+                        tabTopCornerRadius: Theme.radiusControl
 
                         AppTabButton {
                             objectName: "filesTabButton"
@@ -1076,10 +1023,23 @@ ApplicationWindow {
                         }
 
                         AppTabButton {
+                            objectName: "mqttTabButton"
+                            text: qsTr("MQTT")
+                        }
+
+                        AppTabButton {
                             objectName: "logTabButton"
                             text: root.buildDebugEnabled
                                   ? qsTr("Logs")
                                   : qsTr("Logs (disabled in this build)")
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (currentIndex === 1
+                                    && printerPage
+                                    && typeof printerPage.ensureStartupInitialized === "function") {
+                                printerPage.ensureStartupInitialized()
+                            }
                         }
                     }
 
@@ -1090,18 +1050,41 @@ ApplicationWindow {
                         currentIndex: controlTabs.currentIndex
 
                         Pages.CloudFilesPage {
+                            id: cloudFilesPage
                             objectName: "cloudFilesPage"
+                            embeddedInTabsContainer: true
+                            onStatusBroadcast: function(message, severity, operationId) {
+                                root.pushGlobalStatus(message, severity, operationId)
+                            }
+                            onPrintIntentRequested: function(fileId, fileName) {
+                                controlTabs.currentIndex = 1
+                                if (typeof printerPage.ensureStartupInitialized === "function") {
+                                    printerPage.ensureStartupInitialized()
+                                }
+                                if (typeof printerPage.openRemotePrintFromFile === "function") {
+                                    printerPage.openRemotePrintFromFile(fileId, fileName)
+                                } else {
+                                    root.pushGlobalStatus(qsTr("Remote print entrypoint is unavailable."),
+                                                          "warn",
+                                                          "op_files_print_entry")
+                                }
+                            }
+                        }
+
+                        Pages.PrinterPage {
+                            id: printerPage
+                            objectName: "printerPage"
+                            debugUi: false
+                            embeddedInTabsContainer: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
                         }
 
-                        Pages.PrinterPage {
-                            objectName: "printerPage"
-                            debugUi: root.debugUi
-                            onStatusBroadcast: function(message, severity, operationId) {
-                                root.pushGlobalStatus(message, severity, operationId)
-                            }
+                        Pages.MqttPage {
+                            id: mqttPage
+                            objectName: "mqttPage"
+                            embeddedInTabsContainer: true
                         }
 
                         Item {
@@ -1119,6 +1102,7 @@ ApplicationWindow {
                             AppPageFrame {
                                 anchors.fill: parent
                                 visible: !root.buildDebugEnabled
+                                embeddedInTabsContainer: true
                                 sectionTitle: qsTr("Logs")
                                 sectionSubtitle: qsTr("Debug tools are disabled in this build")
 
@@ -1144,6 +1128,7 @@ ApplicationWindow {
                         severity: root.globalStatusSev
                         operationId: root.globalStatusOpId
                     }
+
                 }
             }
         }

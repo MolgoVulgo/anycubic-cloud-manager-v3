@@ -73,7 +73,8 @@ TestCase {
 
         var tabs = findObjectByName(window, "controlRoomTabs")
         verify(tabs !== null)
-        compare(tabs.count, 3)
+        compare(tabs.count, 4)
+        verify(findObjectByName(window, "mqttTabButton") !== null)
 
         var uploadButton = findObjectByName(window, "uploadDialogButton")
         verify(uploadButton !== null)
@@ -317,8 +318,8 @@ TestCase {
                     ok: true,
                     message: "ok",
                     sources: ["app", "fault", "printer"],
-                    components: ["bootstrap", "printer_agent"],
-                    events: ["startup", "refresh_failed"],
+                    components: ["bootstrap", "printer_agent", "mqtt_session"],
+                    events: ["startup", "refresh_failed", "mqtt_state_changed"],
                     entries: [
                         {
                             sink: "app",
@@ -341,6 +342,17 @@ TestCase {
                             opId: "op_printer_42",
                             message: "refresh failed",
                             formatted: "2026-03-04T10:00:01.000+01:00 [printer] printer ERROR printer_agent.refresh_failed - refresh failed op_id=op_printer_42"
+                        },
+                        {
+                            sink: "cloud",
+                            ts: "2026-03-04T10:00:02.000+01:00",
+                            level: "INFO",
+                            source: "cloud",
+                            component: "mqtt_session",
+                            event: "mqtt_state_changed",
+                            opId: "",
+                            message: "connected",
+                            formatted: "2026-03-04T10:00:02.000+01:00 [cloud] cloud INFO mqtt_session.mqtt_state_changed - connected"
                         }
                     ]
                 }
@@ -367,6 +379,7 @@ TestCase {
         compare(logsScroll.ScrollBar.vertical.active, true)
 
         verify(sourceFilter.find("printer") !== -1)
+        verify(sourceFilter.find("mqtt") !== -1)
         verify(componentFilter.find("printer_agent") !== -1)
         verify(eventFilter.find("refresh_failed") !== -1)
 
@@ -379,6 +392,34 @@ TestCase {
 
         opIdFilter.text = "op_printer_missing"
         compare(logsArea.text.trim(), "")
+
+        opIdFilter.clear()
+        sourceFilter.currentIndex = sourceFilter.find("mqtt")
+        verify(logsArea.text.indexOf("mqtt_session") !== -1)
+        verify(logsArea.text.indexOf("[printer]") === -1)
+
+        page.destroy()
+    }
+
+    function test_mqtt_page_shows_only_runtime_connection_fields() {
+        var page = createQmlObject("../../../ui/qml/pages/MqttPage.qml", {"width": 1280, "height": 800})
+
+        var hostField = findObjectByName(page, "mqttHostField")
+        var portField = findObjectByName(page, "mqttPortField")
+        var tlsCheck = findObjectByName(page, "mqttTlsCheck")
+        var topicsField = findObjectByName(page, "mqttTopicsField")
+
+        verify(hostField !== null)
+        verify(portField !== null)
+        verify(tlsCheck !== null)
+        verify(topicsField !== null)
+        compare(String(hostField.text), "mqtt-universe.anycubic.com")
+        verify(Number(portField.value) > 0)
+
+        // Manual credential inputs were removed from the UI.
+        verify(findObjectByName(page, "mqttClientIdField") === null)
+        verify(findObjectByName(page, "mqttUsernameField") === null)
+        verify(findObjectByName(page, "mqttPasswordField") === null)
 
         page.destroy()
     }
@@ -448,8 +489,12 @@ TestCase {
         cloudBridge = undefined
     }
 
-    function test_printer_page_guard_blocks_incompatible_file_id() {
+    function test_printer_page_cloud_picker_filters_with_local_metadata_only() {
         var sendCalls = 0
+        var fetchFilesCalls = 0
+        var loadCachedFilesCalls = 0
+        var compatByExtCalls = 0
+        var compatByFileCalls = 0
         cloudBridge = {
             fetchPrinters: function() {
                 return {
@@ -476,12 +521,31 @@ TestCase {
                 }
             },
             fetchFiles: function() {
+                fetchFilesCalls += 1
                 return {
                     ok: true,
                     files: [
                         {
                             fileId: "f1",
                             fileName: "demo.pwmb",
+                            machine: "Anycubic Photon M3 Plus",
+                            sizeText: "1 MB",
+                            status: "READY",
+                            printTime: "1m",
+                            resinUsage: "1 ml"
+                        }
+                    ]
+                }
+            },
+            loadCachedFiles: function() {
+                loadCachedFilesCalls += 1
+                return {
+                    ok: true,
+                    files: [
+                        {
+                            fileId: "f1",
+                            fileName: "demo.pwmb",
+                            machine: "Anycubic Photon M3 Plus",
                             sizeText: "1 MB",
                             status: "READY",
                             printTime: "1m",
@@ -491,20 +555,12 @@ TestCase {
                 }
             },
             fetchCompatiblePrintersByExt: function(ext) {
-                return {
-                    ok: true,
-                    printers: [
-                        { id: "p1", available: 1, reason: "" }
-                    ]
-                }
+                compatByExtCalls += 1
+                return { ok: true, printers: [] }
             },
             fetchCompatiblePrintersByFileId: function(fileId) {
-                return {
-                    ok: true,
-                    printers: [
-                        { id: "p1", available: 0, reason: "unavailable reason:printer offline" }
-                    ]
-                }
+                compatByFileCalls += 1
+                return { ok: true, printers: [] }
             },
             fetchReasonCatalog: function() {
                 return { ok: true, reasons: [] }
@@ -523,14 +579,110 @@ TestCase {
 
         var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
         page.openSelectCloudFileDialog("p1")
-        verify(String(page.selectedCloudFileId).length > 0)
+        wait(0)
+        compare(loadCachedFilesCalls, 1)
+        compare(fetchFilesCalls, 0)
+        compare(compatByExtCalls, 0)
+        compare(compatByFileCalls, 0)
+        compare(String(page.selectedCloudFileId), "")
+        compare(page.selectedCloudFileData(), null)
+        verify(String(page.statusMsg).indexOf("No compatible cloud file") !== -1)
         page.openRemotePrintConfig()
-        compare(page.remotePrintAllowed, false)
-        verify(String(page.remotePrintBlockReason).toLowerCase().indexOf("offline") !== -1)
+        compare(page.remotePrintAllowed, true)
 
         page.startRemotePrint()
         compare(sendCalls, 0)
-        verify(String(page.statusMsg).indexOf("Print blocked:") === 0)
+        compare(String(page.statusMsg), "Select a cloud file first.")
+        page.destroy()
+        cloudBridge = undefined
+    }
+
+    function test_printer_page_open_remote_print_from_file_prefers_compatible_printer() {
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    endpoint: "/mock/printers",
+                    rawJson: "{}",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        },
+                        {
+                            id: "p2",
+                            name: "Printer Two",
+                            model: "Mono M5s",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() {
+                return { ok: true, files: [] }
+            },
+            fetchCompatiblePrintersByExt: function(ext) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 0, reason: "unavailable reason:file type mismatch" },
+                        { id: "p2", available: 1, reason: "" }
+                    ]
+                }
+            },
+            fetchCompatiblePrintersByFileId: function(fileId) {
+                return {
+                    ok: true,
+                    printers: [
+                        { id: "p1", available: 0, reason: "unavailable reason:printer offline" },
+                        { id: "p2", available: 1, reason: "" }
+                    ]
+                }
+            },
+            fetchReasonCatalog: function() {
+                return { ok: true, reasons: [] }
+            },
+            fetchPrinterDetails: function() {
+                return { ok: true, details: {} }
+            },
+            fetchPrinterProjects: function() {
+                return { ok: true, projects: [] }
+            },
+            sendPrintOrder: function() {
+                return { ok: true, taskId: "123" }
+            }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        page.selectedPrinterId = "p1"
+        page.openRemotePrintFromFile("f-route-1", "route_file.pwmb")
+
+        compare(String(page.remotePrinterId), "p2")
+        compare(String(page.selectedCloudFileId), "f-route-1")
+        var selectedFile = page.selectedCloudFileData()
+        verify(selectedFile !== null)
+        compare(String(selectedFile.fileId), "f-route-1")
+        verify(String(page.statusMsg).indexOf("Remote print prepared for") === 0)
+
         page.destroy()
         cloudBridge = undefined
     }
@@ -577,6 +729,28 @@ TestCase {
         verify(String(tabButton.text).indexOf("Printing") !== -1)
         page.destroy()
         cloudBridge = undefined
+    }
+
+    function test_main_window_print_intent_routes_from_files_to_printers() {
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        var tabs = findObjectByName(window, "controlRoomTabs")
+        var cloudPage = findObjectByName(window, "cloudFilesPage")
+        var printerPage = findObjectByName(window, "printerPage")
+
+        verify(tabs !== null)
+        verify(cloudPage !== null)
+        verify(printerPage !== null)
+        compare(tabs.currentIndex, 0)
+
+        cloudPage.requestPrint("route-file-1", "route_file.pwmb")
+        wait(0)
+
+        compare(tabs.currentIndex, 1)
+        compare(String(printerPage.selectedCloudFileId), "route-file-1")
+        verify(String(printerPage.remotePrinterId).length > 0)
+
+        window.close()
+        window.destroy()
     }
 
     function test_cloud_files_cache_flow_forces_refresh_and_applies_cloud_signal() {

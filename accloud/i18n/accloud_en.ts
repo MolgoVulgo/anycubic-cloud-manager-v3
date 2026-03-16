@@ -1745,6 +1745,49 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <source>Endpoint JSON: </source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="385"/>
+        <source>MQTT details: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="388"/>
+        <source>MQTT bridge unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="396"/>
+        <source>Missing printer identifier.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="409"/>
+        <source>No MQTT message captured yet for this printer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="422"/>
+        <source>No MQTT payload available for matched topics.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1408"/>
+        <source>MQTT details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1409"/>
+        <source>All captured broker messages for this printer</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PrintersTabsBar</name>
+    <message>
+        <location filename="../ui/qml/pages/PrintersTabsBar.qml" line="78"/>
+        <source>Details: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SectionHeader</name>
@@ -2170,6 +2213,151 @@ Cloud connection: </source>
     <message>
         <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="89"/>
         <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>AppDialogFrame</name>
+    <message>
+        <location filename="../ui/qml/components/AppDialogFrame.qml" line="120"/>
+        <source>X</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>CloudFileDetailsDialog</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="26"/>
+        <source>ID: %1 | status_code: %2 | gcode_id: %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="89"/>
+        <source>Cloud Metadata</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="131"/>
+        <source>status_code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="177"/>
+        <source>Bottom layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="180"/>
+        <source>Exposure time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="183"/>
+        <source>Off time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="195"/>
+        <source>Slice md5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="224"/>
+        <source>Uploaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="227"/>
+        <source>Created</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="230"/>
+        <source>Updated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233"/>
+        <source>Thumbnail URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="242"/>
+        <source>Download URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="251"/>
+        <source>Region</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="254"/>
+        <source>Bucket</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="257"/>
+        <source>Path</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>CloudFilesPage</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="273"/>
+        <source>Anycubic resin printers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="277"/>
+        <source>Compatible printers: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>CloudFilesPaginationBar</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="34"/>
+        <source>Page %1 / %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="40"/>
+        <source>Rows: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="46"/>
+        <source>Rows/page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="72"/>
+        <source>Previous</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="79"/>
+        <source>Next</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MainWindow</name>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1004"/>
+        <source>Logs (disabled in this build)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1045"/>
+        <source>Debug tools are disabled in this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1052"/>
+        <source>Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

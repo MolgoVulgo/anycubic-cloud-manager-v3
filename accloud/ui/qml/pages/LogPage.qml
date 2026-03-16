@@ -55,7 +55,26 @@ Item {
         out.formatted = entry.formatted !== undefined
                       ? String(entry.formatted)
                       : "[" + out.sink + "] " + out.level + " " + out.message
+        out.logicalSource = normalizedSourceLabel(out)
         return out
+    }
+
+    function normalizedSourceLabel(entry) {
+        var sink = String(entry && entry.sink !== undefined ? entry.sink : "").toLowerCase().trim()
+        var source = String(entry && entry.source !== undefined ? entry.source : sink).toLowerCase().trim()
+        var component = String(entry && entry.component !== undefined ? entry.component : "").toLowerCase().trim()
+        var eventName = String(entry && entry.event !== undefined ? entry.event : "").toLowerCase().trim()
+        if (sink === "mqtt" || source === "mqtt")
+            return "mqtt"
+        if (component.indexOf("mqtt") === 0 || eventName.indexOf("mqtt") === 0)
+            return "mqtt"
+        if (component.indexOf("mqtt_") >= 0 || eventName.indexOf("mqtt_") >= 0)
+            return "mqtt"
+        if (source.length > 0)
+            return source
+        if (sink.length > 0)
+            return sink
+        return "app"
     }
 
     function mockSnapshot() {
@@ -125,15 +144,34 @@ Item {
     }
 
     function updateDynamicFilters(snapshot) {
-        var sourceOptions = [qsTr("All sources")]
+        var sourceSet = {}
+        sourceSet["mqtt"] = true
         if (snapshot.sources !== undefined) {
             for (var i = 0; i < snapshot.sources.length; ++i) {
-                var sourceValue = String(snapshot.sources[i])
-                if (sourceValue.length > 0) {
-                    sourceOptions.push(sourceValue)
-                }
+                var sourceValue = String(snapshot.sources[i]).toLowerCase().trim()
+                if (sourceValue.length > 0)
+                    sourceSet[sourceValue] = true
             }
         }
+        var entries = snapshot.entries !== undefined ? snapshot.entries : []
+        for (var s = 0; s < entries.length; ++s) {
+            var normalized = normalizeEntry(entries[s])
+            var logical = String(normalized.logicalSource || "").toLowerCase().trim()
+            if (logical.length > 0)
+                sourceSet[logical] = true
+        }
+        var sourceOptions = [qsTr("All sources")]
+        for (var key in sourceSet) {
+            if (Object.prototype.hasOwnProperty.call(sourceSet, key))
+                sourceOptions.push(key)
+        }
+        sourceOptions.sort(function(a, b) {
+            if (a === qsTr("All sources"))
+                return -1
+            if (b === qsTr("All sources"))
+                return 1
+            return String(a).localeCompare(String(b))
+        })
 
         var componentOptions = ["component:*"]
         if (snapshot.components !== undefined) {
@@ -203,7 +241,8 @@ Item {
         for (var i = 0; i < root.allEntries.length; ++i) {
             var entry = root.allEntries[i]
             if (levelRank(entry.level) < requiredRank) continue
-            if (selectedSource !== qsTr("All sources") && entry.sink !== selectedSource) continue
+            if (selectedSource !== qsTr("All sources")
+                    && String(entry.logicalSource || "") !== selectedSource) continue
             if (selectedComponent !== "component:*" && entry.component !== selectedComponent) continue
             if (selectedEvent !== "event:*" && entry.event !== selectedEvent) continue
             if (exactOpId.length > 0 && entry.opId !== exactOpId) continue
@@ -240,14 +279,14 @@ Item {
 
         Text {
             text: qsTr("Runtime Logs")
-            color: Theme.textPrimary
+            color: Theme.fgPrimary
             font.pixelSize: 26
             font.bold: true
         }
 
         Text {
             text: qsTr("Multi-source tail with level/source/component/event/op_id filters + text search.")
-            color: Theme.textSecondary
+            color: Theme.fgSecondary
             font.pixelSize: 14
         }
 
@@ -255,10 +294,10 @@ Item {
             objectName: "logFiltersPanel"
             Layout.fillWidth: true
             Layout.preferredHeight: 116
-            radius: 12
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgSurface
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ColumnLayout {
                 anchors.fill: parent
@@ -351,7 +390,7 @@ Item {
                         id: logStatusLabel
                         objectName: "logStatusLabel"
                         text: root.statusText
-                        color: Theme.textSecondary
+                        color: Theme.fgSecondary
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignRight
                         Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
@@ -363,10 +402,10 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 12
-            color: Theme.cardAlt
-            border.width: 1
-            border.color: Theme.panelStroke
+            radius: Theme.radiusDialog
+            color: Theme.bgDialog
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
 
             ScrollView {
                 id: logsScrollView

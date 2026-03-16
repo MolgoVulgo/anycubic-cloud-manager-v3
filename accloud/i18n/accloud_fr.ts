@@ -1747,6 +1747,49 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         <source>Endpoint JSON: </source>
         <translation>JSON du point de terminaison : </translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="385" />
+        <source>MQTT details: %1</source>
+        <translation>Détails MQTT : %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="388" />
+        <source>MQTT bridge unavailable.</source>
+        <translation>Passerelle MQTT indisponible.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="396" />
+        <source>Missing printer identifier.</source>
+        <translation>Identifiant d'imprimante manquant.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="409" />
+        <source>No MQTT message captured yet for this printer.</source>
+        <translation>Aucun message MQTT capturé pour cette imprimante.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="422" />
+        <source>No MQTT payload available for matched topics.</source>
+        <translation>Aucune charge utile MQTT disponible pour les topics correspondants.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1408" />
+        <source>MQTT details</source>
+        <translation>Détails MQTT</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterPage.qml" line="1409" />
+        <source>All captured broker messages for this printer</source>
+        <translation>Tous les messages broker capturés pour cette imprimante</translation>
+    </message>
+</context>
+<context>
+    <name>PrintersTabsBar</name>
+    <message>
+        <location filename="../ui/qml/pages/PrintersTabsBar.qml" line="78" />
+        <source>Details: %1</source>
+        <translation>Détails : %1</translation>
+    </message>
 </context>
 <context>
     <name>SectionHeader</name>
@@ -2188,6 +2231,151 @@ Connexion cloud : </translation>
         <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="89" />
         <source>Close</source>
         <translation>Fermer</translation>
+    </message>
+</context>
+<context>
+    <name>AppDialogFrame</name>
+    <message>
+        <location filename="../ui/qml/components/AppDialogFrame.qml" line="120" />
+        <source>X</source>
+        <translation>X</translation>
+    </message>
+</context>
+<context>
+    <name>CloudFileDetailsDialog</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="26" />
+        <source>ID: %1 | status_code: %2 | gcode_id: %3</source>
+        <translation>ID : %1 | status_code : %2 | gcode_id : %3</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="89" />
+        <source>Cloud Metadata</source>
+        <translation>Métadonnées cloud</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="131" />
+        <source>status_code</source>
+        <translation>status_code</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="177" />
+        <source>Bottom layers</source>
+        <translation>Couches de base</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="180" />
+        <source>Exposure time</source>
+        <translation>Temps d'exposition</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="183" />
+        <source>Off time</source>
+        <translation>Temps d'extinction</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="195" />
+        <source>Slice md5</source>
+        <translation>MD5 de tranche</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="224" />
+        <source>Uploaded</source>
+        <translation>Téléversé</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="227" />
+        <source>Created</source>
+        <translation>Créé</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="230" />
+        <source>Updated</source>
+        <translation>Mis à jour</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233" />
+        <source>Thumbnail URL</source>
+        <translation>URL de miniature</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="242" />
+        <source>Download URL</source>
+        <translation>URL de téléchargement</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="251" />
+        <source>Region</source>
+        <translation>Région</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="254" />
+        <source>Bucket</source>
+        <translation>Bac</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="257" />
+        <source>Path</source>
+        <translation>Chemin</translation>
+    </message>
+</context>
+<context>
+    <name>CloudFilesPage</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="273" />
+        <source>Anycubic resin printers</source>
+        <translation>Imprimantes résine Anycubic</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="277" />
+        <source>Compatible printers: %1</source>
+        <translation>Imprimantes compatibles : %1</translation>
+    </message>
+</context>
+<context>
+    <name>CloudFilesPaginationBar</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="34" />
+        <source>Page %1 / %2</source>
+        <translation>Page %1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="40" />
+        <source>Rows: %1</source>
+        <translation>Lignes : %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="46" />
+        <source>Rows/page</source>
+        <translation>Lignes/page</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="72" />
+        <source>Previous</source>
+        <translation>Précédent</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPaginationBar.qml" line="79" />
+        <source>Next</source>
+        <translation>Suivant</translation>
+    </message>
+</context>
+<context>
+    <name>MainWindow</name>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1004" />
+        <source>Logs (disabled in this build)</source>
+        <translation>Journaux (désactivés dans cette build)</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1045" />
+        <source>Debug tools are disabled in this build</source>
+        <translation>Les outils de débogage sont désactivés dans cette build</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1052" />
+        <source>Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.</source>
+        <translation>Recompilez avec ACCLOUD_DEBUG=ON pour activer le visualiseur de logs runtime.</translation>
     </message>
 </context>
 </TS>

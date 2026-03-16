@@ -17,10 +17,10 @@ Rectangle {
         anchors.centerIn: parent
         width: 280
         height: 140
-        radius: 14
-        color: Theme.panel
-        border.width: 1
-        border.color: Theme.panelStroke
+        radius: Theme.radiusDialog
+        color: Theme.bgSurface
+        border.width: Theme.borderWidth
+        border.color: Theme.borderDefault
 
         ColumnLayout {
             anchors.fill: parent
@@ -29,7 +29,8 @@ Rectangle {
 
             Text {
                 text: root.stage
-                color: Theme.textPrimary
+                color: Theme.fgPrimary
+                font.pixelSize: Theme.fontBodyPx
                 font.bold: true
                 Layout.alignment: Qt.AlignHCenter
             }

@@ -16,6 +16,10 @@ Button {
     font.pixelSize: Theme.fontBodyPx
     font.bold: variant === "primary" || variant === "danger"
 
+    HoverHandler {
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    }
+
     function backgroundColor() {
         if (!enabled)
             return Theme.bgSurface

@@ -27,17 +27,28 @@ struct CloudFileInfo {
     std::string id;
     std::string name;
     uint64_t    sizeBytes    = 0;
+    long long   createTime   = 0;  // epoch sec (best-effort)
+    long long   updateTime   = 0;  // epoch sec (best-effort)
     std::string gcodeId;
     std::string thumbnailUrl;
+    std::string downloadUrl;
+    std::string region;
+    std::string bucket;
+    std::string path;
+    std::string md5;
     int         status       = 0;  // 0=inconnu, 1=prêt, 2=traitement...
     // Champs slice_param (best-effort, peuvent être vides) :
     std::string machine;
+    std::string printers;
     std::string material;
     std::string printTime;    // ex "06h 32m"
     std::string layerHeight;  // ex "0.05 mm"
     std::string layers;       // ex "2586"
     std::string resinUsage;   // ex "118 ml"
     std::string dimensions;   // ex "120x74x148"
+    std::string bottomLayers; // ex "4"
+    std::string exposureTime; // ex "1.5 s"
+    std::string offTime;      // ex "0.5 s"
 };
 
 struct CloudFilesResult {
@@ -71,6 +82,8 @@ struct CloudDownloadResult {
 
 struct CloudPrinterInfo {
     std::string id;
+    std::string printerKey;
+    std::string machineType;
     std::string name;
     std::string model;
     std::string type;
@@ -81,6 +94,8 @@ struct CloudPrinterInfo {
     int progress = -1;       // 0..100, -1 si indisponible
     int elapsedSec = -1;
     int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
     std::string currentFile;
 };
 
@@ -107,12 +122,21 @@ struct CloudPrintOrderResult {
     bool ok = false;
     std::string message;
     std::string taskId;
+    std::string msgId;
+    std::string correlationTicket;
+    std::string correlationStatus;
 };
 
 struct CloudPrinterDetailsResult {
     bool ok = false;
     std::string message;
     std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
+    int progress = -1;
+    int elapsedSec = -1;
+    int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
+    std::string currentFile;
     std::string firmwareVersion;
     std::string printCount;
     std::string printTotalTime;
@@ -148,7 +172,12 @@ struct CloudPrinterProjectItem {
     std::string printerName;
     int printStatus = 0;
     int progress = -1;
+    int elapsedSec = -1;
+    int remainingSec = -1;
+    int currentLayer = -1;
+    int totalLayers = -1;
     std::string reason;
+    std::string currentFile;
     long long createTime = 0;
     long long endTime = 0;
     std::string img;
@@ -157,6 +186,7 @@ struct CloudPrinterProjectItem {
 struct CloudPrinterProjectsResult {
     bool ok = false;
     std::string message;
+    std::string rawJson; // Debug only (ACCLOUD_DEBUG=ON)
     std::vector<CloudPrinterProjectItem> items;
 };
 
@@ -216,5 +246,13 @@ CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
                                           const std::string& printerId,
                                           const std::string& fileId,
                                           bool deleteAfterPrint);
+
+// Envoi generique d'une commande sendOrder (printer local files, usb files, etc.)
+CloudPrintOrderResult sendCloudPrinterOrder(const std::string& accessToken,
+                                            const std::string& xxToken,
+                                            const std::string& printerId,
+                                            int orderId,
+                                            const std::string& projectId,
+                                            const std::string& dataJson = {});
 
 } // namespace accloud::cloud
