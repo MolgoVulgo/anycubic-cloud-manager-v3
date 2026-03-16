@@ -62,11 +62,13 @@ Fichiers typiques:
 - `app.jsonl`: flux global applicatif
 - `<source>.jsonl`: flux source specifique (ex: `cloud.jsonl`, `qt.jsonl`)
 - `fault.jsonl`: duplication des niveaux `ERROR` et `FATAL`
+- `mqtt_topic_capture.jsonl`: capture analytique des messages MQTT recus (`topic` + `payload` redacted)
 
 Important:
 - chaque event est toujours ecrit dans `app.jsonl`
 - un event source `cloud` est aussi ecrit dans `cloud.jsonl`
 - un event `ERROR/FATAL` est aussi ecrit dans `fault.jsonl`
+- la capture MQTT est ecrite dans `mqtt_topic_capture.jsonl` (ou chemin override via `ACCLOUD_MQTT_CAPTURE_PATH`)
 
 ---
 
