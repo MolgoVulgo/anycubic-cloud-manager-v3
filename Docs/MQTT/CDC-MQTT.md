@@ -83,9 +83,10 @@ Souscriptions imprimante
 
 Topics observés :
 
-anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/#
+anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/#
 
-anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/#
+Note implémentation `accloud` (2026-03-17) :
+le topic `anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/#` est désactivé car redondant (doublon de flux avec `v1/printer/public/.../#` sur les imprimantes concernées).
 
 Publication vers imprimante
 
