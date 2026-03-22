@@ -26,6 +26,12 @@ Point d'entree du corpus documentaire actif.
 - socle `00..03`: numerotation **transverse** au corpus principal;
 - sections: numerotation **locale** (ou transverse UI partagee) declaree dans leur README.
 
+## Profils de lecture
+
+- lecture transverse (architecture/cadrage): suivre le socle `00..03`;
+- lecture specialisee (implementation par domaine): entrer par le README de section concernee (`MQTT`, `i18n`, `Anycubic Cloud Client`, `Photon Viewer`);
+- lecture annexe (verification/inventaire): consulter uniquement les documents marques `SNAPSHOT` dans les sections.
+
 ## Regle
 
 Le socle `00..03` porte la reference transverse.

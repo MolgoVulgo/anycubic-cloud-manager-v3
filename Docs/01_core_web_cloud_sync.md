@@ -1,7 +1,6 @@
 # Core Web / Cloud Sync — documentation unifiée
 
 Statut documentaire : `PARTIEL`
-Statut global : `IMPLEMENTE + PARTIEL + SPEC`
 
 ---
 
@@ -355,4 +354,3 @@ Quand ce document sera pleinement vrai, le sous-système cloud devra se lire ain
 - le bridge ne fait plus que l’adaptation UI.
 
 C’est la colonne vertébrale recherchée.
-
