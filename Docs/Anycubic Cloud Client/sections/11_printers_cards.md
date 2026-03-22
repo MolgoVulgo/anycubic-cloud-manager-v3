@@ -1,5 +1,7 @@
 ## 11) Printers Tabs / Cards
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Direction actuelle
 - La navigation principale des imprimantes est en **onglets**.
 - Le titre de chaque onglet contient l'information de status:

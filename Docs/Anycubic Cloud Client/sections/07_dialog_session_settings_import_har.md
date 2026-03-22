@@ -1,5 +1,7 @@
 ## 7) View: Dialog “Session Settings” — Import HAR
 
+Statut documentaire : `IMPLEMENTE`
+
 ### But
 Importer une session (tokens) depuis un fichier HAR et persister en `session.json`.
 

@@ -1,5 +1,7 @@
 # Annexe MQTT — structures JSON
 
+Statut documentaire : `SNAPSHOT`
+
 Cette annexe regroupe les structures JSON observées ou normalisées pour les principaux messages MQTT du projet.
 
 But :

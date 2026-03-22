@@ -1,12 +1,19 @@
 # Photon Viewer Sections
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Granularite documentaire des ecrans et references viewer.
 
 ## Perimetre
 
-Fichiers `08..12` de cette section uniquement.
+Fichiers de cette section uniquement.
+
+## Convention de numerotation
+
+- convention **transverse UI partagee** avec `Docs/Anycubic Cloud Client/sections/`;
+- numerotation non continue localement par design (alignement sur la trame transverse).
 
 ## Ordre de lecture
 

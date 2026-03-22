@@ -1,4 +1,18 @@
-# Anycubic Resin File Extensions
+# 12) Anycubic Resin File Extensions
+
+Statut documentaire : `SNAPSHOT`
+
+## Role
+
+Annexe de reference rapide listant les extensions de slicing associees aux modeles d'imprimantes Anycubic.
+
+## Cadrage
+
+- snapshot informatif utile au tri/diagnostic;
+- non suffisant seul pour definir un contrat runtime;
+- a corriger si l'etat reel observe evolue.
+
+## Contenu technique
 
 | Printer Model          | Supported Slice Extension(s) |
 | ---------------------- | ---------------------------- |
@@ -14,7 +28,7 @@
 | Photon Mono SQ         | `.pmsq`                     |
 | Photon Ultra           | `.dlp`                      |
 | Photon D2              | `.dl2p`                     |
-| Photon Mono X 6Ks      | `.pwmb`, `.px6s`           |
+| Photon Mono X 6Ks      | `.pwmb`, `.px6s`            |
 | Photon M3              | `.pm3`                      |
 | Photon M3 Plus         | `.pm3b`                     |
 | Photon M3 Max          | `.pm3m`                     |

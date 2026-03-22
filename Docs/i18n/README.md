@@ -1,5 +1,7 @@
 # i18n
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Reference internationalisation Qt/QML: etat actuel, annexe et plan de modification.
@@ -9,6 +11,10 @@ Reference internationalisation Qt/QML: etat actuel, annexe et plan de modificati
 - `01_i18n_reference_unifiee.md`
 - `02_i18n_reference_annexe.md`
 - `03_i18n_plan_de_modification.md`
+
+## Convention de numerotation
+
+- convention **locale de section** (sequence continue `01..03`).
 
 ## Ordre de lecture
 

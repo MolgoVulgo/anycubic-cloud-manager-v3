@@ -1,5 +1,7 @@
 ## 5) View: Tab "Printer" - Station board
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Statut
 - `IMPLEMENTE` (workflow principal de production cote impression distante).
 
