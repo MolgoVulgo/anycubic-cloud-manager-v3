@@ -1,5 +1,7 @@
 ## 11) Printers Tabs / Cards
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Direction actuelle
 - La navigation principale des imprimantes est en **onglets**.
 - Le titre de chaque onglet contient l'information de status:
@@ -44,4 +46,4 @@
 - Trop de metriques simultanees qui degradent la lisibilite.
 - Status visuel sans texte.
 
-Reference snapshot: `Docs/print_tab_official_logs_snapshot.md`
+Reference snapshot: `Docs/02_ui_qml.md`

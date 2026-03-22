@@ -1,5 +1,7 @@
 ## 0) Vue d’ensemble (composition)
 
+Statut documentaire : `PARTIEL`
+
 L’app est structurée autour d’une **fenêtre principale** (QMainWindow) avec :
 - un **header “Control Room”** (actions globales)
 - un **tabset central** : **Files / Printer / Log**

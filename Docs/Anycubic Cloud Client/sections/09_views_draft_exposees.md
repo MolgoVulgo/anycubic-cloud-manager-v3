@@ -1,7 +1,9 @@
 ## 9) Views draft exposees (risque UX)
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
-- `PARTIEL` / `DRAFT`.
+- `PARTIEL`.
 
 ### 9.1 Upload dialog (draft)
 
