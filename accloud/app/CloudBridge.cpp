@@ -125,8 +125,7 @@ std::string compactJsonFromVariantMap(const QVariantMap& data) {
 
 QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     const QString name = QString::fromStdString(f.name);
-    const bool isPwmb  = name.endsWith(".pwmb", Qt::CaseInsensitive)
-                      || name.endsWith(".pwmb", Qt::CaseInsensitive);
+    const bool isPwmb  = name.endsWith(".pwmb", Qt::CaseInsensitive);
     bool layersOk = false;
     const int layersValue = QString::fromStdString(f.layers).toInt(&layersOk);
 
@@ -563,31 +562,41 @@ void finalizeUiMessage(QVariantMap& out) {
     const QString lowered = message.toLower();
     const bool ok = out.value("ok").toBool();
 
-    QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
-    if (lowered.contains("session")) {
-        key = QStringLiteral("error.session.invalid");
-    } else if (lowered.contains("network") || lowered.contains("réseau")
-               || lowered.contains("reseau")) {
-        key = QStringLiteral("error.network");
-    } else if (lowered.contains("cache")) {
-        key = ok ? QStringLiteral("info.cache") : QStringLiteral("error.cache");
-    } else if (lowered.contains("compat")) {
-        key = QStringLiteral("error.compatibility");
-    } else if (lowered.contains("download") || lowered.contains("url")) {
-        key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
-    } else if (lowered.contains("upload")) {
-        key = ok ? QStringLiteral("info.upload") : QStringLiteral("error.upload");
-    } else if (lowered.contains("print")) {
-        key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
-    } else if (lowered.contains("quota")) {
-        key = ok ? QStringLiteral("info.quota") : QStringLiteral("error.quota");
-    } else if (lowered.contains("printer")) {
-        key = ok ? QStringLiteral("info.printer") : QStringLiteral("error.printer");
-    } else if (lowered.contains("file")) {
-        key = ok ? QStringLiteral("info.file") : QStringLiteral("error.file");
+    if (!out.contains("messageKey")) {
+        QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
+        if (lowered.contains("session")) {
+            key = QStringLiteral("error.session.invalid");
+        } else if (lowered.contains("network") || lowered.contains("réseau")
+                   || lowered.contains("reseau")) {
+            key = QStringLiteral("error.network");
+        } else if (lowered.contains("cache")) {
+            key = ok ? QStringLiteral("info.cache") : QStringLiteral("error.cache");
+        } else if (lowered.contains("compat")) {
+            key = QStringLiteral("error.compatibility");
+        } else if (lowered.contains("download") || lowered.contains("url")) {
+            key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
+        } else if (lowered.contains("upload")) {
+            key = ok ? QStringLiteral("info.upload") : QStringLiteral("error.upload");
+        } else if (lowered.contains("print")) {
+            key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
+        } else if (lowered.contains("quota")) {
+            key = ok ? QStringLiteral("info.quota") : QStringLiteral("error.quota");
+        } else if (lowered.contains("printer")) {
+            key = ok ? QStringLiteral("info.printer") : QStringLiteral("error.printer");
+        } else if (lowered.contains("file")) {
+            key = ok ? QStringLiteral("info.file") : QStringLiteral("error.file");
+        }
+        out.insert("messageKey", key);
     }
-
-    out.insert("messageKey", key);
+    if (!out.contains("fallbackMessage")) {
+        out.insert("fallbackMessage", message);
+    }
+    if (!out.contains("params")) {
+        out.insert("params", QVariantMap{});
+    }
+    if (message.isEmpty()) {
+        out.insert("message", out.value("fallbackMessage").toString());
+    }
 }
 
 } // namespace
@@ -739,6 +748,8 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.files.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local file cache is unavailable."));
     out.insert("files", QVariantList{});
     out.insert("total", 0);
 
@@ -753,6 +764,17 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
                              : QStringLiteral("Fichiers chargés depuis le cache local."));
+    out.insert("messageKey", files.isEmpty()
+                             ? QStringLiteral("cache.files.empty")
+                             : QStringLiteral("cache.files.loaded"));
+    out.insert("fallbackMessage", files.isEmpty()
+                                  ? QStringLiteral("No file available in local cache.")
+                                  : QStringLiteral("Files loaded from local cache."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("count"), files.size()},
+        {QStringLiteral("page"), page},
+        {QStringLiteral("limit"), limit}
+    });
     out.insert("files", files);
     out.insert("total", files.size());
     finalizeUiMessage(out);
@@ -768,6 +790,8 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     }
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.printers.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local printer cache is unavailable."));
     if constexpr (kDebugBuildEnabled) {
         out.insert("rawJson", QString{});
     }
@@ -833,6 +857,13 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     out.insert("message", printers.isEmpty()
                              ? QStringLiteral("Aucune imprimante en cache.")
                              : QStringLiteral("Imprimantes chargées depuis le cache local."));
+    out.insert("messageKey", printers.isEmpty()
+                             ? QStringLiteral("cache.printers.empty")
+                             : QStringLiteral("cache.printers.loaded"));
+    out.insert("fallbackMessage", printers.isEmpty()
+                                  ? QStringLiteral("No printer available in local cache.")
+                                  : QStringLiteral("Printers loaded from local cache."));
+    out.insert("params", QVariantMap{{QStringLiteral("count"), printers.size()}});
     out.insert("printers", printers);
     finalizeUiMessage(out);
     return out;
@@ -842,6 +873,8 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache quota indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.quota.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local quota cache is unavailable."));
     out.insert("totalDisplay", QString{});
     out.insert("usedDisplay", QString{});
     out.insert("totalBytes", static_cast<qulonglong>(0));
@@ -856,12 +889,16 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     if (quota.isEmpty()) {
         out.insert("ok", true);
         out.insert("message", QStringLiteral("Aucun quota en cache."));
+        out.insert("messageKey", QStringLiteral("cache.quota.empty"));
+        out.insert("fallbackMessage", QStringLiteral("No cached quota available."));
         finalizeUiMessage(out);
         return out;
     }
 
     out.insert("ok", true);
     out.insert("message", QStringLiteral("Quota chargé depuis le cache local."));
+    out.insert("messageKey", QStringLiteral("cache.quota.loaded"));
+    out.insert("fallbackMessage", QStringLiteral("Quota loaded from local cache."));
     out.insert("totalDisplay", quota.value("totalDisplay"));
     out.insert("usedDisplay", quota.value("usedDisplay"));
     out.insert("totalBytes", quota.value("totalBytes"));
@@ -1166,6 +1203,13 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
     const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.file.delete.ok")
+                             : QStringLiteral("cloud.file.delete.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Cloud file deleted.")
+                                  : QStringLiteral("Failed to delete cloud file."));
+    out.insert("params", QVariantMap{{QStringLiteral("fileId"), fileId}});
     if (r.ok && m_cache != nullptr) {
         m_cache->removeFile(fileId);
         m_cache->invalidateScope(QStringLiteral("files"));
@@ -1182,6 +1226,13 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.file.download_url.ok")
+                             : QStringLiteral("cloud.file.download_url.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Download URL retrieved.")
+                                  : QStringLiteral("Unable to retrieve download URL."));
+    out.insert("params", QVariantMap{{QStringLiteral("fileId"), fileId}});
     if (r.ok)
         out.insert("url", QString::fromStdString(r.url));
     finalizeUiMessage(out);
@@ -1201,6 +1252,8 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     if (normalizedPath.isEmpty()) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("Chemin fichier vide."));
+        out.insert("messageKey", QStringLiteral("cloud.upload.path_required"));
+        out.insert("fallbackMessage", QStringLiteral("Local file path is required."));
         logging::warn("app", "cloud_bridge", "upload_local_file_invalid_path",
                       "uploadLocalFile aborted: empty path");
         finalizeUiMessage(out);
@@ -1211,6 +1264,17 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     const auto r = useCase.execute(normalizedPath.toStdString());
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.upload.ok")
+                             : QStringLiteral("cloud.upload.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("File uploaded to cloud.")
+                                  : QStringLiteral("Failed to upload local file."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("fileName"), localFileName},
+        {QStringLiteral("uploadStatus"), r.uploadStatus},
+        {QStringLiteral("unlockOk"), r.unlockOk}
+    });
     out.insert("fileId", QString::fromStdString(r.fileId));
     out.insert("gcodeId", QString::fromStdString(r.gcodeId));
     out.insert("uploadStatus", r.uploadStatus);
@@ -1423,6 +1487,8 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.printer_projects.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local printer jobs cache is unavailable."));
     out.insert("projects", QVariantList{});
     if constexpr (kDebugBuildEnabled) {
         out.insert("rawJson", QString{});
@@ -1431,6 +1497,8 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     const QString normalizedPrinterId = printerId.trimmed();
     if (normalizedPrinterId.isEmpty()) {
         out.insert("message", QStringLiteral("printer_id requis."));
+        out.insert("messageKey", QStringLiteral("cloud.printer_id.required"));
+        out.insert("fallbackMessage", QStringLiteral("Printer identifier is required."));
         finalizeUiMessage(out);
         return out;
     }
@@ -1445,6 +1513,18 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     out.insert("message", projects.isEmpty()
                              ? QStringLiteral("Aucun job en cache pour cette imprimante.")
                              : QStringLiteral("Jobs chargés depuis le cache local."));
+    out.insert("messageKey", projects.isEmpty()
+                             ? QStringLiteral("cache.printer_projects.empty")
+                             : QStringLiteral("cache.printer_projects.loaded"));
+    out.insert("fallbackMessage", projects.isEmpty()
+                                  ? QStringLiteral("No cached print job for this printer.")
+                                  : QStringLiteral("Printer jobs loaded from local cache."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), normalizedPrinterId},
+        {QStringLiteral("count"), projects.size()},
+        {QStringLiteral("page"), page},
+        {QStringLiteral("limit"), limit}
+    });
     out.insert("projects", projects);
     finalizeUiMessage(out);
     return out;
@@ -1460,6 +1540,12 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     if (dryRun) {
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
+        out.insert("messageKey", QStringLiteral("cloud.print_order.dry_run"));
+        out.insert("fallbackMessage", QStringLiteral("Print order payload generated (dry-run)."));
+        out.insert("params", QVariantMap{
+            {QStringLiteral("printerId"), printerId},
+            {QStringLiteral("fileId"), fileId}
+        });
         out.insert("taskId", QString());
         out.insert("msgId", QString());
         out.insert("correlationTicket", QString());
@@ -1473,6 +1559,16 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         printerId.toStdString(), fileId.toStdString(), deleteAfterPrint);
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.print_order.sent")
+                             : QStringLiteral("cloud.print_order.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Print order sent.")
+                                  : QStringLiteral("Failed to send print order."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), printerId},
+        {QStringLiteral("fileId"), fileId}
+    });
     out.insert("taskId",  QString::fromStdString(r.taskId));
     out.insert("msgId", QString::fromStdString(r.msgId));
     out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
@@ -1493,12 +1589,17 @@ QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
     if (normalizedPrinterId.isEmpty()) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("printer_id requis."));
+        out.insert("messageKey", QStringLiteral("cloud.printer_id.required"));
+        out.insert("fallbackMessage", QStringLiteral("Printer identifier is required."));
         finalizeUiMessage(out);
         return out;
     }
     if (orderId <= 0) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("order_id invalide."));
+        out.insert("messageKey", QStringLiteral("cloud.order_id.invalid"));
+        out.insert("fallbackMessage", QStringLiteral("Order identifier is invalid."));
+        out.insert("params", QVariantMap{{QStringLiteral("orderId"), orderId}});
         finalizeUiMessage(out);
         return out;
     }
@@ -1511,6 +1612,17 @@ QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
                                    dataJson);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.printer_order.sent")
+                             : QStringLiteral("cloud.printer_order.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Printer order sent.")
+                                  : QStringLiteral("Failed to send printer order."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), normalizedPrinterId},
+        {QStringLiteral("orderId"), orderId},
+        {QStringLiteral("projectId"), projectId.trimmed()}
+    });
     out.insert("taskId", QString::fromStdString(r.taskId));
     out.insert("msgId", QString::fromStdString(r.msgId));
     if (r.ok && m_cache != nullptr) {

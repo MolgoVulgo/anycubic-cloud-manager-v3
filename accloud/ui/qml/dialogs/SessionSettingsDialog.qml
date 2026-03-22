@@ -44,6 +44,15 @@ AppDialogFrame {
         return value
     }
 
+    function backendStatusDetail(rawMessage, fallbackMessage) {
+        var text = String(rawMessage || "").trim()
+        if (text.length === 0)
+            return String(fallbackMessage || qsTr("No message"))
+        if (/[\u4e00-\u9fff]/.test(text))
+            text = text.replace(/[\u4e00-\u9fff]+/g, qsTr("localized backend message"))
+        return text
+    }
+
     function runAnalyzeForPath(harPath) {
         var trimmedHar = String(harPath).trim()
         if (trimmedHar.length === 0) {
@@ -67,7 +76,7 @@ AppDialogFrame {
         var entriesAccepted = response.entriesAccepted !== undefined ? response.entriesAccepted : 0
         var keys = response.tokenKeys !== undefined ? response.tokenKeys : []
         var keysText = (keys.length > 0) ? keys.join(", ") : qsTr("(none)")
-        var message = response.message !== undefined ? String(response.message) : qsTr("No message")
+        var message = backendStatusDetail(response.message, qsTr("No message"))
         var targetPath = response.sessionPath !== undefined ? String(response.sessionPath) : root.sessionTargetPath
 
         root.pendingValid = ok
@@ -109,7 +118,7 @@ AppDialogFrame {
             root.importInProgress = false
 
             var commitOk = commit.ok === true
-            var commitMsg = commit.message !== undefined ? String(commit.message) : qsTr("No message")
+            var commitMsg = backendStatusDetail(commit.message, qsTr("No message"))
             if (!commitOk) {
                 root.statusMessage = qsTr("Status: save failed.")
                 root.resultDetails += qsTr("\n\nSave: FAILED - %1").arg(commitMsg)
@@ -117,7 +126,7 @@ AppDialogFrame {
             }
 
             var connOk = commit.connectionOk === true
-            var connMsg = commit.connectionMessage !== undefined ? String(commit.connectionMessage) : commitMsg
+            var connMsg = backendStatusDetail(commit.connectionMessage, commitMsg)
             root.statusMessage = qsTr("Status: session saved.")
             root.resultDetails += qsTr("\n\nSave: OK\nCloud connection: ")
                     + (connOk ? qsTr("OK") : qsTr("FAILED - %1").arg(connMsg))
