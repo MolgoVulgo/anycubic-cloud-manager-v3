@@ -21,7 +21,6 @@ Il devient le **tronc principal** pour le périmètre MQTT du projet.
 1. **Le dépôt courant** reste la vérité primaire.
 2. **Le présent document** est la vue consolidée à utiliser pour coder, relire et arbitrer.
 3. **Les captures et analyses réelles** servent à confirmer, corriger ou nuancer le comportement runtime.
-4. **Les anciens documents MQTT** ne doivent plus être lus comme contrat principal autonome.
 
 ## 1.2 Conséquence directe
 
@@ -29,7 +28,7 @@ Quand il y a divergence :
 
 - le **code réel** gagne ;
 - à défaut, la **présente référence** gagne ;
-- les docs historiques complètent, mais ne pilotent plus seules le projet.
+- les **observations runtime vérifiées** servent de calibration pour l’interprétation opérationnelle.
 
 ---
 
@@ -840,4 +839,3 @@ La stratégie retenue est :
 7. **lecture métier fondée sur les transitions réelles observées**, pas sur des suppositions mono-code.
 
 Ce document doit être utilisé comme référence de travail principale pour toute évolution MQTT du projet.
-
