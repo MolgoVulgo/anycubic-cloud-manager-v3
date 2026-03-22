@@ -1,5 +1,7 @@
 ## 6) View: Tab "Log" - Runtime Logs
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
 - `IMPLEMENTE` en build debug (`ACCLOUD_DEBUG=ON`).
 - En build prod: vue remplacee par un panneau explicatif (logs viewer desactive).

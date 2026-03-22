@@ -1,5 +1,7 @@
 ## 10) Synthese d'alignement produit (CDF -> UI) - Anycubic Cloud Client
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
 - `IMPLEMENTE` pour le coeur Cloud manager.
 - `PARTIEL` pour les ecrans draft exposes en raccourci header.
@@ -20,7 +22,7 @@
 - Les dialogs draft doivent etre consideres comme outils demo/debug, pas comme parcours nominal.
 
 ### Decision documentaire
-- `Docs/ui_views.md` et cette section servent de reference UI implementation.
+- `Docs/02_ui_qml.md` et cette section servent de reference UI implementation.
 - Toute doc SPEC qui decrit des parcours viewer/upload complets doit expliciter l'ecart avec cet etat reel.
 
 ---

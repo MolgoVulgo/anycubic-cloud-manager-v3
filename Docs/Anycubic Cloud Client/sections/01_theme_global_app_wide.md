@@ -1,5 +1,7 @@
 ## 1) Thème global (app-wide)
 
+Statut documentaire : `IMPLEMENTE`
+
 ### But
 Uniformiser la lecture et la hiérarchie visuelle (titre → sous-titre → panneaux → cartes) + signalétique d’état (primary / danger / warn / ok).
 
