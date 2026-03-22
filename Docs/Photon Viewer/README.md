@@ -1,8 +1,8 @@
 # Photon Viewer — UI Views (decoupage)
 
 Sources:
-- `Docs/ui_views.md`
-- `Docs/photon_formats.md` (reference format PWMB)
+- `Docs/docs_unifies_ui_qml.md`
+- `Docs/docs_unifies_photon_viewer_formats.md` (reference format PWMB)
 
 Statut de ce dossier: `PARTIEL` (viewer de production non finalise, ecrans majoritairement draft/placeholder).
 

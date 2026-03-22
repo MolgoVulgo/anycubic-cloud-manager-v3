@@ -3,6 +3,6 @@
 namespace accloud::skeleton {
 
 // Scaffold placeholder for tests/photons/test_detect_format.cpp.
-constexpr std::string_view kTodo = "Implement according to Docs/structure_application_photons.md";
+constexpr std::string_view kTodo = "Implement according to Docs/docs_unifies_photon_viewer_formats.md";
 
 } // namespace accloud::skeleton

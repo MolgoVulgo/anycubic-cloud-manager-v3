@@ -1,6 +1,6 @@
 # Anycubic Cloud Client — UI Views (decoupage)
 
-Source central: `Docs/ui_views.md`
+Source central: `Docs/docs_unifies_ui_qml.md`
 
 Statut de ce dossier: `IMPLEMENTE` (avec quelques vues draft explicitement marquees).
 

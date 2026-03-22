@@ -3,6 +3,6 @@
 namespace accloud::skeleton {
 
 // Scaffold placeholder for infra/jobs/Jobs_Build3D.cpp.
-constexpr std::string_view kTodo = "Implement according to Docs/structure_application_photons.md";
+constexpr std::string_view kTodo = "Implement according to Docs/docs_unifies_photon_viewer_formats.md";
 
 } // namespace accloud::skeleton

@@ -3,8 +3,8 @@
 Collect endpoint responses for Anycubic Cloud Workbench.
 
 Sources used to define the endpoint coverage:
-- Docs/end_points.md
-- Docs/end_points_v2_verifie.md
+- Docs/docs_unifies_core_web_cloud_sync.md
+- Docs/docs_unifies_core_web_cloud_sync.md
 
 Authentication source:
 - session.json (same token structure as existing project code).
@@ -600,8 +600,8 @@ def _sha256_file(path: Path) -> str:
 
 def _endpoint_sources(section: str) -> list[str]:
     return [
-        f"Docs/end_points.md::{section}",
-        "Docs/end_points_v2_verifie.md",
+        f"Docs/docs_unifies_core_web_cloud_sync.md::{section}",
+        "Docs/docs_unifies_core_web_cloud_sync.md",
     ]
 
 
@@ -1079,8 +1079,8 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
     collector.call_workbench(
         name="message_count",
         source_refs=[
-            "Docs/end_points_v2_verifie.md::2) Endpoints presents dans end_points.md mais non utilises directement par la v2 Python",
-            "Docs/end_points.md",
+            "Docs/docs_unifies_core_web_cloud_sync.md::2) Endpoints presents dans end_points.md mais non utilises directement par la v2 Python",
+            "Docs/docs_unifies_core_web_cloud_sync.md",
         ],
         method="GET",
         path="/p/p/workbench/api/v2/message/getMessageCount",
@@ -1095,8 +1095,8 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
     collector.call_workbench(
         name="project_print_history",
         source_refs=[
-            "Docs/end_points_v2_verifie.md::2) Endpoints presents dans end_points.md mais non utilises directement par la v2 Python",
-            "Docs/end_points.md",
+            "Docs/docs_unifies_core_web_cloud_sync.md::2) Endpoints presents dans end_points.md mais non utilises directement par la v2 Python",
+            "Docs/docs_unifies_core_web_cloud_sync.md",
         ],
         method="GET",
         path="/p/p/workbench/api/v2/project/printHistory",
@@ -1151,7 +1151,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Contexte")
     lines.append(f"- Genere le: `{summary['generated_at_utc']}`")
-    lines.append("- Sources endpoints: `Docs/end_points.md`, `Docs/end_points_v2_verifie.md`")
+    lines.append("- Sources endpoints: `Docs/docs_unifies_core_web_cloud_sync.md`, `Docs/docs_unifies_core_web_cloud_sync.md`")
     lines.append(f"- Session utilisee: `{summary['session_path']}`")
     lines.append(f"- Fichier test upload: `{summary['cube_path']}`")
     lines.append(f"- Fichier telecharge: `{summary['download_path']}`")
@@ -1237,14 +1237,14 @@ def filter_results_for_export(report: dict[str, Any]) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Execute les endpoints Anycubic documentes dans Docs/end_points.md + "
-            "Docs/end_points_v2_verifie.md et produit un rapport."
+            "Execute les endpoints Anycubic documentes dans Docs/docs_unifies_core_web_cloud_sync.md + "
+            "Docs/docs_unifies_core_web_cloud_sync.md et produit un rapport."
         )
     )
     parser.add_argument("--session-path", default=None, help="Chemin vers session.json.")
     parser.add_argument(
         "--cube-path",
-        default="Docs/cube.pwmb",
+        default="Docs/photon_files/cube.pwmb",
         help="Fichier binaire utilise pour le workflow upload/download/delete.",
     )
     parser.add_argument(

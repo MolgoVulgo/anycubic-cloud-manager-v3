@@ -12,13 +12,13 @@ At the moment, the detailed documentation in `Docs/` is written in French.
 An English translation can be added later.
 
 ### Runtime logging reference
-- `Docs/logging_reference.md`
+- `Docs/docs_unifies_core_web_cloud_sync.md`
 
 ### Build modes (debug/prod)
-- `Docs/debug_build_modes.md`
+- `Docs/docs_unifies_core_web_cloud_sync.md`
 
 ### Documentation index
-- `Docs/README.md`
+- `Docs/docs_unifies_readme.md`
 
 ### Format research note
 The Anycubic format explanation references UVtools analysis and cross-checks it with this repository documentation.
@@ -40,13 +40,13 @@ Anycubic Cloud Manager V3 est un projet outillage/documentation axe sur :
 Pour le moment, la documentation detaillee dans `Docs/` est en francais.
 
 ### Reference logging runtime
-- `Docs/logging_reference.md`
+- `Docs/docs_unifies_core_web_cloud_sync.md`
 
 ### Modes de build (debug/prod)
-- `Docs/debug_build_modes.md`
+- `Docs/docs_unifies_core_web_cloud_sync.md`
 
 ### Index documentation
-- `Docs/README.md`
+- `Docs/docs_unifies_readme.md`
 
 ### Note sur l'explication des formats
 L'explication des formats Anycubic s'appuie sur UVtools et sur les documents de ce depot.
