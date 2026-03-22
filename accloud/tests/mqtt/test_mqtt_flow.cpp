@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -198,6 +199,88 @@ bool test_printer_subscription_topics_match_spec() {
                   "Second topic should be +/public");
 }
 
+bool test_subscription_profile_has_six_topics_for_two_printers_fixture() {
+    // Baseline contract as of 2026-03-14:
+    // 2 user topics + (2 printer topics x 2 printers) = 6.
+    // If Anycubic changes topic contract, update this assertion in the same commit
+    // as MQTT topic-builder/runtime adaptation.
+    const std::string userId = "u-123";
+    const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    std::vector<std::string> topics =
+        accloud::mqtt::routing::MqttTopicBuilder::buildUserReportTopics(userId, userIdMd5);
+    const auto p1 =
+        accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics("m7", "printer-key-1");
+    const auto p2 =
+        accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics("m7pro", "printer-key-2");
+    topics.insert(topics.end(), p1.begin(), p1.end());
+    topics.insert(topics.end(), p2.begin(), p2.end());
+
+    std::set<std::string> unique(topics.begin(), topics.end());
+    return expect(topics.size() == 6, "Fixture with 2 printers must produce 6 subscribed topics")
+        && expect(unique.size() == 6, "Subscription topics must stay unique in fixture")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/slice/report"),
+                  "User slice report topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report"),
+                  "User fdm slice report topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/printer-key-1/#"),
+                  "Printer 1 public topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/+/public/m7/printer-key-1/#"),
+                  "Printer 1 wildcard public topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7pro/printer-key-2/#"),
+                  "Printer 2 public topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/+/public/m7pro/printer-key-2/#"),
+                  "Printer 2 wildcard public topic must be present");
+}
+
+bool test_subscription_profile_keeps_expected_topic_families() {
+    const std::string userId = "u-123";
+    const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    std::vector<std::string> topics =
+        accloud::mqtt::routing::MqttTopicBuilder::buildUserReportTopics(userId, userIdMd5);
+    const auto p1 =
+        accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics("m7", "printer-key-1");
+    topics.insert(topics.end(), p1.begin(), p1.end());
+
+    bool hasSliceReport = false;
+    bool hasFdmSliceReport = false;
+    bool hasPrinterPublicFamily = false;
+    bool hasWildcardPublicFamily = false;
+    for (const auto& topic : topics) {
+        if (topic.find("/slice/report") != std::string::npos) {
+            hasSliceReport = true;
+        }
+        if (topic.find("/fdmslice/report") != std::string::npos) {
+            hasFdmSliceReport = true;
+        }
+        if (topic.find("/v1/printer/public/") != std::string::npos) {
+            hasPrinterPublicFamily = true;
+        }
+        if (topic.find("/v1/+/public/") != std::string::npos) {
+            hasWildcardPublicFamily = true;
+        }
+    }
+
+    return expect(hasSliceReport, "User slice/report family must exist")
+        && expect(hasFdmSliceReport, "User fdmslice/report family must exist")
+        && expect(hasPrinterPublicFamily, "Printer public topic family must exist")
+        && expect(hasWildcardPublicFamily, "Printer wildcard public topic family must exist");
+}
+
+bool test_router_extracts_printer_key_across_topic_families() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string payload = R"json({"type":"status","action":"workReport","state":"busy","data":{}})json";
+    const auto r1 = router.route("anycubic/anycubicCloud/v1/printer/app/m7/key-app/status/report", payload);
+    const auto r2 = router.route("anycubic/anycubicCloud/v1/printer/public/m7/key-public/status/report", payload);
+    const auto r3 = router.route("anycubic/anycubicCloud/v1/x/public/m7/key-plus/status/report", payload);
+    const auto r4 = router.route("anycubic/anycubicCloud/v1/slicer/printer/m7/key-slicer/status/report", payload);
+    return expect(r1.printerKey == "key-app", "printer/app key extraction failed")
+        && expect(r2.printerKey == "key-public", "printer/public key extraction failed")
+        && expect(r3.printerKey == "key-plus", "+/public key extraction failed")
+        && expect(r4.printerKey == "key-slicer", "slicer/printer key extraction failed");
+}
+
 bool test_telemetry_observation_store_tracks_unknown_signatures() {
     auto& store = accloud::mqtt::observability::TelemetryObservationStore::instance();
     store.clear();
@@ -251,6 +334,9 @@ int main() {
     ok = test_overlay_matches_printer_key_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
     ok = test_printer_subscription_topics_match_spec() && ok;
+    ok = test_subscription_profile_has_six_topics_for_two_printers_fixture() && ok;
+    ok = test_subscription_profile_keeps_expected_topic_families() && ok;
+    ok = test_router_extracts_printer_key_across_topic_families() && ok;
     ok = test_telemetry_observation_store_tracks_unknown_signatures() && ok;
     if (!ok) {
         return 1;

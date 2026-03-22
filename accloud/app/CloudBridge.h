@@ -38,6 +38,10 @@ public:
 
     // Retourne { ok, message, url }  — ne pas afficher l'url dans l'UI
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
+    // Retourne { ok, message, fileId, gcodeId, uploadStatus }
+    Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath) const;
+    // Upload asynchrone pour UI avec progression.
+    Q_INVOKABLE void startUploadLocalFile(const QString& localPath);
 
     // Retourne { ok, message, printers:[...] }
     // Champs debug (uniquement si ACCLOUD_DEBUG=ON): endpoint, rawJson
@@ -75,6 +79,11 @@ public:
                                            const QString& fileId,
                                            bool deleteAfterPrint = false,
                                            bool dryRun = false) const;
+    // Retourne { ok, message, taskId, msgId }
+    Q_INVOKABLE QVariantMap sendPrinterOrder(const QString& printerId,
+                                             int orderId,
+                                             const QVariantMap& data = QVariantMap(),
+                                             const QString& projectId = QString()) const;
 
     // ── Téléchargement asynchrone ─────────────────────────────────────────
     // signedUrl : URL obtenue via getDownloadUrl()
@@ -85,6 +94,13 @@ public:
 Q_SIGNALS:
     void downloadProgress(qint64 received, qint64 total);
     void downloadFinished(bool ok, const QString& message, const QString& savedPath);
+    void uploadProgressChanged(double progress, const QString& phase);
+    void uploadFinished(bool ok,
+                        const QString& message,
+                        const QString& fileId,
+                        const QString& gcodeId,
+                        int uploadStatus,
+                        bool unlockOk);
     void filesUpdatedFromCache(const QVariantList& files, const QString& message);
     void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
     void printersUpdatedFromCache(const QVariantList& printers, const QString& message);

@@ -1,5 +1,7 @@
 ## 5) View: Tab "Printer" - Station board
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Statut
 - `IMPLEMENTE` (workflow principal de production cote impression distante).
 
@@ -30,6 +32,18 @@
 - dialog `Select Cloud File`
 - dialog `Remote Print Config`
 - dialog `Print Config` (flags avances)
+- dialog `Select Local Printer File`
+
+### Flux boutons `Print` (source officielle)
+- `From Cloud File`:
+  - source cloud uniquement
+  - filtre sur fichiers compatibles imprimante
+- `From Local File`:
+  - source stockage local imprimante uniquement
+  - listing via `sendOrder(order_id=103)` puis reponse MQTT `file/listLocal`
+  - impression locale: `order_id` cible observe = `1` (validation finale en cours)
+
+Reference snapshot: `Docs/02_ui_qml.md`
 
 ### Guardrails reels
 - blocage si imprimante offline/printing/error

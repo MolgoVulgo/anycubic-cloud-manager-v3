@@ -12,7 +12,9 @@
 #include "app/usecases/cloud/LoadCloudFilesUseCase.h"
 #include "app/usecases/cloud/LoadCloudQuotaUseCase.h"
 #include "app/usecases/cloud/LoadPrintersDashboardUseCase.h"
+#include "app/usecases/cloud/SendPrinterOrderUseCase.h"
 #include "app/usecases/cloud/SendPrintOrderUseCase.h"
+#include "app/usecases/cloud/UploadLocalFileUseCase.h"
 #include "infra/cloud/HarImporter.h"
 #include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
@@ -23,6 +25,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocale>
 #include <QSaveFile>
 #include <QMetaObject>
@@ -79,6 +83,42 @@ QString formatUploadTime(long long updateTimeEpochSec) {
     if (value.isEmpty())
         value = dt.date().toString(QStringLiteral("yyyy-MM-dd"));
     return value;
+}
+
+QString normalizeUploadLocalPath(const QString& pathOrUrl) {
+    const QString trimmed = pathOrUrl.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    const QUrl parsed(trimmed);
+    if (parsed.isValid() && parsed.isLocalFile()) {
+        const QString localPath = parsed.toLocalFile().trimmed();
+        if (!localPath.isEmpty()) {
+            return localPath;
+        }
+    }
+
+    if (trimmed.startsWith(QStringLiteral("file://"), Qt::CaseInsensitive)) {
+        const QUrl fallback = QUrl::fromUserInput(trimmed);
+        if (fallback.isValid() && fallback.isLocalFile()) {
+            const QString localPath = fallback.toLocalFile().trimmed();
+            if (!localPath.isEmpty()) {
+                return localPath;
+            }
+        }
+    }
+
+    return trimmed;
+}
+
+std::string compactJsonFromVariantMap(const QVariantMap& data) {
+    if (data.isEmpty()) {
+        return {};
+    }
+    const QJsonObject object = QJsonObject::fromVariantMap(data);
+    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    return json.toStdString();
 }
 
 // ── Conversion CloudFileInfo → QVariantMap ────────────────────────────────
@@ -347,12 +387,15 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
         const QString localPath = QUrl(resolved).toLocalFile();
         if (!localPath.isEmpty()) {
             QImageReader reader(localPath);
+            const bool canRead = reader.canRead();
+            const std::string readError =
+                canRead ? std::string{} : reader.errorString().toStdString();
             logging::info("app", "thumbnail_cache", "qml_probe",
                           "Thumbnail path probe before QML bind",
                           {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
                            {"path", localPath.toStdString()},
-                           {"canRead", reader.canRead() ? "1" : "0"},
-                           {"error", reader.errorString().toStdString()}});
+                           {"canRead", canRead ? "1" : "0"},
+                           {"error", readError}});
         }
         map.insert(QStringLiteral("thumbnailUrl"), resolved);
     }
@@ -532,6 +575,8 @@ void finalizeUiMessage(QVariantMap& out) {
         key = QStringLiteral("error.compatibility");
     } else if (lowered.contains("download") || lowered.contains("url")) {
         key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
+    } else if (lowered.contains("upload")) {
+        key = ok ? QStringLiteral("info.upload") : QStringLiteral("error.upload");
     } else if (lowered.contains("print")) {
         key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
     } else if (lowered.contains("quota")) {
@@ -1143,6 +1188,107 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     return out;
 }
 
+QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
+    QVariantMap out;
+    const QString normalizedPath = normalizeUploadLocalPath(localPath);
+    const QFileInfo localFileInfo(normalizedPath);
+    const QString localFileName = localFileInfo.fileName().trimmed().isEmpty()
+                                      ? normalizedPath
+                                      : localFileInfo.fileName();
+    logging::info("app", "cloud_bridge", "upload_local_file_start",
+                  "uploadLocalFile called",
+                  {{"file_name", localFileName.toStdString()}});
+    if (normalizedPath.isEmpty()) {
+        out.insert("ok", false);
+        out.insert("message", QStringLiteral("Chemin fichier vide."));
+        logging::warn("app", "cloud_bridge", "upload_local_file_invalid_path",
+                      "uploadLocalFile aborted: empty path");
+        finalizeUiMessage(out);
+        return out;
+    }
+
+    const usecases::cloud::UploadLocalFileUseCase useCase;
+    const auto r = useCase.execute(normalizedPath.toStdString());
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    out.insert("fileId", QString::fromStdString(r.fileId));
+    out.insert("gcodeId", QString::fromStdString(r.gcodeId));
+    out.insert("uploadStatus", r.uploadStatus);
+    out.insert("unlockOk", r.unlockOk);
+
+    logging::info("app", "cloud_bridge", "upload_local_file_result",
+                  "uploadLocalFile finished",
+                  {{"ok", r.ok ? "1" : "0"},
+                   {"file_name", localFileName.toStdString()},
+                   {"file_id", r.fileId},
+                   {"gcode_id", r.gcodeId.empty() ? "0" : r.gcodeId},
+                   {"status", std::to_string(r.uploadStatus)},
+                   {"unlock_ok", r.unlockOk ? "1" : "0"}});
+
+    if (r.ok && m_cache != nullptr) {
+        m_cache->invalidateScope(QStringLiteral("files"));
+        m_cache->invalidateScope(QStringLiteral("quota"));
+    }
+
+    finalizeUiMessage(out);
+    return out;
+}
+
+void CloudBridge::startUploadLocalFile(const QString& localPath) {
+    const QString normalizedPath = normalizeUploadLocalPath(localPath);
+    if (normalizedPath.isEmpty()) {
+        emit uploadFinished(false,
+                            QStringLiteral("Chemin fichier vide."),
+                            QString(),
+                            QString(),
+                            0,
+                            false);
+        return;
+    }
+
+    emit uploadProgressChanged(0.0, QStringLiteral("Demarrage upload"));
+    logging::info("app", "cloud_bridge", "upload_async_start",
+                  "startUploadLocalFile called",
+                  {{"file_path", normalizedPath.toStdString()}});
+
+    launchBackgroundTask([this, normalizedPath]() {
+        const usecases::cloud::UploadLocalFileUseCase useCase;
+        const auto result = useCase.execute(
+            normalizedPath.toStdString(),
+            [this](double progress, const std::string& phase) {
+                double clamped = progress;
+                if (clamped < 0.0)
+                    clamped = 0.0;
+                if (clamped > 1.0)
+                    clamped = 1.0;
+                const QString phaseText = QString::fromStdString(phase);
+                QMetaObject::invokeMethod(this, [this, clamped, phaseText]() {
+                    emit uploadProgressChanged(clamped, phaseText);
+                }, Qt::QueuedConnection);
+            });
+
+        QMetaObject::invokeMethod(this, [this, result]() {
+            if (result.ok && m_cache != nullptr) {
+                m_cache->invalidateScope(QStringLiteral("files"));
+                m_cache->invalidateScope(QStringLiteral("quota"));
+            }
+            logging::info("app", "cloud_bridge", "upload_async_result",
+                          "startUploadLocalFile finished",
+                          {{"ok", result.ok ? "1" : "0"},
+                           {"file_id", result.fileId},
+                           {"gcode_id", result.gcodeId.empty() ? "0" : result.gcodeId},
+                           {"status", std::to_string(result.uploadStatus)},
+                           {"unlock_ok", result.unlockOk ? "1" : "0"}});
+            emit uploadFinished(result.ok,
+                                QString::fromStdString(result.message),
+                                QString::fromStdString(result.fileId),
+                                QString::fromStdString(result.gcodeId),
+                                result.uploadStatus,
+                                result.unlockOk);
+        }, Qt::QueuedConnection);
+    });
+}
+
 // ── fetchPrinters ─────────────────────────────────────────────────────────
 
 QVariantMap CloudBridge::fetchPrinters() const {
@@ -1331,6 +1477,42 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     out.insert("msgId", QString::fromStdString(r.msgId));
     out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
     out.insert("correlationStatus", QString::fromStdString(r.correlationStatus));
+    if (r.ok && m_cache != nullptr) {
+        m_cache->invalidateScope(QStringLiteral("printers"));
+    }
+    finalizeUiMessage(out);
+    return out;
+}
+
+QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
+                                          int orderId,
+                                          const QVariantMap& data,
+                                          const QString& projectId) const {
+    QVariantMap out;
+    const QString normalizedPrinterId = printerId.trimmed();
+    if (normalizedPrinterId.isEmpty()) {
+        out.insert("ok", false);
+        out.insert("message", QStringLiteral("printer_id requis."));
+        finalizeUiMessage(out);
+        return out;
+    }
+    if (orderId <= 0) {
+        out.insert("ok", false);
+        out.insert("message", QStringLiteral("order_id invalide."));
+        finalizeUiMessage(out);
+        return out;
+    }
+
+    const usecases::cloud::SendPrinterOrderUseCase useCase;
+    const std::string dataJson = compactJsonFromVariantMap(data);
+    const auto r = useCase.execute(normalizedPrinterId.toStdString(),
+                                   orderId,
+                                   projectId.trimmed().toStdString(),
+                                   dataJson);
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    out.insert("taskId", QString::fromStdString(r.taskId));
+    out.insert("msgId", QString::fromStdString(r.msgId));
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }

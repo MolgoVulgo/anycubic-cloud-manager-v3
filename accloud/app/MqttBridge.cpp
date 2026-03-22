@@ -149,6 +149,80 @@ std::string redactPayloadForDebug(const std::string& payload) {
     }
 }
 
+int jsonIntValueOr(const nlohmann::json& node, int fallback = 0) {
+    if (node.is_number_integer()) {
+        return node.get<int>();
+    }
+    if (node.is_number_float()) {
+        return static_cast<int>(node.get<double>());
+    }
+    if (node.is_string()) {
+        try {
+            return std::stoi(node.get<std::string>());
+        } catch (...) {
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
+qint64 jsonInt64ValueOr(const nlohmann::json& node, qint64 fallback = 0) {
+    if (node.is_number_integer()) {
+        return static_cast<qint64>(node.get<long long>());
+    }
+    if (node.is_number_float()) {
+        return static_cast<qint64>(node.get<double>());
+    }
+    if (node.is_string()) {
+        bool ok = false;
+        const qlonglong parsed = QString::fromStdString(node.get<std::string>()).toLongLong(&ok);
+        return ok ? static_cast<qint64>(parsed) : fallback;
+    }
+    return fallback;
+}
+
+QString toQStringField(const nlohmann::json& object, const char* key) {
+    if (!object.is_object() || !object.contains(key) || object[key].is_null()) {
+        return {};
+    }
+    const auto& value = object[key];
+    if (value.is_string()) {
+        return QString::fromStdString(value.get<std::string>());
+    }
+    if (value.is_number_integer()) {
+        return QString::number(value.get<long long>());
+    }
+    if (value.is_number_float()) {
+        return QString::number(value.get<double>());
+    }
+    if (value.is_boolean()) {
+        return value.get<bool>() ? QStringLiteral("true") : QStringLiteral("false");
+    }
+    return {};
+}
+
+QVariantMap fileRecordToVariantMap(const nlohmann::json& record) {
+    QVariantMap map;
+    if (!record.is_object()) {
+        return map;
+    }
+    map.insert("filename", toQStringField(record, "filename"));
+    map.insert("path", toQStringField(record, "path"));
+    map.insert("size", jsonInt64ValueOr(record.value("size", nlohmann::json{}), 0));
+    map.insert("timestamp", jsonInt64ValueOr(record.value("timestamp", nlohmann::json{}), 0));
+    bool isDir = false;
+    if (record.contains("is_dir") && !record["is_dir"].is_null()) {
+        const auto& isDirNode = record["is_dir"];
+        if (isDirNode.is_boolean()) {
+            isDir = isDirNode.get<bool>();
+        } else {
+            isDir = jsonIntValueOr(isDirNode, 0) != 0;
+        }
+    }
+    map.insert("isDir", isDir);
+    return map;
+}
+
 PreparedMqttProfile buildPreparedProfile() {
     PreparedMqttProfile out;
     out.config.host = "mqtt-universe.anycubic.com";
@@ -386,6 +460,75 @@ MqttBridge::MqttBridge(QObject* parent)
                     routeDispositionToString(routed.disposition),
                     routed.reason);
             }
+
+            if (routed.envelope.type == "file") {
+                const QString action = QString::fromStdString(routed.envelope.action).trimmed();
+                const QString actionLower = action.toLower();
+                QString source;
+                if (actionLower == QStringLiteral("listlocal")
+                    || actionLower == QStringLiteral("local")
+                    || actionLower.contains(QStringLiteral("local"))) {
+                    source = QStringLiteral("local");
+                } else if (actionLower == QStringLiteral("listudisk")
+                           || actionLower == QStringLiteral("udisk")
+                           || actionLower.contains(QStringLiteral("udisk"))
+                           || actionLower.contains(QStringLiteral("usb"))) {
+                    source = QStringLiteral("udisk");
+                }
+
+                const bool hasRecordsArray = routed.envelope.data.is_object()
+                    && routed.envelope.data.contains("records")
+                    && routed.envelope.data["records"].is_array();
+                const bool listLikeAction = actionLower.startsWith(QStringLiteral("list"));
+
+                if (!source.isEmpty() && (hasRecordsArray || listLikeAction)) {
+                    std::string effectivePrinterId = routed.printerKey;
+                    if (!routed.printerKey.empty()) {
+                        const auto it = m_printerKeyToId.find(routed.printerKey);
+                        if (it != m_printerKeyToId.end() && !it->second.empty()) {
+                            effectivePrinterId = it->second;
+                        }
+                    }
+
+                    QVariantList records;
+                    if (routed.envelope.data.is_object()
+                        && routed.envelope.data.contains("records")
+                        && routed.envelope.data["records"].is_array()) {
+                        for (const auto& record : routed.envelope.data["records"]) {
+                            records.push_back(fileRecordToVariantMap(record));
+                        }
+                    }
+
+                    const int code = routed.envelope.raw.contains("code")
+                        ? jsonIntValueOr(routed.envelope.raw["code"], 0)
+                        : 0;
+                    const QString fileState = QString::fromStdString(routed.envelope.state);
+                    const QString fileMessage = toQStringField(routed.envelope.raw, "msg");
+                    const QString printerIdText = QString::fromStdString(effectivePrinterId);
+                    logging::info("app",
+                                  "mqtt_file_list",
+                                  "file_list_event",
+                                  "Printer file list event received",
+                                  {{"action", routed.envelope.action},
+                                   {"source", source.toStdString()},
+                                   {"printer_key", routed.printerKey},
+                                   {"printer_id", effectivePrinterId},
+                                   {"records_count", std::to_string(records.size())},
+                                   {"state", routed.envelope.state},
+                                   {"code", std::to_string(code)}});
+                    QMetaObject::invokeMethod(this,
+                                              [this, printerIdText, source, records, fileState, code, fileMessage]() {
+                                                  emit printerFileListReceived(printerIdText,
+                                                                               source,
+                                                                               records,
+                                                                               fileState,
+                                                                               code,
+                                                                               fileMessage);
+                                              },
+                                              Qt::QueuedConnection);
+                }
+            }
+
             if (routed.event.has_value()) {
                 auto event = *routed.event;
                 if (!routed.printerKey.empty()) {

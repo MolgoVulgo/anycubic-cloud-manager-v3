@@ -83,4 +83,18 @@ CloudPrintOrderResult sendCloudPrintOrder(const std::string& accessToken,
     return api::PrintOrderApi{}.send(accessToken, xxToken, printerId, fileId, deleteAfterPrint);
 }
 
+CloudPrintOrderResult sendCloudPrinterOrder(const std::string& accessToken,
+                                            const std::string& xxToken,
+                                            const std::string& printerId,
+                                            int orderId,
+                                            const std::string& projectId,
+                                            const std::string& dataJson) {
+    return api::PrintOrderApi{}.sendCommand(accessToken,
+                                            xxToken,
+                                            printerId,
+                                            orderId,
+                                            projectId,
+                                            dataJson);
+}
+
 } // namespace accloud::cloud
