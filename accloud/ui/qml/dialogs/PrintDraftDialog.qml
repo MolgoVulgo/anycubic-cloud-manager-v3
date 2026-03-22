@@ -17,7 +17,15 @@ AppDialogFrame {
         FormRow {
             labelText: qsTr("Printer")
             labelWidth: 100
-            AppComboBox { Layout.fillWidth: true; model: ["M7-Workshop-A", "M5S-Line-2", "Backup-X2"] }
+            AppComboBox {
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "m7_workshop_a", "label": qsTr("M7-Workshop-A") },
+                    { "value": "m5s_line_2", "label": qsTr("M5S-Line-2") },
+                    { "value": "backup_x2", "label": qsTr("Backup-X2") }
+                ]
+            }
         },
         FormRow {
             labelText: qsTr("file_id")
@@ -29,7 +37,13 @@ AppDialogFrame {
             labelWidth: 100
             AppSpinBox { from: 1; to: 10; value: 1 }
             FormLabel { text: qsTr("Priority"); preferredWidth: 56 }
-            AppComboBox { model: [qsTr("normal"), qsTr("high")] }
+            AppComboBox {
+                textRole: "label"
+                model: [
+                    { "value": "normal", "label": qsTr("normal") },
+                    { "value": "high", "label": qsTr("high") }
+                ]
+            }
             AppCheckBox { text: qsTr("Dry-run") }
         }
     ]

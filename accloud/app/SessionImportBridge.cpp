@@ -72,18 +72,28 @@ void finalizeUiMessage(QVariantMap& out) {
   const QString lowered = message.toLower();
   const bool ok = out.value("ok").toBool();
 
-  QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
-  if (lowered.contains("har")) {
-    key = ok ? QStringLiteral("info.session.har") : QStringLiteral("error.session.har");
-  } else if (lowered.contains("session")) {
-    key = ok ? QStringLiteral("info.session") : QStringLiteral("error.session");
-  } else if (lowered.contains("token")) {
-    key = QStringLiteral("error.session.token");
-  } else if (lowered.contains("cloud")) {
-    key = ok ? QStringLiteral("info.cloud") : QStringLiteral("error.cloud");
+  if (!out.contains("messageKey")) {
+    QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
+    if (lowered.contains("har")) {
+      key = ok ? QStringLiteral("info.session.har") : QStringLiteral("error.session.har");
+    } else if (lowered.contains("session")) {
+      key = ok ? QStringLiteral("info.session") : QStringLiteral("error.session");
+    } else if (lowered.contains("token")) {
+      key = QStringLiteral("error.session.token");
+    } else if (lowered.contains("cloud")) {
+      key = ok ? QStringLiteral("info.cloud") : QStringLiteral("error.cloud");
+    }
+    out.insert("messageKey", key);
   }
-
-  out.insert("messageKey", key);
+  if (!out.contains("fallbackMessage")) {
+    out.insert("fallbackMessage", message);
+  }
+  if (!out.contains("params")) {
+    out.insert("params", QVariantMap{});
+  }
+  if (message.isEmpty()) {
+    out.insert("message", out.value("fallbackMessage").toString());
+  }
 }
 
 } // namespace
@@ -114,6 +124,8 @@ QVariantMap SessionImportBridge::analyzeHar(const QString& harPath, const QStrin
                   "HAR analyze rejected because path is empty");
     out.insert("ok", false);
     out.insert("message", "HAR file path is required");
+    out.insert("messageKey", QStringLiteral("session.har.path_required"));
+    out.insert("fallbackMessage", QStringLiteral("HAR file path is required."));
     out.insert("pendingValid", false);
     finalizeUiMessage(out);
     return out;
@@ -138,7 +150,6 @@ QVariantMap SessionImportBridge::analyzeHar(const QString& harPath, const QStrin
     m_pendingTokens = result.session.tokens;
     m_pendingEntriesVisited = result.entriesVisited;
     m_pendingEntriesAccepted = result.entriesAccepted;
-    m_pendingMessage = result.message;
     logging::info("app", "session_import_bridge", "analyze_succeeded",
                   "HAR analysis succeeded from QML",
                   {{"entries_visited", std::to_string(result.entriesVisited)},
@@ -149,13 +160,22 @@ QVariantMap SessionImportBridge::analyzeHar(const QString& harPath, const QStrin
     m_pendingTokens.clear();
     m_pendingEntriesVisited = 0;
     m_pendingEntriesAccepted = 0;
-    m_pendingMessage.clear();
     logging::error("app", "session_import_bridge", "analyze_failed",
                    "HAR analysis failed from QML", {{"reason", result.message}});
   }
 
   out.insert("ok", result.ok);
   out.insert("message", QString::fromStdString(result.message));
+  out.insert("messageKey", result.ok
+      ? QStringLiteral("session.har.analysis.ok")
+      : QStringLiteral("session.har.analysis.failed"));
+  out.insert("fallbackMessage", result.ok
+      ? QStringLiteral("HAR analysis completed.")
+      : QStringLiteral("HAR analysis failed."));
+  out.insert("params", QVariantMap{
+      {QStringLiteral("entriesVisited"), static_cast<qulonglong>(result.entriesVisited)},
+      {QStringLiteral("entriesAccepted"), static_cast<qulonglong>(result.entriesAccepted)}
+  });
   out.insert("entriesVisited", static_cast<qulonglong>(result.entriesVisited));
   out.insert("entriesAccepted", static_cast<qulonglong>(result.entriesAccepted));
   out.insert("tokenKeys", tokenKeyList(result.session.tokens));
@@ -172,6 +192,8 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
     out.insert("ok", false);
     out.insert("message", "No valid HAR analysis pending.");
     out.insert("connectionOk", false);
+    out.insert("messageKey", QStringLiteral("session.commit.pending_required"));
+    out.insert("fallbackMessage", QStringLiteral("A valid HAR analysis is required before save."));
     finalizeUiMessage(out);
     return out;
   }
@@ -182,6 +204,12 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   const cloud::SaveSessionResult saved = cloud::saveSessionFile(session, pathOverride);
   out.insert("ok", saved.ok);
   out.insert("message", QString::fromStdString(saved.message));
+  out.insert("messageKey", saved.ok
+      ? QStringLiteral("session.commit.saved")
+      : QStringLiteral("session.commit.failed"));
+  out.insert("fallbackMessage", saved.ok
+      ? QStringLiteral("Session saved.")
+      : QStringLiteral("Failed to save session."));
   out.insert("savedPath", QString::fromStdString(saved.path.string()));
   out.insert("entriesVisited", static_cast<qulonglong>(m_pendingEntriesVisited));
   out.insert("entriesAccepted", static_cast<qulonglong>(m_pendingEntriesAccepted));
@@ -197,12 +225,18 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   const auto accIt = m_pendingTokens.find("access_token");
   if (accIt == m_pendingTokens.end()) {
     out.insert("message", "Session saved, but access_token is missing.");
+    out.insert("messageKey", QStringLiteral("session.token.missing"));
+    out.insert("fallbackMessage", QStringLiteral("Session saved but access token is missing."));
   } else {
     const cloud::api::AuthApi authApi;
     const cloud::CloudCheckResult check =
         authApi.checkAuth(accIt->second, pickXxToken(m_pendingTokens));
     out.insert("connectionOk", check.ok);
     out.insert("connectionMessage", QString::fromStdString(check.message));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("connectionOk"), check.ok},
+        {QStringLiteral("savedPath"), QString::fromStdString(saved.path.string())}
+    });
   }
 
   logging::info("app", "session_import_bridge", "commit_succeeded",
@@ -216,7 +250,6 @@ QVariantMap SessionImportBridge::commitPendingSession(const QString& sessionPath
   m_pendingTokens.clear();
   m_pendingEntriesVisited = 0;
   m_pendingEntriesAccepted = 0;
-  m_pendingMessage.clear();
   finalizeUiMessage(out);
   return out;
 }
@@ -226,7 +259,6 @@ void SessionImportBridge::discardPendingSession() {
   m_pendingTokens.clear();
   m_pendingEntriesVisited = 0;
   m_pendingEntriesAccepted = 0;
-  m_pendingMessage.clear();
 }
 
 QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) const {
@@ -243,6 +275,8 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
     out.insert("ok", false);
     out.insert("exists", false);
     out.insert("message", QString::fromStdString(loaded.message));
+    out.insert("messageKey", QStringLiteral("session.details.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Session file is unavailable."));
     out.insert("details", lines.join('\n'));
     finalizeUiMessage(out);
     return out;
@@ -267,6 +301,8 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
   out.insert("ok", true);
   out.insert("exists", true);
   out.insert("message", QStringLiteral("Session loaded"));
+  out.insert("messageKey", QStringLiteral("session.details.loaded"));
+  out.insert("fallbackMessage", QStringLiteral("Session loaded."));
   out.insert("tokenKeys", tokenKeyList(loaded.session.tokens));
   out.insert("details", lines.join('\n'));
   finalizeUiMessage(out);
@@ -288,6 +324,8 @@ QVariantMap SessionImportBridge::checkStartup() const {
     out.insert("message",
                QString("Aucun fichier session.json trouvé. "
                        "Importez un fichier HAR pour créer une session."));
+    out.insert("messageKey", QStringLiteral("session.startup.missing"));
+    out.insert("fallbackMessage", QStringLiteral("Session file is missing. Import HAR to continue."));
     finalizeUiMessage(out);
     return out;
   }
@@ -298,6 +336,8 @@ QVariantMap SessionImportBridge::checkStartup() const {
   if (!accessToken.has_value()) {
     out.insert("connectionOk", false);
     out.insert("message", QString("session.json ne contient pas de access_token."));
+    out.insert("messageKey", QStringLiteral("session.startup.missing_access_token"));
+    out.insert("fallbackMessage", QStringLiteral("Session file does not contain access token."));
     finalizeUiMessage(out);
     return out;
   }
@@ -309,6 +349,13 @@ QVariantMap SessionImportBridge::checkStartup() const {
 
   out.insert("connectionOk", check.ok);
   out.insert("message", QString::fromStdString(check.message));
+  out.insert("messageKey", check.ok
+      ? QStringLiteral("session.startup.cloud_ok")
+      : QStringLiteral("session.startup.cloud_failed"));
+  out.insert("fallbackMessage", check.ok
+      ? QStringLiteral("Cloud session check succeeded.")
+      : QStringLiteral("Cloud session check failed."));
+  out.insert("params", QVariantMap{{QStringLiteral("connectionOk"), check.ok}});
 
   if (check.ok) {
     logging::info("app", "session_import_bridge", "startup_ok",

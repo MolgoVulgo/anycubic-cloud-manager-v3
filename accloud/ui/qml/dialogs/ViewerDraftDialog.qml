@@ -35,8 +35,24 @@ AppDialogFrame {
 
                     AppTextField { placeholderText: qsTr("Source PWMB path"); Layout.fillWidth: true }
                     AppSlider { from: 0; to: 100; value: 100; Layout.fillWidth: true }
-                    AppComboBox { Layout.fillWidth: true; model: [qsTr("Quality 33"), qsTr("Quality 66"), qsTr("Quality 100")] }
-                    AppComboBox { Layout.fillWidth: true; model: [qsTr("Palette Steel"), qsTr("Palette Resin"), qsTr("Palette Heat")] }
+                    AppComboBox {
+                        Layout.fillWidth: true
+                        textRole: "label"
+                        model: [
+                            { "value": "q33", "label": qsTr("Quality 33") },
+                            { "value": "q66", "label": qsTr("Quality 66") },
+                            { "value": "q100", "label": qsTr("Quality 100") }
+                        ]
+                    }
+                    AppComboBox {
+                        Layout.fillWidth: true
+                        textRole: "label"
+                        model: [
+                            { "value": "palette_steel", "label": qsTr("Palette Steel") },
+                            { "value": "palette_resin", "label": qsTr("Palette Resin") },
+                            { "value": "palette_heat", "label": qsTr("Palette Heat") }
+                        ]
+                    }
                     AppCheckBox { text: qsTr("Contour only") }
                     ProgressBar { from: 0; to: 100; value: 46; Layout.fillWidth: true }
                     Item { Layout.fillHeight: true }

@@ -35,11 +35,35 @@ Item {
     }
 
     function minLevelRank() {
-        var levelFilter = String(logLevelFilter.currentText)
-        if (levelFilter === "INFO+") return 1
-        if (levelFilter === "WARN+") return 2
-        if (levelFilter === "ERROR") return 3
+        var levelFilter = comboSelectedValue(logLevelFilter, "all")
+        if (levelFilter === "info_plus") return 1
+        if (levelFilter === "warn_plus") return 2
+        if (levelFilter === "error") return 3
         return 0
+    }
+
+    function comboSelectedValue(combo, fallbackValue) {
+        if (!combo || combo.currentIndex < 0 || combo.model === undefined || combo.model === null)
+            return String(fallbackValue || "")
+        if (combo.currentIndex >= combo.model.length)
+            return String(fallbackValue || "")
+        var entry = combo.model[combo.currentIndex]
+        if (entry !== null && entry !== undefined && entry.value !== undefined)
+            return String(entry.value)
+        return String(entry !== undefined ? entry : (fallbackValue || ""))
+    }
+
+    function comboIndexForValue(model, valueToFind) {
+        var target = String(valueToFind || "")
+        for (var i = 0; i < model.length; ++i) {
+            var entry = model[i]
+            var value = (entry !== null && entry !== undefined && entry.value !== undefined)
+                    ? String(entry.value)
+                    : String(entry)
+            if (value === target)
+                return i
+        }
+        return -1
     }
 
     function normalizeEntry(entry) {
@@ -134,12 +158,11 @@ Item {
     }
 
     function updateComboOptions(combo, options, fallbackLabel) {
-        var previous = combo.currentText
+        var previousValue = comboSelectedValue(combo, "")
         combo.model = options
-        var index = combo.find(previous)
-        if (index < 0 && fallbackLabel !== undefined) {
-            index = combo.find(fallbackLabel)
-        }
+        var index = comboIndexForValue(options, previousValue)
+        if (index < 0)
+            index = comboIndexForValue(options, fallbackLabel !== undefined ? fallbackLabel : "")
         combo.currentIndex = index >= 0 ? index : 0
     }
 
@@ -160,42 +183,42 @@ Item {
             if (logical.length > 0)
                 sourceSet[logical] = true
         }
-        var sourceOptions = [qsTr("All sources")]
+        var sourceOptions = [{ "value": "__all__", "label": qsTr("All sources") }]
         for (var key in sourceSet) {
             if (Object.prototype.hasOwnProperty.call(sourceSet, key))
-                sourceOptions.push(key)
+                sourceOptions.push({ "value": key, "label": key })
         }
         sourceOptions.sort(function(a, b) {
-            if (a === qsTr("All sources"))
+            if (String(a.value) === "__all__")
                 return -1
-            if (b === qsTr("All sources"))
+            if (String(b.value) === "__all__")
                 return 1
-            return String(a).localeCompare(String(b))
+            return String(a.label).localeCompare(String(b.label))
         })
 
-        var componentOptions = ["component:*"]
+        var componentOptions = [{ "value": "__all__", "label": "component:*" }]
         if (snapshot.components !== undefined) {
             for (var c = 0; c < snapshot.components.length; ++c) {
                 var componentValue = String(snapshot.components[c])
                 if (componentValue.length > 0) {
-                    componentOptions.push(componentValue)
+                    componentOptions.push({ "value": componentValue, "label": componentValue })
                 }
             }
         }
 
-        var eventOptions = ["event:*"]
+        var eventOptions = [{ "value": "__all__", "label": "event:*" }]
         if (snapshot.events !== undefined) {
             for (var e = 0; e < snapshot.events.length; ++e) {
                 var eventValue = String(snapshot.events[e])
                 if (eventValue.length > 0) {
-                    eventOptions.push(eventValue)
+                    eventOptions.push({ "value": eventValue, "label": eventValue })
                 }
             }
         }
 
-        updateComboOptions(logSourceFilter, sourceOptions, qsTr("All sources"))
-        updateComboOptions(logComponentFilter, componentOptions, "component:*")
-        updateComboOptions(logEventFilter, eventOptions, "event:*")
+        updateComboOptions(logSourceFilter, sourceOptions, "__all__")
+        updateComboOptions(logComponentFilter, componentOptions, "__all__")
+        updateComboOptions(logEventFilter, eventOptions, "__all__")
     }
 
     function refreshLogs() {
@@ -230,9 +253,9 @@ Item {
     }
 
     function applyFilters() {
-        var selectedSource = String(logSourceFilter.currentText)
-        var selectedComponent = String(logComponentFilter.currentText)
-        var selectedEvent = String(logEventFilter.currentText)
+        var selectedSource = comboSelectedValue(logSourceFilter, "__all__")
+        var selectedComponent = comboSelectedValue(logComponentFilter, "__all__")
+        var selectedEvent = comboSelectedValue(logEventFilter, "__all__")
         var exactOpId = logOpIdFilter.text.trim()
         var queryText = logQueryFilter.text.trim().toLowerCase()
         var requiredRank = minLevelRank()
@@ -241,10 +264,10 @@ Item {
         for (var i = 0; i < root.allEntries.length; ++i) {
             var entry = root.allEntries[i]
             if (levelRank(entry.level) < requiredRank) continue
-            if (selectedSource !== qsTr("All sources")
+            if (selectedSource !== "__all__"
                     && String(entry.logicalSource || "") !== selectedSource) continue
-            if (selectedComponent !== "component:*" && entry.component !== selectedComponent) continue
-            if (selectedEvent !== "event:*" && entry.event !== selectedEvent) continue
+            if (selectedComponent !== "__all__" && entry.component !== selectedComponent) continue
+            if (selectedEvent !== "__all__" && entry.event !== selectedEvent) continue
             if (exactOpId.length > 0 && entry.opId !== exactOpId) continue
 
             if (queryText.length > 0) {
@@ -311,33 +334,42 @@ Item {
                     AppComboBox {
                         id: logLevelFilter
                         objectName: "logLevelFilter"
-                        model: ["ALL", "INFO+", "WARN+", "ERROR"]
+                        textRole: "label"
+                        model: [
+                            { "value": "all", "label": "ALL" },
+                            { "value": "info_plus", "label": "INFO+" },
+                            { "value": "warn_plus", "label": "WARN+" },
+                            { "value": "error", "label": "ERROR" }
+                        ]
                         Layout.preferredWidth: 105
-                        onCurrentTextChanged: root.applyFilters()
+                        onCurrentIndexChanged: root.applyFilters()
                     }
 
                     AppComboBox {
                         id: logSourceFilter
                         objectName: "logSourceFilter"
-                        model: [qsTr("All sources")]
+                        textRole: "label"
+                        model: [{ "value": "__all__", "label": qsTr("All sources") }]
                         Layout.preferredWidth: 150
-                        onCurrentTextChanged: root.applyFilters()
+                        onCurrentIndexChanged: root.applyFilters()
                     }
 
                     AppComboBox {
                         id: logComponentFilter
                         objectName: "logComponentFilter"
-                        model: ["component:*"]
+                        textRole: "label"
+                        model: [{ "value": "__all__", "label": "component:*" }]
                         Layout.preferredWidth: 170
-                        onCurrentTextChanged: root.applyFilters()
+                        onCurrentIndexChanged: root.applyFilters()
                     }
 
                     AppComboBox {
                         id: logEventFilter
                         objectName: "logEventFilter"
-                        model: ["event:*"]
+                        textRole: "label"
+                        model: [{ "value": "__all__", "label": "event:*" }]
                         Layout.preferredWidth: 170
-                        onCurrentTextChanged: root.applyFilters()
+                        onCurrentIndexChanged: root.applyFilters()
                     }
 
                     AppTextField {
