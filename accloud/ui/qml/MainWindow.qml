@@ -1074,7 +1074,7 @@ ApplicationWindow {
                         Pages.PrinterPage {
                             id: printerPage
                             objectName: "printerPage"
-                            debugUi: root.debugUi
+                            debugUi: false
                             embeddedInTabsContainer: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)

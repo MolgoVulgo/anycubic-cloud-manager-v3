@@ -1,5 +1,7 @@
 ## 3) View: Tab "Files" - Cloud Files
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Statut
 - `IMPLEMENTE` (workflow principal de production cote fichiers cloud).
 

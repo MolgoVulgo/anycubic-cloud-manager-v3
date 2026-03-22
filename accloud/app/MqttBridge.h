@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
+#include <QVariantList>
 #include <QVariantMap>
 #include <deque>
 #include <future>
@@ -72,6 +73,12 @@ signals:
     void telemetrySnapshotChanged();
     void telemetryMetricsChanged();
     void realtimeEventTickChanged();
+    void printerFileListReceived(const QString& printerId,
+                                 const QString& source,
+                                 const QVariantList& records,
+                                 const QString& state,
+                                 int code,
+                                 const QString& message);
 
 private:
     bool attemptAutoConnect();

@@ -12,6 +12,7 @@
 #include "app/usecases/cloud/LoadCloudFilesUseCase.h"
 #include "app/usecases/cloud/LoadCloudQuotaUseCase.h"
 #include "app/usecases/cloud/LoadPrintersDashboardUseCase.h"
+#include "app/usecases/cloud/SendPrinterOrderUseCase.h"
 #include "app/usecases/cloud/SendPrintOrderUseCase.h"
 #include "app/usecases/cloud/UploadLocalFileUseCase.h"
 #include "infra/cloud/HarImporter.h"
@@ -24,6 +25,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocale>
 #include <QSaveFile>
 #include <QMetaObject>
@@ -107,6 +110,15 @@ QString normalizeUploadLocalPath(const QString& pathOrUrl) {
     }
 
     return trimmed;
+}
+
+std::string compactJsonFromVariantMap(const QVariantMap& data) {
+    if (data.isEmpty()) {
+        return {};
+    }
+    const QJsonObject object = QJsonObject::fromVariantMap(data);
+    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    return json.toStdString();
 }
 
 // ── Conversion CloudFileInfo → QVariantMap ────────────────────────────────
@@ -1465,6 +1477,42 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     out.insert("msgId", QString::fromStdString(r.msgId));
     out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
     out.insert("correlationStatus", QString::fromStdString(r.correlationStatus));
+    if (r.ok && m_cache != nullptr) {
+        m_cache->invalidateScope(QStringLiteral("printers"));
+    }
+    finalizeUiMessage(out);
+    return out;
+}
+
+QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
+                                          int orderId,
+                                          const QVariantMap& data,
+                                          const QString& projectId) const {
+    QVariantMap out;
+    const QString normalizedPrinterId = printerId.trimmed();
+    if (normalizedPrinterId.isEmpty()) {
+        out.insert("ok", false);
+        out.insert("message", QStringLiteral("printer_id requis."));
+        finalizeUiMessage(out);
+        return out;
+    }
+    if (orderId <= 0) {
+        out.insert("ok", false);
+        out.insert("message", QStringLiteral("order_id invalide."));
+        finalizeUiMessage(out);
+        return out;
+    }
+
+    const usecases::cloud::SendPrinterOrderUseCase useCase;
+    const std::string dataJson = compactJsonFromVariantMap(data);
+    const auto r = useCase.execute(normalizedPrinterId.toStdString(),
+                                   orderId,
+                                   projectId.trimmed().toStdString(),
+                                   dataJson);
+    out.insert("ok", r.ok);
+    out.insert("message", QString::fromStdString(r.message));
+    out.insert("taskId", QString::fromStdString(r.taskId));
+    out.insert("msgId", QString::fromStdString(r.msgId));
     if (r.ok && m_cache != nullptr) {
         m_cache->invalidateScope(QStringLiteral("printers"));
     }

@@ -1,5 +1,7 @@
 ## 2) View: Fenetre principale - "Anycubic Cloud Control Room"
 
+Statut documentaire : `IMPLEMENTE`
+
 ### Statut
 - `IMPLEMENTE` (avec actions draft visibles en mode debug-ui).
 

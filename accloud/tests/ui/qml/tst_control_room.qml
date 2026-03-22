@@ -489,8 +489,12 @@ TestCase {
         cloudBridge = undefined
     }
 
-    function test_printer_page_guard_blocks_incompatible_file_id() {
+    function test_printer_page_cloud_picker_filters_with_local_metadata_only() {
         var sendCalls = 0
+        var fetchFilesCalls = 0
+        var loadCachedFilesCalls = 0
+        var compatByExtCalls = 0
+        var compatByFileCalls = 0
         cloudBridge = {
             fetchPrinters: function() {
                 return {
@@ -517,12 +521,31 @@ TestCase {
                 }
             },
             fetchFiles: function() {
+                fetchFilesCalls += 1
                 return {
                     ok: true,
                     files: [
                         {
                             fileId: "f1",
                             fileName: "demo.pwmb",
+                            machine: "Anycubic Photon M3 Plus",
+                            sizeText: "1 MB",
+                            status: "READY",
+                            printTime: "1m",
+                            resinUsage: "1 ml"
+                        }
+                    ]
+                }
+            },
+            loadCachedFiles: function() {
+                loadCachedFilesCalls += 1
+                return {
+                    ok: true,
+                    files: [
+                        {
+                            fileId: "f1",
+                            fileName: "demo.pwmb",
+                            machine: "Anycubic Photon M3 Plus",
                             sizeText: "1 MB",
                             status: "READY",
                             printTime: "1m",
@@ -532,20 +555,12 @@ TestCase {
                 }
             },
             fetchCompatiblePrintersByExt: function(ext) {
-                return {
-                    ok: true,
-                    printers: [
-                        { id: "p1", available: 1, reason: "" }
-                    ]
-                }
+                compatByExtCalls += 1
+                return { ok: true, printers: [] }
             },
             fetchCompatiblePrintersByFileId: function(fileId) {
-                return {
-                    ok: true,
-                    printers: [
-                        { id: "p1", available: 0, reason: "unavailable reason:printer offline" }
-                    ]
-                }
+                compatByFileCalls += 1
+                return { ok: true, printers: [] }
             },
             fetchReasonCatalog: function() {
                 return { ok: true, reasons: [] }
@@ -564,14 +579,20 @@ TestCase {
 
         var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
         page.openSelectCloudFileDialog("p1")
-        verify(String(page.selectedCloudFileId).length > 0)
+        wait(0)
+        compare(loadCachedFilesCalls, 1)
+        compare(fetchFilesCalls, 0)
+        compare(compatByExtCalls, 0)
+        compare(compatByFileCalls, 0)
+        compare(String(page.selectedCloudFileId), "")
+        compare(page.selectedCloudFileData(), null)
+        verify(String(page.statusMsg).indexOf("No compatible cloud file") !== -1)
         page.openRemotePrintConfig()
-        compare(page.remotePrintAllowed, false)
-        verify(String(page.remotePrintBlockReason).toLowerCase().indexOf("offline") !== -1)
+        compare(page.remotePrintAllowed, true)
 
         page.startRemotePrint()
         compare(sendCalls, 0)
-        verify(String(page.statusMsg).indexOf("Print blocked:") === 0)
+        compare(String(page.statusMsg), "Select a cloud file first.")
         page.destroy()
         cloudBridge = undefined
     }

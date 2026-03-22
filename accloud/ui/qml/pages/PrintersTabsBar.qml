@@ -16,7 +16,7 @@ Rectangle {
     signal printerDetailsRequested(string printerId)
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 92
+    Layout.preferredHeight: 56
     radius: embeddedInTabsContainer ? 0 : Theme.radiusControl
     color: Theme.bgSurface
     border.width: embeddedInTabsContainer ? 0 : Theme.borderWidth
@@ -25,7 +25,7 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 0
-        spacing: 4
+        spacing: 0
 
         AppTabBar {
             id: printersTabBar
@@ -52,33 +52,17 @@ Rectangle {
                           ? String(root.tabTitleProvider(printer))
                           : String(printer && printer.name ? printer.name : qsTr("Printer"))
                     checked: root.selectedPrinterId === String(printer && printer.id ? printer.id : "")
+                    rightPadding: 94
                     onClicked: root.printerSelected(printer && printer.id ? String(printer.id) : "")
-                }
-            }
-        }
-
-        Flickable {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            contentWidth: detailsRow.implicitWidth
-            contentHeight: detailsRow.height
-            clip: true
-
-            RowLayout {
-                id: detailsRow
-                spacing: 6
-                height: 34
-
-                Repeater {
-                    model: root.printersModel
 
                     AppButton {
-                        required property int index
-                        readonly property var printer: root.printersModel.get(index)
-                        text: qsTr("Details: %1")
-                              .arg(String(printer && printer.name ? printer.name : qsTr("Printer")))
+                        objectName: "printerTabDetailsButton"
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right
+                        anchors.rightMargin: 10
                         compact: true
                         variant: "secondary"
+                        text: qsTr("Details")
                         onClicked: root.printerDetailsRequested(
                                        printer && printer.id ? String(printer.id) : "")
                     }
