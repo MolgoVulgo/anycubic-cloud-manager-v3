@@ -28,7 +28,7 @@ Lire d’abord :
 1. `accloud/CMakeLists.txt`
 2. `accloud/CMakePresets.json`
 3. `accloud/README.md`
-4. `Docs/README.md`
+4. `Docs/docs_unifies_readme.md`
 5. la zone fonctionnelle réellement touchée
 
 Points d’entrée utiles :

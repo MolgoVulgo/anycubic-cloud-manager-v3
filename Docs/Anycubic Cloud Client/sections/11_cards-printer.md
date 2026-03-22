@@ -44,4 +44,4 @@
 - Trop de metriques simultanees qui degradent la lisibilite.
 - Status visuel sans texte.
 
-Reference snapshot: `Docs/print_tab_official_logs_snapshot.md`
+Reference snapshot: `Docs/docs_unifies_ui_qml.md`

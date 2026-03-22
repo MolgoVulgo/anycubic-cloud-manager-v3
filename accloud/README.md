@@ -2,15 +2,15 @@
 
 C++20 Qt/Kirigami skeleton for Anycubic Cloud Manager V3.
 
-This directory materializes the architecture from `Docs/structure_application_photons.md`:
+This directory materializes the architecture from `Docs/docs_unifies_photon_viewer_formats.md`:
 - layered modules (`ui`, `domain`, `infra`, `render3d`, `tests`)
 - Photon multi-format drivers (`PWMB`, `PWS`, `PHZ`, `PHOTONS`, `PWSZ`)
 - async jobs, cache, logging, and cloud workflows
 
 Logging reference:
-- `../Docs/logging_reference.md`
-- `../Docs/README.md` (documentation map)
-- `../Docs/etat_reel_vs_cible.md` (implemented vs target matrix)
+- `../Docs/docs_unifies_core_web_cloud_sync.md`
+- `../Docs/docs_unifies_readme.md` (documentation map)
+- `../Docs/docs_unifies_core_web_cloud_sync.md` (implemented vs target matrix)
 
 ## Build
 
@@ -66,7 +66,7 @@ cmake --build --preset prod
 ```
 
 Detailed guide:
-- `../Docs/debug_build_modes.md`
+- `../Docs/docs_unifies_core_web_cloud_sync.md`
 
 ### MQTT build behavior
 
