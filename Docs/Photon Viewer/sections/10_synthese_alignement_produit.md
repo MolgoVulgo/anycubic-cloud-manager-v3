@@ -1,5 +1,7 @@
 ## 10) Synthese d'alignement produit (CDF -> UI) - Photon Viewer
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
 - `PARTIEL`.
 
