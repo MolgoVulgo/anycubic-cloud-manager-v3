@@ -15,15 +15,15 @@ Le principe est simple :
 ## Structure retenue
 
 ### 1. Core Web / Cloud Sync
-- `Docs_Unifies_core_web_cloud_sync.md`
+- `01_core_web_cloud_sync.md`
 - cible : architecture web, endpoints, cache local, session, stratégie de sync, trajectoire de correction.
 
 ### 2. UI / QML
-- `Docs_Unifies_ui_qml.md`
+- `02_ui_qml.md`
 - cible : shell UI, pages, dialogs, design system, onglets, lots UI, dette visible et cadrage d’implémentation.
 
 ### 3. Photon / Viewer / Formats
-- `Docs_Unifies_photon_viewer_formats.md`
+- `03_photon_viewer_formats.md`
 - cible : structure viewer, état réel vs cible, formats photons, périmètre réellement présent et non commencé.
 
 ### 4. MQTT — document complémentaire
@@ -117,11 +117,11 @@ Documents absorbés :
 
 ## Ordre de lecture recommandé
 
-1. `Docs_Unifies_core_web_cloud_sync.md`
-2. `Docs_Unifies_ui_qml.md`
+1. `01_core_web_cloud_sync.md`
+2. `02_ui_qml.md`
 3. `Docs_Complement_MQTT.md`
 4. `Docs_Complement_i18n.md`
-5. `Docs_Unifies_photon_viewer_formats.md`
+5. `03_photon_viewer_formats.md`
 6. `Docs_Plan_Action_modifications.md`
 
 ---

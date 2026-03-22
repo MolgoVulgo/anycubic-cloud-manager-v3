@@ -44,4 +44,4 @@
 - Trop de metriques simultanees qui degradent la lisibilite.
 - Status visuel sans texte.
 
-Reference snapshot: `Docs/docs_unifies_ui_qml.md`
+Reference snapshot: `Docs/02_ui_qml.md`

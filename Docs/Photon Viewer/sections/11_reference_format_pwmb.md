@@ -1,6 +1,6 @@
 # 11) Reference format PWMB (extrait)
 
-Source: `Docs/docs_unifies_photon_viewer_formats.md` (section 2).
+Source: `Docs/03_photon_viewer_formats.md` (section 2).
 
 ## 2) PWMB (Photon Workshop Binary) — container *tables-first*
 
