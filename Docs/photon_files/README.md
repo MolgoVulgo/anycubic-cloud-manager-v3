@@ -1,7 +1,13 @@
-# Photon Files
+# photon_files
 
-## Contenu
-- `cube.pwmb` : fichier exemple pour tests/workflows de doc et outillage.
+## Role
 
-Reference transversale:
+Stock des fichiers exemples utilises par la documentation et certains outils de verification.
+
+## Perimetre
+
+- `cube.pwmb` : echantillon de travail.
+
+## Reference
+
 - `../03_photon_viewer_formats.md`
