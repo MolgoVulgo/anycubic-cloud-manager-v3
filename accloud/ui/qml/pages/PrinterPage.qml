@@ -183,6 +183,11 @@ Item {
         return text
     }
 
+    function backendStatusDetail(rawMessage, fallbackMessage) {
+        var detail = translateLocalizedText(String(rawMessage || "").trim())
+        return detail.length > 0 ? detail : String(fallbackMessage || qsTr("unknown error"))
+    }
+
     function fileType(fileName) {
         var name = String(fileName || "")
         var dot = name.lastIndexOf(".")
@@ -751,7 +756,8 @@ Item {
             var r = cloudBridge.fetchReasonCatalog()
             reasonCatalogLoading = false
             if (r.ok !== true) {
-                statusMsg = qsTr("Reason catalog unavailable: ") + String(r.message || "")
+                statusMsg = qsTr("Reason catalog unavailable: %1")
+                        .arg(backendStatusDetail(r.message, qsTr("Catalog fetch failed.")))
                 statusSev = "warn"
                 return
             }
@@ -1276,7 +1282,8 @@ Item {
                     files = listing.files !== undefined ? listing.files : []
                     loadedFromLocalCache = false
                 } else {
-                    statusMsg = qsTr("Cannot load cloud files for print: ") + String(listing.message)
+                    statusMsg = qsTr("Cannot load cloud files for print: %1")
+                            .arg(backendStatusDetail(listing.message, qsTr("Cloud listing unavailable.")))
                     statusSev = "error"
                     cloudFilesLoading = false
                     return
@@ -1460,7 +1467,7 @@ Item {
                                                          targetPrinterId)
         if (prepareResult.ok !== true) {
             statusMsg = qsTr("Printer file manager warmup failed: %1")
-                    .arg(String(prepareResult.message || ""))
+                    .arg(backendStatusDetail(prepareResult.message, qsTr("Warmup request failed.")))
             statusSev = "warn"
         }
 
@@ -1471,7 +1478,7 @@ Item {
         if (listResult.ok !== true) {
             localFilesLoading = false
             statusMsg = qsTr("Cannot request printer local files: %1")
-                    .arg(String(listResult.message || ""))
+                    .arg(backendStatusDetail(listResult.message, qsTr("List request failed.")))
             statusSev = "error"
             return
         }
@@ -1537,9 +1544,7 @@ Item {
 
         var normalizedState = String(state || "").toLowerCase()
         if (normalizedState === "failed" || Number(code) >= 400) {
-            statusMsg = String(message || "").trim().length > 0
-                    ? String(message || "")
-                    : qsTr("Failed to load printer local files.")
+            statusMsg = backendStatusDetail(message, qsTr("Failed to load printer local files."))
             statusSev = "error"
             return
         }
@@ -1592,7 +1597,7 @@ Item {
         loading = false
         if (uploadRes.ok !== true) {
             statusMsg = qsTr("Local print command failed: %1")
-                    .arg(String(uploadRes.message || ""))
+                    .arg(backendStatusDetail(uploadRes.message, qsTr("Command rejected.")))
             statusSev = "error"
             return
         }
@@ -1649,7 +1654,8 @@ Item {
         }
 
         if (!hasCloudBridge()) {
-            statusMsg = qsTr("Demo: remote print payload prepared for ") + String(fileData.fileName)
+            statusMsg = qsTr("Demo: remote print payload prepared for %1")
+                    .arg(String(fileData.fileName || ""))
             statusSev = "warn"
             remotePrintConfigDialog.close()
             return
@@ -1668,7 +1674,8 @@ Item {
             remotePrintConfigDialog.close()
             loadPrinters()
         } else {
-            statusMsg = qsTr("Print order failed: ") + String(r.message)
+            statusMsg = qsTr("Print order failed: %1")
+                    .arg(backendStatusDetail(r.message, qsTr("Order rejected by backend.")))
             statusSev = "error"
         }
     }
@@ -1743,20 +1750,23 @@ Item {
         function onSyncFailed(scope, message) {
             var normalizedScope = String(scope || "")
             if (normalizedScope === "printers") {
-                statusMsg = qsTr("Background sync failed (printers): ") + String(message)
+                statusMsg = qsTr("Background sync failed (printers): %1")
+                        .arg(backendStatusDetail(message, qsTr("Retry later.")))
                 statusSev = "warn"
                 return
             }
             if (normalizedScope === "reason_catalog") {
                 reasonCatalogLoading = false
-                statusMsg = qsTr("Reason catalog unavailable: ") + String(message)
+                statusMsg = qsTr("Reason catalog unavailable: %1")
+                        .arg(backendStatusDetail(message, qsTr("Catalog fetch failed.")))
                 statusSev = "warn"
                 return
             }
             if (normalizedScope === "printer_insights") {
                 root.loadingPrinterDetails = false
                 root.loadingPrinterHistory = false
-                statusMsg = qsTr("Background sync failed (printer insights): ") + String(message)
+                statusMsg = qsTr("Background sync failed (printer insights): %1")
+                        .arg(backendStatusDetail(message, qsTr("Retry later.")))
                 statusSev = "warn"
             }
         }

@@ -6,12 +6,12 @@ import "Theme.js" as Theme
 Item {
     id: root
     objectName: "fileCard"
-    property string fileName: "Untitled.pwmb"
+    property string fileName: qsTr("Untitled.pwmb")
     property string fileId: "file-unknown"
     property string status: "READY"
-    property string sizeText: "0 MB"
-    property string machine: "Unknown"
-    property string material: "Unknown"
+    property string sizeText: qsTr("0 MB")
+    property string machine: qsTr("Unknown")
+    property string material: qsTr("Unknown")
     property string uploadTime: "-"
     property string printTime: "-"
     property string layerThickness: "-"
@@ -112,7 +112,7 @@ Item {
                 }
 
                 Text {
-                    text: qsTr("Size ") + root.sizeText + "  |  ID " + root.fileId + "  |  Status " + root.status
+                    text: qsTr("Size %1 | ID %2 | Status %3").arg(root.sizeText).arg(root.fileId).arg(root.status)
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontBodyPx
                 }
