@@ -1,5 +1,7 @@
 # Anycubic Cloud Client
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Decoupage detaille des vues UI du client cloud (onglets, dialogs, et vues associees).
@@ -8,6 +10,11 @@ Decoupage detaille des vues UI du client cloud (onglets, dialogs, et vues associ
 
 - reference transverse: `Docs/02_ui_qml.md`;
 - sections detaillees dans `sections/`.
+
+## Convention de numerotation
+
+- convention **transverse UI partagee** avec `Docs/Photon Viewer/sections/`;
+- les indices de section (ex: `08`, `10`, `11`) suivent une trame commune et peuvent comporter des trous locaux.
 
 ## Ordre de lecture
 

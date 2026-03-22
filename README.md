@@ -1,5 +1,7 @@
 # Anycubic Cloud Manager V3
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Depot C++20 / Qt6 / QML centre sur:
@@ -13,6 +15,11 @@ Depot C++20 / Qt6 / QML centre sur:
 - socle consolide: `Docs/00_documentation_consolidee_index.md` -> `Docs/03_photon_viewer_formats.md`;
 - sections specialisees: `Docs/MQTT/`, `Docs/i18n/`, `Docs/Anycubic Cloud Client/`, `Docs/Photon Viewer/`;
 - fichiers exemples: `Docs/photon_files/`.
+
+## Convention de numerotation
+
+- convention **transverse** au socle consolide: `00..03`;
+- les sections specialisees utilisent leur propre convention locale (decrite dans chaque README de section).
 
 ## Ordre de lecture recommande
 

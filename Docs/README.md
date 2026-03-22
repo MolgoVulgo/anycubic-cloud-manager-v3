@@ -1,5 +1,7 @@
 # Docs
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Point d'entree du corpus documentaire actif.
@@ -18,6 +20,11 @@ Point d'entree du corpus documentaire actif.
 - `MQTT/README.md`
 - `i18n/README.md`
 - `photon_files/README.md`
+
+## Convention de numerotation
+
+- socle `00..03`: numerotation **transverse** au corpus principal;
+- sections: numerotation **locale** (ou transverse UI partagee) declaree dans leur README.
 
 ## Regle
 

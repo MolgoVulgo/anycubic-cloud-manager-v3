@@ -1,5 +1,6 @@
 # Photon / Viewer / Formats — documentation unifiée
 
+Statut documentaire : `PARTIEL`
 Statut global : `PARTIEL + SPEC`
 
 ---

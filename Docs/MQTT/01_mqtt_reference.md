@@ -1,6 +1,7 @@
 # MQTT — référence unifiée
 
-**Statut : base de référence opérationnelle**
+Statut documentaire : `IMPLEMENTE`
+
 
 Ce document fusionne :
 

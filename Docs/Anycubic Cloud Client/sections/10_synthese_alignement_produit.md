@@ -1,5 +1,7 @@
 ## 10) Synthese d'alignement produit (CDF -> UI) - Anycubic Cloud Client
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
 - `IMPLEMENTE` pour le coeur Cloud manager.
 - `PARTIEL` pour les ecrans draft exposes en raccourci header.

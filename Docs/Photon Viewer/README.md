@@ -1,5 +1,7 @@
 # Photon Viewer
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Decoupage detaille du perimetre viewer (ecrans, synthese, reference format et extension).
@@ -8,6 +10,11 @@ Decoupage detaille du perimetre viewer (ecrans, synthese, reference format et ex
 
 - references transverses: `Docs/02_ui_qml.md` et `Docs/03_photon_viewer_formats.md`;
 - sections detaillees dans `sections/`.
+
+## Convention de numerotation
+
+- convention **transverse UI partagee** avec `Docs/Anycubic Cloud Client/sections/`;
+- la numerotation locale peut commencer plus haut (`08..`) pour respecter la trame transverse globale.
 
 ## Ordre de lecture
 

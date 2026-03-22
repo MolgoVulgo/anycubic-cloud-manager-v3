@@ -1,5 +1,7 @@
 # Documentation consolidee — Anycubic Cloud Manager V3
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Objet
 
 Ce corpus fournit un noyau documentaire unique, organise par themes et aligne sur l'etat reel du code.

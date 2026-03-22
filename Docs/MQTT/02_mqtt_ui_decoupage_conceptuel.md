@@ -1,5 +1,7 @@
 # UI — découpage conceptuel MQTT
 
+Statut documentaire : `SPEC`
+
 **Objectif**
 
 Définir les bases du découpage de l’interface pour la supervision et le suivi d’imprimantes résine Anycubic pilotées par un socle HTTP + MQTT.

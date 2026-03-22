@@ -1,5 +1,7 @@
 # I18N – Plan de modification
 
+Statut documentaire : `SPEC`
+
 ## 1. Objet
 
 Ce document décrit le plan d’exécution pour rendre le code conforme à la référence i18n.

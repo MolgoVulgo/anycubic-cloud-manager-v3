@@ -1,5 +1,6 @@
 # UI / QML — documentation unifiée
 
+Statut documentaire : `PARTIEL`
 Statut global : `IMPLEMENTE + PARTIEL + SPEC`
 
 ---

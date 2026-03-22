@@ -1,12 +1,19 @@
 # Anycubic Cloud Client Sections
 
+Statut documentaire : `IMPLEMENTE`
+
 ## Role
 
 Granularite des vues et dialogs UI Cloud Client.
 
 ## Perimetre
 
-Fichiers `00..11` de cette section uniquement.
+Fichiers de cette section uniquement.
+
+## Convention de numerotation
+
+- convention **transverse UI partagee** avec `Docs/Photon Viewer/sections/`;
+- numerotation non strictement continue localement (trous possibles) pour conserver l'ordre transverse.
 
 ## Ordre de lecture
 

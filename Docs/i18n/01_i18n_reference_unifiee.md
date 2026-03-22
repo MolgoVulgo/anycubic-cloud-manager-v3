@@ -1,5 +1,7 @@
 # I18N – Référence unifiée
 
+Statut documentaire : `PARTIEL`
+
 ## 1. Objet
 
 Ce document est la **référence centrale** pour l’internationalisation du projet.

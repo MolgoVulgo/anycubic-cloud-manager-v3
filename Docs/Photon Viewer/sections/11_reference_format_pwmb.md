@@ -1,6 +1,22 @@
 # 11) Reference format PWMB (extrait)
 
-Source: `Docs/03_photon_viewer_formats.md` (section 2).
+Statut documentaire : `SPEC`
+
+## Role
+
+Reference technique concise du format PWMB, utilisee pour cadrer le parsing, le mapping et la verification des hypotheses de format.
+
+## Cadrage
+
+- document de reference technique, non normatif a lui seul;
+- a lire avec `Docs/03_photon_viewer_formats.md`;
+- priorite au code reel en cas d'ecart.
+
+## Source
+
+- `Docs/03_photon_viewer_formats.md` (section 2).
+
+## Contenu technique
 
 ## 2) PWMB (Photon Workshop Binary) — container *tables-first*
 
@@ -89,4 +105,3 @@ Conventions de représentation (CDF) :
   - inversion `Y` si le monde attend Y “vers le haut”
 
 ---
-

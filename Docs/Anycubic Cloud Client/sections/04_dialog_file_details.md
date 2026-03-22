@@ -1,5 +1,7 @@
 ## 4) View: Dialog “File Details” (depuis Files)
 
+Statut documentaire : `IMPLEMENTE`
+
 ### But
 Afficher un dump lisible des métadonnées (général/slicing/cloud) d’un fichier cloud.
 

@@ -1,5 +1,7 @@
 # I18N – Référence annexe
 
+Statut documentaire : `SNAPSHOT`
+
 ## 1. Objet
 
 Ce document regroupe les **annexes d’audit i18n**.
