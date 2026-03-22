@@ -1,10 +1,10 @@
-# Anycubic Cloud Client — UI Views (decoupage)
+# Anycubic Cloud Client
 
-Source central: `Docs/02_ui_qml.md`
+Reference consolidee:
+- `Docs/02_ui_qml.md`
 
-Statut de ce dossier: `IMPLEMENTE` (avec quelques vues draft explicitement marquees).
-
-## Sous-parties (sections)
+## Contenu
+- `sections/README.md`
 - `sections/00_vue_ensemble_composition.md`
 - `sections/01_theme_global_app_wide.md`
 - `sections/02_fenetre_principale_control_room.md`
