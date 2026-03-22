@@ -1,7 +1,6 @@
 # Photon / Viewer / Formats — documentation unifiée
 
 Statut documentaire : `PARTIEL`
-Statut global : `PARTIEL + SPEC`
 
 ---
 
@@ -188,4 +187,3 @@ Le jour où ce sous-ensemble sera mature, il devra se lire ainsi :
 - séparation nette entre lecture, rendu et UI.
 
 Pour l’instant, ce document sert surtout à empêcher une mauvaise lecture de maturité.
-

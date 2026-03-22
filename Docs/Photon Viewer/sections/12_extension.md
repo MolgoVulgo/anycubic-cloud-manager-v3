@@ -1,10 +1,10 @@
-# 12) Anycubic Resin File Extensions
+# 12) Extensions de fichiers Resin Anycubic
 
 Statut documentaire : `SNAPSHOT`
 
 ## Role
 
-Annexe de reference rapide listant les extensions de slicing associees aux modeles d'imprimantes Anycubic.
+Annexe snapshot de reference rapide listant les extensions de slicing associees aux modeles d'imprimantes Anycubic.
 
 ## Cadrage
 
@@ -12,10 +12,16 @@ Annexe de reference rapide listant les extensions de slicing associees aux model
 - non suffisant seul pour definir un contrat runtime;
 - a corriger si l'etat reel observe evolue.
 
+## Presentation
+
+- format tableau volontairement compact;
+- une ligne par modele d'imprimante;
+- aucune interpretation metier ajoutee dans cette annexe.
+
 ## Contenu technique
 
-| Printer Model          | Supported Slice Extension(s) |
-| ---------------------- | ---------------------------- |
+| Modele imprimante      | Extensions de slicing supportees |
+| ---------------------- | ------------------------------ |
 | Photon                 | `.photon`, `.pws`           |
 | Photon S               | `.photons`, `.pws`          |
 | Photon Zero            | `.pw0`                      |

@@ -1,7 +1,6 @@
 # UI / QML — documentation unifiée
 
 Statut documentaire : `PARTIEL`
-Statut global : `IMPLEMENTE + PARTIEL + SPEC`
 
 ---
 
@@ -278,4 +277,3 @@ La documentation UI unifiée considère que :
 - le design system est déjà une base sérieuse ;
 - le chantier principal n’est plus l’habillage, mais la **maîtrise de la complexité** ;
 - le viewer ne doit pas dégrader le shell cloud avant d’avoir un vrai périmètre implémenté.
-
