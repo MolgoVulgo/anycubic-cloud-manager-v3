@@ -130,6 +130,33 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     ok = ok
         && expect(loadedQuota.value("usedBytes").toInt() == 100, "loadQuota usedBytes mismatch");
 
+    QVariantMap printer;
+    printer.insert("id", "printer-1");
+    printer.insert("printerKey", "printer-key-1");
+    printer.insert("machineType", "128");
+    printer.insert("name", "Printer One");
+    printer.insert("model", "Mono M7");
+    printer.insert("type", "LCD");
+    printer.insert("lastSeen", "now");
+    printer.insert("state", "READY");
+    printer.insert("reason", "free");
+    printer.insert("available", 1);
+    printer.insert("currentFile", "demo.pwmb");
+
+    QVariantList printers;
+    printers.append(printer);
+    ok = ok && expect(cache.replacePrinters(printers), "replacePrinters should succeed");
+
+    const QVariantList loadedPrinters = cache.loadPrinters();
+    ok = ok && expect(loadedPrinters.size() == 1, "loadPrinters should return one printer");
+    if (!loadedPrinters.isEmpty()) {
+        const QVariantMap p = loadedPrinters.first().toMap();
+        ok = ok && expect(p.value("id").toString() == "printer-1", "printer id mismatch");
+        ok = ok && expect(p.value("printerKey").toString() == "printer-key-1", "printerKey mismatch");
+        ok = ok && expect(p.value("machineType").toString() == "128", "machineType mismatch");
+        ok = ok && expect(p.value("state").toString() == "READY", "printer state mismatch");
+    }
+
     restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
     std::error_code ec;
     std::filesystem::remove(dbPath, ec);
