@@ -32,8 +32,6 @@ Item {
     property int localUdiskListOrderId: 101
     property int localFileStartPrintOrderId: 999
     property bool optionDeleteAfterPrint: false
-    property bool optionDryRun: false
-    property bool optionHighPriority: false
     property bool optionLiftCompensation: false
     property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
@@ -84,6 +82,10 @@ Item {
 
     ListModel {
         id: printersModel
+    }
+
+    ListModel {
+        id: remoteCompatiblePrintersModel
     }
 
     ListModel {
@@ -555,15 +557,124 @@ Item {
         return null
     }
 
+    function cloudFileIdValue(fileEntry) {
+        if (!fileEntry)
+            return ""
+        var idValue = String(fileEntry.fileId !== undefined ? fileEntry.fileId : "").trim()
+        if (idValue.length > 0)
+            return idValue
+        idValue = String(fileEntry.id !== undefined ? fileEntry.id : "").trim()
+        if (idValue.length > 0)
+            return idValue
+        return String(fileEntry.gcodeId !== undefined ? fileEntry.gcodeId : "").trim()
+    }
+
+    function cloudFilePrintTimeText(fileEntry) {
+        if (!fileEntry)
+            return "-"
+        var printTimeValue = String(fileEntry.printTime !== undefined ? fileEntry.printTime : "").trim()
+        if (printTimeValue.length > 0 && printTimeValue !== "-")
+            return printTimeValue
+        printTimeValue = String(fileEntry.print_time !== undefined ? fileEntry.print_time : "").trim()
+        if (printTimeValue.length > 0 && printTimeValue !== "-")
+            return printTimeValue
+        var estimateSeconds = Number(fileEntry.printTimeSec !== undefined
+                                     ? fileEntry.printTimeSec
+                                     : (fileEntry.estimateSec !== undefined
+                                        ? fileEntry.estimateSec
+                                        : fileEntry.estimateSeconds))
+        if (isFinite(estimateSeconds) && estimateSeconds > 0)
+            return timeText(estimateSeconds)
+        return "-"
+    }
+
+    function cloudFileResinUsageText(fileEntry) {
+        if (!fileEntry)
+            return "-"
+        var resinValue = String(fileEntry.resinUsage !== undefined ? fileEntry.resinUsage : "").trim()
+        if (resinValue.length > 0 && resinValue !== "-")
+            return resinValue
+        var fallbackKeys = ["resin_volume", "resinVolume", "weight", "supplies_usage"]
+        for (var i = 0; i < fallbackKeys.length; ++i) {
+            var key = fallbackKeys[i]
+            var raw = String(fileEntry[key] !== undefined ? fileEntry[key] : "").trim()
+            if (raw.length <= 0 || raw === "-")
+                continue
+            if (/^\d+(\.\d+)?$/.test(raw))
+                return raw + " ml"
+            return raw
+        }
+        return "-"
+    }
+
+    function cloudFileDataById(fileId) {
+        var normalizedFileId = String(fileId || "").trim()
+        if (normalizedFileId.length === 0)
+            return null
+        for (var i = 0; i < printCloudFilesModel.count; ++i) {
+            var fileEntry = printCloudFilesModel.get(i)
+            if (cloudFileIdValue(fileEntry) === normalizedFileId)
+                return fileEntry
+        }
+        return null
+    }
+
+    function findCloudFileInListById(fileList, fileId) {
+        var normalizedFileId = String(fileId || "").trim()
+        var list = fileList !== undefined && fileList !== null ? fileList : []
+        for (var i = 0; i < list.length; ++i) {
+            var candidate = list[i]
+            if (cloudFileIdValue(candidate) === normalizedFileId)
+                return candidate
+        }
+        return null
+    }
+
+    function loadCloudFileDetailsById(fileId) {
+        var normalizedFileId = String(fileId || "").trim()
+        if (normalizedFileId.length === 0 || !hasCloudBridge())
+            return null
+
+        if (typeof cloudBridge.loadCachedFiles === "function") {
+            var cached = cloudBridge.loadCachedFiles(1, 200)
+            if (cached.ok === true) {
+                var cachedList = cached.files !== undefined ? cached.files : []
+                var cachedMatch = findCloudFileInListById(cachedList, normalizedFileId)
+                if (cachedMatch)
+                    return cachedMatch
+            }
+        }
+
+        if (typeof cloudBridge.fetchFiles === "function") {
+            var listing = cloudBridge.fetchFiles(1, 200)
+            if (listing.ok === true) {
+                var files = listing.files !== undefined ? listing.files : []
+                var fetchedMatch = findCloudFileInListById(files, normalizedFileId)
+                if (fetchedMatch)
+                    return fetchedMatch
+            }
+        }
+
+        return null
+    }
+
+    function ensureSelectedCloudFile() {
+        if (selectedCloudFileId.length > 0 && selectedCloudFileData())
+            return true
+        if (printCloudFilesModel.count <= 0)
+            return false
+
+        var fallbackFileId = cloudFileIdValue(printCloudFilesModel.get(0))
+        if (fallbackFileId.length <= 0)
+            return false
+        selectedCloudFileId = fallbackFileId
+        return true
+    }
+
     function selectedCloudFileData() {
         if (selectedCloudFileId.length === 0)
             return null
-        for (var i = 0; i < printCloudFilesModel.count; ++i) {
-            var f = printCloudFilesModel.get(i)
-            if (String(f.fileId) === selectedCloudFileId)
-                return f
-        }
-        return null
+        return cloudFileDataById(selectedCloudFileId)
     }
 
     function printerDataById(printerId) {
@@ -959,6 +1070,8 @@ Item {
         if (selectedPrinterId.length === 0 && printersModel.count > 0)
             selectedPrinterId = String(printersModel.get(0).id)
 
+        rebuildRemoteCompatiblePrintersModel()
+
         statusMsg = qsTr("Demo mode (backend unavailable).")
         statusSev = "warn"
         loading = false
@@ -1039,6 +1152,7 @@ Item {
         var shouldRefreshInsights = (refreshInsights === undefined) ? true : (refreshInsights === true)
         if (shouldRefreshInsights)
             loadSelectedPrinterInsights()
+        rebuildRemoteCompatiblePrintersModel()
         updatePrintersAutoRefreshInterval()
     }
 
@@ -1088,6 +1202,21 @@ Item {
         return String(printersModel.get(0).id || "")
     }
 
+    function appendRemoteCompatiblePrinter(printer) {
+        if (!printer)
+            return
+        var printerId = String(printer.id || "").trim()
+        if (printerId.length === 0)
+            return
+        remoteCompatiblePrintersModel.append({
+            "id": printerId,
+            "name": String(printer.name || printerId),
+            "model": String(printer.model || ""),
+            "state": String(printer.state || "READY"),
+            "machineType": String(printer.machineType || "")
+        })
+    }
+
     function compatibilityEntryAllows(item) {
         var available = Number(item && item.available !== undefined ? item.available : 1)
         return isFinite(available) ? available > 0 : true
@@ -1132,20 +1261,83 @@ Item {
         return fallbackId
     }
 
+    function rebuildRemoteCompatiblePrintersModel() {
+        remoteCompatiblePrintersModel.clear()
+
+        var fileData = selectedCloudFileData()
+        var hasFileData = fileData !== null && fileData !== undefined
+        var hasLocalCompatibilityMetadata = fileHasLocalCompatibilityMetadata(fileData)
+        var serverCompatByPrinterId = {}
+        var hasServerCompatibility = false
+
+        if (hasFileData && hasCompatibilityByFileIdEndpoint()) {
+            var fileId = String(fileData.fileId || "").trim()
+            if (fileId.length > 0) {
+                var compatByFile = cloudBridge.fetchCompatiblePrintersByFileId(fileId)
+                if (compatByFile.ok === true) {
+                    var compatPrinters = compatByFile.printers !== undefined ? compatByFile.printers : []
+                    for (var cp = 0; cp < compatPrinters.length; ++cp) {
+                        var compatEntry = compatPrinters[cp]
+                        var compatPrinterId = String(compatEntry && compatEntry.id !== undefined ? compatEntry.id : "")
+                        if (compatPrinterId.length <= 0)
+                            continue
+                        if (!compatibilityEntryAllows(compatEntry))
+                            continue
+                        serverCompatByPrinterId[compatPrinterId] = true
+                    }
+                    hasServerCompatibility = true
+                }
+            }
+        }
+
+        var shouldFilterByCompatibility = hasFileData
+                && (hasServerCompatibility || hasLocalCompatibilityMetadata)
+
+        for (var i = 0; i < printersModel.count; ++i) {
+            var printer = printersModel.get(i)
+            var printerId = String(printer && printer.id !== undefined ? printer.id : "")
+            if (printerId.length === 0)
+                continue
+            if (shouldFilterByCompatibility) {
+                if (hasServerCompatibility) {
+                    if (serverCompatByPrinterId[printerId] !== true)
+                        continue
+                } else {
+                    var localCompat = localCompatibilityForPrinterFile(fileData, printerId)
+                    if (localCompat.ok !== true)
+                        continue
+                }
+            }
+            appendRemoteCompatiblePrinter(printer)
+        }
+
+        if (remoteCompatiblePrintersModel.count <= 0) {
+            if (shouldFilterByCompatibility)
+                remotePrinterId = ""
+            return
+        }
+
+        var foundCurrent = false
+        for (var j = 0; j < remoteCompatiblePrintersModel.count; ++j) {
+            if (String(remoteCompatiblePrintersModel.get(j).id) === remotePrinterId) {
+                foundCurrent = true
+                break
+            }
+        }
+
+        if (!foundCurrent)
+            remotePrinterId = String(remoteCompatiblePrintersModel.get(0).id || "")
+    }
+
     function setSingleRemotePrintFile(fileId, fileName) {
         var normalizedFileId = String(fileId || "").trim()
         if (normalizedFileId.length === 0)
             return
 
         var normalizedFileName = String(fileName || "").trim()
-        var existing = null
-        for (var i = 0; i < printCloudFilesModel.count; ++i) {
-            var item = printCloudFilesModel.get(i)
-            if (String(item.fileId) === normalizedFileId) {
-                existing = item
-                break
-            }
-        }
+        var existing = cloudFileDataById(normalizedFileId)
+        if (!existing)
+            existing = loadCloudFileDetailsById(normalizedFileId)
 
         var entry = existing ? existing : ({})
         entry.fileId = normalizedFileId
@@ -1154,8 +1346,8 @@ Item {
                 : String(entry.fileName || qsTr("Cloud file"))
         entry.sizeText = String(entry.sizeText || "-")
         entry.status = String(entry.status || "READY")
-        entry.printTime = String(entry.printTime || "-")
-        entry.resinUsage = String(entry.resinUsage || "-")
+        entry.printTime = cloudFilePrintTimeText(entry)
+        entry.resinUsage = cloudFileResinUsageText(entry)
 
         printCloudFilesModel.clear()
         printCloudFilesModel.append(entry)
@@ -1352,7 +1544,7 @@ Item {
         }
 
         if (printCloudFilesModel.count > 0) {
-            selectedCloudFileId = String(printCloudFilesModel.get(0).fileId)
+            selectedCloudFileId = cloudFileIdValue(printCloudFilesModel.get(0))
             if (hiddenIncompatibleCount > 0) {
                 statusMsg = qsTr("%1 compatible cloud file(s) shown. %2 hidden as incompatible.")
                         .arg(String(printCloudFilesModel.count))
@@ -1618,12 +1810,11 @@ Item {
     }
 
     function openRemotePrintConfig() {
-        if (selectedCloudFileId.length === 0)
+        if (!ensureSelectedCloudFile())
             return
 
         optionDeleteAfterPrint = false
-        optionDryRun = false
-        optionHighPriority = false
+        rebuildRemoteCompatiblePrintersModel()
         remotePrintAllowed = true
         remotePrintBlockReason = ""
         refreshRemotePrintGuard()
@@ -1633,6 +1824,12 @@ Item {
     function startRemotePrint() {
         if (remotePrinterId.length === 0) {
             statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+
+        if (!ensureSelectedCloudFile()) {
+            statusMsg = qsTr("Select a cloud file first.")
             statusSev = "warn"
             return
         }
@@ -1662,15 +1859,15 @@ Item {
         }
 
         var r = cloudBridge.sendPrintOrder(remotePrinterId,
-                                           String(fileData.fileId),
+                                           cloudFileIdValue(fileData),
                                            optionDeleteAfterPrint,
-                                           optionDryRun)
+                                           false)
         if (r.ok === true) {
             var taskId = String(r.taskId || "")
             statusMsg = taskId.length > 0
                     ? (qsTr("Print order sent (task_id=%1)").arg(taskId))
                     : qsTr("Print order sent.")
-            statusSev = optionDryRun ? "warn" : "success"
+            statusSev = "success"
             remotePrintConfigDialog.close()
             loadPrinters()
         } else {
@@ -1703,7 +1900,7 @@ Item {
     }
 
     Connections {
-        target: root.hasQObjectCloudBridge() ? cloudBridge : null
+        target: (root && root.hasQObjectCloudBridge()) ? cloudBridge : null
         ignoreUnknownSignals: true
 
         function onPrintersUpdatedFromCloud(printers, message) {
@@ -1830,51 +2027,40 @@ Item {
     PrinterRemotePrintConfigDialog {
         id: remotePrintConfigDialog
         printersModel: printersModel
+        compatiblePrintersModel: remoteCompatiblePrintersModel
         remotePrinterId: root.remotePrinterId
         selectedCloudFileId: root.selectedCloudFileId
         selectedFileName: selectedCloudFileData() ? String(selectedCloudFileData().fileName || "-") : "-"
-        selectedPrinterName: selectedPrinterData() ? String(selectedPrinterData().name || "-") : "-"
+        selectedPrinterName: printerDataById(root.remotePrinterId)
+                             ? String(printerDataById(root.remotePrinterId).name || "-")
+                             : "-"
         selectedPrintTime: selectedCloudFileData() ? String(selectedCloudFileData().printTime || "-") : "-"
         selectedResinUsage: selectedCloudFileData() ? String(selectedCloudFileData().resinUsage || "-") : "-"
-        optionHighPriority: root.optionHighPriority
         optionDeleteAfterPrint: root.optionDeleteAfterPrint
-        optionDryRun: root.optionDryRun
+        optionLiftCompensation: root.optionLiftCompensation
+        optionAutoResinCheck: root.optionAutoResinCheck
         remotePrintAllowed: root.remotePrintAllowed
         remotePrintBlockReason: root.remotePrintBlockReason
         translateLocalizedTextProvider: root.translateLocalizedText
         onRemotePrinterChanged: function(printerId) {
             root.remotePrinterId = printerId
         }
-        onOptionHighPriorityToggled: function(checked) {
-            root.optionHighPriority = checked
-        }
         onOptionDeleteAfterPrintToggled: function(checked) {
             root.optionDeleteAfterPrint = checked
         }
-        onOptionDryRunToggled: function(checked) {
-            root.optionDryRun = checked
+        onOptionLiftCompensationToggled: function(checked) {
+            root.optionLiftCompensation = checked
+        }
+        onOptionAutoResinCheckToggled: function(checked) {
+            root.optionAutoResinCheck = checked
         }
         onRefreshGuardRequested: root.refreshRemotePrintGuard()
         onChangePrinterRequested: {
             remotePrintConfigDialog.close()
             root.openSelectCloudFileDialog(root.remotePrinterId)
         }
-        onMoreRequested: printConfigDialog.open()
         onCloseRequested: remotePrintConfigDialog.close()
         onStartRequested: root.startRemotePrint()
-    }
-
-    PrinterAdvancedPrintConfigDialog {
-        id: printConfigDialog
-        liftCompensation: root.optionLiftCompensation
-        autoResinCheck: root.optionAutoResinCheck
-        onLiftCompensationToggled: function(checked) {
-            root.optionLiftCompensation = checked
-        }
-        onAutoResinCheckToggled: function(checked) {
-            root.optionAutoResinCheck = checked
-        }
-        onCloseRequested: printConfigDialog.close()
     }
 
     PrinterMainPanel {

@@ -5,50 +5,58 @@ import "../components"
 
 AppDialogFrame {
     id: root
-    title: qsTr("Remote Print Config")
+    title: qsTr("Tache d'impression")
     subtitle: qsTr("Review task, printer and options before start")
     minimumWidth: 760
     maximumWidth: 900
 
     property var printersModel: null
+    property var compatiblePrintersModel: null
     property string remotePrinterId: ""
     property string selectedCloudFileId: ""
     property string selectedFileName: "-"
     property string selectedPrinterName: "-"
     property string selectedPrintTime: "-"
     property string selectedResinUsage: "-"
-    property bool optionHighPriority: false
     property bool optionDeleteAfterPrint: false
-    property bool optionDryRun: false
+    property bool optionLiftCompensation: false
+    property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
     property string remotePrintBlockReason: ""
     property var translateLocalizedTextProvider: null
 
     signal remotePrinterChanged(string printerId)
-    signal optionHighPriorityToggled(bool checked)
     signal optionDeleteAfterPrintToggled(bool checked)
-    signal optionDryRunToggled(bool checked)
+    signal optionLiftCompensationToggled(bool checked)
+    signal optionAutoResinCheckToggled(bool checked)
     signal refreshGuardRequested()
     signal changePrinterRequested()
-    signal moreRequested()
     signal closeRequested()
     signal startRequested()
 
+    function activePrintersModel() {
+        if (compatiblePrintersModel !== null
+                && compatiblePrintersModel !== undefined
+                && compatiblePrintersModel.count !== undefined) {
+            return compatiblePrintersModel
+        }
+        return printersModel
+    }
+
     onOpened: {
-        for (var i = 0; i < printersModel.count; ++i) {
-            if (String(printersModel.get(i).id) === remotePrinterId) {
-                remotePrinterCombo.currentIndex = i
-                break
+        var modelRef = activePrintersModel()
+        if (modelRef && modelRef.count !== undefined) {
+            for (var i = 0; i < modelRef.count; ++i) {
+                if (String(modelRef.get(i).id) === remotePrinterId) {
+                    remotePrinterCombo.currentIndex = i
+                    break
+                }
             }
         }
         refreshGuardRequested()
     }
 
-    SectionHeader {
-        Layout.fillWidth: true
-        title: qsTr("Print Task")
-        subtitle: qsTr("Selected cloud file summary")
-    }
+    onRemotePrinterIdChanged: remotePrinterCombo.syncCurrentIndex()
 
     Rectangle {
         Layout.fillWidth: true
@@ -72,8 +80,7 @@ AppDialogFrame {
             }
 
             Text {
-                text: qsTr("Printer: %1 | Est: %2 | Resin: %3")
-                        .arg(root.selectedPrinterName)
+                text: qsTr("Est: %1 | Resin: %2")
                         .arg(root.selectedPrintTime)
                         .arg(root.selectedResinUsage)
                 color: Theme.fgSecondary
@@ -96,21 +103,35 @@ AppDialogFrame {
         AppComboBox {
             id: remotePrinterCombo
             Layout.fillWidth: true
-            model: root.printersModel
+            model: root.activePrintersModel()
             textRole: "name"
 
-            Component.onCompleted: {
-                for (var i = 0; i < printersModel.count; ++i) {
-                    if (String(printersModel.get(i).id) === remotePrinterId) {
+            function syncCurrentIndex() {
+                var modelRef = root.activePrintersModel()
+                currentIndex = -1
+                if (!modelRef || modelRef.count === undefined)
+                    return
+                for (var i = 0; i < modelRef.count; ++i) {
+                    if (String(modelRef.get(i).id) === root.remotePrinterId) {
                         currentIndex = i
                         break
                     }
                 }
             }
 
+            Component.onCompleted: {
+                syncCurrentIndex()
+            }
+
+            onModelChanged: syncCurrentIndex()
+
             onActivated: {
-                if (currentIndex >= 0 && currentIndex < printersModel.count) {
-                    root.remotePrinterChanged(String(printersModel.get(currentIndex).id))
+                var modelRef = root.activePrintersModel()
+                if (modelRef
+                        && modelRef.count !== undefined
+                        && currentIndex >= 0
+                        && currentIndex < modelRef.count) {
+                    root.remotePrinterChanged(String(modelRef.get(currentIndex).id))
                     root.refreshGuardRequested()
                 }
             }
@@ -126,18 +147,12 @@ AppDialogFrame {
     SectionHeader {
         Layout.fillWidth: true
         title: qsTr("Options")
-        subtitle: qsTr("Fast options before start")
+        subtitle: qsTr("Task options")
     }
 
-    RowLayout {
+    ColumnLayout {
         Layout.fillWidth: true
-        spacing: 12
-
-        AppCheckBox {
-            text: qsTr("High priority")
-            checked: root.optionHighPriority
-            onToggled: root.optionHighPriorityToggled(checked)
-        }
+        spacing: 6
 
         AppCheckBox {
             text: qsTr("Delete file after print")
@@ -146,17 +161,15 @@ AppDialogFrame {
         }
 
         AppCheckBox {
-            text: qsTr("Dry-run")
-            checked: root.optionDryRun
-            onToggled: root.optionDryRunToggled(checked)
+            text: qsTr("Lift compensation")
+            checked: root.optionLiftCompensation
+            onToggled: root.optionLiftCompensationToggled(checked)
         }
 
-        Item { Layout.fillWidth: true }
-
-        AppButton {
-            text: qsTr("More")
-            variant: "secondary"
-            onClicked: root.moreRequested()
+        AppCheckBox {
+            text: qsTr("Auto resin check")
+            checked: root.optionAutoResinCheck
+            onToggled: root.optionAutoResinCheckToggled(checked)
         }
     }
 

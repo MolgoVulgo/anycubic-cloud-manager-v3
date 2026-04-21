@@ -67,6 +67,41 @@ bool tableHasRows(QSqlDatabase& db, const QString& table) {
   return q.next();
 }
 
+bool tableHasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
+  QSqlQuery q(db);
+  if (!q.exec(QStringLiteral("PRAGMA table_info(") + table + QStringLiteral(")"))) {
+    return false;
+  }
+  while (q.next()) {
+    if (q.value(1).toString().compare(column, Qt::CaseInsensitive) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ensureColumnExists(QSqlDatabase& db,
+                        const QString& table,
+                        const QString& column,
+                        const QString& definition) {
+  if (tableHasColumn(db, table, column)) {
+    return true;
+  }
+
+  QSqlQuery alter(db);
+  const QString sql = QStringLiteral("ALTER TABLE ") + table
+                      + QStringLiteral(" ADD COLUMN ") + definition;
+  if (!alter.exec(sql)) {
+    logging::error("app", "local_cache", "schema_alter_failed",
+                   "Unable to alter cache schema for new column",
+                   {{"table", table.toStdString()},
+                    {"column", column.toStdString()},
+                    {"error", alter.lastError().text().toStdString()}});
+    return false;
+  }
+  return true;
+}
+
 void enforceMaxRows(QSqlDatabase& db, const QString& table, const QString& idColumn, int maxRows) {
   if (maxRows <= 0) return;
 
@@ -159,9 +194,9 @@ bool migrateLegacyPrinters(QSqlDatabase& db) {
   QSqlQuery ins(db);
   ins.prepare(QStringLiteral(
       "INSERT OR REPLACE INTO cloud_printers("
-      "printer_id, name, model, type, last_seen, state, reason, available, current_file, updated_at"
+      "printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file, updated_at"
       ") VALUES("
-      ":id, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, :updatedAt"
+      ":id, :printerKey, :machineType, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, :updatedAt"
       ")"));
 
   while (read.next()) {
@@ -170,7 +205,12 @@ bool migrateLegacyPrinters(QSqlDatabase& db) {
     if (id.isEmpty()) continue;
 
     const qint64 updatedAt = read.value(1).toLongLong();
+    const QString printerKey = map.value(QStringLiteral("printerKey")).toString().trimmed().isEmpty()
+        ? map.value(QStringLiteral("key")).toString().trimmed()
+        : map.value(QStringLiteral("printerKey")).toString().trimmed();
     ins.bindValue(QStringLiteral(":id"), id);
+    ins.bindValue(QStringLiteral(":printerKey"), printerKey);
+    ins.bindValue(QStringLiteral(":machineType"), map.value(QStringLiteral("machineType")).toString());
     ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
     ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
     ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());
@@ -229,6 +269,8 @@ bool runSchema(QSqlDatabase& db) {
                      ")"),
       QStringLiteral("CREATE TABLE IF NOT EXISTS cloud_printers ("
                      "  printer_id TEXT PRIMARY KEY,"
+                     "  printer_key TEXT NOT NULL DEFAULT '',"
+                     "  machine_type TEXT NOT NULL DEFAULT '',"
                      "  name TEXT NOT NULL DEFAULT '',"
                      "  model TEXT NOT NULL DEFAULT '',"
                      "  type TEXT NOT NULL DEFAULT '',"
@@ -275,6 +317,15 @@ bool runSchema(QSqlDatabase& db) {
                      {{"sql", sql.toStdString()}, {"error", q.lastError().text().toStdString()}});
       return false;
     }
+  }
+
+  if (!ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                          QStringLiteral("printer_key"),
+                          QStringLiteral("printer_key TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("machine_type"),
+                             QStringLiteral("machine_type TEXT NOT NULL DEFAULT ''"))) {
+    return false;
   }
 
   if (!db.transaction()) {
@@ -446,20 +497,22 @@ QVariantList LocalCacheStore::loadPrinters() const {
 
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "SELECT printer_id, name, model, type, last_seen, state, reason, available, current_file "
+        "SELECT printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file "
         "FROM cloud_printers ORDER BY updated_at DESC"));
     if (q.exec()) {
       while (q.next()) {
         QVariantMap item;
         item.insert("id", q.value(0).toString());
-        item.insert("name", q.value(1).toString());
-        item.insert("model", q.value(2).toString());
-        item.insert("type", q.value(3).toString());
-        item.insert("lastSeen", q.value(4).toString());
-        item.insert("state", q.value(5).toString());
-        item.insert("reason", q.value(6).toString());
-        item.insert("available", q.value(7).toInt());
-        item.insert("currentFile", q.value(8).toString());
+        item.insert("printerKey", q.value(1).toString());
+        item.insert("machineType", q.value(2).toString());
+        item.insert("name", q.value(3).toString());
+        item.insert("model", q.value(4).toString());
+        item.insert("type", q.value(5).toString());
+        item.insert("lastSeen", q.value(6).toString());
+        item.insert("state", q.value(7).toString());
+        item.insert("reason", q.value(8).toString());
+        item.insert("available", q.value(9).toInt());
+        item.insert("currentFile", q.value(10).toString());
         out.append(item);
       }
     }
@@ -668,16 +721,21 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO cloud_printers("
-          "printer_id, name, model, type, last_seen, state, reason, available, current_file, updated_at"
+          "printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file, updated_at"
           ") VALUES("
-          ":id, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, :updatedAt"
+          ":id, :printerKey, :machineType, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, :updatedAt"
           ")"));
       for (const QVariant& item : printers) {
         const QVariantMap map = item.toMap();
         const QString id = map.value(QStringLiteral("id")).toString().trimmed();
         if (id.isEmpty()) continue;
 
+        const QString printerKey = map.value(QStringLiteral("printerKey")).toString().trimmed().isEmpty()
+            ? map.value(QStringLiteral("key")).toString().trimmed()
+            : map.value(QStringLiteral("printerKey")).toString().trimmed();
         ins.bindValue(QStringLiteral(":id"), id);
+        ins.bindValue(QStringLiteral(":printerKey"), printerKey);
+        ins.bindValue(QStringLiteral(":machineType"), map.value(QStringLiteral("machineType")).toString());
         ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
         ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
         ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());

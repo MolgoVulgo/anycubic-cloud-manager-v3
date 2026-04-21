@@ -6,6 +6,11 @@ import "Theme.js" as Theme
 ComboBox {
     id: root
 
+    property color textColor: Theme.fgPrimary
+    property color popupTextColor: Theme.fgPrimary
+    property color popupHighlightTextColor: Theme.selectionFg
+    property color indicatorColor: Theme.fgSecondary
+
     implicitHeight: Theme.controlHeight
     leftPadding: 10
     rightPadding: 30
@@ -22,14 +27,14 @@ ComboBox {
         rightPadding: root.indicator.width + root.spacing
         text: root.displayText
         font: root.font
-        color: root.enabled ? Theme.fgPrimary : Theme.fgDisabled
+        color: root.enabled ? root.textColor : Theme.fgDisabled
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
 
     indicator: Text {
         text: qsTr("v")
-        color: root.enabled ? Theme.fgSecondary : Theme.fgDisabled
+        color: root.enabled ? root.indicatorColor : Theme.fgDisabled
         font.pixelSize: Theme.fontCaptionPx
         anchors.right: parent.right
         anchors.rightMargin: 10
@@ -79,7 +84,7 @@ ComboBox {
 
         contentItem: Text {
             text: parent.delegateText()
-            color: parent.highlighted ? Theme.selectionFg : Theme.fgPrimary
+            color: parent.highlighted ? root.popupHighlightTextColor : root.popupTextColor
             font: parent.font
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight

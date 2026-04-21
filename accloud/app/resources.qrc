@@ -16,7 +16,6 @@
     <file alias="qml/pages/PrinterDetailPanel.qml">../ui/qml/pages/PrinterDetailPanel.qml</file>
     <file alias="qml/pages/PrinterSelectCloudFileDialog.qml">../ui/qml/pages/PrinterSelectCloudFileDialog.qml</file>
     <file alias="qml/pages/PrinterRemotePrintConfigDialog.qml">../ui/qml/pages/PrinterRemotePrintConfigDialog.qml</file>
-    <file alias="qml/pages/PrinterAdvancedPrintConfigDialog.qml">../ui/qml/pages/PrinterAdvancedPrintConfigDialog.qml</file>
     <file alias="qml/pages/PrinterMainPanel.qml">../ui/qml/pages/PrinterMainPanel.qml</file>
     <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
     <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
