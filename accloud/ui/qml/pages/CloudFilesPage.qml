@@ -28,6 +28,7 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
@@ -78,6 +79,13 @@ Item {
                 && cloudBridge !== null
                 && typeof cloudBridge.fetchFiles === "function"
                 && typeof cloudBridge.fetchQuota === "function"
+    }
+
+    function hasUiSettingsBridge() {
+        return (typeof uiSettingsBridge !== "undefined")
+                && uiSettingsBridge !== null
+                && typeof uiSettingsBridge.getString === "function"
+                && typeof uiSettingsBridge.setString === "function"
     }
 
     function sanitizedBackendMessage(rawMessage) {
@@ -215,6 +223,27 @@ Item {
         if (slash <= 0)
             return path
         return path.slice(0, slash)
+    }
+
+    function persistUploadLastFolder(pathInput) {
+        if (!hasUiSettingsBridge())
+            return
+        var normalized = localPathFromInput(pathInput)
+        if (normalized.length <= 0)
+            return
+        uiSettingsBridge.setString(uploadLastFolderSettingsKey, normalized)
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
+    function restoreUploadLastFolderFromSettings() {
+        if (!hasUiSettingsBridge())
+            return
+        var fallback = localPathFromInput(StandardPaths.writableLocation(StandardPaths.HomeLocation))
+        var persisted = localPathFromInput(uiSettingsBridge.getString(uploadLastFolderSettingsKey, fallback))
+        if (persisted.length <= 0)
+            persisted = fallback
+        uploadLastFolderPath = persisted
     }
 
     function fileType(fileName) {
@@ -525,8 +554,10 @@ Item {
 
         var sourcePath = localPathFromInput(selectedInput)
         var sourceFolder = parentFolderPath(sourcePath)
-        if (sourceFolder.length > 0)
+        if (sourceFolder.length > 0) {
             uploadLastFolderPath = sourceFolder
+            persistUploadLastFolder(sourceFolder)
+        }
 
         var fileName = uploadInputToDisplayName(selectedInput)
         if (!hasCloudBridge()) {
@@ -706,7 +737,10 @@ Item {
         }
     }
 
-    Component.onCompleted: loadFiles()
+    Component.onCompleted: {
+        restoreUploadLastFolderFromSettings()
+        loadFiles()
+    }
 
     Connections {
         target: (typeof cloudBridge !== "undefined"
@@ -855,6 +889,19 @@ Item {
             root.uploadSelectedLocalFile(file)
         }
         onCancelled: {}
+    }
+
+    Connections {
+        target: uploadFileDialog
+        ignoreUnknownSignals: true
+
+        function onCurrentFolderChanged() {
+            var folder = root.localPathFromInput(uploadFileDialog.currentFolder)
+            if (folder.length <= 0)
+                return
+            root.uploadLastFolderPath = folder
+            root.persistUploadLastFolder(folder)
+        }
     }
 
     FileDialog {
