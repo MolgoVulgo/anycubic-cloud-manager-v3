@@ -40,8 +40,6 @@ Item {
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
     property var liveProjectData: ({})
-    property bool freezeRecentJobsCard: true
-    property string recentJobsSnapshotPrinterId: ""
     property bool loadingPrinterDetails: false
     property bool loadingPrinterHistory: false
     property bool reasonCatalogLoaded: false
@@ -765,18 +763,11 @@ Item {
                 && Object.keys(liveProjectData).length > 0
     }
 
-    function shouldRefreshRecentJobsCard() {
-        if (!freezeRecentJobsCard)
-            return true
-        return recentJobsSnapshotPrinterId !== selectedPrinterId || printerHistoryModel.count === 0
-    }
-
     function replaceRecentJobsCard(projectsList) {
         printerHistoryModel.clear()
         var list = projectsList !== undefined && projectsList !== null ? projectsList : []
         for (var i = 0; i < list.length; ++i)
             printerHistoryModel.append(list[i])
-        recentJobsSnapshotPrinterId = selectedPrinterId
     }
 
     function selectedPrinterLiveData() {
@@ -787,6 +778,61 @@ Item {
         var merged = {}
         for (var key in selected)
             merged[key] = selected[key]
+
+        function durationFromValue(raw) {
+            var numeric = Number(raw)
+            if (isFinite(numeric) && numeric >= 0)
+                return Math.round(numeric)
+
+            var text = String(raw === undefined || raw === null ? "" : raw).trim()
+            if (text.length <= 0)
+                return -1
+
+            if (/^\d+(:\d+){1,2}$/.test(text)) {
+                var parts = text.split(":")
+                var total = 0
+                for (var i = 0; i < parts.length; ++i) {
+                    var p = Number(parts[i])
+                    if (!isFinite(p) || p < 0)
+                        return -1
+                    total = total * 60 + p
+                }
+                return Math.round(total)
+            }
+
+            return -1
+        }
+
+        function durationFromKeys(source, secondKeys, minuteKeys) {
+            if (source === null || source === undefined)
+                return -1
+
+            for (var i = 0; i < secondKeys.length; ++i) {
+                var sec = durationFromValue(source[secondKeys[i]])
+                if (sec >= 0)
+                    return sec
+            }
+            for (var j = 0; j < minuteKeys.length; ++j) {
+                var min = durationFromValue(source[minuteKeys[j]])
+                if (min >= 0)
+                    return min * 60
+            }
+            return -1
+        }
+
+        function elapsedSeconds(source) {
+            return durationFromKeys(
+                        source,
+                        ["elapsedSec", "elapsed", "elapsedSeconds"],
+                        ["print_time", "printTime", "elapsedMin", "elapsedMinutes", "printTimeMin"])
+        }
+
+        function remainingSeconds(source) {
+            return durationFromKeys(
+                        source,
+                        ["remainingSec", "remaining", "remainingSeconds"],
+                        ["remain_time", "remainTime", "remainingMin", "remainingMinutes", "timeLeftMin"])
+        }
 
         function mergeTextField(fieldName, incomingValue) {
             var current = String(merged[fieldName] || "").trim()
@@ -806,11 +852,20 @@ Item {
                 merged[fieldName] = incoming
         }
 
+        function mergeDurationField(fieldName, source, resolver) {
+            var resolved = resolver(source)
+            if (resolved >= 0)
+                merged[fieldName] = resolved
+        }
+
+        mergeDurationField("elapsedSec", selected, elapsedSeconds)
+        mergeDurationField("remainingSec", selected, remainingSeconds)
+
         var details = selectedPrinterDetails || ({})
         mergeTextField("currentFile", details.currentFile)
         mergeNumberField("progress", details.progress)
-        mergeNumberField("elapsedSec", details.elapsedSec)
-        mergeNumberField("remainingSec", details.remainingSec)
+        mergeDurationField("elapsedSec", details, elapsedSeconds)
+        mergeDurationField("remainingSec", details, remainingSeconds)
         mergeNumberField("currentLayer", details.currentLayer)
         mergeNumberField("totalLayers", details.totalLayers)
 
@@ -818,8 +873,8 @@ Item {
         if (activeProject) {
             mergeTextField("currentFile", String(activeProject.currentFile || activeProject.gcodeName || ""))
             mergeNumberField("progress", activeProject.progress)
-            mergeNumberField("elapsedSec", activeProject.elapsedSec)
-            mergeNumberField("remainingSec", activeProject.remainingSec)
+            mergeDurationField("elapsedSec", activeProject, elapsedSeconds)
+            mergeDurationField("remainingSec", activeProject, remainingSeconds)
             mergeNumberField("currentLayer", activeProject.currentLayer)
             mergeNumberField("totalLayers", activeProject.totalLayers)
         }
@@ -904,17 +959,6 @@ Item {
         return entry !== undefined ? entry : null
     }
 
-    function selectedPrinterReasonText() {
-        var selected = selectedPrinterData()
-        if (!selected)
-            return ""
-        return String(selected.reason || "")
-    }
-
-    function selectedPrinterHelpUrlText() {
-        return reasonHelpUrl(selectedPrinterReasonText())
-    }
-
     function displayReason(reasonText) {
         var text = String(reasonText || "").trim()
         if (text.length === 0)
@@ -946,9 +990,7 @@ Item {
         if (selectedPrinterId.length === 0)
             return
 
-        var refreshRecentJobsCard = shouldRefreshRecentJobsCard()
-        if (refreshRecentJobsCard)
-            printerHistoryModel.clear()
+        printerHistoryModel.clear()
 
         var selected = selectedPrinterData()
         if (selected) {
@@ -968,19 +1010,17 @@ Item {
             if (cachedProjectsRes.ok === true) {
                 var cachedProjectsList = cachedProjectsRes.projects !== undefined ? cachedProjectsRes.projects : []
                 setLiveProjectFromList(cachedProjectsList)
-                if (refreshRecentJobsCard)
-                    replaceRecentJobsCard(cachedProjectsList)
+                replaceRecentJobsCard(cachedProjectsList)
             }
         } else if (selected && selected.projects !== undefined) {
             var inlineProjects = selected.projects
             setLiveProjectFromList(inlineProjects)
-            if (refreshRecentJobsCard)
-                replaceRecentJobsCard(inlineProjects)
+            replaceRecentJobsCard(inlineProjects)
         }
 
         if (typeof cloudBridge.refreshPrinterInsightsAsync === "function") {
             loadingPrinterDetails = true
-            loadingPrinterHistory = refreshRecentJobsCard
+            loadingPrinterHistory = true
             cloudBridge.refreshPrinterInsightsAsync(selectedPrinterId, 1, 20, false)
         } else {
             if (typeof cloudBridge.fetchPrinterDetails === "function") {
@@ -1003,14 +1043,13 @@ Item {
             }
 
             if (typeof cloudBridge.fetchPrinterProjects === "function") {
-                loadingPrinterHistory = refreshRecentJobsCard
+                loadingPrinterHistory = true
                 var projectsRes = cloudBridge.fetchPrinterProjects(selectedPrinterId, 1, 20)
                 loadingPrinterHistory = false
                 if (projectsRes.ok === true) {
                     var cloudProjects = projectsRes.projects !== undefined ? projectsRes.projects : []
                     setLiveProjectFromList(cloudProjects)
-                    if (refreshRecentJobsCard)
-                        replaceRecentJobsCard(cloudProjects)
+                    replaceRecentJobsCard(cloudProjects)
                 }
                 if (projectsRes.rawJson !== undefined)
                     selectedPrinterProjectsRawJson = String(projectsRes.rawJson || selectedPrinterProjectsRawJson)
@@ -1932,8 +1971,7 @@ Item {
 
             var list = projects !== undefined ? projects : []
             setLiveProjectFromList(list)
-            if (shouldRefreshRecentJobsCard())
-                replaceRecentJobsCard(list)
+            replaceRecentJobsCard(list)
 
             if (detailsRawJson !== undefined)
                 root.selectedPrinterDetailsRawJson = String(detailsRawJson || root.selectedPrinterDetailsRawJson)
@@ -2079,7 +2117,6 @@ Item {
         printerHistoryModel: printerHistoryModel
         printersEndpointPath: root.printersEndpointPath
         printersEndpointRawJson: root.printersEndpointRawJson
-        selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText()
         statusChipTextProvider: root.statusChipText
         progressTextProvider: root.progressText
         timeTextProvider: root.timeText

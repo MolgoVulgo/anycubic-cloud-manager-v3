@@ -28,6 +28,7 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
         "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
@@ -179,6 +180,41 @@ Item {
                 return true
         }
         return false
+    }
+
+    function localPathFromInput(pathInput) {
+        var raw = String(pathInput || "").trim()
+        if (raw.length === 0)
+            return ""
+
+        var normalized = raw.replace(/^file:\/\/localhost/i, "file://")
+        if (normalized.indexOf("file://") === 0)
+            normalized = normalized.replace(/^file:\/\//i, "")
+        normalized = normalized.replace(/[?#].*$/, "")
+        try {
+            normalized = decodeURIComponent(normalized)
+        } catch (err) {}
+        normalized = normalized.replace(/\\/g, "/")
+        if (normalized.length > 1)
+            normalized = normalized.replace(/\/+$/, "")
+        return normalized
+    }
+
+    function pathToFileUrl(pathInput) {
+        var path = localPathFromInput(pathInput)
+        if (path.length === 0)
+            path = StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        if (path.charAt(0) === "/")
+            return "file://" + path
+        return "file:///" + path
+    }
+
+    function parentFolderPath(pathInput) {
+        var path = localPathFromInput(pathInput)
+        var slash = path.lastIndexOf("/")
+        if (slash <= 0)
+            return path
+        return path.slice(0, slash)
     }
 
     function fileType(fileName) {
@@ -451,6 +487,7 @@ Item {
     function pickUploadFile() {
         if (uploadOverlay.visible)
             return
+        uploadFileDialog.currentFolder = pathToFileUrl(uploadLastFolderPath)
         uploadFileDialog.open()
     }
 
@@ -485,6 +522,11 @@ Item {
             root.statusSev = "warn"
             return
         }
+
+        var sourcePath = localPathFromInput(selectedInput)
+        var sourceFolder = parentFolderPath(sourcePath)
+        if (sourceFolder.length > 0)
+            uploadLastFolderPath = sourceFolder
 
         var fileName = uploadInputToDisplayName(selectedInput)
         if (!hasCloudBridge()) {
@@ -802,20 +844,17 @@ Item {
         onCloseRequested: fileDetailsDialog.close()
     }
 
-    FileDialog {
+    UploadFileDialog {
         id: uploadFileDialog
-        title: qsTr("Select file to upload")
-        fileMode: FileDialog.OpenFile
-        options: FileDialog.DontUseNativeDialog
+        currentFolder: root.pathToFileUrl(root.uploadLastFolderPath)
         nameFilters: [
             qsTr("Slice files (*.photon *.pws *.pwsz *.photons *.pw0 *.pwx *.pwmo *.pwma *.pwms *.pwmx *.pmx2 *.pmsq *.dlp *.dl2p *.pwmb *.pm3 *.pm3m *.pm3r *.pm3n *.px6s *.pm5 *.pm5s *.m5sp)"),
             qsTr("All files (*)")
         ]
-        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
-
-        onAccepted: {
-            root.uploadSelectedLocalFile(selectedFile)
+        onFileChosen: function(file) {
+            root.uploadSelectedLocalFile(file)
         }
+        onCancelled: {}
     }
 
     FileDialog {
