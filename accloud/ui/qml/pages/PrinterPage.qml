@@ -377,18 +377,23 @@ Item {
         var value = Number(progress)
         if (!isFinite(value) || value < 0)
             return "-"
-        return Math.max(0, Math.min(100, Math.round(value))) + "%"
+        return qsTr("%1 %").arg(Math.max(0, Math.min(100, Math.round(value))))
     }
 
     function timeText(seconds) {
         var sec = Number(seconds)
         if (!isFinite(sec) || sec < 0)
             return "-"
-        var h = Math.floor(sec / 3600)
-        var m = Math.floor((sec % 3600) / 60)
-        if (h > 0)
-            return qsTr("%1h %2m").arg(h).arg(m)
-        return qsTr("%1m").arg(m)
+        var totalMin = Math.floor(sec / 60)
+        var days = Math.floor(totalMin / (24 * 60))
+        var hours = Math.floor((totalMin % (24 * 60)) / 60)
+        var minutes = totalMin % 60
+
+        if (days > 0)
+            return qsTr("%1 j %2 h %3 min").arg(days).arg(hours).arg(minutes)
+        if (hours > 0)
+            return qsTr("%1 h %2 min").arg(hours).arg(minutes)
+        return qsTr("%1 min").arg(minutes)
     }
 
     function unixTimeText(epochSeconds) {
@@ -863,6 +868,10 @@ Item {
 
         var details = selectedPrinterDetails || ({})
         mergeTextField("currentFile", details.currentFile)
+        mergeTextField("img", details.img)
+        mergeTextField("image", details.image)
+        mergeTextField("preview", details.preview)
+        mergeTextField("thumbnailUrl", details.thumbnailUrl)
         mergeNumberField("progress", details.progress)
         mergeDurationField("elapsedSec", details, elapsedSeconds)
         mergeDurationField("remainingSec", details, remainingSeconds)
@@ -872,6 +881,10 @@ Item {
         var activeProject = hasLiveProjectData() ? liveProjectData : activeProjectFromHistory()
         if (activeProject) {
             mergeTextField("currentFile", String(activeProject.currentFile || activeProject.gcodeName || ""))
+            mergeTextField("img", activeProject.img)
+            mergeTextField("image", activeProject.image)
+            mergeTextField("preview", activeProject.preview)
+            mergeTextField("thumbnailUrl", activeProject.thumbnailUrl)
             mergeNumberField("progress", activeProject.progress)
             mergeDurationField("elapsedSec", activeProject, elapsedSeconds)
             mergeDurationField("remainingSec", activeProject, remainingSeconds)
