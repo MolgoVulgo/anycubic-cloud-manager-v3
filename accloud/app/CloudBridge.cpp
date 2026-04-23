@@ -24,6 +24,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -290,6 +291,13 @@ QString fetchThumbnailToCache(const QString& normalizedUrl, const QString& cache
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QEventLoop loop;
     QNetworkReply* reply = nam.get(req);
+    QObject::connect(reply, &QNetworkReply::sslErrors, reply,
+                     [reply](const QList<QSslError>&) {
+                         // Thumbnail preview is non-critical; tolerate SSL chain issues
+                         // and keep the UI image path functional when the endpoint cert
+                         // is not trusted by the local runtime.
+                         reply->ignoreSslErrors();
+                     });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const QByteArray bytes = reply->readAll();
@@ -377,6 +385,108 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
                   {{"url", normalized.toStdString()},
                    {"path", QUrl(localUrl).toLocalFile().toStdString()}});
     return localUrl;
+}
+
+QString normalizeFileNameForMatch(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    return QFileInfo(trimmed).fileName().toLower();
+}
+
+QString normalizeFileStemForMatch(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    return QFileInfo(trimmed).completeBaseName().toLower();
+}
+
+bool localImageIsVisuallyUsable(const QString& sourceUrl) {
+    const QUrl url(sourceUrl);
+    if (!url.isLocalFile()) {
+        return true;
+    }
+    const QString path = url.toLocalFile();
+    const QFileInfo info(path);
+    if (!info.exists() || !info.isFile() || info.size() <= 0) {
+        return false;
+    }
+    if (info.size() <= 128) {
+        return false;
+    }
+
+    QImageReader reader(path);
+    if (!reader.canRead()) {
+        return false;
+    }
+    QImage image = reader.read();
+    if (image.isNull()) {
+        return false;
+    }
+    if (!image.hasAlphaChannel()) {
+        return true;
+    }
+
+    const QImage argb = image.convertToFormat(QImage::Format_ARGB32);
+    const int w = argb.width();
+    const int h = argb.height();
+    if (w <= 0 || h <= 0) {
+        return false;
+    }
+
+    for (int y = 0; y < h; ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(argb.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            if (qAlpha(row[x]) > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
+                                          const QString& currentFile,
+                                          const QString& gcodeName) {
+    if (cache == nullptr) {
+        return {};
+    }
+
+    const QString targetName = normalizeFileNameForMatch(currentFile);
+    const QString targetStem = normalizeFileStemForMatch(currentFile);
+    const QString altName = normalizeFileNameForMatch(gcodeName);
+    const QString altStem = normalizeFileStemForMatch(gcodeName);
+    if (targetName.isEmpty() && targetStem.isEmpty() && altName.isEmpty() && altStem.isEmpty()) {
+        return {};
+    }
+
+    const QVariantList files = cache->loadFiles(1, 1500);
+    QString stemMatchCandidate;
+    for (const QVariant& fileVar : files) {
+        const QVariantMap fileMap = fileVar.toMap();
+        const QString fileName = fileMap.value(QStringLiteral("fileName")).toString();
+        const QString fileKey = normalizeFileNameForMatch(fileName);
+        const QString fileStem = normalizeFileStemForMatch(fileName);
+        const QString thumb = fileMap.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
+        if (thumb.isEmpty()) {
+            continue;
+        }
+
+        const bool exactNameMatch = (!targetName.isEmpty() && fileKey == targetName)
+                                 || (!altName.isEmpty() && fileKey == altName);
+        if (exactNameMatch) {
+            return resolveThumbnailLocalUrl(thumb, true);
+        }
+
+        const bool stemMatch = (!targetStem.isEmpty() && fileStem == targetStem)
+                            || (!altStem.isEmpty() && fileStem == altStem);
+        if (stemMatch && stemMatchCandidate.isEmpty()) {
+            stemMatchCandidate = resolveThumbnailLocalUrl(thumb, true);
+        }
+    }
+    return stemMatchCandidate;
 }
 
 void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
@@ -529,7 +639,10 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("reason", QString::fromStdString(item.reason));
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
-    m.insert("img", QString::fromStdString(item.img));
+    const QString rawImg = QString::fromStdString(item.img);
+    const QString resolvedImg = resolveThumbnailLocalUrl(rawImg, true);
+    m.insert("img", resolvedImg.isEmpty() ? rawImg : resolvedImg);
+    m.insert("imgRaw", rawImg);
     return m;
 }
 
@@ -1095,13 +1208,39 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
         if (projectsResult.ok) {
             projects.reserve(static_cast<qsizetype>(projectsResult.items.size()));
             for (const auto& item : projectsResult.items) {
-                projects.append(printerProjectToMap(item));
+                QVariantMap projectMap = printerProjectToMap(item);
+                QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (!localImageIsVisuallyUsable(currentImage)) {
+                    const QString fallbackImage = resolveProjectImageFromFilesCache(
+                        m_cache,
+                        projectMap.value(QStringLiteral("currentFile")).toString(),
+                        projectMap.value(QStringLiteral("gcodeName")).toString());
+                    if (!fallbackImage.isEmpty()) {
+                        projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    }
+                }
+                projects.append(projectMap);
             }
             if (m_cache != nullptr) {
                 m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
             }
         } else if (m_cache != nullptr) {
             projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+            for (int i = 0; i < projects.size(); ++i) {
+                QVariantMap projectMap = projects[i].toMap();
+                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (localImageIsVisuallyUsable(currentImage)) {
+                    continue;
+                }
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    projects[i] = projectMap;
+                }
+            }
         }
 
         const bool ok = detailsResult.ok || projectsResult.ok || !projects.isEmpty();
@@ -1465,8 +1604,20 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     if (r.ok) {
         QVariantList projects;
         projects.reserve(static_cast<qsizetype>(r.items.size()));
-        for (const auto& item : r.items)
-            projects.append(printerProjectToMap(item));
+        for (const auto& item : r.items) {
+            QVariantMap projectMap = printerProjectToMap(item);
+            const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+            if (!localImageIsVisuallyUsable(currentImage)) {
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                }
+            }
+            projects.append(projectMap);
+        }
         out.insert("projects", projects);
         if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
             m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
@@ -1474,9 +1625,25 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     } else if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
         const QVariantList cached = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
         if (!cached.isEmpty()) {
+            QVariantList enriched = cached;
+            for (int i = 0; i < enriched.size(); ++i) {
+                QVariantMap projectMap = enriched[i].toMap();
+                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (localImageIsVisuallyUsable(currentImage)) {
+                    continue;
+                }
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    enriched[i] = projectMap;
+                }
+            }
             out.insert("ok", true);
             out.insert("message", QStringLiteral("Jobs chargés depuis le cache local."));
-            out.insert("projects", cached);
+            out.insert("projects", enriched);
         }
     }
     finalizeUiMessage(out);
