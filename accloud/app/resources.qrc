@@ -45,6 +45,7 @@
     <file alias="qml/components/BusyOverlay.qml">../ui/qml/components/BusyOverlay.qml</file>
     <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>
     <file alias="qml/components/ProgressCard.qml">../ui/qml/components/ProgressCard.qml</file>
+    <file alias="qml/components/UploadFileDialog.qml">../ui/qml/components/UploadFileDialog.qml</file>
     <file alias="qml/panes/PreviewPane.qml">../ui/qml/panes/PreviewPane.qml</file>
     <file alias="qml/panes/LayerInspectorPane.qml">../ui/qml/panes/LayerInspectorPane.qml</file>
     <file alias="qml/panes/Viewer3DPane.qml">../ui/qml/panes/Viewer3DPane.qml</file>

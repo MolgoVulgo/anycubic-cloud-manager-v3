@@ -20,7 +20,6 @@ AppPageFrame {
     property var printerHistoryModel: null
     property string printersEndpointPath: ""
     property string printersEndpointRawJson: ""
-    property string selectedPrinterHelpUrlText: ""
     property var statusChipTextProvider: null
     property var progressTextProvider: null
     property var timeTextProvider: null
@@ -113,7 +112,6 @@ AppPageFrame {
                 showDebugLabels: root.showDebugLabels
                 printersEndpointPath: root.printersEndpointPath
                 printersEndpointRawJson: root.printersEndpointRawJson
-                selectedPrinterHelpUrlText: root.selectedPrinterHelpUrlText
                 statusChipTextProvider: root.statusChipTextProvider
                 progressTextProvider: root.progressTextProvider
                 timeTextProvider: root.timeTextProvider
