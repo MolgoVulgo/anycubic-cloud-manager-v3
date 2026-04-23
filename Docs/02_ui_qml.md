@@ -149,6 +149,7 @@ Fonctions visibles :
 - quota ;
 - détails fichier ;
 - upload ;
+- le sélecteur local d'upload rouvre sur le dernier dossier utilisé ;
 - téléchargement ;
 - suppression ;
 - amorce de remote print.
