@@ -507,7 +507,7 @@ Item {
             return
         }
 
-        root.statusMsg = qsTr("Opening Printers workflow for %1...")
+        root.statusMsg = qsTr("Preparing print setup for %1...")
                 .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
         root.statusSev = "info"
         root.printIntentRequested(normalizedFileId, normalizedFileName)

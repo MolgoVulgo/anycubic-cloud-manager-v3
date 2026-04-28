@@ -152,7 +152,7 @@ Fonctions visibles :
 - le sélecteur local d'upload rouvre sur le dernier dossier utilisé ;
 - téléchargement ;
 - suppression ;
-- amorce de remote print.
+- lancement rapide du remote print vers la configuration d'impression.
 
 ### 6.2 Printers
 Page métier clé pour la logique cloud temps réel/état machine.
@@ -192,6 +192,11 @@ Le remote print doit être lu comme une chaîne UI simple :
 3. options de tâche ;
 4. envoi ;
 5. suivi et retour utilisateur.
+
+Depuis `Files`, l'action `Print` doit rester un raccourci direct vers la
+configuration d'impression : le fichier est déjà sélectionné, l'imprimante
+compatible est présélectionnée si possible, et la dialog de confirmation doit
+s'ouvrir sans imposer un second sélecteur de fichier.
 
 ### 7.1 Règle produit
 L’UI ne doit pas porter la logique profonde d’orchestration. Elle doit présenter :
