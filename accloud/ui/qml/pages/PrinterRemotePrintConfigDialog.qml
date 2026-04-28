@@ -5,8 +5,9 @@ import "../components"
 
 AppDialogFrame {
     id: root
+    objectName: "remotePrintConfigDialog"
     title: qsTr("Tache d'impression")
-    subtitle: qsTr("Review task, printer and options before start")
+    subtitle: qsTr("Confirm printer and options before start")
     minimumWidth: 760
     maximumWidth: 900
 
@@ -92,8 +93,8 @@ AppDialogFrame {
 
     SectionHeader {
         Layout.fillWidth: true
-        title: qsTr("Select Printer")
-        subtitle: qsTr("Change target printer if needed")
+        title: qsTr("Printer")
+        subtitle: qsTr("Compatible target printer")
     }
 
     RowLayout {
@@ -138,7 +139,7 @@ AppDialogFrame {
         }
 
         AppButton {
-            text: qsTr("Change")
+            text: qsTr("Choose File")
             variant: "secondary"
             onClicked: root.changePrinterRequested()
         }

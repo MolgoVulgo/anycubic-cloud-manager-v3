@@ -748,6 +748,9 @@ TestCase {
         compare(tabs.currentIndex, 1)
         compare(String(printerPage.selectedCloudFileId), "route-file-1")
         verify(String(printerPage.remotePrinterId).length > 0)
+        var printConfigDialog = findObjectByName(printerPage, "remotePrintConfigDialog")
+        verify(printConfigDialog !== null)
+        compare(printConfigDialog.visible, true)
 
         window.close()
         window.destroy()
