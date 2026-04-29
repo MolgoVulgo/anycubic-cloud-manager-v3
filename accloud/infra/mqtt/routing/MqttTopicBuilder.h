@@ -12,12 +12,12 @@ public:
                                                           const std::string& userIdMd5);
 
     static std::vector<std::string> buildPrinterSubscriptionTopics(const std::string& machineType,
-                                                                   const std::string& printerKey);
+                                                                   const std::string& deviceId,
+                                                                   bool includeExtendedTopics = false);
 
     static std::optional<std::string> buildPrinterPublishTopic(const std::string& machineType,
-                                                               const std::string& printerKey,
+                                                               const std::string& deviceId,
                                                                const std::string& endpoint);
 };
 
 } // namespace accloud::mqtt::routing
-

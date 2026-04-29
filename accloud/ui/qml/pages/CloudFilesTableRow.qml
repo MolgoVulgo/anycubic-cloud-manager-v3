@@ -236,7 +236,7 @@ Rectangle {
                     enabled: root.fileId.length > 0
                     ToolTip.visible: hovered && enabled
                     ToolTip.delay: 350
-                    ToolTip.text: qsTr("Remote print via Printers workflow")
+                    ToolTip.text: qsTr("Open print setup")
                     onClicked: root.printRequested(root.fileId, root.fileName)
                 }
 

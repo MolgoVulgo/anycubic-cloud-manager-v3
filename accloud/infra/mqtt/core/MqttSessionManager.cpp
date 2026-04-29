@@ -10,6 +10,7 @@
 #include <QList>
 #include <QMetaObject>
 #include <QMqttClient>
+#include <QMqttSubscription>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslKey>
@@ -22,6 +23,7 @@
 #include <limits>
 #include <random>
 #include <set>
+#include <string_view>
 #include <utility>
 
 namespace accloud::mqtt::core {
@@ -57,6 +59,70 @@ int computeBackoffDelayMs(int attempt, const MqttSessionConfig& config, std::mt1
     return static_cast<int>(std::min<std::int64_t>(withJitter, std::numeric_limits<int>::max()));
 }
 
+const char* reasonCodeToString(QMqtt::ReasonCode code) {
+    using Rc = QMqtt::ReasonCode;
+    switch (code) {
+        case Rc::Success:
+            return "Success";
+        case Rc::SubscriptionQoSLevel1:
+            return "SubscriptionQoSLevel1";
+        case Rc::SubscriptionQoSLevel2:
+            return "SubscriptionQoSLevel2";
+        case Rc::UnspecifiedError:
+            return "UnspecifiedError";
+        case Rc::NotAuthorized:
+            return "NotAuthorized";
+        case Rc::InvalidTopicFilter:
+            return "InvalidTopicFilter";
+        case Rc::SharedSubscriptionsNotSupported:
+            return "SharedSubscriptionsNotSupported";
+        case Rc::WildCardSubscriptionsNotSupported:
+            return "WildCardSubscriptionsNotSupported";
+        case Rc::QuotaExceeded:
+            return "QuotaExceeded";
+        default:
+            return "Other";
+    }
+}
+
+std::string subscriptionStateToString(QMqttSubscription::SubscriptionState state) {
+    switch (state) {
+        case QMqttSubscription::Unsubscribed:
+            return "Unsubscribed";
+        case QMqttSubscription::SubscriptionPending:
+            return "SubscriptionPending";
+        case QMqttSubscription::Subscribed:
+            return "Subscribed";
+        case QMqttSubscription::UnsubscriptionPending:
+            return "UnsubscriptionPending";
+        case QMqttSubscription::Error:
+            return "Error";
+    }
+    return "Unknown";
+}
+
+std::string topicFamilyOf(std::string_view topic) {
+    if (topic.find("/v1/server/app/") != std::string_view::npos) {
+        return "v1_server_app";
+    }
+    if (topic.find("/v1/server/printer/") != std::string_view::npos) {
+        return "v1_server_printer";
+    }
+    if (topic.find("/v1/+/printer/") != std::string_view::npos) {
+        return "v1_plus_printer";
+    }
+    if (topic.find("/v1/printer/public/") != std::string_view::npos) {
+        return "v1_printer_public";
+    }
+    if (topic.find("anycubic/anycubicCloud/+/printer/") != std::string_view::npos) {
+        return "legacy_plus_printer";
+    }
+    if (topic.find("anycubic/anycubicCloud/printer/public/") != std::string_view::npos) {
+        return "legacy_printer_public";
+    }
+    return "other";
+}
+
 } // namespace
 
 struct MqttSessionManager::Impl {
@@ -76,6 +142,7 @@ struct MqttSessionManager::Impl {
 #ifdef ACCLOUD_WITH_MQTT
     std::unique_ptr<QMqttClient> client;
     std::unique_ptr<QTimer> reconnectTimer;
+    bool clientSignalsBound{false};
 #endif
 
     void publishState(MqttSessionState next, const std::string& reason) {
@@ -92,6 +159,32 @@ struct MqttSessionManager::Impl {
     }
 
 #ifdef ACCLOUD_WITH_MQTT
+    void bindSubscriptionSignals(QMqttSubscription* subscription, const std::string& topic) {
+        if (subscription == nullptr) {
+            return;
+        }
+        const std::string family = topicFamilyOf(topic);
+        QObject::connect(subscription, &QMqttSubscription::stateChanged, subscription,
+                         [topic, family, subscription](QMqttSubscription::SubscriptionState state) {
+            const auto reasonCode = subscription->reasonCode();
+            const bool isError = (state == QMqttSubscription::Error)
+                || (static_cast<unsigned>(reasonCode) >= 0x80U);
+            logging::log(isError ? logging::Level::kWarn : logging::Level::kInfo,
+                         "mqtt",
+                         "mqtt_flow",
+                         isError ? "subscribe_result_failed" : "subscribe_result",
+                         isError ? "MQTT subscription rejected by broker" : "MQTT subscription acknowledged",
+                         {
+                             {"topic", topic},
+                             {"family", family},
+                             {"state", subscriptionStateToString(state)},
+                             {"reason_code", std::to_string(static_cast<unsigned>(reasonCode))},
+                             {"reason_code_name", reasonCodeToString(reasonCode)},
+                             {"reason_text", subscription->reason().toStdString()},
+                         });
+        });
+    }
+
     std::size_t subscribeAll() {
         if (!client || client->state() != QMqttClient::Connected) {
             return 0;
@@ -108,10 +201,12 @@ struct MqttSessionManager::Impl {
                               {{"topic", topic}});
                 continue;
             }
-            logging::info("mqtt", "mqtt_flow", "subscribe_ok",
-                          "MQTT topic subscription applied",
+            bindSubscriptionSignals(subscription, topic);
+            logging::info("mqtt", "mqtt_flow", "subscribe_requested",
+                          "MQTT topic subscription requested",
                           {{"topic", topic},
-                           {"qos", "0"}});
+                           {"qos", "0"},
+                           {"family", topicFamilyOf(topic)}});
             ++subscribedCount;
         }
         return subscribedCount;
@@ -137,6 +232,12 @@ struct MqttSessionManager::Impl {
                                       "MQTT subscribe failed",
                                       {{"topic", topic}});
                     } else if (callbacks.onSubscriptionsApplied) {
+                        bindSubscriptionSignals(subscription, topic);
+                        logging::info("mqtt", "mqtt_flow", "subscribe_requested",
+                                      "MQTT topic subscription requested",
+                                      {{"topic", topic},
+                                       {"qos", "0"},
+                                       {"family", topicFamilyOf(topic)}});
                         callbacks.onSubscriptionsApplied(1);
                     }
                 }
@@ -239,6 +340,7 @@ struct MqttSessionManager::Impl {
     void ensureRuntimeObjects() {
         if (!client) {
             client = std::make_unique<QMqttClient>();
+            clientSignalsBound = false;
         }
         if (!reconnectTimer) {
             reconnectTimer = std::make_unique<QTimer>();
@@ -249,6 +351,10 @@ struct MqttSessionManager::Impl {
                 }
                 connectToBroker();
             });
+        }
+
+        if (clientSignalsBound) {
+            return;
         }
 
         QObject::connect(client.get(), &QMqttClient::connected, [this]() {
@@ -319,6 +425,7 @@ struct MqttSessionManager::Impl {
                                     QString::fromUtf8(payload).toStdString());
             }
         });
+        clientSignalsBound = true;
     }
 #endif
 };

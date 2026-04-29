@@ -6,6 +6,7 @@
 #include "app/usecases/cloud/ResyncCloudStateUseCase.h"
 #include "infra/cloud/core/SessionProvider.h"
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/Redactor.h"
 #include "infra/mqtt/core/MqttCredentialProvider.h"
 #include "infra/mqtt/core/MqttSessionManager.h"
 #include "infra/mqtt/core/TlsMaterialProvider.h"
@@ -25,18 +26,42 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <future>
+#include <mutex>
 #include <vector>
 
 namespace accloud {
 namespace {
 
 constexpr std::size_t kMaxTopicMessageHistory = 1000;
+constexpr const char* kMqttCaptureFilename = "mqtt_topic_capture.jsonl";
 
 std::string md5LowerHex(const std::string& input) {
     return QCryptographicHash::hash(QByteArray::fromStdString(input), QCryptographicHash::Md5)
         .toHex()
         .toStdString();
+}
+
+std::string trimAscii(std::string value) {
+    auto notSpace = [](unsigned char c) { return std::isspace(c) == 0; };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
+    value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
+    return value;
+}
+
+bool shouldEnableExtendedTopicsFromEnv() {
+    const char* raw = std::getenv("ACCLOUD_MQTT_EXTENDED_TOPICS");
+    if (raw == nullptr) {
+        return false;
+    }
+    std::string v = trimAscii(raw);
+    std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return v == "1" || v == "true" || v == "yes" || v == "on";
 }
 
 accloud::mqtt::core::MqttSessionManager& sessionManager() {
@@ -145,8 +170,68 @@ std::string redactPayloadForDebug(const std::string& payload) {
         redactJsonInPlace(root);
         return root.dump(2);
     } catch (...) {
-        return payload;
+        return logging::redactMessage(payload);
     }
+}
+
+std::filesystem::path mqttCapturePath() {
+    if (const char* envPath = std::getenv("ACCLOUD_MQTT_CAPTURE_PATH");
+        envPath != nullptr && *envPath != '\0') {
+        return std::filesystem::path(envPath);
+    }
+    return logging::logDirectory() / kMqttCaptureFilename;
+}
+
+void appendMqttCaptureLine(const std::string& topic,
+                           const std::string& redactedPayload,
+                           std::size_t payloadBytes,
+                           const QString& timestampIso) {
+    static std::mutex captureMutex;
+    std::lock_guard<std::mutex> lock(captureMutex);
+
+    static std::filesystem::path captureFile;
+    static bool openAttempted = false;
+    static std::ofstream stream;
+    static bool writeFailureReported = false;
+
+    if (!openAttempted) {
+        openAttempted = true;
+        captureFile = mqttCapturePath();
+        std::error_code ec;
+        const auto parent = captureFile.parent_path();
+        if (!parent.empty()) {
+            std::filesystem::create_directories(parent, ec);
+        }
+        stream.open(captureFile, std::ios::out | std::ios::app);
+        if (!stream.is_open() && !writeFailureReported) {
+            writeFailureReported = true;
+            logging::warn("mqtt",
+                          "mqtt_capture",
+                          "capture_open_failed",
+                          "Unable to open MQTT capture file",
+                          {{"path", captureFile.string()}});
+        } else if (stream.is_open()) {
+            logging::info("mqtt",
+                          "mqtt_capture",
+                          "capture_file_ready",
+                          "MQTT capture file initialized",
+                          {{"path", captureFile.string()}});
+        }
+    }
+
+    if (!stream.is_open()) {
+        return;
+    }
+
+    nlohmann::json line;
+    line["ts"] = timestampIso.toStdString();
+    line["direction"] = "rx";
+    line["topic"] = topic;
+    line["payload"] = redactedPayload;
+    line["payload_bytes"] = payloadBytes;
+
+    stream << line.dump() << '\n';
+    stream.flush();
 }
 
 int jsonIntValueOr(const nlohmann::json& node, int fallback = 0) {
@@ -291,22 +376,50 @@ PreparedMqttProfile buildPreparedProfile() {
     const std::string userMd5 = md5LowerHex(userId);
     out.subscriptions = mqtt::routing::MqttTopicBuilder::buildUserReportTopics(userId, userMd5);
 
+    const bool includeExtendedTopics = shouldEnableExtendedTopicsFromEnv();
     usecases::cloud::LoadPrintersDashboardUseCase printersUseCase;
     const auto dashboard = printersUseCase.execute();
     if (dashboard.ok) {
+        std::set<std::pair<std::string, std::string>> seenPrinterTargets;
+        std::size_t skippedInvalidTarget = 0;
+        std::size_t skippedDuplicateTarget = 0;
         for (const auto& p : dashboard.printers) {
-            const std::string printerKey = p.printerKey.empty() ? p.id : p.printerKey;
-            const std::string machineType = p.machineType.empty() ? p.type : p.machineType;
+            const std::string printerKey = trimAscii(p.printerKey.empty() ? p.id : p.printerKey);
+            const std::string machineType = trimAscii(p.machineType.empty() ? p.type : p.machineType);
+            const std::string deviceId = printerKey;
             if (!printerKey.empty() && !p.id.empty()) {
                 out.printerKeyToId[printerKey] = p.id;
             }
             if (!p.id.empty()) {
                 out.printerKeyToId[p.id] = p.id;
             }
+            if (machineType.empty() || deviceId.empty()) {
+                ++skippedInvalidTarget;
+                continue;
+            }
+            const auto target = std::make_pair(machineType, deviceId);
+            if (!seenPrinterTargets.insert(target).second) {
+                ++skippedDuplicateTarget;
+                continue;
+            }
             const auto printerTopics = mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
-                machineType, printerKey);
+                machineType, deviceId, includeExtendedTopics);
             out.subscriptions.insert(out.subscriptions.end(), printerTopics.begin(), printerTopics.end());
         }
+        const std::set<std::string> uniqueTopics(out.subscriptions.begin(), out.subscriptions.end());
+        logging::info("mqtt",
+                      "mqtt_flow",
+                      "subscription_profile_built",
+                      "MQTT subscription profile built",
+                      {
+                          {"printer_count", std::to_string(dashboard.printers.size())},
+                          {"printer_targets", std::to_string(seenPrinterTargets.size())},
+                          {"skipped_invalid_target", std::to_string(skippedInvalidTarget)},
+                          {"skipped_duplicate_target", std::to_string(skippedDuplicateTarget)},
+                          {"topics_total", std::to_string(out.subscriptions.size())},
+                          {"topics_unique", std::to_string(uniqueTopics.size())},
+                          {"extended_topics", includeExtendedTopics ? "1" : "0"},
+                      });
     }
 
     mqtt::core::TlsMaterialProvider tlsProvider;
@@ -425,6 +538,7 @@ MqttBridge::MqttBridge(QObject* parent)
         .onMessage = [this](const std::string& topic, const std::string& payload) {
             const QString ts = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
             const std::string redactedPayload = redactPayloadForDebug(payload);
+            appendMqttCaptureLine(topic, redactedPayload, payload.size(), ts);
             const QString topicName = QString::fromStdString(topic);
             const QString messageLine = ts + QStringLiteral(" | topic=") + topicName
                 + QStringLiteral(" | payload=") + QString::fromStdString(redactedPayload);
@@ -918,6 +1032,7 @@ void MqttBridge::refreshDynamicSubscriptions() {
         return;
     }
 
+    const bool includeExtendedTopics = shouldEnableExtendedTopicsFromEnv();
     usecases::cloud::LoadPrintersDashboardUseCase printersUseCase;
     const auto dashboard = printersUseCase.execute();
     if (!dashboard.ok) {
@@ -926,17 +1041,30 @@ void MqttBridge::refreshDynamicSubscriptions() {
 
     std::vector<std::string> topics;
     std::map<std::string, std::string> keyToId;
+    std::set<std::pair<std::string, std::string>> seenPrinterTargets;
+    std::size_t skippedInvalidTarget = 0;
+    std::size_t skippedDuplicateTarget = 0;
     for (const auto& p : dashboard.printers) {
-        const std::string printerKey = p.printerKey.empty() ? p.id : p.printerKey;
-        const std::string machineType = p.machineType.empty() ? p.type : p.machineType;
+        const std::string printerKey = trimAscii(p.printerKey.empty() ? p.id : p.printerKey);
+        const std::string machineType = trimAscii(p.machineType.empty() ? p.type : p.machineType);
+        const std::string deviceId = printerKey;
         if (!printerKey.empty() && !p.id.empty()) {
             keyToId[printerKey] = p.id;
         }
         if (!p.id.empty()) {
             keyToId[p.id] = p.id;
         }
+        if (machineType.empty() || deviceId.empty()) {
+            ++skippedInvalidTarget;
+            continue;
+        }
+        const auto target = std::make_pair(machineType, deviceId);
+        if (!seenPrinterTargets.insert(target).second) {
+            ++skippedDuplicateTarget;
+            continue;
+        }
         const auto printerTopics = mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
-            machineType, printerKey);
+            machineType, deviceId, includeExtendedTopics);
         topics.insert(topics.end(), printerTopics.begin(), printerTopics.end());
     }
     m_printerKeyToId = std::move(keyToId);
@@ -951,6 +1079,22 @@ void MqttBridge::refreshDynamicSubscriptions() {
         }
     }
     const std::size_t added = sessionManager().mergeSubscriptions(topics);
+    const std::set<std::string> uniqueTopics(topics.begin(), topics.end());
+    logging::info("mqtt",
+                  "mqtt_flow",
+                  "subscription_refresh_summary",
+                  "MQTT dynamic subscription refresh completed",
+                  {
+                      {"printer_count", std::to_string(dashboard.printers.size())},
+                      {"printer_targets", std::to_string(seenPrinterTargets.size())},
+                      {"skipped_invalid_target", std::to_string(skippedInvalidTarget)},
+                      {"skipped_duplicate_target", std::to_string(skippedDuplicateTarget)},
+                      {"topics_total", std::to_string(topics.size())},
+                      {"topics_unique", std::to_string(uniqueTopics.size())},
+                      {"topics_newly_tracked", std::to_string(newlyTracked.size())},
+                      {"topics_newly_applied", std::to_string(added)},
+                      {"extended_topics", includeExtendedTopics ? "1" : "0"},
+                  });
     if (!newlyTracked.empty()) {
         for (const auto& topic : newlyTracked) {
             appendRawLine(QStringLiteral("[SUBSCRIBE] topic=%1").arg(QString::fromStdString(topic)));
