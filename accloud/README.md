@@ -2,15 +2,15 @@
 
 C++20 Qt/Kirigami skeleton for Anycubic Cloud Manager V3.
 
-This directory materializes the architecture from `Docs/structure_application_photons.md`:
+This directory materializes the architecture from `Docs/03_photon_viewer_formats.md`:
 - layered modules (`ui`, `domain`, `infra`, `render3d`, `tests`)
 - Photon multi-format drivers (`PWMB`, `PWS`, `PHZ`, `PHOTONS`, `PWSZ`)
 - async jobs, cache, logging, and cloud workflows
 
 Logging reference:
-- `../Docs/logging_reference.md`
-- `../Docs/README.md` (documentation map)
-- `../Docs/etat_reel_vs_cible.md` (implemented vs target matrix)
+- `../Docs/01_core_web_cloud_sync.md`
+- `../Docs/00_documentation_consolidee_index.md` (documentation map)
+- `../Docs/01_core_web_cloud_sync.md` (implemented vs target matrix)
 
 ## Build
 
@@ -35,8 +35,12 @@ Core regression guard run (MQTT + LOG + HAR + CLOUD CORE + SECURITY):
 MQTT topics baseline guard:
 - The fixture-based regression test currently asserts 6 topics
   (2 user topics + 2 printer topics x 2 printers).
-- This is the baseline as of 2026-03-14.
+- This is the baseline as of 2026-03-15.
 - If Anycubic evolves topic contracts, update the test in the same commit as MQTT adaptation.
+
+MQTT topic modes:
+- Default (stable): user report topics + printer wildcard topics only.
+- Extended (optional): set `ACCLOUD_MQTT_EXTENDED_TOPICS=1` to enable extra topic families for diagnostics/interop.
 
 Cloud core regression guards:
 - Response envelope parser contract (`code/msg/data` and invalid payload handling).
@@ -66,7 +70,7 @@ cmake --build --preset prod
 ```
 
 Detailed guide:
-- `../Docs/debug_build_modes.md`
+- `../Docs/01_core_web_cloud_sync.md`
 
 ### MQTT build behavior
 

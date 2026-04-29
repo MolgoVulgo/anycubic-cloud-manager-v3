@@ -1,7 +1,9 @@
 ## 8) View: Dialog "PWMB 3D Viewer" - Draft dialog
 
+Statut documentaire : `PARTIEL`
+
 ### Statut
-- `PARTIEL` / `DRAFT`.
+- `PARTIEL`.
 
 ### Role actuel
 - Fournir une maquette de dialogue viewer 3D (`ViewerDraftDialog.qml`).

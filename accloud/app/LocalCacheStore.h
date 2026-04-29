@@ -34,6 +34,7 @@ class LocalCacheStore {
   bool replacePrinters(const QVariantList& printers) const;
   bool replaceJobs(const QVariantList& jobs) const;
   bool replaceJobsForPrinter(const QString& printerId, const QVariantList& jobs) const;
+  bool upsertJobsForPrinter(const QString& printerId, const QVariantList& jobs) const;
   bool saveQuota(const QVariantMap& quota) const;
 
   void removeFile(const QString& fileId) const;

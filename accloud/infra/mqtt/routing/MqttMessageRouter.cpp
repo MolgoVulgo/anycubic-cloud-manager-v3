@@ -30,6 +30,21 @@ std::vector<std::string> splitTopic(const std::string& topic) {
     return parts;
 }
 
+std::optional<std::string> topicEndpoint(const std::string& topic) {
+    const auto parts = splitTopic(topic);
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+    if (parts.back() == "report" && parts.size() >= 2) {
+        return parts[parts.size() - 2];
+    }
+    // legacy: .../online/status
+    if (parts.size() >= 2 && parts[parts.size() - 2] == "online" && parts.back() == "status") {
+        return std::string("status");
+    }
+    return parts.back();
+}
+
 std::optional<int> jsonToInt(const nlohmann::json& value) {
     if (value.is_number_integer()) {
         return value.get<int>();
@@ -132,7 +147,23 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
 
     MqttEnvelope env;
     env.type = toStringField(root, "type");
+    if (env.type.empty()) {
+        auto inferredType = topicEndpoint(topic);
+        if (inferredType.has_value()) {
+            env.type = *inferredType;
+        }
+    }
     env.action = toStringField(root, "action");
+    if (env.action.empty()) {
+        env.action = toStringField(root, "cmd");
+    }
+    if (env.action.empty()) {
+        if (topic.find("/report") != std::string::npos) {
+            env.action = "report";
+        } else if (topicEndpoint(topic).has_value()) {
+            env.action = "topic";
+        }
+    }
     env.state = normalizeState(root);
     env.msgid = toStringField(root, "msgid");
     if (root.contains("data") && root["data"].is_object()) {
@@ -142,10 +173,10 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     out.envelope = env;
     out.signature = makeSignature(env);
 
-    if (env.type.empty() || env.action.empty()) {
+    if (env.type.empty()) {
         observability::MqttTelemetry::instance().incrementParseErrors();
         out.disposition = RouteDisposition::InvalidEnvelope;
-        out.reason = "missing_type_or_action";
+        out.reason = "missing_type";
         return out;
     }
 
@@ -197,9 +228,12 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
 }
 
 bool MqttMessageRouter::isKnownType(const std::string& type) {
-    static const std::array<const char*, 11> kTypes = {
+    static const std::array<const char*, 23> kTypes = {
         "lastWill", "user", "status", "ota", "tempature", "fan",
         "print", "multiColorBox", "extfilbox", "file", "peripherie",
+        "airpure", "autoOperation", "axis", "exposure", "network",
+        "releaseFilm", "residual", "resin", "response", "smartResinVat",
+        "wifi", "video",
     };
     return std::any_of(kTypes.begin(), kTypes.end(), [&](const char* v) {
         return type == v;
@@ -207,7 +241,7 @@ bool MqttMessageRouter::isKnownType(const std::string& type) {
 }
 
 bool MqttMessageRouter::isStateRequiredForType(const std::string& type) {
-    return isKnownType(type);
+    return type == "lastWill" || type == "status" || type == "print";
 }
 
 std::string MqttMessageRouter::normalizeState(const nlohmann::json& root) {
@@ -261,6 +295,10 @@ std::optional<accloud::realtime::MessageType> MqttMessageRouter::mapMessageType(
     if (type == "extfilbox") return accloud::realtime::MessageType::ExternalFilamentBox;
     if (type == "file") return accloud::realtime::MessageType::File;
     if (type == "peripherie") return accloud::realtime::MessageType::Peripheral;
+    // Promoted in v1 for broad realtime coverage without introducing new domain enums.
+    if (type == "wifi" || type == "resin" || type == "video") {
+        return accloud::realtime::MessageType::Peripheral;
+    }
     return std::nullopt;
 }
 
@@ -341,39 +379,55 @@ bool MqttMessageRouter::topicIsUserReport(const std::string& topic) {
 
 std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::string& topic) {
     const auto parts = splitTopic(topic);
-    if (parts.size() < 7) {
+    if (parts.size() < 6) {
         return std::nullopt;
     }
-    if (parts[0] != "anycubic" || parts[1] != "anycubicCloud" || parts[2] != "v1") {
+    if (parts[0] != "anycubic" || parts[1] != "anycubicCloud") {
         return std::nullopt;
     }
 
-    // anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/...
-    if (parts.size() >= 7 && parts[3] == "printer" && parts[4] == "app") {
-        if (!parts[6].empty()) {
+    // v1 families.
+    if (parts.size() >= 7 && parts[2] == "v1") {
+        // anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/...
+        if (parts[3] == "printer" && parts[4] == "app" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/...
+        if (parts[3] == "printer" && parts[4] == "public" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/...
+        if (parts[4] == "public" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/slicer/printer/<machine_type>/<printer_key>/...
+        if (parts[3] == "slicer" && parts[4] == "printer" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/server/printer/<machine_type>/<device_id>/...
+        if (parts[3] == "server" && parts[4] == "printer" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/+/printer/<machine_type>/<device_id>/...
+        if (parts[4] == "printer" && !parts[6].empty()) {
             return parts[6];
         }
     }
 
-    // anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/...
-    if (parts.size() >= 7 && parts[3] == "printer" && parts[4] == "public") {
-        if (!parts[6].empty()) {
-            return parts[6];
-        }
+    // legacy families.
+    // anycubic/anycubicCloud/+/printer/<machine_type>/<device_id>/...
+    if (parts.size() >= 6 && parts[2] == "+" && parts[3] == "printer" && !parts[5].empty()) {
+        return parts[5];
     }
 
-    // anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/...
-    if (parts.size() >= 7 && parts[4] == "public") {
-        if (!parts[6].empty()) {
-            return parts[6];
-        }
-    }
-
-    // anycubic/anycubicCloud/v1/slicer/printer/<machine_type>/<printer_key>/...
-    if (parts.size() >= 7 && parts[3] == "slicer" && parts[4] == "printer") {
-        if (!parts[6].empty()) {
-            return parts[6];
-        }
+    // anycubic/anycubicCloud/printer/public/<machine_type>/<device_id>/...
+    if (parts.size() >= 6 && parts[2] == "printer" && parts[3] == "public" && !parts[5].empty()) {
+        return parts[5];
     }
 
     return std::nullopt;

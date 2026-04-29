@@ -169,3 +169,59 @@ Note:
   - `~/apk/Anycubic_1.1.27_apkcombo.com/smali/ac/cloud/common/base/BaseMqttHandleActivity$sendMqttOrder$1$1.smali:141`
   - `~/apk/Anycubic_1.1.27_apkcombo.com/smali_classes6/com/cloud/mqttservice/apiservice/CommandApiService.smali:55`
   - `~/apk/Anycubic_1.1.27_apkcombo.com/smali_classes6/com/cloud/mqttservice/apiservice/SendOrderRepository$sendCommand$2.smali:232`
+
+## 6) Topics firmware complets (M7, PRO, MAX, M4 ULTRA)
+
+Date d'integration doc: 2026-03-15
+
+Convention de placeholders (normative pour cette section):
+- `%s` = `deviceId` numerique
+- `%d` = type/modele imprimante
+
+### 6.1 Topics de reception / commande
+
+1. `anycubic/anycubicCloud/v1/+/printer/%d/%s/airpure`
+2. `anycubic/anycubicCloud/v1/+/printer/%d/%s/autoOperation`
+3. `anycubic/anycubicCloud/v1/+/printer/%d/%s/axis`
+4. `anycubic/anycubicCloud/v1/+/printer/%d/%s/exposure`
+5. `anycubic/anycubicCloud/v1/+/printer/%d/%s/file`
+6. `anycubic/anycubicCloud/v1/+/printer/%d/%s/network`
+7. `anycubic/anycubicCloud/v1/+/printer/%d/%s/ota`
+8. `anycubic/anycubicCloud/v1/+/printer/%d/%s/print`
+9. `anycubic/anycubicCloud/v1/+/printer/%d/%s/releaseFilm`
+10. `anycubic/anycubicCloud/v1/+/printer/%d/%s/residual`
+11. `anycubic/anycubicCloud/v1/+/printer/%d/%s/resin`
+12. `anycubic/anycubicCloud/v1/+/printer/%d/%s/response`
+13. `anycubic/anycubicCloud/v1/+/printer/%d/%s/smartResinVat`
+14. `anycubic/anycubicCloud/v1/+/printer/%d/%s/wifi`
+
+### 6.2 Topics serveur specifiques
+
+1. `anycubic/anycubicCloud/v1/server/printer/%d/%s/status`
+2. `anycubic/anycubicCloud/v1/server/printer/%d/%s/user`
+3. `anycubic/anycubicCloud/v1/server/printer/%d/%s/video`
+
+### 6.3 Topics de publication / report
+
+1. `anycubic/anycubicCloud/v1/printer/public/%d/%s/airpure/report`
+2. `anycubic/anycubicCloud/v1/printer/public/%d/%s/autoOperation/report`
+3. `anycubic/anycubicCloud/v1/printer/public/%d/%s/axis/report`
+4. `anycubic/anycubicCloud/v1/printer/public/%d/%s/exposure/report`
+5. `anycubic/anycubicCloud/v1/printer/public/%d/%s/file/report`
+6. `anycubic/anycubicCloud/v1/printer/public/%d/%s/lastWill/report`
+7. `anycubic/anycubicCloud/v1/printer/public/%d/%s/network/report`
+8. `anycubic/anycubicCloud/v1/printer/public/%d/%s/ota/report`
+9. `anycubic/anycubicCloud/v1/printer/public/%d/%s/print/report`
+10. `anycubic/anycubicCloud/v1/printer/public/%d/%s/releaseFilm/report`
+11. `anycubic/anycubicCloud/v1/printer/public/%d/%s/residual/report`
+12. `anycubic/anycubicCloud/v1/printer/public/%d/%s/resin/report`
+13. `anycubic/anycubicCloud/v1/printer/public/%d/%s/smartResinVat/report`
+14. `anycubic/anycubicCloud/v1/printer/public/%d/%s/status/report`
+15. `anycubic/anycubicCloud/v1/printer/public/%d/%s/user/report`
+16. `anycubic/anycubicCloud/v1/printer/public/%d/%s/video/report`
+17. `anycubic/anycubicCloud/v1/printer/public/%d/%s/wifi/report`
+
+### 6.4 Topics legacy encore presents
+
+1. `anycubic/anycubicCloud/+/printer/%d/%s/print`
+2. `anycubic/anycubicCloud/printer/public/%d/%s/online/status`

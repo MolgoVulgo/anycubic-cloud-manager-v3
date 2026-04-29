@@ -215,8 +215,9 @@ Pour chaque imprimante cible :
 
 ```text
 anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/#
-anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/#
 ```
+
+Le topic `anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/#` est volontairement désactivé dans `accloud` (doublon observé sur les devices concernés).
 
 ### 6.3 Source des données machine
 
