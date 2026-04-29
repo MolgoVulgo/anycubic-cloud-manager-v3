@@ -163,6 +163,8 @@ Fonctions visibles :
 - détails ;
 - jobs/projets ;
 - déclenchement d’ordre à distance.
+- chargement différé dans la fenêtre principale, puis cache local + refresh cloud ;
+- auto-refresh actif, avec intervalle réduit quand une imprimante est en impression.
 
 Règles d'affichage métriques (panneau détails imprimante) :
 - formater de manière homogène les métriques disponibles (`%`, couches, durées) ;
@@ -172,6 +174,20 @@ Règles d'affichage métriques (panneau détails imprimante) :
   - `basic` (ready/offline) : nom/modèle, firmware, status, print count, total print time, material used, printer type, release film ;
   - `printing` : nom/modèle, status, fichier courant, progression, couches, elapsed, remaining.
 - historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
+- l'historique "Recent Jobs" est charge depuis le cache local puis enrichi
+  incrementiellement avec les dernieres taches cloud ; une reponse cloud
+  partielle ne doit pas effacer les anciennes taches deja connues.
+- le refresh cloud de "Recent Jobs" est volontairement limite au demarrage,
+  a l'envoi reussi d'un ordre d'impression, et a la detection de fin
+  d'impression ; le refresh periodique du listing imprimantes ne doit pas
+  reconstruire l'historique des taches.
+
+Le lancement depuis fichier local stocké sur l'imprimante reste désactivé tant
+que l'`order_id` réel de démarrage n'est pas confirmé. L'entrée UI ne doit pas
+présenter le placeholder `999` comme un flux production.
+
+La validation locale de compatibilité fichier/imprimante doit passer par le
+bridge C++ quand il est disponible, avec fallback QML limité aux tests/mocks.
 
 ### 6.3 Logs
 Vue debug liée à la nature outillage du projet.

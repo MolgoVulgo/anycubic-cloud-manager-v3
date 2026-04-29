@@ -10,6 +10,7 @@ Item {
     Layout.fillWidth: true
     Layout.fillHeight: true
     property bool embeddedInTabsContainer: false
+    property bool deferStartupInitialization: false
     signal statusBroadcast(string message, string severity, string operationId)
 
     property bool loading: false
@@ -31,6 +32,7 @@ Item {
     property int localFilesListOrderId: 103
     property int localUdiskListOrderId: 101
     property int localFileStartPrintOrderId: 999
+    readonly property bool localFilePrintEnabled: localFileStartPrintOrderId !== 999
     property bool optionDeleteAfterPrint: false
     property bool optionLiftCompensation: false
     property bool optionAutoResinCheck: true
@@ -40,12 +42,16 @@ Item {
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
     property var liveProjectData: ({})
+    property var selectedPrinterLiveSnapshot: null
     property bool loadingPrinterDetails: false
     property bool loadingPrinterHistory: false
     property bool reasonCatalogLoaded: false
     property bool reasonCatalogLoading: false
     property var reasonCatalogByCode: ({})
     property bool startupInitialized: false
+    property bool startupJobsRefreshed: false
+    property var printerHadActiveJobById: ({})
+    property string lastJobsRefreshReason: ""
     property string mqttDetailsTitle: ""
     property string mqttDetailsText: ""
     property int autoRefreshIntervalMs: 30000
@@ -76,7 +82,10 @@ Item {
 
     onStatusMsgChanged: root.emitStatusToShell()
     onStatusSevChanged: root.emitStatusToShell()
-    onSelectedPrinterIdChanged: root.updatePrintersAutoRefreshInterval()
+    onSelectedPrinterIdChanged: {
+        root.updatePrintersAutoRefreshInterval()
+        root.refreshSelectedPrinterLiveSnapshot()
+    }
 
     ListModel {
         id: printersModel
@@ -96,6 +105,7 @@ Item {
 
     ListModel {
         id: printerHistoryModel
+        objectName: "printerHistoryModel"
     }
 
     component DebugTag: Rectangle {
@@ -142,6 +152,10 @@ Item {
 
     function hasPrinterOrderEndpoint() {
         return hasCloudBridge() && typeof cloudBridge.sendPrinterOrder === "function"
+    }
+
+    function hasLocalCompatibilityEvaluator() {
+        return hasCloudBridge() && typeof cloudBridge.evaluateLocalPrinterFileCompatibility === "function"
     }
 
     function hasConnectedMqttBridge() {
@@ -283,6 +297,17 @@ Item {
         var ext = fileType(fileEntry.fileName)
         if (!isKnownCloudSliceExtension(ext))
             return { "ok": false, "score": 0, "reason": qsTr("Unsupported file format.") }
+
+        if (hasLocalCompatibilityEvaluator()) {
+            var bridgeResult = cloudBridge.evaluateLocalPrinterFileCompatibility(printer, fileEntry)
+            if (bridgeResult && bridgeResult.ok !== undefined) {
+                return {
+                    "ok": bridgeResult.ok === true,
+                    "score": Number(bridgeResult.score || 0),
+                    "reason": String(bridgeResult.reason || "")
+                }
+            }
+        }
 
         var printerMachineType = normalizedCompatText(printer.machineType)
         var fileMachineType = normalizedCompatText(fileEntry.machineType)
@@ -760,6 +785,7 @@ Item {
     function setLiveProjectFromList(projectsList) {
         var active = firstActiveProject(projectsList)
         liveProjectData = active ? active : ({})
+        refreshSelectedPrinterLiveSnapshot()
     }
 
     function hasLiveProjectData() {
@@ -773,6 +799,62 @@ Item {
         var list = projectsList !== undefined && projectsList !== null ? projectsList : []
         for (var i = 0; i < list.length; ++i)
             printerHistoryModel.append(list[i])
+    }
+
+    function mergeRecentJobsCard(projectsList) {
+        var byTaskId = {}
+        var merged = []
+        var order = 0
+
+        function copyJob(source) {
+            var out = {}
+            for (var key in source)
+                out[key] = source[key]
+            return out
+        }
+
+        function pushOrUpdate(job) {
+            var item = copyJob(job)
+            var taskId = String(item.taskId || "").trim()
+            if (taskId.length > 0 && byTaskId[taskId] !== undefined) {
+                var existing = byTaskId[taskId]
+                var previousOrder = existing.__mergeOrder
+                for (var key in item)
+                    existing[key] = item[key]
+                existing.__mergeOrder = previousOrder
+                return
+            }
+
+            item.__mergeOrder = order++
+            merged.push(item)
+            if (taskId.length > 0)
+                byTaskId[taskId] = item
+        }
+
+        for (var i = 0; i < printerHistoryModel.count; ++i)
+            pushOrUpdate(printerHistoryModel.get(i))
+
+        var list = projectsList !== undefined && projectsList !== null ? projectsList : []
+        for (var j = 0; j < list.length; ++j)
+            pushOrUpdate(list[j])
+
+        merged.sort(function(a, b) {
+            var at = Number(a.createTime)
+            var bt = Number(b.createTime)
+            var aValid = isFinite(at) && at > 0
+            var bValid = isFinite(bt) && bt > 0
+            if (aValid && bValid && at !== bt)
+                return bt - at
+            if (aValid !== bValid)
+                return aValid ? -1 : 1
+            return Number(a.__mergeOrder) - Number(b.__mergeOrder)
+        })
+
+        printerHistoryModel.clear()
+        for (var k = 0; k < merged.length; ++k) {
+            delete merged[k].__mergeOrder
+            printerHistoryModel.append(merged[k])
+        }
     }
 
     function selectedPrinterLiveData() {
@@ -896,9 +978,21 @@ Item {
     }
 
     function choosePrinter(printerId) {
-        selectedPrinterId = String(printerId || "")
+        var nextPrinterId = String(printerId || "")
+        if (nextPrinterId === selectedPrinterId)
+            return
+        selectedPrinterId = nextPrinterId
         updatePrintersAutoRefreshInterval()
-        loadSelectedPrinterInsights()
+        loadSelectedPrinterInsights("selection", false, true, false)
+    }
+
+    function printerHasActiveJob(printer) {
+        if (!printer)
+            return false
+        if (hasPrinterJob(printer))
+            return true
+        var state = String(printer.state || "").toUpperCase()
+        return state === "PRINTING"
     }
 
     function hasAnyPrintingPrinter() {
@@ -916,6 +1010,37 @@ Item {
         targetInterval = Math.max(20, Number(targetInterval))
         if (printersAutoRefreshTimer.interval !== targetInterval)
             printersAutoRefreshTimer.interval = targetInterval
+        printersAutoRefreshTimer.running = startupInitialized && printersModel.count > 0
+    }
+
+    function refreshSelectedPrinterLiveSnapshot() {
+        selectedPrinterLiveSnapshot = selectedPrinterLiveData()
+    }
+
+    function syncSelectedPrinterDetailsFromModel() {
+        var selected = selectedPrinterData()
+        if (!selected)
+            return
+        if (selected.details !== undefined)
+            selectedPrinterDetails = selected.details
+        if (selected.detailsRawJson !== undefined)
+            selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
+        if (selected.projectsRawJson !== undefined)
+            selectedPrinterProjectsRawJson = String(selected.projectsRawJson || "")
+    }
+
+    function refreshPrintersFromTimer() {
+        if (!startupInitialized)
+            return
+        if (!hasCloudBridge()) {
+            loadPrinters()
+            return
+        }
+        if (typeof cloudBridge.refreshPrintersAsync === "function") {
+            cloudBridge.refreshPrintersAsync(false)
+            return
+        }
+        loadPrinters()
     }
 
     function ensureReasonCatalogLoaded() {
@@ -994,7 +1119,8 @@ Item {
         return String(entry.helpUrl || "").trim()
     }
 
-    function loadSelectedPrinterInsights() {
+    function loadSelectedPrinterInsights(reason, force, resetHistory, refreshCloud) {
+        lastJobsRefreshReason = String(reason || "")
         selectedPrinterDetails = ({})
         selectedPrinterDetailsRawJson = ""
         selectedPrinterProjectsRawJson = ""
@@ -1003,7 +1129,8 @@ Item {
         if (selectedPrinterId.length === 0)
             return
 
-        printerHistoryModel.clear()
+        if (resetHistory === true)
+            printerHistoryModel.clear()
 
         var selected = selectedPrinterData()
         if (selected) {
@@ -1031,10 +1158,17 @@ Item {
             replaceRecentJobsCard(inlineProjects)
         }
 
+        if (refreshCloud !== true) {
+            loadingPrinterDetails = false
+            loadingPrinterHistory = false
+            updatePrintersAutoRefreshInterval()
+            return
+        }
+
         if (typeof cloudBridge.refreshPrinterInsightsAsync === "function") {
             loadingPrinterDetails = true
             loadingPrinterHistory = true
-            cloudBridge.refreshPrinterInsightsAsync(selectedPrinterId, 1, 20, false)
+            cloudBridge.refreshPrinterInsightsAsync(selectedPrinterId, 1, 20, force === true)
         } else {
             if (typeof cloudBridge.fetchPrinterDetails === "function") {
                 loadingPrinterDetails = true
@@ -1070,6 +1204,12 @@ Item {
         }
 
         updatePrintersAutoRefreshInterval()
+    }
+
+    function refreshSelectedPrinterJobs(reason, force, resetHistory) {
+        if (selectedPrinterId.length === 0)
+            return
+        loadSelectedPrinterInsights(reason, force === true, resetHistory === true, true)
     }
 
     function loadMockPrinters() {
@@ -1150,7 +1290,11 @@ Item {
         printersEndpointRawJson = String(r.rawJson || "")
 
         var printers = r.printers !== undefined ? r.printers : []
-        replacePrintersModel(printers)
+        replacePrintersModel(printers, false)
+        if (!startupJobsRefreshed) {
+            startupJobsRefreshed = true
+            refreshSelectedPrinterJobs("startup", true, true)
+        }
         updatePrintersAutoRefreshInterval()
         if (printersModel.count > 0) {
             if (useCacheFlow) {
@@ -1179,6 +1323,7 @@ Item {
         startupInitialized = true
         ensureReasonCatalogLoaded()
         loadPrinters()
+        updatePrintersAutoRefreshInterval()
     }
 
     function replacePrintersModel(printers, refreshInsights) {
@@ -1201,11 +1346,34 @@ Item {
             selectedPrinterId = ""
         }
 
-        var shouldRefreshInsights = (refreshInsights === undefined) ? true : (refreshInsights === true)
+        detectPrintCompletionTransitions()
+        var shouldRefreshInsights = refreshInsights === true
         if (shouldRefreshInsights)
-            loadSelectedPrinterInsights()
+            refreshSelectedPrinterJobs("explicit", true, true)
+        else
+            syncSelectedPrinterDetailsFromModel()
         rebuildRemoteCompatiblePrintersModel()
+        refreshSelectedPrinterLiveSnapshot()
         updatePrintersAutoRefreshInterval()
+    }
+
+    function detectPrintCompletionTransitions() {
+        var nextState = {}
+        var finishedSelectedPrinter = false
+        for (var i = 0; i < printersModel.count; ++i) {
+            var printer = printersModel.get(i)
+            var printerId = String(printer.id || "")
+            if (printerId.length === 0)
+                continue
+            var active = printerHasActiveJob(printer)
+            var hadActive = printerHadActiveJobById[printerId] === true
+            nextState[printerId] = active
+            if (hadActive && !active && printerId === selectedPrinterId)
+                finishedSelectedPrinter = true
+        }
+        printerHadActiveJobById = nextState
+        if (finishedSelectedPrinter)
+            refreshSelectedPrinterJobs("print_finished", true, false)
     }
 
     function refreshPrintersFromCacheOnly() {
@@ -1667,6 +1835,11 @@ Item {
 
     function openLocalFileDialogForRemotePrint(printerId) {
         var targetPrinterId = String(printerId || selectedPrinterId).trim()
+        if (!localFilePrintEnabled) {
+            statusMsg = qsTr("Printer local file printing is disabled until the start order id is confirmed.")
+            statusSev = "warn"
+            return
+        }
         if (targetPrinterId.length === 0 && printersModel.count <= 0)
             loadPrinters()
         if (targetPrinterId.length === 0)
@@ -1799,6 +1972,11 @@ Item {
 
     function startPrintFromPrinterLocalFile() {
         var targetPrinterId = String(localFilesTargetPrinterId || selectedPrinterId).trim()
+        if (!localFilePrintEnabled) {
+            statusMsg = qsTr("Printer local file printing is disabled until the start order id is confirmed.")
+            statusSev = "warn"
+            return
+        }
         if (targetPrinterId.length === 0) {
             statusMsg = qsTr("Select a printer first.")
             statusSev = "warn"
@@ -1858,6 +2036,8 @@ Item {
             statusSev = "success"
         }
         selectLocalPrinterFileDialog.close()
+        if (targetPrinterId === selectedPrinterId)
+            refreshSelectedPrinterJobs("print_started", true, false)
         loadPrinters()
     }
 
@@ -1921,6 +2101,9 @@ Item {
                     : qsTr("Print order sent.")
             statusSev = "success"
             remotePrintConfigDialog.close()
+            if (remotePrinterId !== selectedPrinterId)
+                selectedPrinterId = remotePrinterId
+            refreshSelectedPrinterJobs("print_started", true, false)
             loadPrinters()
         } else {
             statusMsg = qsTr("Print order failed: %1")
@@ -1930,7 +2113,8 @@ Item {
     }
 
     Component.onCompleted: {
-        // Printers tab is secondary: defer heavy startup work until the tab is opened.
+        if (!deferStartupInitialization)
+            ensureStartupInitialized()
     }
 
     Timer {
@@ -1940,7 +2124,7 @@ Item {
         repeat: true
         running: false
         triggeredOnStart: false
-        onTriggered: {}
+        onTriggered: root.refreshPrintersFromTimer()
     }
 
     Timer {
@@ -1957,7 +2141,7 @@ Item {
 
         function onPrintersUpdatedFromCloud(printers, message) {
             var list = printers !== undefined ? printers : []
-            replacePrintersModel(list)
+            replacePrintersModel(list, false)
             statusMsg = qsTr("%1 printer(s) refreshed from cloud.").arg(String(list.length))
             statusSev = "success"
         }
@@ -1984,7 +2168,7 @@ Item {
 
             var list = projects !== undefined ? projects : []
             setLiveProjectFromList(list)
-            replaceRecentJobsCard(list)
+            mergeRecentJobsCard(list)
 
             if (detailsRawJson !== undefined)
                 root.selectedPrinterDetailsRawJson = String(detailsRawJson || root.selectedPrinterDetailsRawJson)
@@ -2118,10 +2302,11 @@ Item {
         embeddedInTabsContainer: root.embeddedInTabsContainer
         loading: root.loading
         showDebugLabels: root.showDebugLabels
+        localFilePrintEnabled: root.localFilePrintEnabled
         printersModel: printersModel
         selectedPrinterId: root.selectedPrinterId
         tabTitleProvider: root.printerTabTitle
-        selectedPrinter: root.selectedPrinterLiveData()
+        selectedPrinter: root.selectedPrinterLiveSnapshot
         selectedPrinterDetails: root.selectedPrinterDetails
         selectedLiveJobData: root.liveProjectData
         selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson

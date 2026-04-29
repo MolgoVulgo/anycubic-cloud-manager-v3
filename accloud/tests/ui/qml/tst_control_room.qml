@@ -404,19 +404,11 @@ TestCase {
     function test_mqtt_page_shows_only_runtime_connection_fields() {
         var page = createQmlObject("../../../ui/qml/pages/MqttPage.qml", {"width": 1280, "height": 800})
 
-        var hostField = findObjectByName(page, "mqttHostField")
-        var portField = findObjectByName(page, "mqttPortField")
-        var tlsCheck = findObjectByName(page, "mqttTlsCheck")
-        var topicsField = findObjectByName(page, "mqttTopicsField")
-
-        verify(hostField !== null)
-        verify(portField !== null)
-        verify(tlsCheck !== null)
-        verify(topicsField !== null)
-        compare(String(hostField.text), "mqtt-universe.anycubic.com")
-        verify(Number(portField.value) > 0)
-
-        // Manual credential inputs were removed from the UI.
+        // Runtime connection details are now managed by MqttBridge; manual inputs stay hidden.
+        verify(findObjectByName(page, "mqttHostField") === null)
+        verify(findObjectByName(page, "mqttPortField") === null)
+        verify(findObjectByName(page, "mqttTlsCheck") === null)
+        verify(findObjectByName(page, "mqttTopicsField") === null)
         verify(findObjectByName(page, "mqttClientIdField") === null)
         verify(findObjectByName(page, "mqttUsernameField") === null)
         verify(findObjectByName(page, "mqttPasswordField") === null)
@@ -687,6 +679,48 @@ TestCase {
         cloudBridge = undefined
     }
 
+    function test_printer_local_file_print_is_disabled_while_order_id_is_placeholder() {
+        cloudBridge = {
+            fetchPrinters: function() {
+                return {
+                    ok: true,
+                    message: "ok",
+                    printers: [
+                        {
+                            id: "p1",
+                            name: "Printer One",
+                            model: "Mono M7",
+                            type: "LCD",
+                            state: "READY",
+                            reason: "free",
+                            available: 1,
+                            progress: -1,
+                            elapsedSec: -1,
+                            remainingSec: -1,
+                            currentFile: "",
+                            lastSeen: "now"
+                        }
+                    ]
+                }
+            },
+            fetchFiles: function() { return { ok: true, files: [] } },
+            fetchCompatiblePrintersByExt: function() { return { ok: true, printers: [] } },
+            fetchCompatiblePrintersByFileId: function() { return { ok: true, printers: [] } },
+            fetchReasonCatalog: function() { return { ok: true, reasons: [] } },
+            fetchPrinterDetails: function() { return { ok: true, details: {} } },
+            fetchPrinterProjects: function() { return { ok: true, projects: [] } },
+            sendPrintOrder: function() { return { ok: true, taskId: "123" } },
+            sendPrinterOrder: function() { return { ok: true, msgId: "msg-1" } }
+        }
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        compare(page.localFilePrintEnabled, false)
+        page.openLocalFileDialogForRemotePrint("p1")
+        compare(String(page.statusMsg), "Printer local file printing is disabled until the start order id is confirmed.")
+        page.destroy()
+        cloudBridge = undefined
+    }
+
     function test_printer_tabs_title_contains_status() {
         cloudBridge = {
             fetchPrinters: function() {
@@ -773,6 +807,7 @@ TestCase {
                                          '}', this, "cloudFilesBridgeMock")
 
         var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        wait(0)
         compare(cloudBridge.refreshCalls, 1)
         compare(cloudBridge.lastForce, true)
         compare(page.filesModel.count, 1)
@@ -791,37 +826,98 @@ TestCase {
     function test_printers_cache_flow_forces_refresh_and_applies_cloud_signal() {
         cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
                                          'signal printersUpdatedFromCloud(var printers, string message);' +
+                                         'signal printerInsightsUpdatedFromCloud(string printerId, var details, var projects, string detailsRawJson, string projectsRawJson, string message);' +
                                          'signal syncFailed(string scope, string message);' +
                                          'function fetchPrinters() { return { ok: true, printers: [] } }' +
                                          'function fetchFiles() { return { ok: true, files: [] } }' +
-                                         'function sendPrintOrder() { return { ok: true, taskId: "t1" } }' +
-                                         'function fetchCompatiblePrintersByExt() { return { ok: true, printers: [] } }' +
-                                         'function fetchCompatiblePrintersByFileId() { return { ok: true, printers: [] } }' +
+                                         'function sendPrintOrder() { sendPrintCalls += 1; return { ok: true, taskId: "t1" } }' +
+                                         'function fetchCompatiblePrintersByExt() { return { ok: true, printers: [{ id: "cached-p1", available: 1, reason: "" }] } }' +
+                                         'function fetchCompatiblePrintersByFileId() { return { ok: true, printers: [{ id: "cached-p1", available: 1, reason: "" }] } }' +
                                          'function fetchReasonCatalog() { return { ok: true, reasons: [] } }' +
                                          'function fetchPrinterDetails() { return { ok: true, details: {} } }' +
                                          'function fetchPrinterProjects() { return { ok: true, projects: [] } }' +
+                                         'function loadCachedPrinterProjects(printerId) {' +
+                                         '  if (String(printerId) !== "cached-p1") return { ok: true, projects: [] };' +
+                                         '  return { ok: true, projects: [ { taskId: "t-cache-1", gcodeName: "cached.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 20, reason: "", createTime: 1, endTime: 0, img: "" } ] };' +
+                                         '}' +
                                          'function loadCachedPrinters() {' +
                                          '  return { ok: true, endpoint: "/mock/printers", rawJson: "{}", printers: [' +
                                          '    { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-DB-1" }, projects: [ { taskId: "t-cache-1", gcodeName: "cached.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 20, reason: "", createTime: 1, endTime: 0, img: "" } ] }' +
                                          '  ] }' +
                                          '}' +
                                          'function refreshPrintersAsync(force) { refreshCalls += 1; lastForce = force }' +
+                                         'function refreshPrinterInsightsAsync(printerId, page, limit, force) { insightRefreshCalls += 1; lastInsightPrinterId = String(printerId); lastInsightForce = force === true }' +
                                          'property int refreshCalls: 0;' +
+                                         'property int insightRefreshCalls: 0;' +
+                                         'property int sendPrintCalls: 0;' +
+                                         'property string lastInsightPrinterId: "";' +
+                                         'property bool lastInsightForce: false;' +
                                          'property bool lastForce: false;' +
                                          '}', this, "printerBridgeMock")
 
         var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800, "autoRefreshIntervalMs": 20})
         compare(cloudBridge.refreshCalls, 1)
         compare(cloudBridge.lastForce, true)
+        compare(cloudBridge.insightRefreshCalls, 1)
+        compare(cloudBridge.lastInsightPrinterId, "cached-p1")
+        compare(cloudBridge.lastInsightForce, true)
+        compare(String(page.lastJobsRefreshReason), "startup")
         compare(String(page.selectedPrinterId), "cached-p1")
         compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-DB-1")
 
+        var history = findObjectByName(page, "printerHistoryModel")
+        verify(history !== null)
+        tryCompare(history, "count", 1)
+        compare(String(history.get(0).taskId), "t-cache-1")
+
+        cloudBridge.printerInsightsUpdatedFromCloud("cached-p1", {}, [
+            { taskId: "t-cloud-2", gcodeName: "cloud.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 2, progress: 100, reason: "", createTime: 2, endTime: 3, img: "" }
+        ], "", "", "ok")
+        wait(0)
+        compare(history.count, 2)
+        compare(String(history.get(0).taskId), "t-cloud-2")
+        compare(String(history.get(1).taskId), "t-cache-1")
+
+        cloudBridge.printerInsightsUpdatedFromCloud("cached-p1", {}, [
+            { taskId: "t-cache-1", gcodeName: "cached-updated.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 77, reason: "", createTime: 1, endTime: 0, img: "" }
+        ], "", "", "ok")
+        wait(0)
+        compare(history.count, 2)
+        compare(String(history.get(1).taskId), "t-cache-1")
+        compare(String(history.get(1).gcodeName), "cached-updated.pwmb")
+        compare(Number(history.get(1).progress), 77)
+
+        var insightCallsBeforePrinterRefresh = cloudBridge.insightRefreshCalls
         cloudBridge.printersUpdatedFromCloud([
-            { id: "cloud-p1", name: "Cloud Printer", model: "Mono X", type: "LCD", state: "PRINTING", reason: "printing", available: 1, progress: 30, elapsedSec: 300, remainingSec: 600, currentFile: "a.pwmb", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
+            { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "PRINTING", reason: "printing", available: 1, progress: 30, elapsedSec: 300, remainingSec: 600, currentFile: "a.pwmb", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
         ], "ok")
         wait(0)
-        tryCompare(page, "selectedPrinterId", "cloud-p1")
+        tryCompare(page, "selectedPrinterId", "cached-p1")
         compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-CLOUD-2")
+        compare(cloudBridge.insightRefreshCalls, insightCallsBeforePrinterRefresh)
+
+        cloudBridge.printersUpdatedFromCloud([
+            { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
+        ], "ok")
+        wait(0)
+        compare(cloudBridge.insightRefreshCalls, insightCallsBeforePrinterRefresh + 1)
+        compare(String(page.lastJobsRefreshReason), "print_finished")
+        compare(cloudBridge.lastInsightForce, true)
+
+        cloudBridge.printersUpdatedFromCloud([
+            { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
+        ], "ok")
+        wait(0)
+        compare(cloudBridge.insightRefreshCalls, insightCallsBeforePrinterRefresh + 1)
+
+        var insightCallsBeforePrintStart = cloudBridge.insightRefreshCalls
+        page.openRemotePrintFromFile("file-1", "file.pwmb")
+        page.startRemotePrint()
+        wait(0)
+        compare(cloudBridge.sendPrintCalls, 1)
+        compare(cloudBridge.insightRefreshCalls, insightCallsBeforePrintStart + 1)
+        compare(String(page.lastJobsRefreshReason), "print_started")
+        compare(cloudBridge.lastInsightForce, true)
 
         var timer = findObjectByName(page, "printersAutoRefreshTimer")
         verify(timer !== null)

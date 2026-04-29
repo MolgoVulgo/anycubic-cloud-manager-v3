@@ -157,6 +157,113 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
         ok = ok && expect(p.value("state").toString() == "READY", "printer state mismatch");
     }
 
+    QVariantMap oldJob;
+    oldJob.insert("taskId", "task-old");
+    oldJob.insert("printerId", "printer-1");
+    oldJob.insert("printerName", "Printer One");
+    oldJob.insert("gcodeName", "old.pwmb");
+    oldJob.insert("printStatus", 2);
+    oldJob.insert("progress", 100);
+    oldJob.insert("elapsedSec", 3600);
+    oldJob.insert("remainingSec", 0);
+    oldJob.insert("currentLayer", 50);
+    oldJob.insert("totalLayers", 50);
+    oldJob.insert("currentFile", "old.pwmb");
+    oldJob.insert("reason", "done");
+    oldJob.insert("createTime", 10);
+    oldJob.insert("endTime", 20);
+    oldJob.insert("img", "old.png");
+
+    QVariantMap updatedJob;
+    updatedJob.insert("taskId", "task-active");
+    updatedJob.insert("printerId", "printer-1");
+    updatedJob.insert("printerName", "Printer One");
+    updatedJob.insert("gcodeName", "active-v1.pwmb");
+    updatedJob.insert("printStatus", 1);
+    updatedJob.insert("progress", 20);
+    updatedJob.insert("elapsedSec", 120);
+    updatedJob.insert("remainingSec", 480);
+    updatedJob.insert("currentLayer", 2);
+    updatedJob.insert("totalLayers", 10);
+    updatedJob.insert("currentFile", "active-v1.pwmb");
+    updatedJob.insert("reason", "printing");
+    updatedJob.insert("createTime", 30);
+    updatedJob.insert("endTime", 0);
+    updatedJob.insert("img", "active-v1.png");
+
+    QVariantList initialJobs;
+    initialJobs.append(oldJob);
+    initialJobs.append(updatedJob);
+    ok = ok && expect(cache.replaceJobsForPrinter("printer-1", initialJobs),
+                      "replaceJobsForPrinter should seed jobs");
+
+    QVariantMap newJob;
+    newJob.insert("taskId", "task-new");
+    newJob.insert("printerName", "Printer One");
+    newJob.insert("gcodeName", "new.pwmb");
+    newJob.insert("printStatus", 1);
+    newJob.insert("progress", 5);
+    newJob.insert("elapsedSec", 30);
+    newJob.insert("remainingSec", 900);
+    newJob.insert("currentLayer", 1);
+    newJob.insert("totalLayers", 80);
+    newJob.insert("currentFile", "new.pwmb");
+    newJob.insert("reason", "printing");
+    newJob.insert("createTime", 40);
+    newJob.insert("endTime", 0);
+    newJob.insert("img", "new.png");
+
+    updatedJob.insert("gcodeName", "active-v2.pwmb");
+    updatedJob.insert("progress", 55);
+    updatedJob.insert("elapsedSec", 300);
+    updatedJob.insert("remainingSec", 240);
+    updatedJob.insert("currentLayer", 6);
+    updatedJob.insert("currentFile", "active-v2.pwmb");
+    updatedJob.insert("img", "active-v2.png");
+
+    QVariantList incrementalJobs;
+    incrementalJobs.append(newJob);
+    incrementalJobs.append(updatedJob);
+    ok = ok && expect(cache.upsertJobsForPrinter("printer-1", incrementalJobs),
+                      "upsertJobsForPrinter should merge jobs");
+
+    const QVariantList loadedJobs = cache.loadJobsForPrinter("printer-1", 1, 20);
+    ok = ok && expect(loadedJobs.size() == 3, "incremental job upsert should preserve older jobs");
+
+    bool sawOld = false;
+    bool sawUpdated = false;
+    bool sawNew = false;
+    for (const QVariant& loadedJobVariant : loadedJobs) {
+        const QVariantMap job = loadedJobVariant.toMap();
+        const QString taskId = job.value("taskId").toString();
+        if (taskId == "task-old") {
+            sawOld = true;
+        } else if (taskId == "task-active") {
+            sawUpdated = true;
+            ok = ok && expect(job.value("gcodeName").toString() == "active-v2.pwmb",
+                              "updated job gcodeName mismatch");
+            ok = ok && expect(job.value("progress").toInt() == 55,
+                              "updated job progress mismatch");
+            ok = ok && expect(job.value("elapsedSec").toInt() == 300,
+                              "updated job elapsedSec mismatch");
+            ok = ok && expect(job.value("remainingSec").toInt() == 240,
+                              "updated job remainingSec mismatch");
+            ok = ok && expect(job.value("currentLayer").toInt() == 6,
+                              "updated job currentLayer mismatch");
+            ok = ok && expect(job.value("totalLayers").toInt() == 10,
+                              "updated job totalLayers mismatch");
+            ok = ok && expect(job.value("currentFile").toString() == "active-v2.pwmb",
+                              "updated job currentFile mismatch");
+        } else if (taskId == "task-new") {
+            sawNew = true;
+            ok = ok && expect(job.value("printerId").toString() == "printer-1",
+                              "new job printerId should come from upsert scope");
+        }
+    }
+    ok = ok && expect(sawOld, "old cached job should be preserved");
+    ok = ok && expect(sawUpdated, "updated job should be present");
+    ok = ok && expect(sawNew, "new job should be present");
+
     restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
     std::error_code ec;
     std::filesystem::remove(dbPath, ec);

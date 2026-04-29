@@ -1087,6 +1087,7 @@ ApplicationWindow {
                             objectName: "printerPage"
                             debugUi: false
                             embeddedInTabsContainer: true
+                            deferStartupInitialization: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }

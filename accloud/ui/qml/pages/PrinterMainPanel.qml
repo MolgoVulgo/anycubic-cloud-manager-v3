@@ -8,6 +8,7 @@ AppPageFrame {
 
     property bool loading: false
     property bool showDebugLabels: false
+    property bool localFilePrintEnabled: true
     property var printersModel: null
     property string selectedPrinterId: ""
     property var tabTitleProvider: null
@@ -108,6 +109,7 @@ AppPageFrame {
                 selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
                 selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
                 loadingPrinterHistory: root.loadingPrinterHistory
+                localFilePrintEnabled: root.localFilePrintEnabled
                 printerHistoryModel: root.printerHistoryModel
                 showDebugLabels: root.showDebugLabels
                 printersEndpointPath: root.printersEndpointPath
@@ -123,13 +125,13 @@ AppPageFrame {
                 onLocalFileRequested: function(printerId) { root.localFileRequested(printerId) }
             }
         }
-    }
 
-    DebugTag {
-        anchors.left: printerTabsContainer.left
-        anchors.top: printerTabsContainer.top
-        anchors.leftMargin: 8
-        anchors.topMargin: 8
-        label: "panel: deviceDetailsPanel"
+        DebugTag {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.leftMargin: 8
+            anchors.topMargin: 8
+            label: "panel: deviceDetailsPanel"
+        }
     }
 }

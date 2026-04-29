@@ -287,6 +287,12 @@ bool runSchema(QSqlDatabase& db) {
                      "  printer_name TEXT NOT NULL DEFAULT '',"
                      "  gcode_name TEXT NOT NULL DEFAULT '',"
                      "  print_status INTEGER NOT NULL DEFAULT 0,"
+                     "  progress INTEGER NOT NULL DEFAULT -1,"
+                     "  elapsed_sec INTEGER NOT NULL DEFAULT -1,"
+                     "  remaining_sec INTEGER NOT NULL DEFAULT -1,"
+                     "  current_layer INTEGER NOT NULL DEFAULT -1,"
+                     "  total_layers INTEGER NOT NULL DEFAULT -1,"
+                     "  current_file TEXT NOT NULL DEFAULT '',"
                      "  reason TEXT NOT NULL DEFAULT '',"
                      "  create_time INTEGER NOT NULL DEFAULT 0,"
                      "  end_time INTEGER NOT NULL DEFAULT 0,"
@@ -324,7 +330,25 @@ bool runSchema(QSqlDatabase& db) {
                           QStringLiteral("printer_key TEXT NOT NULL DEFAULT ''"))
       || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
                              QStringLiteral("machine_type"),
-                             QStringLiteral("machine_type TEXT NOT NULL DEFAULT ''"))) {
+                             QStringLiteral("machine_type TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("progress"),
+                             QStringLiteral("progress INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("elapsed_sec"),
+                             QStringLiteral("elapsed_sec INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("remaining_sec"),
+                             QStringLiteral("remaining_sec INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("current_layer"),
+                             QStringLiteral("current_layer INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("total_layers"),
+                             QStringLiteral("total_layers INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("current_file"),
+                             QStringLiteral("current_file TEXT NOT NULL DEFAULT ''"))) {
     return false;
   }
 
@@ -342,7 +366,7 @@ bool runSchema(QSqlDatabase& db) {
   }
 
   QSqlQuery setVersion(db);
-  setVersion.prepare(QStringLiteral("INSERT INTO meta(key, value) VALUES('schema_version','2') "
+  setVersion.prepare(QStringLiteral("INSERT INTO meta(key, value) VALUES('schema_version','3') "
                                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value"));
   if (!setVersion.exec()) {
     logging::warn("app", "local_cache", "schema_version_write_failed",
@@ -561,7 +585,8 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
 
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "SELECT task_id, gcode_name, printer_id, printer_name, print_status, reason, create_time, end_time, img "
+        "SELECT task_id, gcode_name, printer_id, printer_name, print_status, progress, elapsed_sec, remaining_sec, "
+        "current_layer, total_layers, current_file, reason, create_time, end_time, img "
         "FROM jobs WHERE printer_id = :printerId ORDER BY create_time DESC, updated_at DESC LIMIT :limit OFFSET :offset"));
     q.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
     q.bindValue(QStringLiteral(":limit"), limit);
@@ -574,10 +599,16 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
         item.insert("printerId", q.value(2).toString());
         item.insert("printerName", q.value(3).toString());
         item.insert("printStatus", q.value(4).toInt());
-        item.insert("reason", q.value(5).toString());
-        item.insert("createTime", q.value(6).toLongLong());
-        item.insert("endTime", q.value(7).toLongLong());
-        item.insert("img", q.value(8).toString());
+        item.insert("progress", q.value(5).toInt());
+        item.insert("elapsedSec", q.value(6).toInt());
+        item.insert("remainingSec", q.value(7).toInt());
+        item.insert("currentLayer", q.value(8).toInt());
+        item.insert("totalLayers", q.value(9).toInt());
+        item.insert("currentFile", q.value(10).toString());
+        item.insert("reason", q.value(11).toString());
+        item.insert("createTime", q.value(12).toLongLong());
+        item.insert("endTime", q.value(13).toLongLong());
+        item.insert("img", q.value(14).toString());
         out.append(item);
       }
     }
@@ -794,9 +825,11 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO jobs("
-          "task_id, printer_id, printer_name, gcode_name, print_status, reason, create_time, end_time, img, updated_at"
+          "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+          "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
           ") VALUES("
-          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :reason, :createTime, :endTime, :img, :updatedAt"
+          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+          ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
           ")"));
       for (const QVariant& item : jobs) {
         const QVariantMap map = item.toMap();
@@ -809,6 +842,12 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
         ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
         ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
+        ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
+        ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
+        ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
+        ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
+        ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
+        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
         ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
         ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
         ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
@@ -870,9 +909,11 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO jobs("
-          "task_id, printer_id, printer_name, gcode_name, print_status, reason, create_time, end_time, img, updated_at"
+          "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+          "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
           ") VALUES("
-          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :reason, :createTime, :endTime, :img, :updatedAt"
+          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+          ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
           ")"));
       for (const QVariant& item : jobs) {
         const QVariantMap map = item.toMap();
@@ -884,6 +925,12 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
         ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
         ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
+        ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
+        ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
+        ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
+        ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
+        ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
+        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
         ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
         ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
         ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
@@ -893,6 +940,99 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
           ok = false;
           break;
         }
+      }
+    }
+
+    if (ok) {
+      enforceMaxRows(db, QStringLiteral("jobs"), QStringLiteral("task_id"), 3000);
+      ok = db.commit();
+    } else {
+      db.rollback();
+    }
+
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return ok;
+}
+
+bool LocalCacheStore::upsertJobsForPrinter(const QString& printerId, const QVariantList& jobs) const {
+  if (!ensureReady()) {
+    return false;
+  }
+
+  const QString normalizedPrinterId = printerId.trimmed();
+  if (normalizedPrinterId.isEmpty()) {
+    return false;
+  }
+
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  bool ok = false;
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) {
+      closeAndRemoveDatabase(db, connectionName);
+      return false;
+    }
+
+    const qint64 now = nowEpochSec();
+    if (!db.transaction()) {
+      closeAndRemoveDatabase(db, connectionName);
+      return false;
+    }
+
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT INTO jobs("
+        "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+        "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
+        ") VALUES("
+        ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+        ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
+        ") ON CONFLICT(task_id) DO UPDATE SET "
+        "  printer_id = excluded.printer_id,"
+        "  printer_name = excluded.printer_name,"
+        "  gcode_name = excluded.gcode_name,"
+        "  print_status = excluded.print_status,"
+        "  progress = excluded.progress,"
+        "  elapsed_sec = excluded.elapsed_sec,"
+        "  remaining_sec = excluded.remaining_sec,"
+        "  current_layer = excluded.current_layer,"
+        "  total_layers = excluded.total_layers,"
+        "  current_file = excluded.current_file,"
+        "  reason = excluded.reason,"
+        "  create_time = excluded.create_time,"
+        "  end_time = excluded.end_time,"
+        "  img = excluded.img,"
+        "  updated_at = excluded.updated_at"));
+
+    ok = true;
+    for (const QVariant& item : jobs) {
+      const QVariantMap map = item.toMap();
+      const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
+      if (taskId.isEmpty()) continue;
+
+      ins.bindValue(QStringLiteral(":taskId"), taskId);
+      ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+      ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
+      ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+      ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
+      ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
+      ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
+      ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
+      ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
+      ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
+      ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+      ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+      ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
+      ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
+      ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+      ins.bindValue(QStringLiteral(":updatedAt"), now);
+      if (!ins.exec()) {
+        ok = false;
+        break;
       }
     }
 
