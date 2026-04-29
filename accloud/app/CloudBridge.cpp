@@ -24,6 +24,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -112,6 +113,95 @@ QString normalizeUploadLocalPath(const QString& pathOrUrl) {
     return trimmed;
 }
 
+QString fileExtension(const QString& fileName) {
+    const int dot = fileName.lastIndexOf(QLatin1Char('.'));
+    if (dot < 0 || dot + 1 >= fileName.size()) {
+        return {};
+    }
+    return fileName.mid(dot + 1).toLower();
+}
+
+bool isKnownCloudSliceExtension(const QString& ext) {
+    static const QStringList known = {
+        QStringLiteral("photon"), QStringLiteral("pws"), QStringLiteral("pwsz"),
+        QStringLiteral("photons"), QStringLiteral("pw0"), QStringLiteral("pwx"),
+        QStringLiteral("pwmo"), QStringLiteral("pwma"), QStringLiteral("pwms"),
+        QStringLiteral("pwmx"), QStringLiteral("pmx2"), QStringLiteral("pmsq"),
+        QStringLiteral("dlp"), QStringLiteral("dl2p"), QStringLiteral("pwmb"),
+        QStringLiteral("pm3"), QStringLiteral("pm3m"), QStringLiteral("pm3r"),
+        QStringLiteral("pm3n"), QStringLiteral("px6s"), QStringLiteral("pm5"),
+        QStringLiteral("pm5s"), QStringLiteral("m5sp")
+    };
+    const QString value = ext.trimmed().toLower();
+    return !value.isEmpty() && known.contains(value);
+}
+
+QString normalizedCompatText(const QVariant& value) {
+    QString out;
+    const QString raw = value.toString().trimmed().toLower();
+    out.reserve(raw.size());
+    bool previousSpace = false;
+    for (const QChar ch : raw) {
+        const bool separator = ch == QLatin1Char('_')
+                || ch == QLatin1Char('-')
+                || ch == QLatin1Char('.')
+                || ch == QLatin1Char('/');
+        const bool space = ch.isSpace() || separator;
+        if (space) {
+            if (!previousSpace && !out.isEmpty()) {
+                out.append(QLatin1Char(' '));
+            }
+            previousSpace = true;
+            continue;
+        }
+        out.append(ch);
+        previousSpace = false;
+    }
+    return out.trimmed();
+}
+
+QStringList compatTokens(const QString& value) {
+    static const QStringList stopTokens = {
+        QStringLiteral("anycubic"), QStringLiteral("photon"), QStringLiteral("mono"),
+        QStringLiteral("printer"), QStringLiteral("printers"), QStringLiteral("series"),
+        QStringLiteral("resin"), QStringLiteral("lcd")
+    };
+    QStringList out;
+    const QStringList rawTokens = normalizedCompatText(value).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    for (const QString& rawToken : rawTokens) {
+        const QString token = rawToken.trimmed();
+        if (token.size() <= 1 || stopTokens.contains(token) || out.contains(token)) {
+            continue;
+        }
+        out.push_back(token);
+    }
+    return out;
+}
+
+int compatTokenOverlapCount(const QStringList& a, const QStringList& b) {
+    int count = 0;
+    for (const QString& token : b) {
+        if (a.contains(token)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool compatTextContains(const QString& haystack, const QString& needle) {
+    const QString h = normalizedCompatText(haystack);
+    const QString n = normalizedCompatText(needle);
+    return !h.isEmpty() && !n.isEmpty() && h.contains(n);
+}
+
+QVariantMap localCompatResult(bool ok, int score, const QString& reason) {
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), ok);
+    out.insert(QStringLiteral("score"), score);
+    out.insert(QStringLiteral("reason"), reason);
+    return out;
+}
+
 std::string compactJsonFromVariantMap(const QVariantMap& data) {
     if (data.isEmpty()) {
         return {};
@@ -125,8 +215,7 @@ std::string compactJsonFromVariantMap(const QVariantMap& data) {
 
 QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     const QString name = QString::fromStdString(f.name);
-    const bool isPwmb  = name.endsWith(".pwmb", Qt::CaseInsensitive)
-                      || name.endsWith(".pwmb", Qt::CaseInsensitive);
+    const bool isPwmb  = name.endsWith(".pwmb", Qt::CaseInsensitive);
     bool layersOk = false;
     const int layersValue = QString::fromStdString(f.layers).toInt(&layersOk);
 
@@ -291,6 +380,13 @@ QString fetchThumbnailToCache(const QString& normalizedUrl, const QString& cache
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QEventLoop loop;
     QNetworkReply* reply = nam.get(req);
+    QObject::connect(reply, &QNetworkReply::sslErrors, reply,
+                     [reply](const QList<QSslError>&) {
+                         // Thumbnail preview is non-critical; tolerate SSL chain issues
+                         // and keep the UI image path functional when the endpoint cert
+                         // is not trusted by the local runtime.
+                         reply->ignoreSslErrors();
+                     });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
     const QByteArray bytes = reply->readAll();
@@ -378,6 +474,108 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
                   {{"url", normalized.toStdString()},
                    {"path", QUrl(localUrl).toLocalFile().toStdString()}});
     return localUrl;
+}
+
+QString normalizeFileNameForMatch(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    return QFileInfo(trimmed).fileName().toLower();
+}
+
+QString normalizeFileStemForMatch(const QString& value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    return QFileInfo(trimmed).completeBaseName().toLower();
+}
+
+bool localImageIsVisuallyUsable(const QString& sourceUrl) {
+    const QUrl url(sourceUrl);
+    if (!url.isLocalFile()) {
+        return true;
+    }
+    const QString path = url.toLocalFile();
+    const QFileInfo info(path);
+    if (!info.exists() || !info.isFile() || info.size() <= 0) {
+        return false;
+    }
+    if (info.size() <= 128) {
+        return false;
+    }
+
+    QImageReader reader(path);
+    if (!reader.canRead()) {
+        return false;
+    }
+    QImage image = reader.read();
+    if (image.isNull()) {
+        return false;
+    }
+    if (!image.hasAlphaChannel()) {
+        return true;
+    }
+
+    const QImage argb = image.convertToFormat(QImage::Format_ARGB32);
+    const int w = argb.width();
+    const int h = argb.height();
+    if (w <= 0 || h <= 0) {
+        return false;
+    }
+
+    for (int y = 0; y < h; ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(argb.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            if (qAlpha(row[x]) > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
+                                          const QString& currentFile,
+                                          const QString& gcodeName) {
+    if (cache == nullptr) {
+        return {};
+    }
+
+    const QString targetName = normalizeFileNameForMatch(currentFile);
+    const QString targetStem = normalizeFileStemForMatch(currentFile);
+    const QString altName = normalizeFileNameForMatch(gcodeName);
+    const QString altStem = normalizeFileStemForMatch(gcodeName);
+    if (targetName.isEmpty() && targetStem.isEmpty() && altName.isEmpty() && altStem.isEmpty()) {
+        return {};
+    }
+
+    const QVariantList files = cache->loadFiles(1, 1500);
+    QString stemMatchCandidate;
+    for (const QVariant& fileVar : files) {
+        const QVariantMap fileMap = fileVar.toMap();
+        const QString fileName = fileMap.value(QStringLiteral("fileName")).toString();
+        const QString fileKey = normalizeFileNameForMatch(fileName);
+        const QString fileStem = normalizeFileStemForMatch(fileName);
+        const QString thumb = fileMap.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
+        if (thumb.isEmpty()) {
+            continue;
+        }
+
+        const bool exactNameMatch = (!targetName.isEmpty() && fileKey == targetName)
+                                 || (!altName.isEmpty() && fileKey == altName);
+        if (exactNameMatch) {
+            return resolveThumbnailLocalUrl(thumb, true);
+        }
+
+        const bool stemMatch = (!targetStem.isEmpty() && fileStem == targetStem)
+                            || (!altStem.isEmpty() && fileStem == altStem);
+        if (stemMatch && stemMatchCandidate.isEmpty()) {
+            stemMatchCandidate = resolveThumbnailLocalUrl(thumb, true);
+        }
+    }
+    return stemMatchCandidate;
 }
 
 void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
@@ -530,29 +728,11 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("reason", QString::fromStdString(item.reason));
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
-    m.insert("img", QString::fromStdString(item.img));
+    const QString rawImg = QString::fromStdString(item.img);
+    const QString resolvedImg = resolveThumbnailLocalUrl(rawImg, true);
+    m.insert("img", resolvedImg.isEmpty() ? rawImg : resolvedImg);
+    m.insert("imgRaw", rawImg);
     return m;
-}
-
-QVariantList collectJobsFromPrinters(const QVariantList& printers) {
-    QVariantList jobs;
-    for (const QVariant& printerVariant : printers) {
-        const QVariantMap printer = printerVariant.toMap();
-        const QString printerId = printer.value(QStringLiteral("id")).toString();
-        const QString printerName = printer.value(QStringLiteral("name")).toString();
-        const QVariantList projects = printer.value(QStringLiteral("projects")).toList();
-        for (const QVariant& projectVariant : projects) {
-            QVariantMap job = projectVariant.toMap();
-            if (job.value(QStringLiteral("printerId")).toString().trimmed().isEmpty()) {
-                job.insert(QStringLiteral("printerId"), printerId);
-            }
-            if (job.value(QStringLiteral("printerName")).toString().trimmed().isEmpty()) {
-                job.insert(QStringLiteral("printerName"), printerName);
-            }
-            jobs.append(job);
-        }
-    }
-    return jobs;
 }
 
 void finalizeUiMessage(QVariantMap& out) {
@@ -563,31 +743,41 @@ void finalizeUiMessage(QVariantMap& out) {
     const QString lowered = message.toLower();
     const bool ok = out.value("ok").toBool();
 
-    QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
-    if (lowered.contains("session")) {
-        key = QStringLiteral("error.session.invalid");
-    } else if (lowered.contains("network") || lowered.contains("réseau")
-               || lowered.contains("reseau")) {
-        key = QStringLiteral("error.network");
-    } else if (lowered.contains("cache")) {
-        key = ok ? QStringLiteral("info.cache") : QStringLiteral("error.cache");
-    } else if (lowered.contains("compat")) {
-        key = QStringLiteral("error.compatibility");
-    } else if (lowered.contains("download") || lowered.contains("url")) {
-        key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
-    } else if (lowered.contains("upload")) {
-        key = ok ? QStringLiteral("info.upload") : QStringLiteral("error.upload");
-    } else if (lowered.contains("print")) {
-        key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
-    } else if (lowered.contains("quota")) {
-        key = ok ? QStringLiteral("info.quota") : QStringLiteral("error.quota");
-    } else if (lowered.contains("printer")) {
-        key = ok ? QStringLiteral("info.printer") : QStringLiteral("error.printer");
-    } else if (lowered.contains("file")) {
-        key = ok ? QStringLiteral("info.file") : QStringLiteral("error.file");
+    if (!out.contains("messageKey")) {
+        QString key = ok ? QStringLiteral("info.ok") : QStringLiteral("error.generic");
+        if (lowered.contains("session")) {
+            key = QStringLiteral("error.session.invalid");
+        } else if (lowered.contains("network") || lowered.contains("réseau")
+                   || lowered.contains("reseau")) {
+            key = QStringLiteral("error.network");
+        } else if (lowered.contains("cache")) {
+            key = ok ? QStringLiteral("info.cache") : QStringLiteral("error.cache");
+        } else if (lowered.contains("compat")) {
+            key = QStringLiteral("error.compatibility");
+        } else if (lowered.contains("download") || lowered.contains("url")) {
+            key = ok ? QStringLiteral("info.download") : QStringLiteral("error.download");
+        } else if (lowered.contains("upload")) {
+            key = ok ? QStringLiteral("info.upload") : QStringLiteral("error.upload");
+        } else if (lowered.contains("print")) {
+            key = ok ? QStringLiteral("info.print") : QStringLiteral("error.print");
+        } else if (lowered.contains("quota")) {
+            key = ok ? QStringLiteral("info.quota") : QStringLiteral("error.quota");
+        } else if (lowered.contains("printer")) {
+            key = ok ? QStringLiteral("info.printer") : QStringLiteral("error.printer");
+        } else if (lowered.contains("file")) {
+            key = ok ? QStringLiteral("info.file") : QStringLiteral("error.file");
+        }
+        out.insert("messageKey", key);
     }
-
-    out.insert("messageKey", key);
+    if (!out.contains("fallbackMessage")) {
+        out.insert("fallbackMessage", message);
+    }
+    if (!out.contains("params")) {
+        out.insert("params", QVariantMap{});
+    }
+    if (message.isEmpty()) {
+        out.insert("message", out.value("fallbackMessage").toString());
+    }
 }
 
 } // namespace
@@ -739,6 +929,8 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.files.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local file cache is unavailable."));
     out.insert("files", QVariantList{});
     out.insert("total", 0);
 
@@ -753,6 +945,17 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
                              : QStringLiteral("Fichiers chargés depuis le cache local."));
+    out.insert("messageKey", files.isEmpty()
+                             ? QStringLiteral("cache.files.empty")
+                             : QStringLiteral("cache.files.loaded"));
+    out.insert("fallbackMessage", files.isEmpty()
+                                  ? QStringLiteral("No file available in local cache.")
+                                  : QStringLiteral("Files loaded from local cache."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("count"), files.size()},
+        {QStringLiteral("page"), page},
+        {QStringLiteral("limit"), limit}
+    });
     out.insert("files", files);
     out.insert("total", files.size());
     finalizeUiMessage(out);
@@ -768,6 +971,8 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     }
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.printers.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local printer cache is unavailable."));
     if constexpr (kDebugBuildEnabled) {
         out.insert("rawJson", QString{});
     }
@@ -833,6 +1038,13 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     out.insert("message", printers.isEmpty()
                              ? QStringLiteral("Aucune imprimante en cache.")
                              : QStringLiteral("Imprimantes chargées depuis le cache local."));
+    out.insert("messageKey", printers.isEmpty()
+                             ? QStringLiteral("cache.printers.empty")
+                             : QStringLiteral("cache.printers.loaded"));
+    out.insert("fallbackMessage", printers.isEmpty()
+                                  ? QStringLiteral("No printer available in local cache.")
+                                  : QStringLiteral("Printers loaded from local cache."));
+    out.insert("params", QVariantMap{{QStringLiteral("count"), printers.size()}});
     out.insert("printers", printers);
     finalizeUiMessage(out);
     return out;
@@ -842,6 +1054,8 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache quota indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.quota.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local quota cache is unavailable."));
     out.insert("totalDisplay", QString{});
     out.insert("usedDisplay", QString{});
     out.insert("totalBytes", static_cast<qulonglong>(0));
@@ -856,12 +1070,16 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     if (quota.isEmpty()) {
         out.insert("ok", true);
         out.insert("message", QStringLiteral("Aucun quota en cache."));
+        out.insert("messageKey", QStringLiteral("cache.quota.empty"));
+        out.insert("fallbackMessage", QStringLiteral("No cached quota available."));
         finalizeUiMessage(out);
         return out;
     }
 
     out.insert("ok", true);
     out.insert("message", QStringLiteral("Quota chargé depuis le cache local."));
+    out.insert("messageKey", QStringLiteral("cache.quota.loaded"));
+    out.insert("fallbackMessage", QStringLiteral("Quota loaded from local cache."));
     out.insert("totalDisplay", quota.value("totalDisplay"));
     out.insert("usedDisplay", quota.value("usedDisplay"));
     out.insert("totalBytes", quota.value("totalBytes"));
@@ -957,7 +1175,6 @@ void CloudBridge::refreshPrintersAsync(bool force) {
 
         if (ok && m_cache != nullptr) {
             m_cache->replacePrinters(printers);
-            m_cache->replaceJobs(collectJobsFromPrinters(printers));
             QMetaObject::invokeMethod(this, [this, printers]() {
                 emit printersUpdatedFromCloud(printers, QStringLiteral("Cloud refresh imprimantes terminé."));
             }, Qt::QueuedConnection);
@@ -1058,13 +1275,40 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
         if (projectsResult.ok) {
             projects.reserve(static_cast<qsizetype>(projectsResult.items.size()));
             for (const auto& item : projectsResult.items) {
-                projects.append(printerProjectToMap(item));
+                QVariantMap projectMap = printerProjectToMap(item);
+                QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (!localImageIsVisuallyUsable(currentImage)) {
+                    const QString fallbackImage = resolveProjectImageFromFilesCache(
+                        m_cache,
+                        projectMap.value(QStringLiteral("currentFile")).toString(),
+                        projectMap.value(QStringLiteral("gcodeName")).toString());
+                    if (!fallbackImage.isEmpty()) {
+                        projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    }
+                }
+                projects.append(projectMap);
             }
             if (m_cache != nullptr) {
-                m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
+                m_cache->upsertJobsForPrinter(normalizedPrinterId, projects);
+                projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
             }
         } else if (m_cache != nullptr) {
             projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+            for (int i = 0; i < projects.size(); ++i) {
+                QVariantMap projectMap = projects[i].toMap();
+                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (localImageIsVisuallyUsable(currentImage)) {
+                    continue;
+                }
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    projects[i] = projectMap;
+                }
+            }
         }
 
         const bool ok = detailsResult.ok || projectsResult.ok || !projects.isEmpty();
@@ -1166,6 +1410,13 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
     const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.file.delete.ok")
+                             : QStringLiteral("cloud.file.delete.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Cloud file deleted.")
+                                  : QStringLiteral("Failed to delete cloud file."));
+    out.insert("params", QVariantMap{{QStringLiteral("fileId"), fileId}});
     if (r.ok && m_cache != nullptr) {
         m_cache->removeFile(fileId);
         m_cache->invalidateScope(QStringLiteral("files"));
@@ -1182,6 +1433,13 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
     const auto r = useCase.execute(fileId.toStdString());
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.file.download_url.ok")
+                             : QStringLiteral("cloud.file.download_url.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Download URL retrieved.")
+                                  : QStringLiteral("Unable to retrieve download URL."));
+    out.insert("params", QVariantMap{{QStringLiteral("fileId"), fileId}});
     if (r.ok)
         out.insert("url", QString::fromStdString(r.url));
     finalizeUiMessage(out);
@@ -1201,6 +1459,8 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     if (normalizedPath.isEmpty()) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("Chemin fichier vide."));
+        out.insert("messageKey", QStringLiteral("cloud.upload.path_required"));
+        out.insert("fallbackMessage", QStringLiteral("Local file path is required."));
         logging::warn("app", "cloud_bridge", "upload_local_file_invalid_path",
                       "uploadLocalFile aborted: empty path");
         finalizeUiMessage(out);
@@ -1211,6 +1471,17 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     const auto r = useCase.execute(normalizedPath.toStdString());
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.upload.ok")
+                             : QStringLiteral("cloud.upload.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("File uploaded to cloud.")
+                                  : QStringLiteral("Failed to upload local file."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("fileName"), localFileName},
+        {QStringLiteral("uploadStatus"), r.uploadStatus},
+        {QStringLiteral("unlockOk"), r.unlockOk}
+    });
     out.insert("fileId", QString::fromStdString(r.fileId));
     out.insert("gcodeId", QString::fromStdString(r.gcodeId));
     out.insert("uploadStatus", r.uploadStatus);
@@ -1313,7 +1584,6 @@ QVariantMap CloudBridge::fetchPrinters() const {
         m_cache->updateSyncState(QStringLiteral("printers"), ok, message);
         if (ok) {
             m_cache->replacePrinters(printers);
-            m_cache->replaceJobs(collectJobsFromPrinters(printers));
         }
     }
     finalizeUiMessage(out);
@@ -1354,6 +1624,71 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) 
     }
     finalizeUiMessage(out);
     return out;
+}
+
+QVariantMap CloudBridge::evaluateLocalPrinterFileCompatibility(const QVariantMap& printer,
+                                                               const QVariantMap& file) const {
+    if (printer.isEmpty()) {
+        return localCompatResult(false, 0, QStringLiteral("Select a printer first."));
+    }
+    if (file.isEmpty()) {
+        return localCompatResult(false, 0, QStringLiteral("Select a cloud file first."));
+    }
+
+    const QString ext = fileExtension(file.value(QStringLiteral("fileName")).toString());
+    if (!isKnownCloudSliceExtension(ext)) {
+        return localCompatResult(false, 0, QStringLiteral("Unsupported file format."));
+    }
+
+    const QString printerMachineType = normalizedCompatText(printer.value(QStringLiteral("machineType")));
+    QString fileMachineType = normalizedCompatText(file.value(QStringLiteral("machineType")));
+    if (fileMachineType.isEmpty()) {
+        fileMachineType = normalizedCompatText(file.value(QStringLiteral("machineTypeId")));
+    }
+
+    if (!fileMachineType.isEmpty() && !printerMachineType.isEmpty()) {
+        if (fileMachineType == printerMachineType) {
+            return localCompatResult(true, 500, {});
+        }
+        return localCompatResult(false, 0, QStringLiteral("Slice file does not match machine type."));
+    }
+
+    const QString machineText = normalizedCompatText(file.value(QStringLiteral("machine")));
+    const QString printersText = normalizedCompatText(file.value(QStringLiteral("printers")));
+    const QString metadataText = (machineText + QLatin1Char(' ') + printersText).trimmed();
+    if (metadataText.isEmpty()) {
+        return localCompatResult(false, 0, QStringLiteral("Missing local compatibility metadata."));
+    }
+
+    const QString printerModel = normalizedCompatText(printer.value(QStringLiteral("model")));
+    const QString printerName = normalizedCompatText(printer.value(QStringLiteral("name")));
+
+    if (!machineText.isEmpty() && (machineText == printerModel || machineText == printerName)) {
+        return localCompatResult(true, 420, {});
+    }
+    if (compatTextContains(machineText, printerModel)
+        || compatTextContains(printerModel, machineText)
+        || compatTextContains(machineText, printerName)
+        || compatTextContains(printerName, machineText)) {
+        return localCompatResult(true, 360, {});
+    }
+    if (compatTextContains(printersText, printerModel)
+        || compatTextContains(printersText, printerName)
+        || compatTextContains(printerModel, printersText)
+        || compatTextContains(printerName, printersText)) {
+        return localCompatResult(true, 330, {});
+    }
+
+    const QStringList metadataTokens = compatTokens(metadataText);
+    const QStringList printerTokens = compatTokens(printerModel + QLatin1Char(' ')
+                                                  + printerName + QLatin1Char(' ')
+                                                  + printerMachineType);
+    const int overlapCount = compatTokenOverlapCount(metadataTokens, printerTokens);
+    if (overlapCount > 0) {
+        return localCompatResult(true, 280 + overlapCount, {});
+    }
+
+    return localCompatResult(false, 0, QStringLiteral("Slice file does not match selected printer model."));
 }
 
 QVariantMap CloudBridge::fetchPrinterDetails(const QString& printerId) const {
@@ -1401,18 +1736,47 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     if (r.ok) {
         QVariantList projects;
         projects.reserve(static_cast<qsizetype>(r.items.size()));
-        for (const auto& item : r.items)
-            projects.append(printerProjectToMap(item));
+        for (const auto& item : r.items) {
+            QVariantMap projectMap = printerProjectToMap(item);
+            const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+            if (!localImageIsVisuallyUsable(currentImage)) {
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                }
+            }
+            projects.append(projectMap);
+        }
         out.insert("projects", projects);
         if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
-            m_cache->replaceJobsForPrinter(normalizedPrinterId, projects);
+            m_cache->upsertJobsForPrinter(normalizedPrinterId, projects);
+            out.insert("projects", m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit));
         }
     } else if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
         const QVariantList cached = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
         if (!cached.isEmpty()) {
+            QVariantList enriched = cached;
+            for (int i = 0; i < enriched.size(); ++i) {
+                QVariantMap projectMap = enriched[i].toMap();
+                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
+                if (localImageIsVisuallyUsable(currentImage)) {
+                    continue;
+                }
+                const QString fallbackImage = resolveProjectImageFromFilesCache(
+                    m_cache,
+                    projectMap.value(QStringLiteral("currentFile")).toString(),
+                    projectMap.value(QStringLiteral("gcodeName")).toString());
+                if (!fallbackImage.isEmpty()) {
+                    projectMap.insert(QStringLiteral("img"), fallbackImage);
+                    enriched[i] = projectMap;
+                }
+            }
             out.insert("ok", true);
             out.insert("message", QStringLiteral("Jobs chargés depuis le cache local."));
-            out.insert("projects", cached);
+            out.insert("projects", enriched);
         }
     }
     finalizeUiMessage(out);
@@ -1423,6 +1787,8 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
+    out.insert("messageKey", QStringLiteral("cache.printer_projects.unavailable"));
+    out.insert("fallbackMessage", QStringLiteral("Local printer jobs cache is unavailable."));
     out.insert("projects", QVariantList{});
     if constexpr (kDebugBuildEnabled) {
         out.insert("rawJson", QString{});
@@ -1431,6 +1797,8 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     const QString normalizedPrinterId = printerId.trimmed();
     if (normalizedPrinterId.isEmpty()) {
         out.insert("message", QStringLiteral("printer_id requis."));
+        out.insert("messageKey", QStringLiteral("cloud.printer_id.required"));
+        out.insert("fallbackMessage", QStringLiteral("Printer identifier is required."));
         finalizeUiMessage(out);
         return out;
     }
@@ -1445,6 +1813,18 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     out.insert("message", projects.isEmpty()
                              ? QStringLiteral("Aucun job en cache pour cette imprimante.")
                              : QStringLiteral("Jobs chargés depuis le cache local."));
+    out.insert("messageKey", projects.isEmpty()
+                             ? QStringLiteral("cache.printer_projects.empty")
+                             : QStringLiteral("cache.printer_projects.loaded"));
+    out.insert("fallbackMessage", projects.isEmpty()
+                                  ? QStringLiteral("No cached print job for this printer.")
+                                  : QStringLiteral("Printer jobs loaded from local cache."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), normalizedPrinterId},
+        {QStringLiteral("count"), projects.size()},
+        {QStringLiteral("page"), page},
+        {QStringLiteral("limit"), limit}
+    });
     out.insert("projects", projects);
     finalizeUiMessage(out);
     return out;
@@ -1460,6 +1840,12 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     if (dryRun) {
         out.insert("ok", true);
         out.insert("message", QString("Dry-run: print order payload generated."));
+        out.insert("messageKey", QStringLiteral("cloud.print_order.dry_run"));
+        out.insert("fallbackMessage", QStringLiteral("Print order payload generated (dry-run)."));
+        out.insert("params", QVariantMap{
+            {QStringLiteral("printerId"), printerId},
+            {QStringLiteral("fileId"), fileId}
+        });
         out.insert("taskId", QString());
         out.insert("msgId", QString());
         out.insert("correlationTicket", QString());
@@ -1473,6 +1859,16 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
         printerId.toStdString(), fileId.toStdString(), deleteAfterPrint);
     out.insert("ok",      r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.print_order.sent")
+                             : QStringLiteral("cloud.print_order.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Print order sent.")
+                                  : QStringLiteral("Failed to send print order."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), printerId},
+        {QStringLiteral("fileId"), fileId}
+    });
     out.insert("taskId",  QString::fromStdString(r.taskId));
     out.insert("msgId", QString::fromStdString(r.msgId));
     out.insert("correlationTicket", QString::fromStdString(r.correlationTicket));
@@ -1493,12 +1889,17 @@ QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
     if (normalizedPrinterId.isEmpty()) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("printer_id requis."));
+        out.insert("messageKey", QStringLiteral("cloud.printer_id.required"));
+        out.insert("fallbackMessage", QStringLiteral("Printer identifier is required."));
         finalizeUiMessage(out);
         return out;
     }
     if (orderId <= 0) {
         out.insert("ok", false);
         out.insert("message", QStringLiteral("order_id invalide."));
+        out.insert("messageKey", QStringLiteral("cloud.order_id.invalid"));
+        out.insert("fallbackMessage", QStringLiteral("Order identifier is invalid."));
+        out.insert("params", QVariantMap{{QStringLiteral("orderId"), orderId}});
         finalizeUiMessage(out);
         return out;
     }
@@ -1511,6 +1912,17 @@ QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
                                    dataJson);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
+    out.insert("messageKey", r.ok
+                             ? QStringLiteral("cloud.printer_order.sent")
+                             : QStringLiteral("cloud.printer_order.failed"));
+    out.insert("fallbackMessage", r.ok
+                                  ? QStringLiteral("Printer order sent.")
+                                  : QStringLiteral("Failed to send printer order."));
+    out.insert("params", QVariantMap{
+        {QStringLiteral("printerId"), normalizedPrinterId},
+        {QStringLiteral("orderId"), orderId},
+        {QStringLiteral("projectId"), projectId.trimmed()}
+    });
     out.insert("taskId", QString::fromStdString(r.taskId));
     out.insert("msgId", QString::fromStdString(r.msgId));
     if (r.ok && m_cache != nullptr) {

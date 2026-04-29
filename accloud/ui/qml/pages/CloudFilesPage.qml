@@ -28,6 +28,8 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
+    property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
         "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
@@ -77,6 +79,27 @@ Item {
                 && cloudBridge !== null
                 && typeof cloudBridge.fetchFiles === "function"
                 && typeof cloudBridge.fetchQuota === "function"
+    }
+
+    function hasUiSettingsBridge() {
+        return (typeof uiSettingsBridge !== "undefined")
+                && uiSettingsBridge !== null
+                && typeof uiSettingsBridge.getString === "function"
+                && typeof uiSettingsBridge.setString === "function"
+    }
+
+    function sanitizedBackendMessage(rawMessage) {
+        var text = String(rawMessage || "").trim()
+        if (text.length === 0)
+            return ""
+        if (/[\u4e00-\u9fff]/.test(text))
+            text = text.replace(/[\u4e00-\u9fff]+/g, qsTr("localized backend message"))
+        return text
+    }
+
+    function backendStatusDetail(rawMessage, fallbackMessage) {
+        var detail = sanitizedBackendMessage(rawMessage)
+        return detail.length > 0 ? detail : String(fallbackMessage || qsTr("unknown error"))
     }
 
     function formatBytes(bytes) {
@@ -167,6 +190,62 @@ Item {
         return false
     }
 
+    function localPathFromInput(pathInput) {
+        var raw = String(pathInput || "").trim()
+        if (raw.length === 0)
+            return ""
+
+        var normalized = raw.replace(/^file:\/\/localhost/i, "file://")
+        if (normalized.indexOf("file://") === 0)
+            normalized = normalized.replace(/^file:\/\//i, "")
+        normalized = normalized.replace(/[?#].*$/, "")
+        try {
+            normalized = decodeURIComponent(normalized)
+        } catch (err) {}
+        normalized = normalized.replace(/\\/g, "/")
+        if (normalized.length > 1)
+            normalized = normalized.replace(/\/+$/, "")
+        return normalized
+    }
+
+    function pathToFileUrl(pathInput) {
+        var path = localPathFromInput(pathInput)
+        if (path.length === 0)
+            path = StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        if (path.charAt(0) === "/")
+            return "file://" + path
+        return "file:///" + path
+    }
+
+    function parentFolderPath(pathInput) {
+        var path = localPathFromInput(pathInput)
+        var slash = path.lastIndexOf("/")
+        if (slash <= 0)
+            return path
+        return path.slice(0, slash)
+    }
+
+    function persistUploadLastFolder(pathInput) {
+        if (!hasUiSettingsBridge())
+            return
+        var normalized = localPathFromInput(pathInput)
+        if (normalized.length <= 0)
+            return
+        uiSettingsBridge.setString(uploadLastFolderSettingsKey, normalized)
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
+    function restoreUploadLastFolderFromSettings() {
+        if (!hasUiSettingsBridge())
+            return
+        var fallback = localPathFromInput(StandardPaths.writableLocation(StandardPaths.HomeLocation))
+        var persisted = localPathFromInput(uiSettingsBridge.getString(uploadLastFolderSettingsKey, fallback))
+        if (persisted.length <= 0)
+            persisted = fallback
+        uploadLastFolderPath = persisted
+    }
+
     function fileType(fileName) {
         var ext = fileExtension(fileName)
         if (ext.length === 0)
@@ -243,33 +322,32 @@ Item {
 
     function compatiblePrintersLabel(fileName) {
         var ext = fileExtension(fileName)
-        var families = {
-            "pm3": "Photon Mono 3, Mono 3 Ultra",
-            "pm3m": "Photon Mono 3 Max",
-            "pm3r": "Photon Mono 3 series",
-            "pm3n": "Photon Mono 3 series",
-            "pm5": "Photon Mono M5",
-            "pm5s": "Photon Mono M5s",
-            "m5sp": "Photon Mono M5s Pro",
-            "px6s": "Photon Mono X 6Ks",
-            "pwmb": "Modern Photon resin printers",
-            "pws": "Legacy Photon resin printers",
-            "pwsz": "Legacy Photon resin printers",
-            "photons": "Legacy Photon resin printers",
-            "photon": "Legacy Photon resin printers",
-            "pw0": "Legacy Photon resin printers",
-            "pwx": "Legacy Photon resin printers",
-            "pwmo": "Legacy Photon resin printers",
-            "pwma": "Legacy Photon resin printers",
-            "pwms": "Legacy Photon resin printers",
-            "pwmx": "Legacy Photon resin printers",
-            "pmx2": "Photon Mono X series",
-            "pmsq": "Anycubic resin printers",
-            "dlp": "Anycubic DLP printers",
-            "dl2p": "Anycubic DLP printers"
-        }
-        if (families[ext] !== undefined)
-            return qsTr(families[ext])
+        if (ext === "pm3")
+            return qsTr("Photon Mono 3, Mono 3 Ultra")
+        if (ext === "pm3m")
+            return qsTr("Photon Mono 3 Max")
+        if (ext === "pm3r" || ext === "pm3n")
+            return qsTr("Photon Mono 3 series")
+        if (ext === "pm5")
+            return qsTr("Photon Mono M5")
+        if (ext === "pm5s")
+            return qsTr("Photon Mono M5s")
+        if (ext === "m5sp")
+            return qsTr("Photon Mono M5s Pro")
+        if (ext === "px6s")
+            return qsTr("Photon Mono X 6Ks")
+        if (ext === "pwmb")
+            return qsTr("Modern Photon resin printers")
+        if (ext === "pws" || ext === "pwsz" || ext === "photons" || ext === "photon"
+                || ext === "pw0" || ext === "pwx" || ext === "pwmo" || ext === "pwma"
+                || ext === "pwms" || ext === "pwmx")
+            return qsTr("Legacy Photon resin printers")
+        if (ext === "pmx2")
+            return qsTr("Photon Mono X series")
+        if (ext === "pmsq")
+            return qsTr("Anycubic resin printers")
+        if (ext === "dlp" || ext === "dl2p")
+            return qsTr("Anycubic DLP printers")
         if (ext.length === 0)
             return qsTr("Unknown")
         return qsTr("Anycubic resin printers")
@@ -372,7 +450,8 @@ Item {
 
         var r = cloudBridge.getDownloadUrl(String(fileId))
         if (r.ok !== true) {
-            root.statusMsg = qsTr("Cannot get download URL: ") + String(r.message)
+            root.statusMsg = qsTr("Cannot get download URL: %1")
+                    .arg(backendStatusDetail(r.message, qsTr("Download URL unavailable.")))
             root.statusSev = "error"
             return
         }
@@ -407,13 +486,15 @@ Item {
             root.statusSev = "success"
             loadFiles()
         } else {
-            root.statusMsg = qsTr("Delete failed: ") + String(r.message)
+            root.statusMsg = qsTr("Delete failed: %1")
+                    .arg(backendStatusDetail(r.message, qsTr("Operation rejected by backend.")))
             root.statusSev = "error"
         }
     }
 
     function requestRename(fileId, fileName) {
-        root.statusMsg = qsTr("Rename not implemented yet for ") + String(fileName || fileId)
+        root.statusMsg = qsTr("Rename not implemented yet for %1")
+                .arg(String(fileName || fileId))
         root.statusSev = "warn"
     }
 
@@ -426,7 +507,7 @@ Item {
             return
         }
 
-        root.statusMsg = qsTr("Opening Printers workflow for %1...")
+        root.statusMsg = qsTr("Preparing print setup for %1...")
                 .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
         root.statusSev = "info"
         root.printIntentRequested(normalizedFileId, normalizedFileName)
@@ -435,6 +516,7 @@ Item {
     function pickUploadFile() {
         if (uploadOverlay.visible)
             return
+        uploadFileDialog.currentFolder = pathToFileUrl(uploadLastFolderPath)
         uploadFileDialog.open()
     }
 
@@ -470,6 +552,13 @@ Item {
             return
         }
 
+        var sourcePath = localPathFromInput(selectedInput)
+        var sourceFolder = parentFolderPath(sourcePath)
+        if (sourceFolder.length > 0) {
+            uploadLastFolderPath = sourceFolder
+            persistUploadLastFolder(sourceFolder)
+        }
+
         var fileName = uploadInputToDisplayName(selectedInput)
         if (!hasCloudBridge()) {
             root.statusMsg = qsTr("Selected for upload: %1").arg(fileName)
@@ -496,7 +585,7 @@ Item {
             root.loading = false
 
             if (r.ok === true) {
-                var backendMessage = String(r.message || "").trim()
+                var backendMessage = sanitizedBackendMessage(r.message)
                 var ready = uploadIsReady(r.uploadStatus, r.gcodeId)
                 root.statusMsg = backendMessage.length > 0
                         ? backendMessage
@@ -505,7 +594,8 @@ Item {
                 root.statusSev = (!ready || r.unlockOk === false) ? "warn" : "success"
                 loadFiles()
             } else {
-                root.statusMsg = qsTr("Upload failed: ") + String(r.message)
+                root.statusMsg = qsTr("Upload failed: %1")
+                        .arg(backendStatusDetail(r.message, qsTr("Transfer failed.")))
                 root.statusSev = "error"
             }
             return
@@ -647,7 +737,10 @@ Item {
         }
     }
 
-    Component.onCompleted: loadFiles()
+    Component.onCompleted: {
+        restoreUploadLastFolderFromSettings()
+        loadFiles()
+    }
 
     Connections {
         target: (typeof cloudBridge !== "undefined"
@@ -666,10 +759,11 @@ Item {
         function onDownloadFinished(ok, message, savedPath) {
             downloadOverlay.visible = false
             if (ok) {
-                root.statusMsg = qsTr("Downloaded: ") + savedPath
+                root.statusMsg = qsTr("Downloaded: %1").arg(String(savedPath || ""))
                 root.statusSev = "success"
             } else {
-                root.statusMsg = qsTr("Download error: ") + message
+                root.statusMsg = qsTr("Download error: %1")
+                        .arg(backendStatusDetail(message, qsTr("Download failed.")))
                 root.statusSev = "error"
             }
         }
@@ -683,7 +777,7 @@ Item {
 
         function onUploadFinished(ok, message, fileId, gcodeId, uploadStatus, unlockOk) {
             uploadOverlay.visible = false
-            var backendMessage = String(message || "").trim()
+            var backendMessage = sanitizedBackendMessage(message)
             if (ok) {
                 var ready = uploadIsReady(uploadStatus, gcodeId)
                 root.statusMsg = backendMessage.length > 0
@@ -693,7 +787,8 @@ Item {
                 root.statusSev = (!ready || unlockOk === false) ? "warn" : "success"
                 root.loadFiles()
             } else {
-                root.statusMsg = qsTr("Upload failed: ") + backendMessage
+                root.statusMsg = qsTr("Upload failed: %1")
+                        .arg(backendStatusDetail(message, qsTr("Transfer failed.")))
                 root.statusSev = "error"
             }
         }
@@ -719,7 +814,7 @@ Item {
                 return
             root.statusMsg = qsTr("Background sync failed (%1): %2")
                     .arg(String(scope))
-                    .arg(String(message))
+                    .arg(backendStatusDetail(message, qsTr("Retry later.")))
             root.statusSev = "warn"
         }
     }
@@ -783,19 +878,29 @@ Item {
         onCloseRequested: fileDetailsDialog.close()
     }
 
-    FileDialog {
+    UploadFileDialog {
         id: uploadFileDialog
-        title: qsTr("Select file to upload")
-        fileMode: FileDialog.OpenFile
-        options: FileDialog.DontUseNativeDialog
+        currentFolder: root.pathToFileUrl(root.uploadLastFolderPath)
         nameFilters: [
             qsTr("Slice files (*.photon *.pws *.pwsz *.photons *.pw0 *.pwx *.pwmo *.pwma *.pwms *.pwmx *.pmx2 *.pmsq *.dlp *.dl2p *.pwmb *.pm3 *.pm3m *.pm3r *.pm3n *.px6s *.pm5 *.pm5s *.m5sp)"),
             qsTr("All files (*)")
         ]
-        currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+        onFileChosen: function(file) {
+            root.uploadSelectedLocalFile(file)
+        }
+        onCancelled: {}
+    }
 
-        onAccepted: {
-            root.uploadSelectedLocalFile(selectedFile)
+    Connections {
+        target: uploadFileDialog
+        ignoreUnknownSignals: true
+
+        function onCurrentFolderChanged() {
+            var folder = root.localPathFromInput(uploadFileDialog.currentFolder)
+            if (folder.length <= 0)
+                return
+            root.uploadLastFolderPath = folder
+            root.persistUploadLastFolder(folder)
         }
     }
 
@@ -806,7 +911,7 @@ Item {
         readonly property var downloadFolders: StandardPaths.standardLocations(StandardPaths.DownloadLocation)
         title: qsTr("Save As")
         fileMode: FileDialog.SaveFile
-        nameFilters: ["All files (*)"]
+        nameFilters: [qsTr("All files (*)")]
         currentFolder: downloadFolders.length > 0
                      ? downloadFolders[0]
                      : StandardPaths.writableLocation(StandardPaths.HomeLocation)

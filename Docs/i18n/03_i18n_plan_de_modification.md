@@ -515,4 +515,3 @@ Le critère central est :
 - le comportement est stable,
 - les régressions sont détectables,
 - l’architecture ne permet plus le retour du désordre initial.
-

@@ -458,12 +458,21 @@ CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
         isOnline = true;
     }
 
-    const bool hasProject = project.is_object() && !project.empty();
+    const int projectPrintStatus = jFirstInt(project, {"print_status", "printStatus", "status"}, -1);
+    const int projectProgress = jFirstInt(project, {"progress"}, -1);
+    const std::string projectStateText = jFirst(project, {"state", "print_state", "reason"});
+    const bool hasActiveProject = project.is_object()
+                               && !project.empty()
+                               && (projectPrintStatus == 1
+                                   || (projectProgress >= 0 && projectProgress < 100)
+                                   || containsNoCase(projectStateText, "print")
+                                   || containsNoCase(projectStateText, "busy")
+                                   || containsNoCase(projectStateText, "progress"));
     const bool reasonSaysPrinting = containsNoCase(p.reason, "printing")
                                  || containsNoCase(p.reason, "in progress")
                                  || containsNoCase(p.reason, "busy");
     bool isBusyPrinting = false;
-    if (hasProject) {
+    if (hasActiveProject) {
         isBusyPrinting = true;
     } else if (isPrinting >= 0) {
         // Some getPrinters payloads report is_printing=1 while reason=free.
