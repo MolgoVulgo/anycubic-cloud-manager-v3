@@ -1068,10 +1068,6 @@ ApplicationWindow {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
                             onPrintIntentRequested: function(fileId, fileName) {
-                                controlTabs.currentIndex = 1
-                                if (typeof printerPage.ensureStartupInitialized === "function") {
-                                    printerPage.ensureStartupInitialized()
-                                }
                                 if (typeof printerPage.openRemotePrintFromFile === "function") {
                                     printerPage.openRemotePrintFromFile(fileId, fileName)
                                 } else {
@@ -1085,11 +1081,14 @@ ApplicationWindow {
                         Pages.PrinterPage {
                             id: printerPage
                             objectName: "printerPage"
-                            debugUi: false
+                            debugUi: root.debugUi
                             embeddedInTabsContainer: true
                             deferStartupInitialization: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
+                            }
+                            onRemotePrintAccepted: function(printerId, taskId) {
+                                controlTabs.currentIndex = 1
                             }
                         }
 
@@ -1139,6 +1138,7 @@ ApplicationWindow {
                         message: root.globalStatusMsg
                         severity: root.globalStatusSev
                         operationId: root.globalStatusOpId
+                        showOperationId: root.debugUi
                     }
 
                 }

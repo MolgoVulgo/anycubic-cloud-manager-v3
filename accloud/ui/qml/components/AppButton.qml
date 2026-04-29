@@ -9,7 +9,7 @@ Button {
     property bool compact: false
 
     implicitHeight: compact ? Math.max(28, Theme.controlHeight - 8) : Theme.controlHeight
-    implicitWidth: compact ? 36 : 96
+    implicitWidth: Math.max(compact ? 36 : 96, buttonLabel.implicitWidth + padding * 2)
     padding: compact ? 8 : 12
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
@@ -58,6 +58,7 @@ Button {
     }
 
     contentItem: Text {
+        id: buttonLabel
         text: root.text
         color: root.foregroundColor()
         font: root.font

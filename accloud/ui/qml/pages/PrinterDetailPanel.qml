@@ -87,6 +87,17 @@ Rectangle {
         return nonNegativeInt(value) >= 0
     }
 
+    function progressRatio(printer) {
+        var value = nonNegativeInt(printer ? printer.progress : -1)
+        if (value < 0)
+            return 0
+        return Math.max(0, Math.min(value, 100)) / 100
+    }
+
+    function progressPercentText(printer) {
+        return providerText(root.progressTextProvider, printer ? printer.progress : -1, "-")
+    }
+
     function currentFileText(printer) {
         if (printer && hasTextValue(printer.currentFile))
             return String(printer.currentFile).trim()
@@ -261,14 +272,14 @@ Rectangle {
             code = -1
 
         if (code === 1)
-            return { label: qsTr("In progress"), bg: Theme.info, fg: Theme.bgWindow }
+            return { label: qsTr("In progress"), bg: Theme.statusInfoBg, fg: Theme.stateRunning, border: Theme.stateRunning }
         if (code === 2)
-            return { label: qsTr("Finished"), bg: Theme.success, fg: Theme.bgWindow }
+            return { label: qsTr("Finished"), bg: Theme.statusSuccessBg, fg: Theme.stateSuccess, border: Theme.stateSuccess }
         if (code === 3)
-            return { label: qsTr("Failed"), bg: Theme.error, fg: Theme.bgWindow }
+            return { label: qsTr("Failed"), bg: Theme.statusErrorBg, fg: Theme.stateError, border: Theme.stateError }
         if (code === 4)
-            return { label: qsTr("Canceled"), bg: Theme.warning, fg: Theme.bgWindow }
-        return { label: qsTr("Unknown"), bg: Theme.borderSubtle, fg: Theme.fgPrimary }
+            return { label: qsTr("Canceled"), bg: Theme.statusWarningBg, fg: Theme.stateWarning, border: Theme.stateWarning }
+        return { label: qsTr("Unknown"), bg: Theme.bgCardSubtle, fg: Theme.fgPrimary, border: Theme.borderDefault }
     }
 
     function historyDurationText(startEpoch, endEpoch) {
@@ -484,12 +495,13 @@ Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 34
 
-                                RowLayout {
+                                Item {
                                     anchors.fill: parent
                                     anchors.margins: 8
-                                    spacing: 8
 
                                     Text {
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
                                         text: qsTr("Status")
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
@@ -497,6 +509,7 @@ Rectangle {
                                     }
 
                                     StatusChip {
+                                        anchors.centerIn: parent
                                         status: root.providerText(root.statusChipTextProvider,
                                                                   root.selectedPrinter ? root.selectedPrinter.state : "READY",
                                                                   qsTr("Ready"))
@@ -512,7 +525,7 @@ Rectangle {
                             color: Theme.bgSurface
                             border.width: Theme.borderWidth
                             border.color: Theme.borderSubtle
-                            implicitHeight: 220
+                            implicitHeight: 176
 
                             RowLayout {
                                 anchors.fill: parent
@@ -520,8 +533,8 @@ Rectangle {
                                 spacing: 10
 
                                 Rectangle {
-                                    Layout.preferredWidth: 200
-                                    Layout.preferredHeight: 200
+                                    Layout.preferredWidth: 160
+                                    Layout.preferredHeight: 160
                                     radius: Theme.radiusControl
                                     color: Theme.bgWindow
                                     border.width: Theme.borderWidth
@@ -568,7 +581,43 @@ Rectangle {
                                         elide: Text.ElideRight
                                     }
 
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+
+                                        Text {
+                                            text: qsTr("Impression")
+                                            color: Theme.stateRunning
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            font.bold: true
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: root.layersProgressText(root.selectedPrinter)
+                                            color: Theme.fgSecondary
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            text: root.progressPercentText(root.selectedPrinter)
+                                            color: Theme.fgPrimary
+                                            font.pixelSize: Theme.fontBodyPx
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    ProgressBar {
+                                        objectName: "printerCurrentPrintProgressBar"
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: root.progressRatio(root.selectedPrinter)
+                                    }
+
                                     Text {
+                                        visible: root.showDebugLabels
                                         Layout.fillWidth: true
                                         text: qsTr("Image source: %1").arg(
                                                   root.currentFileImageSource().length > 0
@@ -580,6 +629,7 @@ Rectangle {
                                     }
 
                                     Text {
+                                        visible: root.showDebugLabels
                                         Layout.fillWidth: true
                                         text: qsTr("Image status: %1 (%2)").arg(
                                                   currentFilePreviewImage.status).arg(
@@ -589,6 +639,7 @@ Rectangle {
                                     }
 
                                     Text {
+                                        visible: root.showDebugLabels
                                         Layout.fillWidth: true
                                         text: qsTr("Image source normalized: %1").arg(
                                                   currentFilePreviewImage.source.toString().length > 0
@@ -610,7 +661,7 @@ Rectangle {
                             rowSpacing: 8
 
                             Rectangle {
-                                visible: root.hasNonNegativeMetric(root.selectedPrinter ? root.selectedPrinter.progress : -1)
+                                visible: false
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -641,6 +692,7 @@ Rectangle {
                             }
 
                             Rectangle {
+                                visible: false
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -901,6 +953,7 @@ Rectangle {
                             spacing: 8
 
                             AppButton {
+                                Layout.minimumWidth: implicitWidth
                                 text: qsTr("From Cloud File")
                                 variant: "primary"
                                 enabled: root.selectedPrinter !== null
@@ -908,6 +961,7 @@ Rectangle {
                             }
 
                             AppButton {
+                                Layout.minimumWidth: implicitWidth
                                 text: qsTr("From Local File")
                                 variant: "secondary"
                                 enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
@@ -943,10 +997,12 @@ Rectangle {
                         }
 
                         ListView {
+                            id: recentJobsList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
                             spacing: 6
+                            rightMargin: 14
                             model: root.printerHistoryModel
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
@@ -963,7 +1019,10 @@ Rectangle {
 
                                 ColumnLayout {
                                     anchors.fill: parent
-                                    anchors.margins: 8
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 18
+                                    anchors.topMargin: 8
+                                    anchors.bottomMargin: 8
                                     spacing: 4
 
                                     RowLayout {
@@ -980,11 +1039,14 @@ Rectangle {
                                         }
 
                                         Rectangle {
+                                            objectName: "recentJobStatusBadge"
                                             readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus)
                                             radius: Theme.radiusControl
                                             color: statusInfo.bg
+                                            border.width: Theme.borderWidth
+                                            border.color: statusInfo.border
                                             implicitHeight: 22
-                                            implicitWidth: statusText.implicitWidth + 12
+                                            implicitWidth: Math.max(74, statusText.implicitWidth + 12)
 
                                             Text {
                                                 id: statusText

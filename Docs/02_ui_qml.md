@@ -105,6 +105,19 @@ La bibliothèque interne doit rester le point d’entrée visuel :
 - `AppTabBar`
 - `AppTabButton`
 
+### 4.5 Roles visuels d'etat
+Les composants transverses doivent utiliser les roles de theme dedies plutot
+que des couleurs calculees localement pour les etats metier :
+- `stateRunning`, `stateSuccess`, `stateWarning`, `stateError` pour les accents
+  d'etat ;
+- `statusInfoBg`, `statusSuccessBg`, `statusWarningBg`, `statusErrorBg` pour
+  les fonds de status/toast/badge ;
+- `bgPanel`, `bgCard`, `bgCardSubtle`, `borderStrong`, `textMuted` pour limiter
+  les variantes locales.
+
+La status bar globale ne doit pas afficher les identifiants d'operation en vue
+normale. Ils restent reserves au mode debug.
+
 ---
 
 ## 5. Correctif onglets — décision consolidée
@@ -174,6 +187,9 @@ Règles d'affichage métriques (panneau détails imprimante) :
   - `basic` (ready/offline) : nom/modèle, firmware, status, print count, total print time, material used, printer type, release film ;
   - `printing` : nom/modèle, status, fichier courant, progression, couches, elapsed, remaining.
 - historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
+- en impression, le fichier courant doit exposer le nom du fichier, une
+  progression principale, les couches et les durees utiles ; les details
+  techniques de preview/image restent reserves au debug.
 - l'historique "Recent Jobs" est charge depuis le cache local puis enrichi
   incrementiellement avec les dernieres taches cloud ; une reponse cloud
   partielle ne doit pas effacer les anciennes taches deja connues.
@@ -213,6 +229,23 @@ Depuis `Files`, l'action `Print` doit rester un raccourci direct vers la
 configuration d'impression : le fichier est déjà sélectionné, l'imprimante
 compatible est présélectionnée si possible, et la dialog de confirmation doit
 s'ouvrir sans imposer un second sélecteur de fichier.
+
+Le workflow applique la répartition suivante :
+- `Files` émet uniquement l'intention d'impression avec le fichier cloud ;
+- `MainWindow` délègue l'ouverture de la configuration à `PrinterPage` sans
+  quitter immédiatement l'onglet `Files` ;
+- `PrinterPage` ouvre la dialog immédiatement, puis valide l'imprimante cible,
+  les options et l'état imprimante après affichage ; `Start Printing` reste
+  désactivé pendant cette préparation ;
+- quand la préparation est terminée, `PrinterPage` peut envoyer
+  `sendPrintOrder` ;
+- après acceptation backend, la dialog se ferme, l'imprimante cible reste
+  sélectionnée, `MainWindow` bascule sur `Printers`, les tâches récentes sont
+  rafraîchies avec `print_started`, et le panneau Printer affiche le monitoring.
+  Tant que la télémétrie réelle n'est pas revenue, l'UI peut afficher un état
+  transitoire sans progression inventée.
+- en cas d'échec backend, la dialog reste ouverte et aucun refresh
+  `print_started` ne doit être déclenché.
 
 ### 7.1 Règle produit
 L’UI ne doit pas porter la logique profonde d’orchestration. Elle doit présenter :

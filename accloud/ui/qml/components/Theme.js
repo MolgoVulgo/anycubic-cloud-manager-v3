@@ -8,20 +8,37 @@ var accentName = "Teal"
 var bgWindow = "#f7f2e8"
 var bgSurface = "#fffaf0"
 var bgDialog = "#fffdf7"
+var bgPanel = "#fffaf0"
+var bgCard = "#fffdf7"
+var bgCardSubtle = "#f5ecdc"
 
 var fgPrimary = "#2f2a21"
 var fgSecondary = "#6a5f4f"
 var fgDisabled = "#9a9184"
+var textMuted = "#8b8172"
 
 var borderDefault = "#d4c7af"
 var borderSubtle = "#e5dccb"
+var borderStrong = "#b8a98f"
 
 var accent = "#0d7f77"
 var accentFg = "#f5fffd"
+var accentPrimary = "#0d7f77"
+var accentSecondary = "#0a6a64"
 
 var danger = "#b13b3b"
 var warning = "#b27618"
 var success = "#2f8a45"
+var info = "#0d7f77"
+var error = "#b13b3b"
+var stateRunning = "#0d7f77"
+var stateSuccess = "#2f8a45"
+var stateWarning = "#b27618"
+var stateError = "#b13b3b"
+var statusInfoBg = "#e1f3f0"
+var statusSuccessBg = "#e5f4e8"
+var statusWarningBg = "#f7eddb"
+var statusErrorBg = "#f7e2e2"
 
 var selectionBg = "#d8ece8"
 var selectionFg = "#1f2b29"
@@ -81,9 +98,15 @@ var _palettes = {
         fgDisabled: "#9a9184",
         borderDefault: "#d4c7af",
         borderSubtle: "#e5dccb",
+        borderStrong: "#b8a98f",
+        textMuted: "#8b8172",
         danger: "#b13b3b",
         warning: "#b27618",
         success: "#2f8a45",
+        statusInfoBg: "#e1f3f0",
+        statusSuccessBg: "#e5f4e8",
+        statusWarningBg: "#f7eddb",
+        statusErrorBg: "#f7e2e2",
         selectionBg: "#d8ece8",
         selectionFg: "#1f2b29",
         rootGradientStart: "#f7f2e8",
@@ -111,9 +134,15 @@ var _palettes = {
         fgDisabled: "#7f8791",
         borderDefault: "#49505b",
         borderSubtle: "#3f4650",
+        borderStrong: "#5f6875",
+        textMuted: "#9ea6b0",
         danger: "#dd6767",
         warning: "#d4a24b",
         success: "#65b97f",
+        statusInfoBg: "#203f49",
+        statusSuccessBg: "#234632",
+        statusWarningBg: "#4a3d24",
+        statusErrorBg: "#512d32",
         selectionBg: "#1f5f78",
         selectionFg: "#f2fbff",
         rootGradientStart: "#1f2329",
@@ -170,13 +199,30 @@ function _syncLegacyAliases(palette, accentSet) {
     panelStroke = palette.borderDefault
     card = palette.card
     cardAlt = palette.cardAlt
+    bgPanel = palette.panel
+    bgCard = palette.card
+    bgCardSubtle = palette.cardAlt
+    borderStrong = palette.borderStrong !== undefined ? palette.borderStrong : palette.borderDefault
     textPrimary = palette.fgPrimary
     textSecondary = palette.fgSecondary
+    textMuted = palette.textMuted !== undefined ? palette.textMuted : palette.fgDisabled
     mono = palette.mono
+    accentPrimary = accentSet.accent
+    accentSecondary = accentSet.accentStrong
     accentStrong = accentSet.accentStrong
     accentSoft = accentSet.accentSoft
     warn = palette.warning
     ok = palette.success
+    info = accentSet.accent
+    error = palette.danger
+    stateRunning = accentSet.accent
+    stateSuccess = palette.success
+    stateWarning = palette.warning
+    stateError = palette.danger
+    statusInfoBg = palette.statusInfoBg
+    statusSuccessBg = palette.statusSuccessBg
+    statusWarningBg = palette.statusWarningBg
+    statusErrorBg = palette.statusErrorBg
     thumbStart = palette.thumbStart
     thumbEnd = palette.thumbEnd
     shadow = palette.shadow
