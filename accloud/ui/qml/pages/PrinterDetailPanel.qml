@@ -12,6 +12,7 @@ Rectangle {
     property var selectedPrinterDetails: ({})
     property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
+    property bool localFilePrintEnabled: true
     property var printerHistoryModel: null
     property bool showDebugLabels: false
     property string printersEndpointPath: ""
@@ -909,6 +910,10 @@ Rectangle {
                             AppButton {
                                 text: qsTr("From Local File")
                                 variant: "secondary"
+                                enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
+                                ToolTip.visible: hovered && !enabled
+                                ToolTip.delay: 350
+                                ToolTip.text: qsTr("Local printer file printing is not enabled in this build.")
                                 onClicked: root.localFileRequested(
                                                String(root.selectedPrinter && root.selectedPrinter.id !== undefined
                                                       ? root.selectedPrinter.id
