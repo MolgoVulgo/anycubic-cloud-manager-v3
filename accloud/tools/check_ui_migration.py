@@ -8,6 +8,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 QML_ROOT = REPO_ROOT / "accloud" / "ui" / "qml"
+APP_ROOT = REPO_ROOT / "accloud" / "app"
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -271,6 +272,86 @@ def find_legacy_alias_usage() -> list[str]:
     return offenders
 
 
+def check_runtime_status_rules() -> list[str]:
+    issues: list[str] = []
+    status_files = [
+        QML_ROOT / "MainWindow.qml",
+        QML_ROOT / "pages" / "CloudFilesPage.qml",
+        QML_ROOT / "pages" / "PrinterPage.qml",
+        QML_ROOT / "dialogs" / "SessionSettingsDialog.qml",
+    ]
+    status_targets = r"(statusMsg|statusMessage|statusText|globalStatusMsg)"
+
+    # Rule A: no status text built by free string concatenation.
+    concat_re = re.compile(rf"\b{status_targets}\b\s*=\s*[^\n;]*\+")
+    # Rule B: no raw backend text assigned directly to user-visible statuses.
+    raw_re = re.compile(rf"\b{status_targets}\b\s*=\s*String\(")
+
+    for path in status_files:
+        text = read_text(path)
+        for match in concat_re.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            issues.append(
+                f"{path.relative_to(REPO_ROOT)}:{line} status assignment uses concatenation"
+            )
+        for match in raw_re.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            issues.append(
+                f"{path.relative_to(REPO_ROOT)}:{line} status assignment uses raw String(...)"
+            )
+
+    return issues
+
+
+def _extract_function_block(text: str, fn_name: str) -> str:
+    fn_match = re.search(rf"\b{re.escape(fn_name)}\s*\([^)]*\)\s*\{{", text)
+    if not fn_match:
+        return ""
+    start = fn_match.end() - 1
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return ""
+
+
+def check_backend_message_contract() -> list[str]:
+    issues: list[str] = []
+    backend_files = [
+        APP_ROOT / "CloudBridge.cpp",
+        APP_ROOT / "SessionImportBridge.cpp",
+    ]
+    required_tokens = (
+        'out.insert("messageKey"',
+        'out.insert("fallbackMessage"',
+        'out.insert("params"',
+    )
+
+    for path in backend_files:
+        text = read_text(path)
+        block = _extract_function_block(text, "finalizeUiMessage")
+        if not block:
+            issues.append(f"{path.relative_to(REPO_ROOT)} missing finalizeUiMessage()")
+            continue
+        for token in required_tokens:
+            if token not in block:
+                issues.append(
+                    f"{path.relative_to(REPO_ROOT)} finalizeUiMessage() missing `{token}`"
+                )
+
+        if text.count('out.insert("messageKey"') < 5:
+            issues.append(
+                f"{path.relative_to(REPO_ROOT)} has too few explicit messageKey assignments"
+            )
+
+    return issues
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -283,6 +364,8 @@ def main() -> int:
     errors.extend(f"- {msg}" for msg in check_tabs_geometry_v2())
     errors.extend(f"- {msg}" for msg in check_tab_stroke_tokens())
     errors.extend(f"- {msg}" for msg in check_form_components())
+    errors.extend(f"- {msg}" for msg in check_runtime_status_rules())
+    errors.extend(f"- {msg}" for msg in check_backend_message_contract())
 
     legacy_usage = find_legacy_alias_usage()
     if legacy_usage:
@@ -300,6 +383,8 @@ def main() -> int:
     print("- Tabs geometry/structure conforms to v2 corrections")
     print("- Tab stroke tokens standardized in Theme.js")
     print("- Form components conform to T3 corrections")
+    print("- Runtime statuses avoid raw text and free concatenation")
+    print("- Backend UI message envelope contract is enforced")
     print("- No legacy theme aliases in migrated files")
     return 0
 

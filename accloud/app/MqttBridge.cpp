@@ -6,6 +6,7 @@
 #include "app/usecases/cloud/ResyncCloudStateUseCase.h"
 #include "infra/cloud/core/SessionProvider.h"
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/Redactor.h"
 #include "infra/mqtt/core/MqttCredentialProvider.h"
 #include "infra/mqtt/core/MqttSessionManager.h"
 #include "infra/mqtt/core/TlsMaterialProvider.h"
@@ -26,13 +27,17 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <future>
+#include <mutex>
 #include <vector>
 
 namespace accloud {
 namespace {
 
 constexpr std::size_t kMaxTopicMessageHistory = 1000;
+constexpr const char* kMqttCaptureFilename = "mqtt_topic_capture.jsonl";
 
 std::string md5LowerHex(const std::string& input) {
     return QCryptographicHash::hash(QByteArray::fromStdString(input), QCryptographicHash::Md5)
@@ -165,8 +170,68 @@ std::string redactPayloadForDebug(const std::string& payload) {
         redactJsonInPlace(root);
         return root.dump(2);
     } catch (...) {
-        return payload;
+        return logging::redactMessage(payload);
     }
+}
+
+std::filesystem::path mqttCapturePath() {
+    if (const char* envPath = std::getenv("ACCLOUD_MQTT_CAPTURE_PATH");
+        envPath != nullptr && *envPath != '\0') {
+        return std::filesystem::path(envPath);
+    }
+    return logging::logDirectory() / kMqttCaptureFilename;
+}
+
+void appendMqttCaptureLine(const std::string& topic,
+                           const std::string& redactedPayload,
+                           std::size_t payloadBytes,
+                           const QString& timestampIso) {
+    static std::mutex captureMutex;
+    std::lock_guard<std::mutex> lock(captureMutex);
+
+    static std::filesystem::path captureFile;
+    static bool openAttempted = false;
+    static std::ofstream stream;
+    static bool writeFailureReported = false;
+
+    if (!openAttempted) {
+        openAttempted = true;
+        captureFile = mqttCapturePath();
+        std::error_code ec;
+        const auto parent = captureFile.parent_path();
+        if (!parent.empty()) {
+            std::filesystem::create_directories(parent, ec);
+        }
+        stream.open(captureFile, std::ios::out | std::ios::app);
+        if (!stream.is_open() && !writeFailureReported) {
+            writeFailureReported = true;
+            logging::warn("mqtt",
+                          "mqtt_capture",
+                          "capture_open_failed",
+                          "Unable to open MQTT capture file",
+                          {{"path", captureFile.string()}});
+        } else if (stream.is_open()) {
+            logging::info("mqtt",
+                          "mqtt_capture",
+                          "capture_file_ready",
+                          "MQTT capture file initialized",
+                          {{"path", captureFile.string()}});
+        }
+    }
+
+    if (!stream.is_open()) {
+        return;
+    }
+
+    nlohmann::json line;
+    line["ts"] = timestampIso.toStdString();
+    line["direction"] = "rx";
+    line["topic"] = topic;
+    line["payload"] = redactedPayload;
+    line["payload_bytes"] = payloadBytes;
+
+    stream << line.dump() << '\n';
+    stream.flush();
 }
 
 int jsonIntValueOr(const nlohmann::json& node, int fallback = 0) {
@@ -473,6 +538,7 @@ MqttBridge::MqttBridge(QObject* parent)
         .onMessage = [this](const std::string& topic, const std::string& payload) {
             const QString ts = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
             const std::string redactedPayload = redactPayloadForDebug(payload);
+            appendMqttCaptureLine(topic, redactedPayload, payload.size(), ts);
             const QString topicName = QString::fromStdString(topic);
             const QString messageLine = ts + QStringLiteral(" | topic=") + topicName
                 + QStringLiteral(" | payload=") + QString::fromStdString(redactedPayload);

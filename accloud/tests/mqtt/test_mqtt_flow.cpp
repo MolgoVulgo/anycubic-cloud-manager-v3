@@ -231,20 +231,18 @@ bool test_tls_provider_local_fallback_paths() {
 bool test_printer_subscription_topics_match_spec() {
     const auto topics = accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
         "m7", "101001");
-    if (!expect(topics.size() == 2, "Printer topics should contain the stable 2-topic wildcard matrix")) {
+    if (!expect(topics.size() == 1, "Printer topics should contain the stable public wildcard")) {
         return false;
     }
     std::set<std::string> unique(topics.begin(), topics.end());
     return expect(unique.size() == topics.size(), "Printer topics should stay unique")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
-                  "Public wildcard topic should be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/+/public/m7/101001/#"),
-                  "+/public wildcard topic should be present");
+                  "Public wildcard topic should be present");
 }
 
-bool test_subscription_profile_has_6_topics_for_two_printers_fixture() {
-    // Baseline contract as of 2026-03-15:
-    // 2 user topics + (2 printer topics x 2 printers) = 6.
+bool test_subscription_profile_has_4_topics_for_two_printers_fixture() {
+    // Baseline contract as of 2026-03-17:
+    // 2 user topics + (1 printer topic x 2 printers) = 4.
     // If Anycubic changes topic contract, update this assertion in the same commit.
     const std::string userId = "u-123";
     const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -259,16 +257,16 @@ bool test_subscription_profile_has_6_topics_for_two_printers_fixture() {
     topics.insert(topics.end(), p2.begin(), p2.end());
 
     std::set<std::string> unique(topics.begin(), topics.end());
-    return expect(topics.size() == 6, "Fixture with 2 printers must produce 6 subscribed topics")
-        && expect(unique.size() == 6, "Subscription topics must stay unique in fixture")
+    return expect(topics.size() == 4, "Fixture with 2 printers must produce 4 subscribed topics")
+        && expect(unique.size() == 4, "Subscription topics must stay unique in fixture")
         && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/slice/report"),
                   "User slice report topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report"),
                   "User fdm slice report topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
                   "Printer 1 public wildcard topic must be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/+/public/m7pro/101002/#"),
-                  "Printer 2 +/public wildcard topic must be present");
+        && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7pro/101002/#"),
+                  "Printer 2 public wildcard topic must be present");
 }
 
 bool test_subscription_profile_keeps_expected_topic_families() {
@@ -284,7 +282,6 @@ bool test_subscription_profile_keeps_expected_topic_families() {
     bool hasSliceReport = false;
     bool hasFdmSliceReport = false;
     bool hasPublicWildcardFamily = false;
-    bool hasPlusPublicWildcardFamily = false;
     for (const auto& topic : topics) {
         if (topic.find("/slice/report") != std::string::npos) {
             hasSliceReport = true;
@@ -296,16 +293,11 @@ bool test_subscription_profile_keeps_expected_topic_families() {
             && topic.size() >= 2 && topic.substr(topic.size() - 2) == "/#") {
             hasPublicWildcardFamily = true;
         }
-        if (topic.find("/v1/+/public/") != std::string::npos
-            && topic.size() >= 2 && topic.substr(topic.size() - 2) == "/#") {
-            hasPlusPublicWildcardFamily = true;
-        }
     }
 
     return expect(hasSliceReport, "User slice/report family must exist")
         && expect(hasFdmSliceReport, "User fdmslice/report family must exist")
-        && expect(hasPublicWildcardFamily, "v1 printer/public wildcard family must exist")
-        && expect(hasPlusPublicWildcardFamily, "v1 +/public wildcard family must exist");
+        && expect(hasPublicWildcardFamily, "v1 printer/public wildcard family must exist");
 }
 
 bool test_router_extracts_printer_key_across_topic_families() {
@@ -384,7 +376,7 @@ int main() {
     ok = test_overlay_matches_printer_key_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
     ok = test_printer_subscription_topics_match_spec() && ok;
-    ok = test_subscription_profile_has_6_topics_for_two_printers_fixture() && ok;
+    ok = test_subscription_profile_has_4_topics_for_two_printers_fixture() && ok;
     ok = test_subscription_profile_keeps_expected_topic_families() && ok;
     ok = test_router_extracts_printer_key_across_topic_families() && ok;
     ok = test_telemetry_observation_store_tracks_unknown_signatures() && ok;

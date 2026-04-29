@@ -761,6 +761,14 @@ Tous les topics observés sont importants, mais l’état principal du job doit 
 - store et overlays dans l’application ;
 - UI en lecture seule via bridges propres.
 
+## 15.5 Alignement identifiants et états
+
+- Le cache imprimantes doit conserver `printer_id` et `printer_key` (plus `machine_type`) pour permettre
+  l’overlay temps réel même quand un événement MQTT arrive d’abord sous `deviceKey`.
+- L’overlay temps réel doit essayer `printer_id`, puis fallback `printer_key`.
+- La présence d’un objet `project` n’implique pas à elle seule l’état `PRINTING` :
+  il faut un signal d’activité (ex: `print_status=1`, progression < 100, état texte actif).
+
 ---
 
 # 16. Discovery et observabilité

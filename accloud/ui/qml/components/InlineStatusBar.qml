@@ -9,39 +9,16 @@ Rectangle {
     property string message: ""
     property string operationId: ""
     property string severity: "info" // info | success | warn | error
-
-    function isDarkTheme() {
-        return Theme.themeName === "Dark"
-    }
+    property bool showOperationId: false
 
     function colorSet() {
-        function toned(baseColor) {
-            if (isDarkTheme()) {
-                return {
-                    "bg": Qt.darker(baseColor, 2.8),
-                    "border": Qt.darker(baseColor, 1.9)
-                }
-            }
-            return {
-                "bg": Qt.lighter(baseColor, 1.85),
-                "border": Qt.lighter(baseColor, 1.45)
-            }
-        }
-
-        if (severity === "success") {
-            var successTones = toned(Theme.success)
-            return { "bg": successTones.bg, "border": successTones.border, "dot": Theme.success }
-        }
-        if (severity === "warn") {
-            var warningTones = toned(Theme.warning)
-            return { "bg": warningTones.bg, "border": warningTones.border, "dot": Theme.warning }
-        }
-        if (severity === "error") {
-            var dangerTones = toned(Theme.danger)
-            return { "bg": dangerTones.bg, "border": dangerTones.border, "dot": Theme.danger }
-        }
-        var infoTones = toned(Theme.accent)
-        return { "bg": infoTones.bg, "border": infoTones.border, "dot": Theme.accent }
+        if (severity === "success")
+            return { "bg": Theme.statusSuccessBg, "border": Theme.stateSuccess, "dot": Theme.stateSuccess }
+        if (severity === "warn")
+            return { "bg": Theme.statusWarningBg, "border": Theme.stateWarning, "dot": Theme.stateWarning }
+        if (severity === "error")
+            return { "bg": Theme.statusErrorBg, "border": Theme.stateError, "dot": Theme.stateError }
+        return { "bg": Theme.statusInfoBg, "border": Theme.stateRunning, "dot": Theme.stateRunning }
     }
 
     readonly property var tones: colorSet()
@@ -75,9 +52,10 @@ Rectangle {
         }
 
         Text {
-            visible: root.operationId.length > 0
+            objectName: "inlineStatusOperationId"
+            visible: root.showOperationId && root.operationId.length > 0
             text: root.operationId
-            color: Theme.fgSecondary
+            color: Theme.textMuted
             opacity: 0.9
             font.family: "JetBrains Mono"
             font.pixelSize: Theme.fontCaptionPx

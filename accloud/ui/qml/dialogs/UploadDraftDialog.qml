@@ -23,12 +23,28 @@ AppDialogFrame {
         FormRow {
             labelText: qsTr("Upload profile")
             labelWidth: 100
-            AppComboBox { Layout.fillWidth: true; model: [qsTr("Default"), qsTr("High reliability"), qsTr("Fast")] }
+            AppComboBox {
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "default", "label": qsTr("Default") },
+                    { "value": "high_reliability", "label": qsTr("High reliability") },
+                    { "value": "fast", "label": qsTr("Fast") }
+                ]
+            }
         },
         FormRow {
             labelText: qsTr("Print target")
             labelWidth: 100
-            AppComboBox { Layout.fillWidth: true; model: [qsTr("None"), "M7-Workshop-A", "M5S-Line-2"] }
+            AppComboBox {
+                Layout.fillWidth: true
+                textRole: "label"
+                model: [
+                    { "value": "", "label": qsTr("None") },
+                    { "value": "m7_workshop_a", "label": qsTr("M7-Workshop-A") },
+                    { "value": "m5s_line_2", "label": qsTr("M5S-Line-2") }
+                ]
+            }
         },
         AppCheckBox { text: qsTr("Print after upload") },
         AppCheckBox { text: qsTr("Delete after print") },

@@ -8,6 +8,7 @@ RowLayout {
 
     property bool loading: false
     property bool debugChecked: false
+    property bool showDebugControls: false
 
     signal refreshRequested()
     signal debugToggled(bool checked)
@@ -25,6 +26,7 @@ RowLayout {
 
     AppCheckBox {
         objectName: "debugLabelsToggle"
+        visible: root.showDebugControls
         text: qsTr("Debug UI")
         checked: root.debugChecked
         onToggled: root.debugToggled(checked)
