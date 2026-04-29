@@ -24,6 +24,8 @@ AppDialogFrame {
     property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
     property string remotePrintBlockReason: ""
+    property bool remotePrintPreparing: false
+    property string remotePrintPrepareMessage: ""
     property var translateLocalizedTextProvider: null
 
     signal remotePrinterChanged(string printerId)
@@ -176,14 +178,18 @@ AppDialogFrame {
 
     Text {
         Layout.fillWidth: true
-        visible: !root.remotePrintAllowed
-        text: root.remotePrintBlockReason.length > 0
+        visible: root.remotePrintPreparing || !root.remotePrintAllowed
+        text: root.remotePrintPreparing
+              ? (root.remotePrintPrepareMessage.length > 0
+                 ? root.remotePrintPrepareMessage
+                 : qsTr("Checking printer compatibility..."))
+              : root.remotePrintBlockReason.length > 0
               ? (qsTr("Start blocked: %1").arg(
                      typeof root.translateLocalizedTextProvider === "function"
                      ? String(root.translateLocalizedTextProvider(root.remotePrintBlockReason))
                      : root.remotePrintBlockReason))
               : qsTr("Start blocked by compatibility checks.")
-        color: Theme.danger
+        color: root.remotePrintPreparing ? Theme.fgSecondary : Theme.danger
         font.pixelSize: Theme.fontCaptionPx
         wrapMode: Text.WordWrap
     }
@@ -195,9 +201,11 @@ AppDialogFrame {
             onClicked: root.closeRequested()
         },
         AppButton {
+            objectName: "remotePrintStartButton"
             text: qsTr("Start Printing")
             variant: "primary"
-            enabled: root.selectedCloudFileId.length > 0
+            enabled: !root.remotePrintPreparing
+                     && root.selectedCloudFileId.length > 0
                      && root.remotePrinterId.length > 0
                      && root.remotePrintAllowed
             onClicked: root.startRequested()

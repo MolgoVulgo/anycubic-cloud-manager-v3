@@ -12,6 +12,7 @@ Item {
     property bool embeddedInTabsContainer: false
     property bool deferStartupInitialization: false
     signal statusBroadcast(string message, string severity, string operationId)
+    signal remotePrintAccepted(string printerId, string taskId)
 
     property bool loading: false
     property string statusMsg: qsTr("Ready.")
@@ -38,6 +39,9 @@ Item {
     property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
     property string remotePrintBlockReason: ""
+    property bool remotePrintPreparing: false
+    property string remotePrintPrepareMessage: ""
+    property var remotePrintCompatibilityResult: null
     property var selectedPrinterDetails: ({})
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
@@ -51,6 +55,7 @@ Item {
     property bool startupInitialized: false
     property bool startupJobsRefreshed: false
     property var printerHadActiveJobById: ({})
+    property var pendingRemotePrintByPrinterId: ({})
     property string lastJobsRefreshReason: ""
     property string mqttDetailsTitle: ""
     property string mqttDetailsText: ""
@@ -784,7 +789,13 @@ Item {
 
     function setLiveProjectFromList(projectsList) {
         var active = firstActiveProject(projectsList)
-        liveProjectData = active ? active : ({})
+        if (active) {
+            clearPendingRemotePrint(String(active.printerId || selectedPrinterId || ""))
+            liveProjectData = active
+        } else {
+            var pending = pendingRemotePrintForPrinter(selectedPrinterId)
+            liveProjectData = pending ? pending : ({})
+        }
         refreshSelectedPrinterLiveSnapshot()
     }
 
@@ -865,6 +876,14 @@ Item {
         var merged = {}
         for (var key in selected)
             merged[key] = selected[key]
+
+        var selectedId = String(selected.id || selectedPrinterId || "")
+        var pendingPrint = pendingRemotePrintForPrinter(selectedId)
+        var selectedState = String(selected.state || "").toUpperCase()
+        if (pendingPrint && selectedState !== "PRINTING") {
+            merged.state = "PRINTING"
+            merged.reason = qsTr("Print order accepted; waiting for printer telemetry")
+        }
 
         function durationFromValue(raw) {
             var numeric = Number(raw)
@@ -975,6 +994,57 @@ Item {
         }
 
         return merged
+    }
+
+    function pendingRemotePrintForPrinter(printerId) {
+        var key = String(printerId || "").trim()
+        if (key.length === 0)
+            return null
+        var pending = pendingRemotePrintByPrinterId[key]
+        return pending !== undefined && pending !== null ? pending : null
+    }
+
+    function markRemotePrintAccepted(printerId, fileData, taskId) {
+        var key = String(printerId || "").trim()
+        if (key.length === 0)
+            return
+        var fileName = String(fileData && fileData.fileName !== undefined ? fileData.fileName : "").trim()
+        var fileId = String(fileData && fileData.fileId !== undefined ? fileData.fileId : selectedCloudFileId).trim()
+        var next = {}
+        for (var existingKey in pendingRemotePrintByPrinterId)
+            next[existingKey] = pendingRemotePrintByPrinterId[existingKey]
+        next[key] = {
+            "taskId": String(taskId || ""),
+            "printerId": key,
+            "gcodeName": fileName.length > 0 ? fileName : fileId,
+            "currentFile": fileName.length > 0 ? fileName : fileId,
+            "fileId": fileId,
+            "printStatus": 1,
+            "progress": -1,
+            "currentLayer": -1,
+            "totalLayers": -1,
+            "elapsedSec": -1,
+            "remainingSec": -1,
+            "reason": qsTr("Waiting for printer telemetry"),
+            "createTime": Math.floor(Date.now() / 1000),
+            "endTime": 0,
+            "img": ""
+        }
+        pendingRemotePrintByPrinterId = next
+        liveProjectData = next[key]
+        refreshSelectedPrinterLiveSnapshot()
+    }
+
+    function clearPendingRemotePrint(printerId) {
+        var key = String(printerId || "").trim()
+        if (key.length === 0 || pendingRemotePrintByPrinterId[key] === undefined)
+            return
+        var next = {}
+        for (var existingKey in pendingRemotePrintByPrinterId) {
+            if (existingKey !== key)
+                next[existingKey] = pendingRemotePrintByPrinterId[existingKey]
+        }
+        pendingRemotePrintByPrinterId = next
     }
 
     function choosePrinter(printerId) {
@@ -1490,7 +1560,21 @@ Item {
         var serverCompatByPrinterId = {}
         var hasServerCompatibility = false
 
-        if (hasFileData && hasCompatibilityByFileIdEndpoint()) {
+        if (hasFileData && remotePrintCompatibilityResult !== null && remotePrintCompatibilityResult !== undefined) {
+            if (remotePrintCompatibilityResult.ok === true) {
+                var cachedCompatPrinters = remotePrintCompatibilityResult.printers !== undefined ? remotePrintCompatibilityResult.printers : []
+                for (var cachedCp = 0; cachedCp < cachedCompatPrinters.length; ++cachedCp) {
+                    var cachedCompatEntry = cachedCompatPrinters[cachedCp]
+                    var cachedCompatPrinterId = String(cachedCompatEntry && cachedCompatEntry.id !== undefined ? cachedCompatEntry.id : "")
+                    if (cachedCompatPrinterId.length <= 0)
+                        continue
+                    if (!compatibilityEntryAllows(cachedCompatEntry))
+                        continue
+                    serverCompatByPrinterId[cachedCompatPrinterId] = true
+                }
+                hasServerCompatibility = true
+            }
+        } else if (hasFileData && hasCompatibilityByFileIdEndpoint()) {
             var fileId = String(fileData.fileId || "").trim()
             if (fileId.length > 0) {
                 var compatByFile = cloudBridge.fetchCompatiblePrintersByFileId(fileId)
@@ -1583,10 +1667,34 @@ Item {
             return
         }
 
+        setSingleRemotePrintFile(normalizedFileId, normalizedFileName)
+        remotePrintCompatibilityResult = null
+        remoteCompatiblePrintersModel.clear()
+        remotePrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
+        remotePrintPreparing = true
+        remotePrintPrepareMessage = qsTr("Checking printer compatibility...")
+        remotePrintAllowed = false
+        remotePrintBlockReason = ""
+        optionDeleteAfterPrint = false
+        remotePrintConfigDialog.open()
+
+        Qt.callLater(function() {
+            root.prepareRemotePrintDialog(normalizedFileId, normalizedFileName)
+        })
+    }
+
+    function prepareRemotePrintDialog(fileId, fileName) {
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+
         if (printersModel.count <= 0)
             loadPrinters()
         if (printersModel.count <= 0) {
-            statusMsg = qsTr("No printer available for remote print.")
+            remotePrintPreparing = false
+            remotePrintAllowed = false
+            remotePrintPrepareMessage = ""
+            remotePrintBlockReason = qsTr("No printer available for remote print.")
+            statusMsg = remotePrintBlockReason
             statusSev = "warn"
             return
         }
@@ -1602,13 +1710,17 @@ Item {
             var fileCompat = cloudBridge.fetchCompatiblePrintersByFileId(normalizedFileId)
             if (fileCompat.ok === true) {
                 compatResult = fileCompat
+                remotePrintCompatibilityResult = fileCompat
                 var byFilePrinterId = preferredCompatiblePrinterId(fileCompat, preferredPrinterId)
                 if (byFilePrinterId.length > 0)
                     targetPrinterId = byFilePrinterId
                 else {
-                    statusMsg = qsTr("Print blocked: %1")
-                            .arg(compatibilityFailureReason(fileCompat,
-                                                            qsTr("No compatible printer available for this file.")))
+                    remotePrintPreparing = false
+                    remotePrintAllowed = false
+                    remotePrintPrepareMessage = ""
+                    remotePrintBlockReason = compatibilityFailureReason(fileCompat,
+                                                                        qsTr("No compatible printer available for this file."))
+                    statusMsg = qsTr("Print blocked: %1").arg(remotePrintBlockReason)
                     statusSev = "warn"
                     return
                 }
@@ -1624,13 +1736,17 @@ Item {
                 var extCompat = cloudBridge.fetchCompatiblePrintersByExt(ext)
                 if (extCompat.ok === true) {
                     compatResult = extCompat
+                    remotePrintCompatibilityResult = extCompat
                     var byExtPrinterId = preferredCompatiblePrinterId(extCompat, preferredPrinterId)
                     if (byExtPrinterId.length > 0)
                         targetPrinterId = byExtPrinterId
                     else {
-                        statusMsg = qsTr("Print blocked: %1")
-                                .arg(compatibilityFailureReason(extCompat,
-                                                                qsTr("No compatible printer available for this file type.")))
+                        remotePrintPreparing = false
+                        remotePrintAllowed = false
+                        remotePrintPrepareMessage = ""
+                        remotePrintBlockReason = compatibilityFailureReason(extCompat,
+                                                                            qsTr("No compatible printer available for this file type."))
+                        statusMsg = qsTr("Print blocked: %1").arg(remotePrintBlockReason)
                         statusSev = "warn"
                         return
                     }
@@ -1643,15 +1759,21 @@ Item {
         if (targetPrinterId.length === 0)
             targetPrinterId = firstPrinterId()
         if (targetPrinterId.length === 0) {
-            statusMsg = qsTr("No printer available for remote print.")
+            remotePrintPreparing = false
+            remotePrintAllowed = false
+            remotePrintPrepareMessage = ""
+            remotePrintBlockReason = qsTr("No printer available for remote print.")
+            statusMsg = remotePrintBlockReason
             statusSev = "warn"
             return
         }
 
         choosePrinter(targetPrinterId)
         remotePrinterId = targetPrinterId
-        setSingleRemotePrintFile(normalizedFileId, normalizedFileName)
-        openRemotePrintConfig()
+        rebuildRemoteCompatiblePrintersModel()
+        refreshRemotePrintGuard()
+        remotePrintPreparing = false
+        remotePrintPrepareMessage = ""
 
         if (compatibilityChecked && compatibilityFailed && (compatResult === null || compatResult === undefined)) {
             statusMsg = qsTr("Compatibility check failed. Continuing with best-effort printer selection.")
@@ -2046,14 +2168,22 @@ Item {
             return
 
         optionDeleteAfterPrint = false
-        rebuildRemoteCompatiblePrintersModel()
-        remotePrintAllowed = true
-        remotePrintBlockReason = ""
-        refreshRemotePrintGuard()
+        if (!remotePrintPreparing) {
+            rebuildRemoteCompatiblePrintersModel()
+            remotePrintAllowed = true
+            remotePrintBlockReason = ""
+            refreshRemotePrintGuard()
+        }
         remotePrintConfigDialog.open()
     }
 
     function startRemotePrint() {
+        if (remotePrintPreparing) {
+            statusMsg = qsTr("Remote print setup is still loading.")
+            statusSev = "warn"
+            return
+        }
+
         if (remotePrinterId.length === 0) {
             statusMsg = qsTr("Select a printer first.")
             statusSev = "warn"
@@ -2096,15 +2226,20 @@ Item {
                                            false)
         if (r.ok === true) {
             var taskId = String(r.taskId || "")
-            statusMsg = taskId.length > 0
+            var successMessage = taskId.length > 0
                     ? (qsTr("Print order sent (task_id=%1)").arg(taskId))
                     : qsTr("Print order sent.")
-            statusSev = "success"
+            markRemotePrintAccepted(remotePrinterId, fileData, taskId)
             remotePrintConfigDialog.close()
             if (remotePrinterId !== selectedPrinterId)
-                selectedPrinterId = remotePrinterId
+                choosePrinter(remotePrinterId)
+            else
+                refreshSelectedPrinterLiveSnapshot()
             refreshSelectedPrinterJobs("print_started", true, false)
             loadPrinters()
+            statusMsg = successMessage
+            statusSev = "success"
+            root.remotePrintAccepted(remotePrinterId, taskId)
         } else {
             statusMsg = qsTr("Print order failed: %1")
                     .arg(backendStatusDetail(r.message, qsTr("Order rejected by backend.")))
@@ -2271,6 +2406,8 @@ Item {
                              : "-"
         selectedPrintTime: selectedCloudFileData() ? String(selectedCloudFileData().printTime || "-") : "-"
         selectedResinUsage: selectedCloudFileData() ? String(selectedCloudFileData().resinUsage || "-") : "-"
+        remotePrintPreparing: root.remotePrintPreparing
+        remotePrintPrepareMessage: root.remotePrintPrepareMessage
         optionDeleteAfterPrint: root.optionDeleteAfterPrint
         optionLiftCompensation: root.optionLiftCompensation
         optionAutoResinCheck: root.optionAutoResinCheck
@@ -2301,6 +2438,7 @@ Item {
     PrinterMainPanel {
         embeddedInTabsContainer: root.embeddedInTabsContainer
         loading: root.loading
+        debugUi: root.debugUi
         showDebugLabels: root.showDebugLabels
         localFilePrintEnabled: root.localFilePrintEnabled
         printersModel: printersModel

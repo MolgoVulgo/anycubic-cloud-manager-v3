@@ -7,6 +7,7 @@ AppPageFrame {
     id: root
 
     property bool loading: false
+    property bool debugUi: false
     property bool showDebugLabels: false
     property bool localFilePrintEnabled: true
     property var printersModel: null
@@ -62,6 +63,7 @@ AppPageFrame {
     PrinterToolbar {
         loading: root.loading
         debugChecked: root.showDebugLabels
+        showDebugControls: root.debugUi || root.showDebugLabels
         onRefreshRequested: root.refreshRequested()
         onDebugToggled: function(checked) { root.debugToggled(checked) }
     }
