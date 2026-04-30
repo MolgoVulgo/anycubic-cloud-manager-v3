@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QAbstractListModel>
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
@@ -14,6 +15,8 @@ class QTimer;
 
 namespace accloud {
 
+class MqttTailModel;
+
 class MqttBridge : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
@@ -23,6 +26,7 @@ class MqttBridge : public QObject {
     Q_PROPERTY(QStringList receivedTopics READ receivedTopics NOTIFY receivedTopicsChanged)
     Q_PROPERTY(quint64 messageTick READ messageTick NOTIFY messageTickChanged)
     Q_PROPERTY(QString rawBuffer READ rawBuffer NOTIFY rawBufferChanged)
+    Q_PROPERTY(QAbstractListModel* tailModel READ tailModel CONSTANT)
     Q_PROPERTY(QString telemetrySnapshot READ telemetrySnapshot NOTIFY telemetrySnapshotChanged)
     Q_PROPERTY(quint64 connectErrors READ connectErrors NOTIFY telemetryMetricsChanged)
     Q_PROPERTY(quint64 parseErrors READ parseErrors NOTIFY telemetryMetricsChanged)
@@ -42,6 +46,7 @@ public:
     QStringList receivedTopics() const;
     quint64 messageTick() const;
     QString rawBuffer() const;
+    QAbstractListModel* tailModel();
     QString telemetrySnapshot() const;
     quint64 connectErrors() const;
     quint64 parseErrors() const;
@@ -95,6 +100,7 @@ private:
     std::set<std::string> m_subscribedTopics;
     std::set<std::string> m_receivedTopicSet;
     std::deque<std::pair<QString, QString>> m_topicMessageHistory;
+    MqttTailModel* m_tailModel{nullptr};
     quint64 m_messageTick{0};
     QString m_rawBuffer;
     QString m_telemetrySnapshot;

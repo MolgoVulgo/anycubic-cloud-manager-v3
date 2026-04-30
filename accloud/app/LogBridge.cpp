@@ -1,5 +1,6 @@
 #include "LogBridge.h"
 
+#include "LogTailModel.h"
 #include "UiPerfTrace.h"
 #include "infra/logging/JsonlLogger.h"
 
@@ -184,7 +185,11 @@ QVariantMap toVariantMap(const Entry& entry) {
 
 } // namespace
 
-LogBridge::LogBridge(QObject* parent) : QObject(parent) {}
+LogBridge::LogBridge(QObject* parent) : QObject(parent), m_tailModel(new LogTailModel(this)) {}
+
+QAbstractListModel* LogBridge::tailModel() {
+  return m_tailModel;
+}
 
 QVariantMap LogBridge::fetchSnapshot(int maxLines) const {
   UiPerfTrace perf("log_bridge.fetch_snapshot");

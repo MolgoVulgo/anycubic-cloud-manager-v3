@@ -150,6 +150,8 @@ if(ACCLOUD_ENABLE_QT)
         app/CloudBridge.h
         app/MqttBridge.cpp
         app/MqttBridge.h
+        app/MqttTailModel.cpp
+        app/MqttTailModel.h
         app/PrintersModel.cpp
         app/PrintersModel.h
         app/RecentJobsModel.cpp
@@ -167,6 +169,8 @@ if(ACCLOUD_ENABLE_QT)
           app/resources_debug.qrc
           app/LogBridge.cpp
           app/LogBridge.h
+          app/LogTailModel.cpp
+          app/LogTailModel.h
           app/UiClickTracer.cpp
           app/UiClickTracer.h
       )
@@ -208,6 +212,10 @@ if(ACCLOUD_ENABLE_QT)
           tests/ui/tst_ui_main.cpp
           app/CloudFilesModel.cpp
           app/CloudFilesModel.h
+          app/LogTailModel.cpp
+          app/LogTailModel.h
+          app/MqttTailModel.cpp
+          app/MqttTailModel.h
           app/PrintersModel.cpp
           app/PrintersModel.h
           app/RecentJobsModel.cpp
@@ -284,6 +292,7 @@ if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
   add_executable(accloud_log_tests
       tests/cloud/test_log_bridge.cpp
       app/LogBridge.cpp
+      app/LogTailModel.cpp
   )
   target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
   add_test(NAME accloud_log_flow COMMAND accloud_log_tests)

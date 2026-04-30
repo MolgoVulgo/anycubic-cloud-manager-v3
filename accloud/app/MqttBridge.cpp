@@ -1,5 +1,6 @@
 #include "MqttBridge.h"
 
+#include "MqttTailModel.h"
 #include "UiPerfTrace.h"
 #include "app/realtime/PrinterRealtimeStore.h"
 #include "app/usecases/cloud/LoadPrintersDashboardUseCase.h"
@@ -483,7 +484,7 @@ QString formatTelemetrySnapshot() {
 } // namespace
 
 MqttBridge::MqttBridge(QObject* parent)
-    : QObject(parent) {
+    : QObject(parent), m_tailModel(new MqttTailModel(this)) {
     setStatus(QStringLiteral("idle"));
     setConnectionState(QStringLiteral("Disconnected"));
     m_subscriptionRefreshTimer = new QTimer(this);
@@ -553,6 +554,11 @@ MqttBridge::MqttBridge(QObject* parent)
             while (m_topicMessageHistory.size() > kMaxTopicMessageHistory) {
                 m_topicMessageHistory.pop_front();
             }
+            m_tailModel->appendMessage(ts,
+                                       topicName,
+                                       QString::fromStdString(redactedPayload),
+                                       static_cast<qsizetype>(payload.size()),
+                                       messageLine);
             ++m_messageTick;
             emit messageTickChanged();
 
@@ -794,6 +800,10 @@ QString MqttBridge::rawBuffer() const {
     return m_rawBuffer;
 }
 
+QAbstractListModel* MqttBridge::tailModel() {
+    return m_tailModel;
+}
+
 QString MqttBridge::telemetrySnapshot() const {
     return m_telemetrySnapshot;
 }
@@ -943,11 +953,17 @@ void MqttBridge::clearRaw() {
         ++m_messageTick;
         emit messageTickChanged();
     }
+    if (m_tailModel != nullptr) {
+        m_tailModel->clear();
+    }
     m_rawBuffer.clear();
     emit rawBufferChanged();
 }
 
 QString MqttBridge::messagesForTopic(const QString& topic) const {
+    if (m_tailModel != nullptr) {
+        return m_tailModel->messagesForTopic(topic);
+    }
     const QString needle = topic.trimmed();
     QStringList out;
     out.reserve(static_cast<int>(m_topicMessageHistory.size()));

@@ -12,10 +12,12 @@ Item {
 
     property var logBackend: (typeof logBridge !== "undefined") ? logBridge : null
     property var allEntries: []
+    property var logTailModel: (logBackend && logBackend.tailModel) ? logBackend.tailModel : null
     property int maxTailLines: 1000
     property int shownCount: 0
     property int totalCount: 0
     property string statusText: qsTr("Ready.")
+    property string renderedLogText: ""
     property bool demoMode: false
     property bool loading: false
 
@@ -245,20 +247,43 @@ Item {
         for (var i = 0; i < incoming.length; ++i) {
             normalized.push(normalizeEntry(incoming[i]))
         }
-        root.allEntries = normalized
-        root.totalCount = normalized.length
+        if (root.logTailModel) {
+            root.logTailModel.replaceEntries(incoming)
+            root.totalCount = root.logTailModel.totalCount
+        } else {
+            root.allEntries = normalized
+            root.totalCount = normalized.length
+        }
         updateDynamicFilters(snapshot)
         applyFilters()
         root.loading = false
     }
 
     function applyFilters() {
+        var selectedLevel = comboSelectedValue(logLevelFilter, "all")
         var selectedSource = comboSelectedValue(logSourceFilter, "__all__")
         var selectedComponent = comboSelectedValue(logComponentFilter, "__all__")
         var selectedEvent = comboSelectedValue(logEventFilter, "__all__")
         var exactOpId = logOpIdFilter.text.trim()
         var queryText = logQueryFilter.text.trim().toLowerCase()
         var requiredRank = minLevelRank()
+
+        if (root.logTailModel) {
+            root.logTailModel.minLevel = selectedLevel
+            root.logTailModel.sourceFilter = selectedSource
+            root.logTailModel.componentFilter = selectedComponent
+            root.logTailModel.eventFilter = selectedEvent
+            root.logTailModel.opIdFilter = exactOpId
+            root.logTailModel.queryFilter = queryText
+            root.shownCount = root.logTailModel.count
+            root.totalCount = root.logTailModel.totalCount
+            root.renderedLogText = root.logTailModel.visibleText()
+            var modelModeLabel = root.demoMode ? qsTr("Demo mode") : qsTr("Live mode")
+            root.statusText = modelModeLabel
+                     + qsTr(" • ") + root.shownCount + "/" + root.totalCount + qsTr(" line(s)")
+                     + qsTr(" • ") + (logSourceFilter.count - 1) + qsTr(" source(s)")
+            return
+        }
 
         var rendered = []
         for (var i = 0; i < root.allEntries.length; ++i) {
@@ -278,7 +303,7 @@ Item {
         }
 
         root.shownCount = rendered.length
-        logsArea.text = rendered.join("\n")
+        root.renderedLogText = rendered.join("\n")
 
         var modeLabel = root.demoMode ? qsTr("Demo mode") : qsTr("Live mode")
         root.statusText = modeLabel
@@ -453,19 +478,30 @@ Item {
                     active: true
                 }
 
-                TextArea {
-                    id: logsArea
-                    objectName: "logsTextArea"
-                    width: Math.max(logsScrollView.availableWidth, implicitWidth)
-                    height: Math.max(logsScrollView.availableHeight, implicitHeight)
-                    readOnly: true
-                    font.family: "JetBrains Mono"
-                    color: Theme.mono
-                    wrapMode: TextEdit.NoWrap
-                    selectByMouse: true
-                    placeholderText: qsTr("No log lines for current filters.")
-                    background: null
+                ListView {
+                    id: logsList
+                    width: logsScrollView.availableWidth
+                    height: logsScrollView.availableHeight
+                    model: root.logTailModel
+                    clip: true
+                    cacheBuffer: 1000
+                    delegate: Text {
+                        width: logsList.width
+                        text: String(model.formatted || "")
+                        color: Theme.mono
+                        font.family: "JetBrains Mono"
+                        font.pixelSize: Theme.fontCaptionPx
+                        elide: Text.ElideRight
+                    }
                 }
+            }
+
+            TextArea {
+                id: logsArea
+                objectName: "logsTextArea"
+                visible: false
+                text: root.renderedLogText
+                readOnly: true
             }
         }
     }
