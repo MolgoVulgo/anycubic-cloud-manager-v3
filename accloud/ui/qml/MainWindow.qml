@@ -189,6 +189,18 @@ ApplicationWindow {
         sessionDetailsDialog.open()
     }
 
+    function applyStartupCheckResult(check) {
+        if (check.sessionExists === true && check.connectionOk === true) {
+            root.statusText = qsTr("Active session. Auto-refresh every 30s.")
+        } else {
+            var startupText = backendStatusText(check.message, qsTr("Session validation required."))
+            root.statusText = startupText
+            sessionDialog.startupMessage = startupText
+            sessionDialog.mandatoryMode = true
+            sessionDialog.open()
+        }
+    }
+
     Component.onCompleted: {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
@@ -204,17 +216,23 @@ ApplicationWindow {
                 root.sessionTargetPath = String(sessionImportBridge.defaultSessionPath())
             }
 
-            var check = sessionImportBridge.checkStartup()
-            if (check.sessionExists === true && check.connectionOk === true) {
-                root.statusText = qsTr("Active session. Auto-refresh every 30s.")
-            } else {
-                var startupText = backendStatusText(check.message, qsTr("Session validation required."))
-                root.statusText = startupText
-                sessionDialog.startupMessage = startupText
-                sessionDialog.mandatoryMode = true
-                sessionDialog.open()
+            if (typeof sessionImportBridge.checkStartupAsync === "function") {
+                root.statusText = qsTr("Checking active session...")
+                sessionImportBridge.checkStartupAsync()
+                return
             }
+            root.applyStartupCheckResult(sessionImportBridge.checkStartup())
         })
+    }
+
+    Connections {
+        target: (typeof sessionImportBridge !== "undefined"
+                 && sessionImportBridge !== null) ? sessionImportBridge : null
+        ignoreUnknownSignals: true
+
+        function onStartupCheckFinished(result) {
+            root.applyStartupCheckResult(result)
+        }
     }
 
     component HeaderActionButton: AppButton {
@@ -1092,10 +1110,21 @@ ApplicationWindow {
                             }
                         }
 
-                        Pages.MqttPage {
-                            id: mqttPage
-                            objectName: "mqttPage"
-                            embeddedInTabsContainer: true
+                        Item {
+                            objectName: "mqttPageHost"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Loader {
+                                id: mqttPageLoader
+                                anchors.fill: parent
+                                active: controlTabs.currentIndex === 2 || item !== null
+                                sourceComponent: Pages.MqttPage {
+                                    objectName: "mqttPage"
+                                    embeddedInTabsContainer: true
+                                    pageActive: controlTabs.currentIndex === 2
+                                }
+                            }
                         }
 
                         Item {
@@ -1106,7 +1135,7 @@ ApplicationWindow {
                             Loader {
                                 id: logPageLoader
                                 anchors.fill: parent
-                                active: root.buildDebugEnabled
+                                active: root.buildDebugEnabled && controlTabs.currentIndex === 3
                                 source: "pages/LogPage.qml"
                             }
 

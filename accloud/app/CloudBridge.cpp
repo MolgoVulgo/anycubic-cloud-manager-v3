@@ -1,6 +1,7 @@
 #include "CloudBridge.h"
 
 #include "LocalCacheStore.h"
+#include "UiPerfTrace.h"
 #include "app/realtime/PrinterRealtimeStore.h"
 #include "app/usecases/cloud/DeleteCloudFileUseCase.h"
 #include "app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.h"
@@ -926,6 +927,9 @@ QVariantMap CloudBridge::fetchQuotaWithRetry(QString& message, bool& ok) const {
 }
 
 QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
+    UiPerfTrace perf("cloud_bridge.load_cached_files");
+    perf.setField("page", std::to_string(page));
+    perf.setField("limit", std::to_string(limit));
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
@@ -941,6 +945,7 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
 
     // Keep startup path fast: avoid eager thumbnail probing for the whole list on UI thread.
     QVariantList files = m_cache->loadFiles(page, limit);
+    perf.setCount("items", files.size());
     out.insert("ok", true);
     out.insert("message", files.isEmpty()
                              ? QStringLiteral("Aucune donnée cache.")
@@ -962,7 +967,20 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
     return out;
 }
 
+void CloudBridge::loadCachedFilesAsync(int page, int limit) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    launchBackgroundTask([this, page, limit]() {
+        const QVariantMap result = loadCachedFiles(page, limit);
+        QMetaObject::invokeMethod(this, [this, result]() {
+            emit cachedFilesLoaded(result);
+        }, Qt::QueuedConnection);
+    });
+}
+
 QVariantMap CloudBridge::loadCachedPrinters() const {
+    UiPerfTrace perf("cloud_bridge.load_cached_printers");
     QVariantMap out;
     if constexpr (kDebugBuildEnabled) {
         out.insert("endpoint", QStringLiteral(
@@ -984,6 +1002,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     }
 
     const QVariantList cachedPrinters = m_cache->loadPrinters();
+    perf.setCount("cached_printers", cachedPrinters.size());
     const auto realtimeSnapshots = accloud::realtime::PrinterRealtimeStore::instance().snapshotAll();
     QVariantList printers;
     printers.reserve(cachedPrinters.size());
@@ -1034,6 +1053,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         applyRealtimeOverlayToPrinterMap(printer, realtimeSnapshots);
         printers.append(printer);
     }
+    perf.setCount("items", printers.size());
     out.insert("ok", true);
     out.insert("message", printers.isEmpty()
                              ? QStringLiteral("Aucune imprimante en cache.")
@@ -1048,6 +1068,18 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
     out.insert("printers", printers);
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::loadCachedPrintersAsync() {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    launchBackgroundTask([this]() {
+        const QVariantMap result = loadCachedPrinters();
+        QMetaObject::invokeMethod(this, [this, result]() {
+            emit cachedPrintersLoaded(result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 QVariantMap CloudBridge::loadCachedQuota() const {
@@ -1086,6 +1118,18 @@ QVariantMap CloudBridge::loadCachedQuota() const {
     out.insert("usedBytes", quota.value("usedBytes"));
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::loadCachedQuotaAsync() {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    launchBackgroundTask([this]() {
+        const QVariantMap result = loadCachedQuota();
+        QMetaObject::invokeMethod(this, [this, result]() {
+            emit cachedQuotaLoaded(result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
@@ -1425,6 +1469,19 @@ QVariantMap CloudBridge::deleteFile(const QString& fileId) const {
     return out;
 }
 
+void CloudBridge::deleteFileAsync(const QString& fileId) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedFileId = fileId.trimmed();
+    launchBackgroundTask([this, normalizedFileId]() {
+        const QVariantMap result = deleteFile(normalizedFileId);
+        QMetaObject::invokeMethod(this, [this, normalizedFileId, result]() {
+            emit deleteFileFinished(normalizedFileId, result);
+        }, Qt::QueuedConnection);
+    });
+}
+
 // ── getDownloadUrl ────────────────────────────────────────────────────────
 
 QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
@@ -1444,6 +1501,19 @@ QVariantMap CloudBridge::getDownloadUrl(const QString& fileId) const {
         out.insert("url", QString::fromStdString(r.url));
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::getDownloadUrlAsync(const QString& fileId) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedFileId = fileId.trimmed();
+    launchBackgroundTask([this, normalizedFileId]() {
+        const QVariantMap result = getDownloadUrl(normalizedFileId);
+        QMetaObject::invokeMethod(this, [this, normalizedFileId, result]() {
+            emit downloadUrlReady(normalizedFileId, result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
@@ -1784,6 +1854,9 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
 }
 
 QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int page, int limit) const {
+    UiPerfTrace perf("cloud_bridge.load_cached_printer_projects");
+    perf.setField("page", std::to_string(page));
+    perf.setField("limit", std::to_string(limit));
     QVariantMap out;
     out.insert("ok", false);
     out.insert("message", QStringLiteral("Cache local indisponible."));
@@ -1795,6 +1868,7 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     }
 
     const QString normalizedPrinterId = printerId.trimmed();
+    perf.setField("printer_id_present", normalizedPrinterId.isEmpty() ? "0" : "1");
     if (normalizedPrinterId.isEmpty()) {
         out.insert("message", QStringLiteral("printer_id requis."));
         out.insert("messageKey", QStringLiteral("cloud.printer_id.required"));
@@ -1809,6 +1883,7 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     }
 
     const QVariantList projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
+    perf.setCount("items", projects.size());
     out.insert("ok", true);
     out.insert("message", projects.isEmpty()
                              ? QStringLiteral("Aucun job en cache pour cette imprimante.")
@@ -1828,6 +1903,19 @@ QVariantMap CloudBridge::loadCachedPrinterProjects(const QString& printerId, int
     out.insert("projects", projects);
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::loadCachedPrinterProjectsAsync(const QString& printerId, int page, int limit) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedPrinterId = printerId.trimmed();
+    launchBackgroundTask([this, normalizedPrinterId, page, limit]() {
+        const QVariantMap result = loadCachedPrinterProjects(normalizedPrinterId, page, limit);
+        QMetaObject::invokeMethod(this, [this, normalizedPrinterId, result]() {
+            emit cachedPrinterProjectsLoaded(normalizedPrinterId, result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 // ── sendPrintOrder ────────────────────────────────────────────────────────
@@ -1878,6 +1966,26 @@ QVariantMap CloudBridge::sendPrintOrder(const QString& printerId,
     }
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::sendPrintOrderAsync(const QString& printerId,
+                                      const QString& fileId,
+                                      bool deleteAfterPrint,
+                                      bool dryRun) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedPrinterId = printerId.trimmed();
+    const QString normalizedFileId = fileId.trimmed();
+    launchBackgroundTask([this, normalizedPrinterId, normalizedFileId, deleteAfterPrint, dryRun]() {
+        const QVariantMap result = sendPrintOrder(normalizedPrinterId,
+                                                  normalizedFileId,
+                                                  deleteAfterPrint,
+                                                  dryRun);
+        QMetaObject::invokeMethod(this, [this, normalizedPrinterId, normalizedFileId, result]() {
+            emit printOrderFinished(normalizedPrinterId, normalizedFileId, result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,

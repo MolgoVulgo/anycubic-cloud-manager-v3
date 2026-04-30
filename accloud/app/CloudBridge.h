@@ -35,9 +35,11 @@ public:
 
     // Retourne { ok, message }
     Q_INVOKABLE QVariantMap deleteFile(const QString& fileId) const;
+    Q_INVOKABLE void deleteFileAsync(const QString& fileId);
 
     // Retourne { ok, message, url }  — ne pas afficher l'url dans l'UI
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
+    Q_INVOKABLE void getDownloadUrlAsync(const QString& fileId);
     // Retourne { ok, message, fileId, gcodeId, uploadStatus }
     Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath) const;
     // Upload asynchrone pour UI avec progression.
@@ -49,6 +51,9 @@ public:
     Q_INVOKABLE QVariantMap loadCachedPrinters() const;
     Q_INVOKABLE void refreshPrintersAsync(bool force = false);
     Q_INVOKABLE QVariantMap loadCachedFiles(int page = 1, int limit = 20) const;
+    Q_INVOKABLE void loadCachedFilesAsync(int page = 1, int limit = 20);
+    Q_INVOKABLE void loadCachedQuotaAsync();
+    Q_INVOKABLE void loadCachedPrintersAsync();
 
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
@@ -76,12 +81,19 @@ public:
     Q_INVOKABLE QVariantMap loadCachedPrinterProjects(const QString& printerId,
                                                       int page = 1,
                                                       int limit = 20) const;
+    Q_INVOKABLE void loadCachedPrinterProjectsAsync(const QString& printerId,
+                                                    int page = 1,
+                                                    int limit = 20);
 
     // Retourne { ok, message, taskId, msgId, correlationTicket, correlationStatus }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
                                            const QString& fileId,
                                            bool deleteAfterPrint = false,
                                            bool dryRun = false) const;
+    Q_INVOKABLE void sendPrintOrderAsync(const QString& printerId,
+                                         const QString& fileId,
+                                         bool deleteAfterPrint = false,
+                                         bool dryRun = false);
     // Retourne { ok, message, taskId, msgId }
     Q_INVOKABLE QVariantMap sendPrinterOrder(const QString& printerId,
                                              int orderId,
@@ -105,6 +117,13 @@ Q_SIGNALS:
                         int uploadStatus,
                         bool unlockOk);
     void filesUpdatedFromCache(const QVariantList& files, const QString& message);
+    void cachedFilesLoaded(const QVariantMap& result);
+    void cachedQuotaLoaded(const QVariantMap& result);
+    void cachedPrintersLoaded(const QVariantMap& result);
+    void cachedPrinterProjectsLoaded(const QString& printerId, const QVariantMap& result);
+    void deleteFileFinished(const QString& fileId, const QVariantMap& result);
+    void downloadUrlReady(const QString& fileId, const QVariantMap& result);
+    void printOrderFinished(const QString& printerId, const QString& fileId, const QVariantMap& result);
     void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
     void printersUpdatedFromCache(const QVariantList& printers, const QString& message);
     void printersUpdatedFromCloud(const QVariantList& printers, const QString& message);

@@ -32,10 +32,6 @@ Rectangle {
     property int visibleCount: 0
     property int pageSize: 10
 
-    property var isIndexOnCurrentPageProvider: null
-    property var fileTypeLabelProvider: null
-    property var displayDateProvider: null
-
     signal selectedFileChanged(string fileId)
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
@@ -45,14 +41,6 @@ Rectangle {
     signal pageSizeSelected(int value)
     signal previousPageRequested()
     signal nextPageRequested()
-
-    function providerBool(provider, i, fileName) {
-        return typeof provider === "function" ? provider(i, fileName) : true
-    }
-
-    function providerText(provider, arg, fallback) {
-        return typeof provider === "function" ? String(provider(arg)) : fallback
-    }
 
     Layout.fillWidth: true
     Layout.fillHeight: true
@@ -95,6 +83,7 @@ Rectangle {
             Layout.fillHeight: true
             clip: true
             spacing: 0
+            cacheBuffer: 480
             model: root.filesModel
 
             ScrollBar.vertical: ScrollBar {
@@ -103,7 +92,6 @@ Rectangle {
             }
 
             delegate: CloudFilesTableRow {
-                rowVisible: root.providerBool(root.isIndexOnCurrentPageProvider, index, model.fileName || "")
                 rowSelected: root.selectedFileId === String(model.fileId)
                 tableRowHorizontalMargin: root.tableRowHorizontalMargin
                 tableViewportWidth: root.tableViewportWidth
@@ -127,8 +115,8 @@ Rectangle {
                 fileName: String(model.fileName || "-")
                 thumbnailUrl: String(model.thumbnailUrl || "")
                 sizeText: String(model.sizeText || "-")
-                fileTypeText: root.providerText(root.fileTypeLabelProvider, model.fileName || "", "-")
-                dateText: root.providerText(root.displayDateProvider, model.uploadTime, "-")
+                fileTypeText: String(model.fileTypeText || "-")
+                dateText: String(model.dateText || "-")
                 onSelectRequested: function(fileId) { root.selectedFileChanged(fileId) }
                 onDetailsRequested: function(fileId) { root.detailsRequested(fileId) }
                 onDownloadRequested: function(fileId, fileName) { root.downloadRequested(fileId, fileName) }

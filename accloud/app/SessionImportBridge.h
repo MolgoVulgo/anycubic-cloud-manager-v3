@@ -25,6 +25,10 @@ class SessionImportBridge : public QObject {
   // Vérifie que session.json existe et que la connexion cloud est valide.
   // Retourne : { sessionExists: bool, connectionOk: bool, message: string }
   Q_INVOKABLE QVariantMap checkStartup() const;
+  Q_INVOKABLE void checkStartupAsync();
+
+ signals:
+  void startupCheckFinished(const QVariantMap& result);
 
  private:
   bool m_hasPendingSession{false};

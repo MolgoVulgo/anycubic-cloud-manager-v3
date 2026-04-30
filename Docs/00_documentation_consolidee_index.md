@@ -21,6 +21,8 @@ Principes:
 
 ### 2. UI / QML
 - `02_ui_qml.md`
+- `ui_latency_performance_analysis.md`
+- `ui_latency_correction_plan.md`
 - cible : shell UI, pages, dialogs, design system, onglets, lots UI, dette visible et cadrage d'implementation.
 
 ### 3. Photon / Viewer / Formats

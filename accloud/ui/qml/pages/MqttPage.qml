@@ -7,6 +7,7 @@ import "../components"
 Item {
     id: root
     property bool embeddedInTabsContainer: false
+    property bool pageActive: true
     property string statusText: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
                                 ? String(mqttBridge.status || "idle")
                                 : "mqtt_unavailable"
@@ -15,6 +16,8 @@ Item {
     property var topicSelectorModel: [qsTr("All topics")]
 
     function filteredRawStream() {
+        if (!root.pageActive)
+            return ""
         var raw = (typeof mqttBridge !== "undefined" && mqttBridge !== null)
                 ? String(mqttBridge.rawBuffer || "")
                 : ""
@@ -88,6 +91,8 @@ Item {
     }
 
     function selectedTopicMessages() {
+        if (!root.pageActive)
+            return ""
         if (typeof mqttBridge === "undefined" || mqttBridge === null)
             return ""
         var _tick = mqttBridge.messageTick
@@ -343,9 +348,13 @@ Item {
             root.statusText = String(mqttBridge.status || "idle")
         }
         function onReceivedTopicsChanged() {
+            if (!root.pageActive)
+                return
             root.rebuildTopicSelectorModel()
         }
         function onMessageTickChanged() {
+            if (!root.pageActive)
+                return
             if (root.selectedTopic.length > 0) {
                 root.rebuildTopicSelectorModel()
             }

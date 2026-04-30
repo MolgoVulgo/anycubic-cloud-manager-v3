@@ -1,5 +1,6 @@
 #include "SessionImportBridge.h"
 
+#include "UiPerfTrace.h"
 #include "app/usecases/cloud/CheckCloudSessionUseCase.h"
 #include "infra/cloud/api/AuthApi.h"
 #include "infra/cloud/core/SessionProvider.h"
@@ -7,6 +8,8 @@
 #include "infra/logging/JsonlLogger.h"
 
 #include <QDir>
+#include <QMetaObject>
+#include <QPointer>
 #include <QStringList>
 
 #include <algorithm>
@@ -14,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace accloud {
@@ -310,11 +314,13 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
 }
 
 QVariantMap SessionImportBridge::checkStartup() const {
+  UiPerfTrace perf("session_import_bridge.check_startup");
   QVariantMap out;
   const cloud::core::SessionProvider sessionProvider;
 
   // 1. Vérifier que session.json existe et est lisible
   const cloud::LoadSessionResult loaded = sessionProvider.loadCurrentSession();
+  perf.setField("session_loaded", loaded.ok ? "1" : "0");
   if (!loaded.ok) {
     logging::info("app", "session_import_bridge", "startup_no_session",
                   "Session introuvable ou invalide",
@@ -346,6 +352,7 @@ QVariantMap SessionImportBridge::checkStartup() const {
                 "Vérification de la connexion cloud au démarrage");
   const usecases::cloud::CheckCloudSessionUseCase checkUseCase;
   const cloud::CloudCheckResult check = checkUseCase.execute();
+  perf.setField("connection_ok", check.ok ? "1" : "0");
 
   out.insert("connectionOk", check.ok);
   out.insert("message", QString::fromStdString(check.message));
@@ -366,6 +373,24 @@ QVariantMap SessionImportBridge::checkStartup() const {
   }
   finalizeUiMessage(out);
   return out;
+}
+
+void SessionImportBridge::checkStartupAsync() {
+  QPointer<SessionImportBridge> self(this);
+  std::thread([self]() {
+    if (self.isNull()) {
+      return;
+    }
+    const QVariantMap result = self->checkStartup();
+    if (self.isNull()) {
+      return;
+    }
+    QMetaObject::invokeMethod(self, [self, result]() {
+      if (!self.isNull()) {
+        emit self->startupCheckFinished(result);
+      }
+    }, Qt::QueuedConnection);
+  }).detach();
 }
 
 } // namespace accloud

@@ -19,6 +19,7 @@ Rectangle {
     property string printersEndpointRawJson: ""
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
+    readonly property string currentPreviewSource: normalizedImageSource(currentFileImageSource())
 
     property var statusChipTextProvider: null
     property var progressTextProvider: null
@@ -544,17 +545,17 @@ Rectangle {
                                         id: currentFilePreviewImage
                                         anchors.fill: parent
                                         anchors.margins: 2
-                                        source: root.normalizedImageSource(root.currentFileImageSource())
+                                        source: root.currentPreviewSource
                                         fillMode: Image.PreserveAspectFit
                                         asynchronous: true
                                         cache: true
                                         smooth: true
-                                        visible: source.toString().length > 0 && status === Image.Ready
+                                        visible: root.currentPreviewSource.length > 0 && status === Image.Ready
                                     }
 
                                     Text {
                                         anchors.centerIn: parent
-                                        visible: root.currentFileImageSource().length <= 0 || currentFilePreviewImage.status === Image.Error
+                                        visible: root.currentPreviewSource.length <= 0 || currentFilePreviewImage.status === Image.Error
                                         text: qsTr("No preview")
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
@@ -620,8 +621,8 @@ Rectangle {
                                         visible: root.showDebugLabels
                                         Layout.fillWidth: true
                                         text: qsTr("Image source: %1").arg(
-                                                  root.currentFileImageSource().length > 0
-                                                  ? root.currentFileImageSource()
+                                                  root.currentPreviewSource.length > 0
+                                                  ? root.currentPreviewSource
                                                   : qsTr("(empty)"))
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
@@ -1003,6 +1004,7 @@ Rectangle {
                             clip: true
                             spacing: 6
                             rightMargin: 14
+                            cacheBuffer: 360
                             model: root.printerHistoryModel
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
@@ -1017,50 +1019,57 @@ Rectangle {
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderSubtle
 
-                                ColumnLayout {
+                                Item {
                                     anchors.fill: parent
                                     anchors.leftMargin: 8
                                     anchors.rightMargin: 18
                                     anchors.topMargin: 8
                                     anchors.bottomMargin: 8
-                                    spacing: 4
 
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
+                                    Rectangle {
+                                        id: recentJobStatusBadge
+                                        objectName: "recentJobStatusBadge"
+                                        readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus)
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        width: Math.max(74, statusText.implicitWidth + 12)
+                                        height: 22
+                                        radius: Theme.radiusControl
+                                        color: statusInfo.bg
+                                        border.width: Theme.borderWidth
+                                        border.color: statusInfo.border
 
                                         Text {
-                                            Layout.fillWidth: true
-                                            text: String(model.gcodeName || "-")
-                                            color: Theme.fgPrimary
-                                            font.pixelSize: Theme.fontBodyPx
+                                            id: statusText
+                                            anchors.centerIn: parent
+                                            text: parent.statusInfo.label
+                                            color: parent.statusInfo.fg
+                                            font.pixelSize: Theme.fontCaptionPx
                                             font.bold: true
-                                            elide: Text.ElideRight
-                                        }
-
-                                        Rectangle {
-                                            objectName: "recentJobStatusBadge"
-                                            readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus)
-                                            radius: Theme.radiusControl
-                                            color: statusInfo.bg
-                                            border.width: Theme.borderWidth
-                                            border.color: statusInfo.border
-                                            implicitHeight: 22
-                                            implicitWidth: Math.max(74, statusText.implicitWidth + 12)
-
-                                            Text {
-                                                id: statusText
-                                                anchors.centerIn: parent
-                                                text: parent.statusInfo.label
-                                                color: parent.statusInfo.fg
-                                                font.pixelSize: Theme.fontCaptionPx
-                                                font.bold: true
-                                            }
                                         }
                                     }
 
                                     Text {
-                                        Layout.fillWidth: true
+                                        id: recentJobNameText
+                                        anchors.left: parent.left
+                                        anchors.right: recentJobStatusBadge.left
+                                        anchors.rightMargin: 8
+                                        anchors.top: parent.top
+                                        height: 22
+                                        text: String(model.gcodeName || "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: recentJobNameText.bottom
+                                        anchors.topMargin: 4
+                                        height: 18
                                         text: qsTr("Start %1 | End %2 | Duration %3")
                                             .arg(root.providerText(root.unixTimeTextProvider, model.createTime, "-"))
                                             .arg(root.providerText(root.unixTimeTextProvider, model.endTime, "-"))
@@ -1068,15 +1077,20 @@ Rectangle {
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                         elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
                                     }
 
                                     Text {
-                                        Layout.fillWidth: true
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        height: 18
                                         text: qsTr("Task %1")
                                             .arg(String(model.taskId || "-"))
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                         elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
                                     }
                                 }
                             }

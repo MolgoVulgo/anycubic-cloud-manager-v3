@@ -1,5 +1,6 @@
 #include "MqttBridge.h"
 
+#include "UiPerfTrace.h"
 #include "app/realtime/PrinterRealtimeStore.h"
 #include "app/usecases/cloud/LoadPrintersDashboardUseCase.h"
 #include "app/usecases/cloud/OrderResponseTracker.h"
@@ -1142,7 +1143,9 @@ void MqttBridge::updateConnected(bool value) {
 }
 
 void MqttBridge::refreshTelemetrySnapshot() {
+    UiPerfTrace perf("mqtt_bridge.refresh_telemetry_snapshot");
     const std::size_t expired = usecases::cloud::OrderResponseTracker::instance().expireTimeouts();
+    perf.setField("expired_orders", std::to_string(expired));
     if (expired > 0) {
         appendRawLine(QStringLiteral("[TRACKER] expired %1 order(s)").arg(static_cast<qulonglong>(expired)));
     }
@@ -1197,6 +1200,7 @@ void MqttBridge::refreshTelemetrySnapshot() {
     if (metricsChanged) {
         emit telemetryMetricsChanged();
     }
+    perf.setField("metrics_changed", metricsChanged ? "1" : "0");
 }
 
 } // namespace accloud

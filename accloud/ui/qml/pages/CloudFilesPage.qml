@@ -28,6 +28,8 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    property int visibleFilesCount: 0
+    property int pageTotal: 1
     readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
@@ -72,6 +74,10 @@ Item {
 
     ListModel {
         id: cloudFilesModel
+    }
+
+    ListModel {
+        id: visibleCloudFilesModel
     }
 
     function hasCloudBridge() {
@@ -358,47 +364,57 @@ Item {
     }
 
     function visibleFileCount() {
-        var count = 0
-        for (var i = 0; i < cloudFilesModel.count; ++i) {
-            var entry = cloudFilesModel.get(i)
-            if (fileMatchesFilter(entry.fileName))
-                count += 1
-        }
-        return count
+        return visibleFilesCount
     }
 
     function totalPages() {
-        var total = visibleFileCount()
-        if (total <= 0)
-            return 1
-        return Math.max(1, Math.ceil(total / pageSize))
+        return pageTotal
     }
 
     function clampCurrentPage() {
-        currentPage = Math.max(0, Math.min(currentPage, totalPages() - 1))
+        currentPage = Math.max(0, Math.min(currentPage, pageTotal - 1))
     }
 
-    function visibleRankForIndex(modelIndex) {
-        var rank = 0
-        for (var i = 0; i < modelIndex; ++i) {
+    function visibleFileRow(entry) {
+        var fileName = String(entry.fileName || "-")
+        return {
+            "fileId": String(entry.fileId || ""),
+            "fileName": fileName,
+            "thumbnailUrl": String(entry.thumbnailUrl || ""),
+            "sizeText": String(entry.sizeText || "-"),
+            "fileTypeText": fileTypeLabel(fileName),
+            "dateText": displayDate(entry.uploadTime)
+        }
+    }
+
+    function rebuildVisibleFilesModel() {
+        var matching = []
+        for (var i = 0; i < cloudFilesModel.count; ++i) {
             var entry = cloudFilesModel.get(i)
             if (fileMatchesFilter(entry.fileName))
-                rank += 1
+                matching.push(visibleFileRow(entry))
         }
-        return rank
+
+        visibleFilesCount = matching.length
+        pageTotal = visibleFilesCount <= 0 ? 1 : Math.max(1, Math.ceil(visibleFilesCount / pageSize))
+
+        var clampedPage = Math.max(0, Math.min(currentPage, pageTotal - 1))
+        if (currentPage !== clampedPage)
+            currentPage = clampedPage
+
+        visibleCloudFilesModel.clear()
+        var start = clampedPage * pageSize
+        var end = Math.min(matching.length, start + pageSize)
+        for (var j = start; j < end; ++j)
+            visibleCloudFilesModel.append(matching[j])
     }
 
-    function isIndexOnCurrentPage(modelIndex, fileName) {
-        if (!fileMatchesFilter(fileName))
-            return false
-        var rank = visibleRankForIndex(modelIndex)
-        var start = currentPage * pageSize
-        var end = start + pageSize
-        return rank >= start && rank < end
+    onPageSizeChanged: rebuildVisibleFilesModel()
+    onCurrentPageChanged: rebuildVisibleFilesModel()
+    onTypeFilterValueChanged: {
+        currentPage = 0
+        rebuildVisibleFilesModel()
     }
-
-    onPageSizeChanged: clampCurrentPage()
-    onTypeFilterValueChanged: clampCurrentPage()
 
     function displayDate(uploadTime) {
         var value = String(uploadTime || "").trim()
@@ -448,7 +464,20 @@ Item {
             return
         }
 
+        saveDialog.suggestName = String(fileName || qsTr("file"))
+        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
+        if (typeof cloudBridge.getDownloadUrlAsync === "function") {
+            root.statusMsg = qsTr("Preparing download...")
+            root.statusSev = "info"
+            cloudBridge.getDownloadUrlAsync(String(fileId))
+            return
+        }
+
         var r = cloudBridge.getDownloadUrl(String(fileId))
+        applyDownloadUrlResult(String(fileId), r)
+    }
+
+    function applyDownloadUrlResult(fileId, r) {
         if (r.ok !== true) {
             root.statusMsg = qsTr("Cannot get download URL: %1")
                     .arg(backendStatusDetail(r.message, qsTr("Download URL unavailable.")))
@@ -457,8 +486,6 @@ Item {
         }
 
         saveDialog.pendingUrl = r.url
-        saveDialog.suggestName = String(fileName || qsTr("file"))
-        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
         saveDialog.open()
     }
 
@@ -478,9 +505,17 @@ Item {
         root.loading = true
         root.statusMsg = qsTr("Deleting file...")
         root.statusSev = "info"
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(String(fileId))
+            return
+        }
+
         var r = cloudBridge.deleteFile(String(fileId))
         root.loading = false
+        applyDeleteResult(String(fileId), r)
+    }
 
+    function applyDeleteResult(fileId, r) {
         if (r.ok === true) {
             root.statusMsg = qsTr("File deleted.")
             root.statusSev = "success"
@@ -673,34 +708,18 @@ Item {
             "usedBytes": 1181116006
         }
         refreshTypeFilterOptions()
+        rebuildVisibleFilesModel()
         root.statusMsg = qsTr("Demo mode (backend unavailable).")
         root.statusSev = "warn"
         root.loading = false
     }
 
-    function loadFiles() {
-        if (root.loading)
-            return
-
-        root.currentPage = 0
-        root.loading = true
-        root.statusMsg = qsTr("Loading files from local cache...")
-        root.statusSev = "info"
-
-        if (!hasCloudBridge()) {
-            loadMockFiles()
-            return
-        }
-
-        var useCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
-                && typeof cloudBridge.loadCachedQuota === "function"
-                && typeof cloudBridge.refreshFilesAsync === "function"
-
-        var q = useCacheFlow ? cloudBridge.loadCachedQuota() : cloudBridge.fetchQuota()
+    function applyCachedQuotaResult(q) {
         if (q.ok === true && Number(q.totalBytes || 0) > 0)
             root.quotaData = q
+    }
 
-        var r = useCacheFlow ? cloudBridge.loadCachedFiles(1, 20) : cloudBridge.fetchFiles(1, 20)
+    function applyCachedFilesResult(r, useCacheFlow) {
         root.loading = false
 
         cloudFilesModel.clear()
@@ -708,6 +727,7 @@ Item {
         for (var i = 0; i < files.length; ++i)
             cloudFilesModel.append(files[i])
         refreshTypeFilterOptions()
+        rebuildVisibleFilesModel()
 
         if (files.length > 0) {
             if (useCacheFlow) {
@@ -735,6 +755,40 @@ Item {
                 }
             })
         }
+    }
+
+    function loadFiles() {
+        if (root.loading)
+            return
+
+        root.currentPage = 0
+        root.loading = true
+        root.statusMsg = qsTr("Loading files from local cache...")
+        root.statusSev = "info"
+
+        if (!hasCloudBridge()) {
+            loadMockFiles()
+            return
+        }
+
+        var useCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
+                && typeof cloudBridge.loadCachedQuota === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+        var useAsyncCacheFlow = typeof cloudBridge.loadCachedFilesAsync === "function"
+                && typeof cloudBridge.loadCachedQuotaAsync === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+
+        if (useAsyncCacheFlow) {
+            cloudBridge.loadCachedQuotaAsync()
+            cloudBridge.loadCachedFilesAsync(1, 20)
+            return
+        }
+
+        var q = useCacheFlow ? cloudBridge.loadCachedQuota() : cloudBridge.fetchQuota()
+        applyCachedQuotaResult(q)
+
+        var r = useCacheFlow ? cloudBridge.loadCachedFiles(1, 20) : cloudBridge.fetchFiles(1, 20)
+        applyCachedFilesResult(r, useCacheFlow)
     }
 
     Component.onCompleted: {
@@ -768,6 +822,15 @@ Item {
             }
         }
 
+        function onDownloadUrlReady(fileId, result) {
+            root.applyDownloadUrlResult(fileId, result)
+        }
+
+        function onDeleteFileFinished(fileId, result) {
+            root.loading = false
+            root.applyDeleteResult(fileId, result)
+        }
+
         function onUploadProgressChanged(progress, phase) {
             uploadOverlay.progress = Math.max(0, Math.min(1, Number(progress)))
             uploadOverlay.phase = String(phase || "")
@@ -793,13 +856,21 @@ Item {
             }
         }
 
+        function onCachedQuotaLoaded(result) {
+            root.applyCachedQuotaResult(result)
+        }
+
+        function onCachedFilesLoaded(result) {
+            root.applyCachedFilesResult(result, true)
+        }
+
         function onFilesUpdatedFromCloud(files, message) {
             cloudFilesModel.clear()
             var list = files !== undefined ? files : []
             for (var i = 0; i < list.length; ++i)
                 cloudFilesModel.append(list[i])
             refreshTypeFilterOptions()
-            root.currentPage = Math.min(root.currentPage, root.totalPages() - 1)
+            rebuildVisibleFilesModel()
             root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
         }
@@ -1105,7 +1176,7 @@ Item {
 
         CloudFilesTablePanel {
             loading: root.loading
-            filesModel: cloudFilesModel
+            filesModel: visibleCloudFilesModel
             selectedFileId: root.selectedFileId
             tableRowHorizontalMargin: root.tableRowHorizontalMargin
             tableViewportWidth: root.tableViewportWidth
@@ -1126,12 +1197,9 @@ Item {
             actionPrintWidth: root.actionPrintWidth
             actionMenuWidth: root.actionMenuWidth
             currentPage: root.currentPage
-            totalPages: root.totalPages()
-            visibleCount: root.visibleFileCount()
+            totalPages: root.pageTotal
+            visibleCount: root.visibleFilesCount
             pageSize: root.pageSize
-            isIndexOnCurrentPageProvider: root.isIndexOnCurrentPage
-            fileTypeLabelProvider: root.fileTypeLabel
-            displayDateProvider: root.displayDate
             onSelectedFileChanged: function(fileId) { root.selectedFileId = fileId }
             onDetailsRequested: function(fileId) { root.openFileDetails(fileId) }
             onDownloadRequested: function(fileId, fileName) { root.requestDownload(fileId, fileName) }

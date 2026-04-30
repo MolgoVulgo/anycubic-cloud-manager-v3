@@ -1,5 +1,6 @@
 #include "LogBridge.h"
 
+#include "UiPerfTrace.h"
 #include "infra/logging/JsonlLogger.h"
 
 #include <QDir>
@@ -186,6 +187,8 @@ QVariantMap toVariantMap(const Entry& entry) {
 LogBridge::LogBridge(QObject* parent) : QObject(parent) {}
 
 QVariantMap LogBridge::fetchSnapshot(int maxLines) const {
+  UiPerfTrace perf("log_bridge.fetch_snapshot");
+  perf.setField("max_lines", std::to_string(maxLines));
   QVariantMap out;
   const int cap = std::clamp(maxLines, 1, 5000);
 
@@ -202,6 +205,7 @@ QVariantMap LogBridge::fetchSnapshot(int maxLines) const {
   QFileInfoList logFiles =
       logDir.entryInfoList(QStringList{QStringLiteral("*.jsonl")}, QDir::Files | QDir::Readable,
                            QDir::Name | QDir::IgnoreCase);
+  perf.setCount("log_files", logFiles.size());
 
   QSet<QString> sinks;
   QSet<QString> components;
@@ -250,6 +254,7 @@ QVariantMap LogBridge::fetchSnapshot(int maxLines) const {
   if (entries.size() > cap) {
     entries = entries.sliced(entries.size() - cap, cap);
   }
+  perf.setCount("entries", entries.size());
 
   QStringList sinkList = sinks.values();
   sinkList.sort(Qt::CaseInsensitive);
