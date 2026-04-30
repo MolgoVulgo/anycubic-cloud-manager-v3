@@ -144,10 +144,16 @@ if(ACCLOUD_ENABLE_QT)
         app/resources.qrc
         app/AppI18nBridge.cpp
         app/AppI18nBridge.h
+        app/CloudFilesModel.cpp
+        app/CloudFilesModel.h
         app/CloudBridge.cpp
         app/CloudBridge.h
         app/MqttBridge.cpp
         app/MqttBridge.h
+        app/PrintersModel.cpp
+        app/PrintersModel.h
+        app/RecentJobsModel.cpp
+        app/RecentJobsModel.h
         app/LocalCacheStore.cpp
         app/LocalCacheStore.h
         app/UiSettingsBridge.cpp
@@ -198,8 +204,17 @@ if(ACCLOUD_ENABLE_QT)
   if(ACCLOUD_ENABLE_QML_TESTS)
     find_package(Qt6 QUIET COMPONENTS QuickTest)
     if(TARGET Qt6::QuickTest)
-      add_executable(accloud_qml_tests tests/ui/tst_ui_main.cpp)
+      add_executable(accloud_qml_tests
+          tests/ui/tst_ui_main.cpp
+          app/CloudFilesModel.cpp
+          app/CloudFilesModel.h
+          app/PrintersModel.cpp
+          app/PrintersModel.h
+          app/RecentJobsModel.cpp
+          app/RecentJobsModel.h
+      )
       target_link_libraries(accloud_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::QuickControls2)
+      target_include_directories(accloud_qml_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
       target_compile_definitions(accloud_qml_tests PRIVATE
           QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml"
       )

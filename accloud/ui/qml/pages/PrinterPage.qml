@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import Accloud.Models 1.0
 import "../components/Theme.js" as Theme
 import "../components"
 
@@ -96,7 +97,7 @@ Item {
         root.refreshSelectedPrinterLiveSnapshot()
     }
 
-    ListModel {
+    PrintersModel {
         id: printersModel
     }
 
@@ -112,7 +113,7 @@ Item {
         id: printerLocalFilesModel
     }
 
-    ListModel {
+    RecentJobsModel {
         id: printerHistoryModel
         objectName: "printerHistoryModel"
     }
@@ -809,72 +810,9 @@ Item {
                 && Object.keys(liveProjectData).length > 0
     }
 
-    function cleanRecentJob(source) {
-        var out = {}
-        if (!source)
-            return out
-        for (var key in source) {
-            if (key !== "__mergeOrder")
-                out[key] = source[key]
-        }
-        return out
-    }
-
-    function recentJobFingerprint(source) {
-        if (!source)
-            return ""
-        return [
-            source.taskId,
-            source.gcodeName,
-            source.printerId,
-            source.printerName,
-            source.printStatus,
-            source.progress,
-            source.elapsedSec,
-            source.remainingSec,
-            source.currentLayer,
-            source.totalLayers,
-            source.currentFile,
-            source.reason,
-            source.createTime,
-            source.endTime,
-            source.img,
-            source.imgRaw,
-            source.image,
-            source.preview,
-            source.thumbnailUrl
-        ].map(function(value) {
-            return String(value === undefined || value === null ? "" : value)
-        }).join("\u001f")
-    }
-
     function applyRecentJobsCard(jobsList) {
         var list = jobsList !== undefined && jobsList !== null ? jobsList : []
-        var sameCount = printerHistoryModel.count === list.length
-        var unchanged = sameCount
-        if (unchanged) {
-            for (var i = 0; i < list.length; ++i) {
-                if (recentJobFingerprint(printerHistoryModel.get(i)) !== recentJobFingerprint(list[i])) {
-                    unchanged = false
-                    break
-                }
-            }
-        }
-        if (unchanged)
-            return false
-
-        if (sameCount) {
-            for (var j = 0; j < list.length; ++j) {
-                if (recentJobFingerprint(printerHistoryModel.get(j)) !== recentJobFingerprint(list[j]))
-                    printerHistoryModel.set(j, cleanRecentJob(list[j]))
-            }
-            return true
-        }
-
-        printerHistoryModel.clear()
-        for (var k = 0; k < list.length; ++k)
-            printerHistoryModel.append(cleanRecentJob(list[k]))
-        return true
+        return printerHistoryModel.replaceOrPatchJobs(list)
     }
 
     function replaceRecentJobsCard(projectsList) {
@@ -883,52 +821,8 @@ Item {
     }
 
     function mergeRecentJobsCard(projectsList) {
-        var byTaskId = {}
-        var merged = []
-        var order = 0
-
-        function copyJob(source) {
-            return cleanRecentJob(source)
-        }
-
-        function pushOrUpdate(job) {
-            var item = copyJob(job)
-            var taskId = String(item.taskId || "").trim()
-            if (taskId.length > 0 && byTaskId[taskId] !== undefined) {
-                var existing = byTaskId[taskId]
-                var previousOrder = existing.__mergeOrder
-                for (var key in item)
-                    existing[key] = item[key]
-                existing.__mergeOrder = previousOrder
-                return
-            }
-
-            item.__mergeOrder = order++
-            merged.push(item)
-            if (taskId.length > 0)
-                byTaskId[taskId] = item
-        }
-
-        for (var i = 0; i < printerHistoryModel.count; ++i)
-            pushOrUpdate(printerHistoryModel.get(i))
-
         var list = projectsList !== undefined && projectsList !== null ? projectsList : []
-        for (var j = 0; j < list.length; ++j)
-            pushOrUpdate(list[j])
-
-        merged.sort(function(a, b) {
-            var at = Number(a.createTime)
-            var bt = Number(b.createTime)
-            var aValid = isFinite(at) && at > 0
-            var bValid = isFinite(bt) && bt > 0
-            if (aValid && bValid && at !== bt)
-                return bt - at
-            if (aValid !== bValid)
-                return aValid ? -1 : 1
-            return Number(a.__mergeOrder) - Number(b.__mergeOrder)
-        })
-
-        applyRecentJobsCard(merged)
+        printerHistoryModel.mergeOrPatchJobs(list)
     }
 
     function selectedPrinterLiveData() {
@@ -1350,8 +1244,8 @@ Item {
     function loadMockPrinters() {
         printersEndpointPath = "demo://printers"
         printersEndpointRawJson = "{\n  \"mode\": \"demo\",\n  \"message\": \"Backend unavailable\"\n}"
-        printersModel.clear()
-        printersModel.append({
+        printersModel.replaceOrPatchPrinters([
+        {
             "id": "demo-printer-1",
             "name": "M7-Workshop-A",
             "model": "Photon Mono M7",
@@ -1364,8 +1258,8 @@ Item {
             "remainingSec": -1,
             "currentFile": "",
             "lastSeen": "just now"
-        })
-        printersModel.append({
+        },
+        {
             "id": "demo-printer-2",
             "name": "M5S-Line-2",
             "model": "Photon Mono M5s",
@@ -1378,8 +1272,8 @@ Item {
             "remainingSec": 10320,
             "currentFile": "atlas_plate_v12.pwmb",
             "lastSeen": "1 min ago"
-        })
-        printersModel.append({
+        },
+        {
             "id": "demo-printer-3",
             "name": "Backup-X2",
             "model": "Photon Mono X2",
@@ -1392,7 +1286,8 @@ Item {
             "remainingSec": -1,
             "currentFile": "",
             "lastSeen": "23 min ago"
-        })
+        }
+        ])
 
         if (selectedPrinterId.length === 0 && printersModel.count > 0)
             selectedPrinterId = String(printersModel.get(0).id)
@@ -1471,71 +1366,9 @@ Item {
         updatePrintersAutoRefreshInterval()
     }
 
-    function cleanPrinter(source) {
-        var out = {}
-        if (!source)
-            return out
-        for (var key in source)
-            out[key] = source[key]
-        return out
-    }
-
-    function printerFingerprint(source) {
-        if (!source)
-            return ""
-        return [
-            source.id,
-            source.name,
-            source.model,
-            source.type,
-            source.state,
-            source.reason,
-            source.available,
-            source.progress,
-            source.elapsedSec,
-            source.remainingSec,
-            source.currentLayer,
-            source.totalLayers,
-            source.currentFile,
-            source.lastSeen,
-            source.printerKey,
-            source.machineType,
-            source.img,
-            source.image,
-            source.preview,
-            source.thumbnailUrl
-        ].map(function(value) {
-            return String(value === undefined || value === null ? "" : value)
-        }).join("\u001f")
-    }
-
     function applyPrintersModel(printers) {
         var list = printers !== undefined ? printers : []
-        var sameCount = printersModel.count === list.length
-        var unchanged = sameCount
-        if (unchanged) {
-            for (var i = 0; i < list.length; ++i) {
-                if (printerFingerprint(printersModel.get(i)) !== printerFingerprint(list[i])) {
-                    unchanged = false
-                    break
-                }
-            }
-        }
-        if (unchanged)
-            return false
-
-        if (sameCount) {
-            for (var j = 0; j < list.length; ++j) {
-                if (printerFingerprint(printersModel.get(j)) !== printerFingerprint(list[j]))
-                    printersModel.set(j, cleanPrinter(list[j]))
-            }
-            return true
-        }
-
-        printersModel.clear()
-        for (var k = 0; k < list.length; ++k)
-            printersModel.append(cleanPrinter(list[k]))
-        return true
+        return printersModel.replaceOrPatchPrinters(list)
     }
 
     function replacePrintersModel(printers, refreshInsights) {
