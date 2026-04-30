@@ -54,6 +54,9 @@ public:
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByFileId(const QString& fileId) const;
+    // Retourne { ok, score, reason } pour une validation locale file/printer sans appel réseau.
+    Q_INVOKABLE QVariantMap evaluateLocalPrinterFileCompatibility(const QVariantMap& printer,
+                                                                  const QVariantMap& file) const;
     // Retourne { ok, message, details:{...} }
     // Champ debug (uniquement si ACCLOUD_DEBUG=ON): rawJson
     Q_INVOKABLE QVariantMap fetchPrinterDetails(const QString& printerId) const;

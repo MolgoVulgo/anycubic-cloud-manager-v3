@@ -31,7 +31,6 @@ class SessionImportBridge : public QObject {
   std::map<std::string, std::string> m_pendingTokens;
   std::size_t m_pendingEntriesVisited{0};
   std::size_t m_pendingEntriesAccepted{0};
-  std::string m_pendingMessage;
 };
 
 } // namespace accloud

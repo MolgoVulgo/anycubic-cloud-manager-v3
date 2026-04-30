@@ -78,6 +78,11 @@ ApplicationWindow {
         return text
     }
 
+    function backendStatusText(rawMessage, fallbackMessage) {
+        var text = translateLocalizedText(String(rawMessage || "").trim())
+        return text.length > 0 ? text : String(fallbackMessage || qsTr("Operation status unavailable."))
+    }
+
     function pushGlobalStatus(message, severity, operationId) {
         var msg = String(message || "").trim()
         if (msg.length === 0)
@@ -180,7 +185,7 @@ ApplicationWindow {
         }
         var details = sessionImportBridge.sessionDetails(root.sessionTargetPath)
         sessionDetailsText = String(details.details)
-        statusText = String(details.message)
+        statusText = backendStatusText(details.message, qsTr("Session details loaded."))
         sessionDetailsDialog.open()
     }
 
@@ -203,8 +208,9 @@ ApplicationWindow {
             if (check.sessionExists === true && check.connectionOk === true) {
                 root.statusText = qsTr("Active session. Auto-refresh every 30s.")
             } else {
-                root.statusText = String(check.message)
-                sessionDialog.startupMessage = String(check.message)
+                var startupText = backendStatusText(check.message, qsTr("Session validation required."))
+                root.statusText = startupText
+                sessionDialog.startupMessage = startupText
                 sessionDialog.mandatoryMode = true
                 sessionDialog.open()
             }
@@ -316,7 +322,7 @@ ApplicationWindow {
         objectName: "sessionSettingsDialog"
         sessionTargetPath: root.sessionTargetPath
         onImportCompleted: function(message) {
-            root.statusText = qsTr("Active session. %1").arg(message)
+            root.statusText = qsTr("Active session. %1").arg(backendStatusText(message, qsTr("Ready.")))
             sessionDialog.mandatoryMode = false
             sessionDialog.close()
         }
@@ -439,28 +445,28 @@ ApplicationWindow {
         minimumWidth: 520
         maximumWidth: 680
         property string pendingLanguage: root.persistedLanguageCode
-        property var languageCodes: ["system", "en", "fr"]
-        property var languageLabels: []
+        property var languageOptions: []
 
         function languageIndexFor(codeValue) {
             var code = String(codeValue || "system")
-            for (var i = 0; i < languageCodes.length; ++i) {
-                if (String(languageCodes[i]) === code)
+            for (var i = 0; i < languageOptions.length; ++i) {
+                var option = languageOptions[i]
+                if (String(option.value || "") === code)
                     return i
             }
             return 0
         }
 
-        function rebuildLanguageLabels() {
-            languageLabels = [
-                qsTr("System default"),
-                qsTr("English"),
-                qsTr("French")
+        function rebuildLanguageOptions() {
+            languageOptions = [
+                { "value": "system", "label": qsTr("System default") },
+                { "value": "en", "label": qsTr("English") },
+                { "value": "fr", "label": qsTr("French") }
             ]
         }
 
         onOpened: {
-            rebuildLanguageLabels()
+            rebuildLanguageOptions()
             pendingLanguage = root.hasI18nBridge()
                     ? String(appI18nBridge.languageCode || "system")
                     : "system"
@@ -476,10 +482,11 @@ ApplicationWindow {
         AppComboBox {
             id: languageCombo
             Layout.fillWidth: true
-            model: languageDialog.languageLabels
+            textRole: "label"
+            model: languageDialog.languageOptions
             onActivated: {
-                if (currentIndex >= 0 && currentIndex < languageDialog.languageCodes.length)
-                    languageDialog.pendingLanguage = String(languageDialog.languageCodes[currentIndex])
+                if (currentIndex >= 0 && currentIndex < languageDialog.languageOptions.length)
+                    languageDialog.pendingLanguage = String(languageDialog.languageOptions[currentIndex].value || "system")
             }
         }
 
@@ -508,7 +515,11 @@ ApplicationWindow {
                         return
                     appI18nBridge.setLanguage(languageDialog.pendingLanguage)
                     root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
-                    root.statusText = qsTr("Language updated: %1").arg(languageCombo.currentText)
+                    var selectedLabel = (languageCombo.currentIndex >= 0
+                                         && languageCombo.currentIndex < languageDialog.languageOptions.length)
+                            ? String(languageDialog.languageOptions[languageCombo.currentIndex].label || "")
+                            : qsTr("System default")
+                    root.statusText = qsTr("Language updated: %1").arg(selectedLabel)
                     languageDialog.close()
                 }
             }
@@ -1057,10 +1068,6 @@ ApplicationWindow {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
                             onPrintIntentRequested: function(fileId, fileName) {
-                                controlTabs.currentIndex = 1
-                                if (typeof printerPage.ensureStartupInitialized === "function") {
-                                    printerPage.ensureStartupInitialized()
-                                }
                                 if (typeof printerPage.openRemotePrintFromFile === "function") {
                                     printerPage.openRemotePrintFromFile(fileId, fileName)
                                 } else {
@@ -1074,10 +1081,14 @@ ApplicationWindow {
                         Pages.PrinterPage {
                             id: printerPage
                             objectName: "printerPage"
-                            debugUi: false
+                            debugUi: root.debugUi
                             embeddedInTabsContainer: true
+                            deferStartupInitialization: true
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
+                            }
+                            onRemotePrintAccepted: function(printerId, taskId) {
+                                controlTabs.currentIndex = 1
                             }
                         }
 
@@ -1127,6 +1138,7 @@ ApplicationWindow {
                         message: root.globalStatusMsg
                         severity: root.globalStatusSev
                         operationId: root.globalStatusOpId
+                        showOperationId: root.debugUi
                     }
 
                 }

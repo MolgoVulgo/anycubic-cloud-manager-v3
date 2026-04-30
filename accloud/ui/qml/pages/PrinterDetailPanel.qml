@@ -12,13 +12,13 @@ Rectangle {
     property var selectedPrinterDetails: ({})
     property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
+    property bool localFilePrintEnabled: true
     property var printerHistoryModel: null
     property bool showDebugLabels: false
     property string printersEndpointPath: ""
     property string printersEndpointRawJson: ""
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
-    property string selectedPrinterHelpUrlText: ""
 
     property var statusChipTextProvider: null
     property var progressTextProvider: null
@@ -76,8 +76,220 @@ Rectangle {
         if (printed < 0 || total <= 0)
             return "-"
         var normalizedPrinted = Math.max(0, Math.min(printed, total))
-        var remaining = Math.max(0, total - normalizedPrinted)
-        return qsTr("%1 printed | %2 remaining").arg(normalizedPrinted).arg(remaining)
+        return qsTr("%1 / %2 layers").arg(normalizedPrinted).arg(total)
+    }
+
+    function hasTextValue(value) {
+        return String(value === undefined || value === null ? "" : value).trim().length > 0
+    }
+
+    function hasNonNegativeMetric(value) {
+        return nonNegativeInt(value) >= 0
+    }
+
+    function progressRatio(printer) {
+        var value = nonNegativeInt(printer ? printer.progress : -1)
+        if (value < 0)
+            return 0
+        return Math.max(0, Math.min(value, 100)) / 100
+    }
+
+    function progressPercentText(printer) {
+        return providerText(root.progressTextProvider, printer ? printer.progress : -1, "-")
+    }
+
+    function currentFileText(printer) {
+        if (printer && hasTextValue(printer.currentFile))
+            return String(printer.currentFile).trim()
+        return "-"
+    }
+
+    function currentFileImageSource() {
+        var liveJob = root.selectedLiveJobData || ({})
+        var details = root.selectedPrinterDetails || ({})
+        var printer = root.selectedPrinter || ({})
+        var historyActive = ({})
+        if (root.printerHistoryModel && root.printerHistoryModel.count !== undefined) {
+            for (var i = 0; i < root.printerHistoryModel.count; ++i) {
+                var entry = root.printerHistoryModel.get(i)
+                if (Number(entry.printStatus) === 1) {
+                    historyActive = entry
+                    break
+                }
+            }
+            if (Object.keys(historyActive).length === 0 && root.printerHistoryModel.count > 0)
+                historyActive = root.printerHistoryModel.get(0)
+        }
+
+        var candidates = [
+            liveJob.img,
+            liveJob.imgRaw,
+            liveJob.image,
+            liveJob.preview,
+            liveJob.thumbnailUrl,
+            details.img,
+            details.imgRaw,
+            details.image,
+            details.preview,
+            details.thumbnailUrl,
+            printer.img,
+            printer.imgRaw,
+            printer.image,
+            printer.preview,
+            printer.thumbnailUrl,
+            historyActive.img,
+            historyActive.imgRaw,
+            historyActive.image,
+            historyActive.preview,
+            historyActive.thumbnailUrl
+        ]
+        for (var i = 0; i < candidates.length; ++i) {
+            if (hasTextValue(candidates[i]))
+                return String(candidates[i]).trim()
+        }
+        return ""
+    }
+
+    function normalizedImageSource(raw) {
+        var value = String(raw === undefined || raw === null ? "" : raw).trim()
+        if (value.length <= 0)
+            return ""
+        var lowered = value.toLowerCase()
+        if (lowered.indexOf("data:image/") === 0)
+            return value
+        if (lowered.indexOf("file://") === 0 || lowered.indexOf("http://") === 0 || lowered.indexOf("https://") === 0)
+            return value
+        if (value.indexOf("//") === 0)
+            return "https:" + value
+        if (value.indexOf("/") === 0)
+            return "https://cloud-universe.anycubic.com" + value
+        if (lowered.indexOf(".jpg") !== -1 || lowered.indexOf(".jpeg") !== -1 || lowered.indexOf(".png") !== -1 || lowered.indexOf(".webp") !== -1)
+            return "https://" + value
+        return value
+    }
+
+    function imageStatusText(statusCode) {
+        if (statusCode === Image.Ready)
+            return "Ready"
+        if (statusCode === Image.Loading)
+            return "Loading"
+        if (statusCode === Image.Error)
+            return "Error"
+        return "Null"
+    }
+
+    function printCountText(details) {
+        if (!details)
+            return "-"
+        var value = Number(details.printCount)
+        if (isFinite(value) && value >= 0)
+            return String(Math.round(value))
+        return hasTextValue(details.printCount) ? String(details.printCount).trim() : "-"
+    }
+
+    function normalizedTotalPrintTimeText(details) {
+        if (!details || !hasTextValue(details.printTotalTime))
+            return "-"
+        var raw = String(details.printTotalTime).trim()
+        var compact = raw.toLowerCase().replace(/\s+/g, "")
+        var match = compact.match(/^(\d+)(?:h|hour|hours)(\d+)(?:m|min|mins|minute|minutes)$/)
+        if (match)
+            return qsTr("%1 h %2 min").arg(Number(match[1])).arg(Number(match[2]))
+        return raw
+    }
+
+    function normalizedMaterialUsedText(details) {
+        if (!details || !hasTextValue(details.materialUsed))
+            return "-"
+        var numeric = Number(details.materialUsed)
+        if (isFinite(numeric) && numeric >= 0) {
+            var rounded = Math.round(numeric * 100) / 100
+            var text = String(rounded)
+            if (text.indexOf(".") >= 0)
+                text = text.replace(/0+$/, "").replace(/\.$/, "")
+            return qsTr("%1 ml").arg(text)
+        }
+        var raw = String(details.materialUsed).trim()
+        if (/ml$/i.test(raw))
+            return raw.replace(/\s*ml$/i, " ml")
+        return raw
+    }
+
+    function printerStatusCode(printer) {
+        var state = String(printer && printer.state !== undefined ? printer.state : "").toUpperCase().trim()
+        if (state === "PRINTING")
+            return 1
+        if (state === "ERROR")
+            return 3
+        return 0
+    }
+
+    function liveJobStatusCode(liveJob) {
+        if (!liveJob)
+            return -1
+        var value = Number(liveJob.printStatus)
+        if (isFinite(value))
+            return Math.round(value)
+        return -1
+    }
+
+    function isPrinterPrinting() {
+        var liveStatus = liveJobStatusCode(root.selectedLiveJobData)
+        if (liveStatus === 1)
+            return true
+        return printerStatusCode(root.selectedPrinter) === 1
+    }
+
+    function printerInfoMode() {
+        if (!root.selectedPrinter)
+            return "none"
+        return isPrinterPrinting() ? "printing" : "basic"
+    }
+
+    function releaseFilmText(details) {
+        if (!details)
+            return "-"
+        var candidates = [
+            details.releaseFilm,
+            details.release_film,
+            details.releaseFilmStatus,
+            details.release_film_status,
+            details.fepStatus,
+            details.fep_status
+        ]
+        for (var i = 0; i < candidates.length; ++i) {
+            if (hasTextValue(candidates[i]))
+                return String(candidates[i]).trim()
+        }
+        return "-"
+    }
+
+    function recentJobStatusInfo(printStatus) {
+        var code = Number(printStatus)
+        if (isFinite(code))
+            code = Math.round(code)
+        else
+            code = -1
+
+        if (code === 1)
+            return { label: qsTr("In progress"), bg: Theme.statusInfoBg, fg: Theme.stateRunning, border: Theme.stateRunning }
+        if (code === 2)
+            return { label: qsTr("Finished"), bg: Theme.statusSuccessBg, fg: Theme.stateSuccess, border: Theme.stateSuccess }
+        if (code === 3)
+            return { label: qsTr("Failed"), bg: Theme.statusErrorBg, fg: Theme.stateError, border: Theme.stateError }
+        if (code === 4)
+            return { label: qsTr("Canceled"), bg: Theme.statusWarningBg, fg: Theme.stateWarning, border: Theme.stateWarning }
+        return { label: qsTr("Unknown"), bg: Theme.bgCardSubtle, fg: Theme.fgPrimary, border: Theme.borderDefault }
+    }
+
+    function historyDurationText(startEpoch, endEpoch) {
+        var startValue = Number(startEpoch)
+        var endValue = Number(endEpoch)
+        if (!isFinite(startValue) || !isFinite(endValue) || startValue <= 0 || endValue <= 0 || endValue < startValue)
+            return "-"
+        if (typeof root.timeTextProvider === "function")
+            return String(root.timeTextProvider(endValue - startValue))
+        return "-"
     }
 
     function debugEndpointPayloadText() {
@@ -262,6 +474,7 @@ Rectangle {
                         }
 
                         Text {
+                            visible: root.printerInfoMode() === "basic"
                             text: qsTr("Firmware: ")
                                   + (String(root.selectedPrinterDetails.firmwareVersion || "").length > 0
                                      ? String(root.selectedPrinterDetails.firmwareVersion)
@@ -271,97 +484,466 @@ Rectangle {
                         }
 
                         RowLayout {
+                            Layout.fillWidth: true
                             spacing: 8
 
-                            Text {
-                                text: qsTr("Status:")
-                                color: Theme.fgSecondary
-                                font.pixelSize: Theme.fontBodyPx
+                            Rectangle {
+                                radius: Theme.radiusControl
+                                color: Theme.cardAlt
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                Layout.fillWidth: true
+                                implicitHeight: 34
+
+                                Item {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: qsTr("Status")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        font.bold: true
+                                    }
+
+                                    StatusChip {
+                                        anchors.centerIn: parent
+                                        status: root.providerText(root.statusChipTextProvider,
+                                                                  root.selectedPrinter ? root.selectedPrinter.state : "READY",
+                                                                  qsTr("Ready"))
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.printerInfoMode() === "printing"
+                            Layout.fillWidth: true
+                            radius: Theme.radiusControl
+                            color: Theme.bgSurface
+                            border.width: Theme.borderWidth
+                            border.color: Theme.borderSubtle
+                            implicitHeight: 176
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 10
+
+                                Rectangle {
+                                    Layout.preferredWidth: 160
+                                    Layout.preferredHeight: 160
+                                    radius: Theme.radiusControl
+                                    color: Theme.bgWindow
+                                    border.width: Theme.borderWidth
+                                    border.color: Theme.borderSubtle
+
+                                    Image {
+                                        id: currentFilePreviewImage
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        source: root.normalizedImageSource(root.currentFileImageSource())
+                                        fillMode: Image.PreserveAspectFit
+                                        asynchronous: true
+                                        cache: true
+                                        smooth: true
+                                        visible: source.toString().length > 0 && status === Image.Ready
+                                    }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: root.currentFileImageSource().length <= 0 || currentFilePreviewImage.status === Image.Error
+                                        text: qsTr("No preview")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Current File")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        font.bold: true
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: root.currentFileText(root.selectedPrinter)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+
+                                        Text {
+                                            text: qsTr("Impression")
+                                            color: Theme.stateRunning
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            font.bold: true
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: root.layersProgressText(root.selectedPrinter)
+                                            color: Theme.fgSecondary
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            text: root.progressPercentText(root.selectedPrinter)
+                                            color: Theme.fgPrimary
+                                            font.pixelSize: Theme.fontBodyPx
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    ProgressBar {
+                                        objectName: "printerCurrentPrintProgressBar"
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: root.progressRatio(root.selectedPrinter)
+                                    }
+
+                                    Text {
+                                        visible: root.showDebugLabels
+                                        Layout.fillWidth: true
+                                        text: qsTr("Image source: %1").arg(
+                                                  root.currentFileImageSource().length > 0
+                                                  ? root.currentFileImageSource()
+                                                  : qsTr("(empty)"))
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+
+                                    Text {
+                                        visible: root.showDebugLabels
+                                        Layout.fillWidth: true
+                                        text: qsTr("Image status: %1 (%2)").arg(
+                                                  currentFilePreviewImage.status).arg(
+                                                  root.imageStatusText(currentFilePreviewImage.status))
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        visible: root.showDebugLabels
+                                        Layout.fillWidth: true
+                                        text: qsTr("Image source normalized: %1").arg(
+                                                  currentFilePreviewImage.source.toString().length > 0
+                                                  ? currentFilePreviewImage.source.toString()
+                                                  : qsTr("(empty)"))
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+                                }
+                            }
+                        }
+
+                        GridLayout {
+                            visible: root.printerInfoMode() === "printing"
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+
+                            Rectangle {
+                                visible: false
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Progress")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.providerText(root.progressTextProvider,
+                                                                root.selectedPrinter ? root.selectedPrinter.progress : -1,
+                                                                "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                    }
+                                }
                             }
 
-                            StatusChip {
-                                status: root.providerText(root.statusChipTextProvider,
-                                                          root.selectedPrinter ? root.selectedPrinter.state : "READY",
-                                                          qsTr("Ready"))
+                            Rectangle {
+                                visible: false
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Layers")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.layersProgressText(root.selectedPrinter)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Elapsed")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.providerText(root.timeTextProvider,
+                                                                root.selectedPrinter ? root.selectedPrinter.elapsedSec : -1,
+                                                                "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Remaining")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.providerText(root.timeTextProvider,
+                                                                root.selectedPrinter ? root.selectedPrinter.remainingSec : -1,
+                                                                "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                    }
+                                }
+                            }
+                        }
+
+                        GridLayout {
+                            visible: root.printerInfoMode() === "basic"
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+
+                            Rectangle {
+                                visible: root.printCountText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Print Count")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.printCountText(root.selectedPrinterDetails)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.normalizedTotalPrintTimeText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Total Print Time")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.normalizedTotalPrintTimeText(root.selectedPrinterDetails)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.normalizedMaterialUsedText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Material Used")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.normalizedMaterialUsedText(root.selectedPrinterDetails)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.selectedPrinter && root.hasTextValue(root.selectedPrinter.type)
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Printer Type")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: String(root.selectedPrinter ? root.selectedPrinter.type : "-")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.releaseFilmText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Release Film")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        text: root.releaseFilmText(root.selectedPrinterDetails)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
                             }
                         }
 
                         Text {
-                            visible: root.selectedPrinterHelpUrlText.length > 0
-                            text: qsTr("Help: ") + root.selectedPrinterHelpUrlText
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            text: qsTr("Current job: %1 | Progress: %2 | Layers: %3 | Elapsed: %4 | Remaining: %5")
-                                .arg(root.selectedPrinter && String(root.selectedPrinter.currentFile || "").length > 0
-                                     ? String(root.selectedPrinter.currentFile)
-                                     : "-")
-                                .arg(root.providerText(root.progressTextProvider,
-                                                       root.selectedPrinter ? root.selectedPrinter.progress : -1,
-                                                       "-"))
-                                .arg(root.layersProgressText(root.selectedPrinter))
-                                .arg(root.providerText(root.timeTextProvider,
-                                                       root.selectedPrinter ? root.selectedPrinter.elapsedSec : -1,
-                                                       "-"))
-                                .arg(root.providerText(root.timeTextProvider,
-                                                       root.selectedPrinter ? root.selectedPrinter.remainingSec : -1,
-                                                       "-"))
+                            visible: root.printerInfoMode() === "none"
+                            text: qsTr("Waiting for printer data...")
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: qsTr("Print count: %1 | Total print time: %2 | Material used: %3")
-                                .arg(String(root.selectedPrinterDetails.printCount || "").length > 0
-                                     ? String(root.selectedPrinterDetails.printCount)
-                                     : "-")
-                                .arg(String(root.selectedPrinterDetails.printTotalTime || "").length > 0
-                                     ? String(root.selectedPrinterDetails.printTotalTime)
-                                     : "-")
-                                .arg(String(root.selectedPrinterDetails.materialUsed || "").length > 0
-                                     ? String(root.selectedPrinterDetails.materialUsed)
-                                     : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            visible: String(root.selectedPrinterDetails.helpUrl || "").length > 0
-                            text: qsTr("Device help: ") + String(root.selectedPrinterDetails.helpUrl || "")
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            visible: String(root.selectedPrinterDetails.quickStartUrl || "").length > 0
-                            text: qsTr("Quick start: ") + String(root.selectedPrinterDetails.quickStartUrl || "")
-                            color: Theme.accent
-                            font.pixelSize: Theme.fontCaptionPx
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            visible: Number(root.selectedPrinterDetails.tools ? root.selectedPrinterDetails.tools.length : 0) > 0
-                            text: qsTr("Tools: ")
-                                  + root.localizedListText(root.selectedPrinterDetails.tools, 6)
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            visible: Number(root.selectedPrinterDetails.advances ? root.selectedPrinterDetails.advances.length : 0) > 0
-                            text: qsTr("Advanced: ")
-                                  + root.localizedListText(root.selectedPrinterDetails.advances, 4)
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontCaptionPx
-                            wrapMode: Text.WordWrap
                         }
 
                         Item { Layout.fillHeight: true }
@@ -371,6 +953,7 @@ Rectangle {
                             spacing: 8
 
                             AppButton {
+                                Layout.minimumWidth: implicitWidth
                                 text: qsTr("From Cloud File")
                                 variant: "primary"
                                 enabled: root.selectedPrinter !== null
@@ -378,8 +961,13 @@ Rectangle {
                             }
 
                             AppButton {
+                                Layout.minimumWidth: implicitWidth
                                 text: qsTr("From Local File")
                                 variant: "secondary"
+                                enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
+                                ToolTip.visible: hovered && !enabled
+                                ToolTip.delay: 350
+                                ToolTip.text: qsTr("Local printer file printing is not enabled in this build.")
                                 onClicked: root.localFileRequested(
                                                String(root.selectedPrinter && root.selectedPrinter.id !== undefined
                                                       ? root.selectedPrinter.id
@@ -409,10 +997,12 @@ Rectangle {
                         }
 
                         ListView {
+                            id: recentJobsList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
                             spacing: 6
+                            rightMargin: 14
                             model: root.printerHistoryModel
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
@@ -421,28 +1011,69 @@ Rectangle {
 
                             delegate: Rectangle {
                                 width: ListView.view.width
-                                height: 42
-                                color: "transparent"
+                                height: 74
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
 
                                 ColumnLayout {
                                     anchors.fill: parent
-                                    spacing: 2
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 18
+                                    anchors.topMargin: 8
+                                    anchors.bottomMargin: 8
+                                    spacing: 4
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: String(model.gcodeName || "-")
+                                            color: Theme.fgPrimary
+                                            font.pixelSize: Theme.fontBodyPx
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Rectangle {
+                                            objectName: "recentJobStatusBadge"
+                                            readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus)
+                                            radius: Theme.radiusControl
+                                            color: statusInfo.bg
+                                            border.width: Theme.borderWidth
+                                            border.color: statusInfo.border
+                                            implicitHeight: 22
+                                            implicitWidth: Math.max(74, statusText.implicitWidth + 12)
+
+                                            Text {
+                                                id: statusText
+                                                anchors.centerIn: parent
+                                                text: parent.statusInfo.label
+                                                color: parent.statusInfo.fg
+                                                font.pixelSize: Theme.fontCaptionPx
+                                                font.bold: true
+                                            }
+                                        }
+                                    }
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: String(model.gcodeName || "-") + " • "
-                                            + root.providerText(root.printStatusTextProvider, model.printStatus, "-")
-                                        color: Theme.fgPrimary
+                                        text: qsTr("Start %1 | End %2 | Duration %3")
+                                            .arg(root.providerText(root.unixTimeTextProvider, model.createTime, "-"))
+                                            .arg(root.providerText(root.unixTimeTextProvider, model.endTime, "-"))
+                                            .arg(root.historyDurationText(model.createTime, model.endTime))
+                                        color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                         elide: Text.ElideRight
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: qsTr("Task %1 | Start %2 | End %3")
+                                        text: qsTr("Task %1")
                                             .arg(String(model.taskId || "-"))
-                                            .arg(root.providerText(root.unixTimeTextProvider, model.createTime, "-"))
-                                            .arg(root.providerText(root.unixTimeTextProvider, model.endTime, "-"))
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                         elide: Text.ElideRight

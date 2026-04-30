@@ -196,6 +196,12 @@ Exemple logique :
 }
 ```
 
+Etat implemente (partiel, 2026-03-22) :
+- `CloudBridge` et `SessionImportBridge` publient desormais une enveloppe stable
+  `messageKey` + `params` + `fallbackMessage` sur les reponses UI principales.
+- Le champ `message` est conserve pour compatibilite transitoire avec les vues existantes.
+- La migration complete des signaux runtime vers cette enveloppe reste a finaliser.
+
 ## 6.4 Concaténations interdites pour le visible
 
 Sont à éviter pour toute chaîne affichée à l’utilisateur :
@@ -503,4 +509,3 @@ C’est un chantier de :
 - verrouillage par tests.
 
 La présente référence est la source de vérité de ce cadre.
-

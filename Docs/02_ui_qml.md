@@ -105,6 +105,19 @@ La bibliothèque interne doit rester le point d’entrée visuel :
 - `AppTabBar`
 - `AppTabButton`
 
+### 4.5 Roles visuels d'etat
+Les composants transverses doivent utiliser les roles de theme dedies plutot
+que des couleurs calculees localement pour les etats metier :
+- `stateRunning`, `stateSuccess`, `stateWarning`, `stateError` pour les accents
+  d'etat ;
+- `statusInfoBg`, `statusSuccessBg`, `statusWarningBg`, `statusErrorBg` pour
+  les fonds de status/toast/badge ;
+- `bgPanel`, `bgCard`, `bgCardSubtle`, `borderStrong`, `textMuted` pour limiter
+  les variantes locales.
+
+La status bar globale ne doit pas afficher les identifiants d'operation en vue
+normale. Ils restent reserves au mode debug.
+
 ---
 
 ## 5. Correctif onglets — décision consolidée
@@ -149,9 +162,10 @@ Fonctions visibles :
 - quota ;
 - détails fichier ;
 - upload ;
+- le sélecteur local d'upload rouvre sur le dernier dossier utilisé ;
 - téléchargement ;
 - suppression ;
-- amorce de remote print.
+- lancement rapide du remote print vers la configuration d'impression.
 
 ### 6.2 Printers
 Page métier clé pour la logique cloud temps réel/état machine.
@@ -162,6 +176,34 @@ Fonctions visibles :
 - détails ;
 - jobs/projets ;
 - déclenchement d’ordre à distance.
+- chargement différé dans la fenêtre principale, puis cache local + refresh cloud ;
+- auto-refresh actif, avec intervalle réduit quand une imprimante est en impression.
+
+Règles d'affichage métriques (panneau détails imprimante) :
+- formater de manière homogène les métriques disponibles (`%`, couches, durées) ;
+- ne pas afficher une carte métrique quand la donnée source n'existe pas ;
+- ne pas inventer de fallback métier quand le backend ne fournit pas la valeur.
+- utiliser un mode d'affichage unique :
+  - `basic` (ready/offline) : nom/modèle, firmware, status, print count, total print time, material used, printer type, release film ;
+  - `printing` : nom/modèle, status, fichier courant, progression, couches, elapsed, remaining.
+- historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
+- en impression, le fichier courant doit exposer le nom du fichier, une
+  progression principale, les couches et les durees utiles ; les details
+  techniques de preview/image restent reserves au debug.
+- l'historique "Recent Jobs" est charge depuis le cache local puis enrichi
+  incrementiellement avec les dernieres taches cloud ; une reponse cloud
+  partielle ne doit pas effacer les anciennes taches deja connues.
+- le refresh cloud de "Recent Jobs" est volontairement limite au demarrage,
+  a l'envoi reussi d'un ordre d'impression, et a la detection de fin
+  d'impression ; le refresh periodique du listing imprimantes ne doit pas
+  reconstruire l'historique des taches.
+
+Le lancement depuis fichier local stocké sur l'imprimante reste désactivé tant
+que l'`order_id` réel de démarrage n'est pas confirmé. L'entrée UI ne doit pas
+présenter le placeholder `999` comme un flux production.
+
+La validation locale de compatibilité fichier/imprimante doit passer par le
+bridge C++ quand il est disponible, avec fallback QML limité aux tests/mocks.
 
 ### 6.3 Logs
 Vue debug liée à la nature outillage du projet.
@@ -182,6 +224,28 @@ Le remote print doit être lu comme une chaîne UI simple :
 3. options de tâche ;
 4. envoi ;
 5. suivi et retour utilisateur.
+
+Depuis `Files`, l'action `Print` doit rester un raccourci direct vers la
+configuration d'impression : le fichier est déjà sélectionné, l'imprimante
+compatible est présélectionnée si possible, et la dialog de confirmation doit
+s'ouvrir sans imposer un second sélecteur de fichier.
+
+Le workflow applique la répartition suivante :
+- `Files` émet uniquement l'intention d'impression avec le fichier cloud ;
+- `MainWindow` délègue l'ouverture de la configuration à `PrinterPage` sans
+  quitter immédiatement l'onglet `Files` ;
+- `PrinterPage` ouvre la dialog immédiatement, puis valide l'imprimante cible,
+  les options et l'état imprimante après affichage ; `Start Printing` reste
+  désactivé pendant cette préparation ;
+- quand la préparation est terminée, `PrinterPage` peut envoyer
+  `sendPrintOrder` ;
+- après acceptation backend, la dialog se ferme, l'imprimante cible reste
+  sélectionnée, `MainWindow` bascule sur `Printers`, les tâches récentes sont
+  rafraîchies avec `print_started`, et le panneau Printer affiche le monitoring.
+  Tant que la télémétrie réelle n'est pas revenue, l'UI peut afficher un état
+  transitoire sans progression inventée.
+- en cas d'échec backend, la dialog reste ouverte et aucun refresh
+  `print_started` ne doit être déclenché.
 
 ### 7.1 Règle produit
 L’UI ne doit pas porter la logique profonde d’orchestration. Elle doit présenter :

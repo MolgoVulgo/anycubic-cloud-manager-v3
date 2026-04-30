@@ -16,7 +16,6 @@
     <file alias="qml/pages/PrinterDetailPanel.qml">../ui/qml/pages/PrinterDetailPanel.qml</file>
     <file alias="qml/pages/PrinterSelectCloudFileDialog.qml">../ui/qml/pages/PrinterSelectCloudFileDialog.qml</file>
     <file alias="qml/pages/PrinterRemotePrintConfigDialog.qml">../ui/qml/pages/PrinterRemotePrintConfigDialog.qml</file>
-    <file alias="qml/pages/PrinterAdvancedPrintConfigDialog.qml">../ui/qml/pages/PrinterAdvancedPrintConfigDialog.qml</file>
     <file alias="qml/pages/PrinterMainPanel.qml">../ui/qml/pages/PrinterMainPanel.qml</file>
     <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
     <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
@@ -46,6 +45,7 @@
     <file alias="qml/components/BusyOverlay.qml">../ui/qml/components/BusyOverlay.qml</file>
     <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>
     <file alias="qml/components/ProgressCard.qml">../ui/qml/components/ProgressCard.qml</file>
+    <file alias="qml/components/UploadFileDialog.qml">../ui/qml/components/UploadFileDialog.qml</file>
     <file alias="qml/panes/PreviewPane.qml">../ui/qml/panes/PreviewPane.qml</file>
     <file alias="qml/panes/LayerInspectorPane.qml">../ui/qml/panes/LayerInspectorPane.qml</file>
     <file alias="qml/panes/Viewer3DPane.qml">../ui/qml/panes/Viewer3DPane.qml</file>
