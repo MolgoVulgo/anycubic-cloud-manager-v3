@@ -5,7 +5,7 @@ import Qt.labs.folderlistmodel
 import QtCore
 import "Theme.js" as Theme
 
-Dialog {
+AppDialogFrame {
     id: root
 
     property url currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)

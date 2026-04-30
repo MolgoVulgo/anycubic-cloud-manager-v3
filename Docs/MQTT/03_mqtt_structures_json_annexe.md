@@ -955,4 +955,3 @@ Toute nouvelle capture ou nouveau type de payload doit être ajouté ici :
 - sous forme de structure ;
 - avec distinction claire entre **observé**, **documenté** et **interprété** ;
 - sans polluer le document principal de référence.
-
