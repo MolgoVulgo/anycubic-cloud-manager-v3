@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Dialogs
 import QtQuick.Layouts 1.15
 import QtCore
+import Accloud.Models 1.0
 import "../components/Theme.js" as Theme
 import "../components"
 
@@ -28,6 +29,8 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    readonly property int visibleFilesCount: cloudFilesModel.visibleCount
+    readonly property int pageTotal: cloudFilesModel.totalPages
     readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
@@ -70,8 +73,19 @@ Item {
     readonly property int colXDate: colXSize + colSizeWidth + tableColumnSpacing
     readonly property int colXActions: colXDate + colDateWidth + tableColumnSpacing
 
-    ListModel {
+    CloudFilesModel {
         id: cloudFilesModel
+        currentPage: root.currentPage
+        pageSize: root.pageSize
+        typeFilter: root.typeFilterValue
+    }
+
+    Connections {
+        target: cloudFilesModel
+        function onCurrentPageChanged() {
+            if (root.currentPage !== cloudFilesModel.currentPage)
+                root.currentPage = cloudFilesModel.currentPage
+        }
     }
 
     function hasCloudBridge() {
@@ -277,18 +291,7 @@ Item {
     }
 
     function refreshTypeFilterOptions() {
-        var present = {}
-        for (var i = 0; i < cloudFilesModel.count; ++i) {
-            var entry = cloudFilesModel.get(i)
-            var ext = fileExtension(entry.fileName)
-            if (ext.length > 0 && isSupportedExtension(ext))
-                present[ext] = true
-        }
-
-        var sortedExt = []
-        for (var key in present)
-            sortedExt.push(key)
-        sortedExt.sort()
+        var sortedExt = cloudFilesModel.availableFileTypes(supportedExtensions)
 
         var options = [ { "code": "all", "label": qsTr("All") } ]
         for (var j = 0; j < sortedExt.length; ++j) {
@@ -358,47 +361,20 @@ Item {
     }
 
     function visibleFileCount() {
-        var count = 0
-        for (var i = 0; i < cloudFilesModel.count; ++i) {
-            var entry = cloudFilesModel.get(i)
-            if (fileMatchesFilter(entry.fileName))
-                count += 1
-        }
-        return count
+        return cloudFilesModel.visibleCount
     }
 
     function totalPages() {
-        var total = visibleFileCount()
-        if (total <= 0)
-            return 1
-        return Math.max(1, Math.ceil(total / pageSize))
+        return cloudFilesModel.totalPages
     }
 
     function clampCurrentPage() {
-        currentPage = Math.max(0, Math.min(currentPage, totalPages() - 1))
+        currentPage = Math.max(0, Math.min(currentPage, cloudFilesModel.totalPages - 1))
     }
 
-    function visibleRankForIndex(modelIndex) {
-        var rank = 0
-        for (var i = 0; i < modelIndex; ++i) {
-            var entry = cloudFilesModel.get(i)
-            if (fileMatchesFilter(entry.fileName))
-                rank += 1
-        }
-        return rank
+    onTypeFilterValueChanged: {
+        currentPage = 0
     }
-
-    function isIndexOnCurrentPage(modelIndex, fileName) {
-        if (!fileMatchesFilter(fileName))
-            return false
-        var rank = visibleRankForIndex(modelIndex)
-        var start = currentPage * pageSize
-        var end = start + pageSize
-        return rank >= start && rank < end
-    }
-
-    onPageSizeChanged: clampCurrentPage()
-    onTypeFilterValueChanged: clampCurrentPage()
 
     function displayDate(uploadTime) {
         var value = String(uploadTime || "").trim()
@@ -424,12 +400,8 @@ Item {
     }
 
     function fileDataById(fileId) {
-        for (var i = 0; i < cloudFilesModel.count; ++i) {
-            var entry = cloudFilesModel.get(i)
-            if (String(entry.fileId) === String(fileId))
-                return entry
-        }
-        return null
+        var entry = cloudFilesModel.fileDataById(String(fileId || ""))
+        return entry && Object.keys(entry).length > 0 ? entry : null
     }
 
     function openFileDetails(fileId) {
@@ -448,7 +420,20 @@ Item {
             return
         }
 
+        saveDialog.suggestName = String(fileName || qsTr("file"))
+        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
+        if (typeof cloudBridge.getDownloadUrlAsync === "function") {
+            root.statusMsg = qsTr("Preparing download...")
+            root.statusSev = "info"
+            cloudBridge.getDownloadUrlAsync(String(fileId))
+            return
+        }
+
         var r = cloudBridge.getDownloadUrl(String(fileId))
+        applyDownloadUrlResult(String(fileId), r)
+    }
+
+    function applyDownloadUrlResult(fileId, r) {
         if (r.ok !== true) {
             root.statusMsg = qsTr("Cannot get download URL: %1")
                     .arg(backendStatusDetail(r.message, qsTr("Download URL unavailable.")))
@@ -457,8 +442,6 @@ Item {
         }
 
         saveDialog.pendingUrl = r.url
-        saveDialog.suggestName = String(fileName || qsTr("file"))
-        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
         saveDialog.open()
     }
 
@@ -478,9 +461,17 @@ Item {
         root.loading = true
         root.statusMsg = qsTr("Deleting file...")
         root.statusSev = "info"
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(String(fileId))
+            return
+        }
+
         var r = cloudBridge.deleteFile(String(fileId))
         root.loading = false
+        applyDeleteResult(String(fileId), r)
+    }
 
+    function applyDeleteResult(fileId, r) {
         if (r.ok === true) {
             root.statusMsg = qsTr("File deleted.")
             root.statusSev = "success"
@@ -607,8 +598,8 @@ Item {
 
     function loadMockFiles() {
         root.currentPage = 0
-        cloudFilesModel.clear()
-        cloudFilesModel.append({
+        cloudFilesModel.replaceFiles([
+        {
             "fileId": "demo-001",
             "fileName": "rook_plate_v12.pwmb",
             "status": "READY",
@@ -636,8 +627,8 @@ Item {
             "path": "file/demo/rook_plate_v12.pwmb",
             "thumbnailUrl": "",
             "gcodeId": "demo-gcode-001"
-        })
-        cloudFilesModel.append({
+        },
+        {
             "fileId": "demo-002",
             "fileName": "calibration_tower.pws",
             "status": "READY",
@@ -665,7 +656,8 @@ Item {
             "path": "file/demo/calibration_tower.pws",
             "thumbnailUrl": "",
             "gcodeId": "demo-gcode-002"
-        })
+        }
+        ])
         root.quotaData = {
             "totalDisplay": "2.0 GB",
             "usedDisplay": "1.1 GB",
@@ -678,35 +670,16 @@ Item {
         root.loading = false
     }
 
-    function loadFiles() {
-        if (root.loading)
-            return
-
-        root.currentPage = 0
-        root.loading = true
-        root.statusMsg = qsTr("Loading files from local cache...")
-        root.statusSev = "info"
-
-        if (!hasCloudBridge()) {
-            loadMockFiles()
-            return
-        }
-
-        var useCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
-                && typeof cloudBridge.loadCachedQuota === "function"
-                && typeof cloudBridge.refreshFilesAsync === "function"
-
-        var q = useCacheFlow ? cloudBridge.loadCachedQuota() : cloudBridge.fetchQuota()
+    function applyCachedQuotaResult(q) {
         if (q.ok === true && Number(q.totalBytes || 0) > 0)
             root.quotaData = q
+    }
 
-        var r = useCacheFlow ? cloudBridge.loadCachedFiles(1, 20) : cloudBridge.fetchFiles(1, 20)
+    function applyCachedFilesResult(r, useCacheFlow) {
         root.loading = false
 
-        cloudFilesModel.clear()
         var files = r.files !== undefined ? r.files : []
-        for (var i = 0; i < files.length; ++i)
-            cloudFilesModel.append(files[i])
+        cloudFilesModel.replaceFiles(files)
         refreshTypeFilterOptions()
 
         if (files.length > 0) {
@@ -735,6 +708,40 @@ Item {
                 }
             })
         }
+    }
+
+    function loadFiles() {
+        if (root.loading)
+            return
+
+        root.currentPage = 0
+        root.loading = true
+        root.statusMsg = qsTr("Loading files from local cache...")
+        root.statusSev = "info"
+
+        if (!hasCloudBridge()) {
+            loadMockFiles()
+            return
+        }
+
+        var useCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
+                && typeof cloudBridge.loadCachedQuota === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+        var useAsyncCacheFlow = typeof cloudBridge.loadCachedFilesAsync === "function"
+                && typeof cloudBridge.loadCachedQuotaAsync === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+
+        if (useAsyncCacheFlow) {
+            cloudBridge.loadCachedQuotaAsync()
+            cloudBridge.loadCachedFilesAsync(1, 20)
+            return
+        }
+
+        var q = useCacheFlow ? cloudBridge.loadCachedQuota() : cloudBridge.fetchQuota()
+        applyCachedQuotaResult(q)
+
+        var r = useCacheFlow ? cloudBridge.loadCachedFiles(1, 20) : cloudBridge.fetchFiles(1, 20)
+        applyCachedFilesResult(r, useCacheFlow)
     }
 
     Component.onCompleted: {
@@ -768,6 +775,15 @@ Item {
             }
         }
 
+        function onDownloadUrlReady(fileId, result) {
+            root.applyDownloadUrlResult(fileId, result)
+        }
+
+        function onDeleteFileFinished(fileId, result) {
+            root.loading = false
+            root.applyDeleteResult(fileId, result)
+        }
+
         function onUploadProgressChanged(progress, phase) {
             uploadOverlay.progress = Math.max(0, Math.min(1, Number(progress)))
             uploadOverlay.phase = String(phase || "")
@@ -793,13 +809,18 @@ Item {
             }
         }
 
+        function onCachedQuotaLoaded(result) {
+            root.applyCachedQuotaResult(result)
+        }
+
+        function onCachedFilesLoaded(result) {
+            root.applyCachedFilesResult(result, true)
+        }
+
         function onFilesUpdatedFromCloud(files, message) {
-            cloudFilesModel.clear()
             var list = files !== undefined ? files : []
-            for (var i = 0; i < list.length; ++i)
-                cloudFilesModel.append(list[i])
+            cloudFilesModel.replaceFiles(list)
             refreshTypeFilterOptions()
-            root.currentPage = Math.min(root.currentPage, root.totalPages() - 1)
             root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
         }
@@ -1126,12 +1147,9 @@ Item {
             actionPrintWidth: root.actionPrintWidth
             actionMenuWidth: root.actionMenuWidth
             currentPage: root.currentPage
-            totalPages: root.totalPages()
-            visibleCount: root.visibleFileCount()
+            totalPages: root.pageTotal
+            visibleCount: root.visibleFilesCount
             pageSize: root.pageSize
-            isIndexOnCurrentPageProvider: root.isIndexOnCurrentPage
-            fileTypeLabelProvider: root.fileTypeLabel
-            displayDateProvider: root.displayDate
             onSelectedFileChanged: function(fileId) { root.selectedFileId = fileId }
             onDetailsRequested: function(fileId) { root.openFileDetails(fileId) }
             onDownloadRequested: function(fileId, fileName) { root.requestDownload(fileId, fileName) }

@@ -144,10 +144,18 @@ if(ACCLOUD_ENABLE_QT)
         app/resources.qrc
         app/AppI18nBridge.cpp
         app/AppI18nBridge.h
+        app/CloudFilesModel.cpp
+        app/CloudFilesModel.h
         app/CloudBridge.cpp
         app/CloudBridge.h
         app/MqttBridge.cpp
         app/MqttBridge.h
+        app/MqttTailModel.cpp
+        app/MqttTailModel.h
+        app/PrintersModel.cpp
+        app/PrintersModel.h
+        app/RecentJobsModel.cpp
+        app/RecentJobsModel.h
         app/LocalCacheStore.cpp
         app/LocalCacheStore.h
         app/UiSettingsBridge.cpp
@@ -161,6 +169,8 @@ if(ACCLOUD_ENABLE_QT)
           app/resources_debug.qrc
           app/LogBridge.cpp
           app/LogBridge.h
+          app/LogTailModel.cpp
+          app/LogTailModel.h
           app/UiClickTracer.cpp
           app/UiClickTracer.h
       )
@@ -198,8 +208,21 @@ if(ACCLOUD_ENABLE_QT)
   if(ACCLOUD_ENABLE_QML_TESTS)
     find_package(Qt6 QUIET COMPONENTS QuickTest)
     if(TARGET Qt6::QuickTest)
-      add_executable(accloud_qml_tests tests/ui/tst_ui_main.cpp)
+      add_executable(accloud_qml_tests
+          tests/ui/tst_ui_main.cpp
+          app/CloudFilesModel.cpp
+          app/CloudFilesModel.h
+          app/LogTailModel.cpp
+          app/LogTailModel.h
+          app/MqttTailModel.cpp
+          app/MqttTailModel.h
+          app/PrintersModel.cpp
+          app/PrintersModel.h
+          app/RecentJobsModel.cpp
+          app/RecentJobsModel.h
+      )
       target_link_libraries(accloud_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::QuickControls2)
+      target_include_directories(accloud_qml_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
       target_compile_definitions(accloud_qml_tests PRIVATE
           QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml"
       )
@@ -266,9 +289,20 @@ endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_ui_model_tests
+      tests/ui/test_models.cpp
+      app/CloudFilesModel.cpp
+      app/MqttTailModel.cpp
+      app/PrintersModel.cpp
+      app/RecentJobsModel.cpp
+  )
+  target_link_libraries(accloud_ui_model_tests PRIVATE accloud_domain Qt6::Core)
+  add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
+
   add_executable(accloud_log_tests
       tests/cloud/test_log_bridge.cpp
       app/LogBridge.cpp
+      app/LogTailModel.cpp
   )
   target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
   add_test(NAME accloud_log_flow COMMAND accloud_log_tests)

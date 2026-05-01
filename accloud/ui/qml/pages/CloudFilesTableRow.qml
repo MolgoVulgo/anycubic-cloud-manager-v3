@@ -7,7 +7,6 @@ import "../components"
 Rectangle {
     id: root
 
-    property bool rowVisible: true
     property bool rowSelected: false
     property int rowVerticalPadding: 6
     property int selectedBleedY: 3
@@ -47,8 +46,7 @@ Rectangle {
     signal deleteRequested(string fileId, string fileName)
 
     width: ListView.view ? ListView.view.width : 0
-    height: rowVisible ? 112 : 0
-    visible: rowVisible
+    height: 112
     color: Theme.bgSurface
     border.width: 0
 
@@ -99,6 +97,7 @@ Rectangle {
                 fillMode: Image.PreserveAspectFit
                 visible: String(source).length > 0
                 asynchronous: true
+                cache: true
             }
 
             Text {
@@ -130,37 +129,6 @@ Rectangle {
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontBodyPx
                     elide: Text.ElideRight
-                    horizontalAlignment: Text.AlignLeft
-                    verticalAlignment: Text.AlignVCenter
-                }
-
-                Text {
-                    objectName: "fileRowThumbnailPath"
-                    width: parent.width
-                    text: root.thumbnailUrl.length > 0 ? root.thumbnailUrl : "-"
-                    color: Theme.fgSecondary
-                    font.pixelSize: Theme.fontCaptionPx
-                    elide: Text.ElideMiddle
-                    horizontalAlignment: Text.AlignLeft
-                    verticalAlignment: Text.AlignVCenter
-                }
-
-                Text {
-                    objectName: "fileRowThumbnailStatus"
-                    width: parent.width
-                    text: (thumbnailImage.status === Image.Ready
-                           ? "thumb=ready"
-                           : (thumbnailImage.status === Image.Loading
-                              ? "thumb=loading"
-                              : (thumbnailImage.status === Image.Error
-                                 ? "thumb=error"
-                                 : "thumb=null")))
-                          + " vis=" + (thumbnailImage.visible ? "1" : "0")
-                          + " s=" + thumbnailImage.status
-                    color: thumbnailImage.status === Image.Error
-                           ? Theme.danger
-                           : Theme.fgSecondary
-                    font.pixelSize: Theme.fontCaptionPx
                     horizontalAlignment: Text.AlignLeft
                     verticalAlignment: Text.AlignVCenter
                 }
