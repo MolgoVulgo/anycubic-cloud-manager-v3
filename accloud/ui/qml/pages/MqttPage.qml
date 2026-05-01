@@ -7,59 +7,13 @@ import "../components"
 Item {
     id: root
     property bool embeddedInTabsContainer: false
+    property bool pageActive: true
     property string statusText: (typeof mqttBridge !== "undefined" && mqttBridge !== null)
                                 ? String(mqttBridge.status || "idle")
                                 : "mqtt_unavailable"
     property string topicFilter: ""
     property string selectedTopic: ""
     property var topicSelectorModel: [qsTr("All topics")]
-
-    function filteredRawStream() {
-        var raw = (typeof mqttBridge !== "undefined" && mqttBridge !== null)
-                ? String(mqttBridge.rawBuffer || "")
-                : ""
-        var filter = String(root.topicFilter || "").trim().toLowerCase()
-        if (filter.length === 0)
-            return raw
-
-        var lines = raw.split("\n")
-        var out = []
-        var currentBlock = []
-        var currentBlockMatches = false
-
-        function flushCurrentBlock() {
-            if (currentBlock.length === 0)
-                return
-            if (currentBlockMatches)
-                out.push(currentBlock.join("\n"))
-            currentBlock = []
-            currentBlockMatches = false
-        }
-
-        for (var i = 0; i < lines.length; ++i) {
-            var line = String(lines[i] || "")
-            var lowered = line.toLowerCase()
-            var hasTopicHeader = lowered.indexOf("topic=") !== -1
-
-            if (hasTopicHeader) {
-                flushCurrentBlock()
-                currentBlock = [line]
-                currentBlockMatches = (lowered.indexOf("topic=" + filter) !== -1
-                                       || lowered.indexOf(filter) !== -1)
-                continue
-            }
-
-            if (currentBlock.length > 0) {
-                currentBlock.push(line)
-                continue
-            }
-
-            if (lowered.indexOf(filter) !== -1)
-                out.push(line)
-        }
-        flushCurrentBlock()
-        return out.join("\n")
-    }
 
     function rebuildTopicSelectorModel() {
         var previous = String(root.selectedTopic || "")
@@ -88,10 +42,17 @@ Item {
     }
 
     function selectedTopicMessages() {
+        if (!root.pageActive)
+            return ""
         if (typeof mqttBridge === "undefined" || mqttBridge === null)
             return ""
         var _tick = mqttBridge.messageTick
         return String(mqttBridge.messagesForTopic(root.selectedTopic))
+    }
+
+    onTopicFilterChanged: {
+        if (typeof mqttBridge !== "undefined" && mqttBridge !== null && mqttBridge.tailModel)
+            mqttBridge.tailModel.topicFilter = root.topicFilter
     }
 
     AppPageFrame {
@@ -321,16 +282,20 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                TextArea {
-                    readOnly: true
-                    wrapMode: TextEdit.NoWrap
-                    text: root.filteredRawStream()
-                    color: Theme.fgPrimary
-                    background: Rectangle {
-                        color: Theme.bgSurface
-                        border.width: Theme.borderWidth
-                        border.color: Theme.borderDefault
-                        radius: Theme.radiusControl
+                ListView {
+                    id: rawStreamList
+                    model: (typeof mqttBridge !== "undefined" && mqttBridge !== null && mqttBridge.tailModel)
+                           ? mqttBridge.tailModel
+                           : null
+                    clip: true
+                    cacheBuffer: 600
+                    delegate: Text {
+                        width: rawStreamList.width
+                        text: String(model.line || "")
+                        color: Theme.fgPrimary
+                        font.pixelSize: Theme.fontCaptionPx
+                        font.family: "monospace"
+                        elide: Text.ElideRight
                     }
                 }
             }
@@ -343,14 +308,22 @@ Item {
             root.statusText = String(mqttBridge.status || "idle")
         }
         function onReceivedTopicsChanged() {
+            if (!root.pageActive)
+                return
             root.rebuildTopicSelectorModel()
         }
         function onMessageTickChanged() {
+            if (!root.pageActive)
+                return
             if (root.selectedTopic.length > 0) {
                 root.rebuildTopicSelectorModel()
             }
         }
     }
 
-    Component.onCompleted: root.rebuildTopicSelectorModel()
+    Component.onCompleted: {
+        root.rebuildTopicSelectorModel()
+        if (typeof mqttBridge !== "undefined" && mqttBridge !== null && mqttBridge.tailModel)
+            mqttBridge.tailModel.topicFilter = root.topicFilter
+    }
 }

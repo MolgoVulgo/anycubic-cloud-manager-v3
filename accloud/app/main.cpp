@@ -9,7 +9,10 @@
 #if defined(ACCLOUD_WITH_QT)
 #include "AppI18nBridge.h"
 #include "CloudBridge.h"
+#include "CloudFilesModel.h"
 #include "MqttBridge.h"
+#include "PrintersModel.h"
+#include "RecentJobsModel.h"
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
 #include "infra/mqtt/core/OpenSslCompat.h"
@@ -22,6 +25,7 @@
 #include <QImageReader>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QUrl>
 #endif
 
@@ -174,6 +178,9 @@ int main(int argc, char** argv) {
                            {{"log_dir", accloud::logging::logDirectory().string()}});
 
     QQmlApplicationEngine engine;
+    qmlRegisterType<accloud::CloudFilesModel>("Accloud.Models", 1, 0, "CloudFilesModel");
+    qmlRegisterType<accloud::PrintersModel>("Accloud.Models", 1, 0, "PrintersModel");
+    qmlRegisterType<accloud::RecentJobsModel>("Accloud.Models", 1, 0, "RecentJobsModel");
     accloud::SessionImportBridge sessionImportBridge;
     accloud::CloudBridge cloudBridge;
     accloud::MqttBridge mqttBridge;

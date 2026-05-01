@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutex>
@@ -610,6 +611,92 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
         item.insert("endTime", q.value(13).toLongLong());
         item.insert("img", q.value(14).toString());
         out.append(item);
+      }
+    }
+
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return out;
+}
+
+QVariantMap LocalCacheStore::loadRecentJobsForPrinters(const QStringList& printerIds, int limitPerPrinter) const {
+  QVariantMap out;
+  if (!ensureReady()) {
+    return out;
+  }
+
+  QStringList ids;
+  ids.reserve(printerIds.size());
+  for (const QString& printerId : printerIds) {
+    const QString normalized = printerId.trimmed();
+    if (!normalized.isEmpty() && !ids.contains(normalized)) {
+      ids.push_back(normalized);
+    }
+  }
+  if (ids.isEmpty()) {
+    return out;
+  }
+  if (limitPerPrinter <= 0) {
+    limitPerPrinter = 20;
+  }
+
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) {
+      closeAndRemoveDatabase(db, connectionName);
+      return out;
+    }
+
+    QStringList placeholders;
+    placeholders.reserve(ids.size());
+    for (int i = 0; i < ids.size(); ++i) {
+      placeholders.push_back(QStringLiteral(":printer%1").arg(i));
+    }
+
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT task_id, gcode_name, printer_id, printer_name, print_status, progress, elapsed_sec, remaining_sec, "
+        "current_layer, total_layers, current_file, reason, create_time, end_time, img "
+        "FROM jobs WHERE printer_id IN (%1) ORDER BY printer_id ASC, create_time DESC, updated_at DESC")
+                  .arg(placeholders.join(QStringLiteral(","))));
+    for (int i = 0; i < ids.size(); ++i) {
+      q.bindValue(placeholders.at(i), ids.at(i));
+    }
+
+    QHash<QString, int> counts;
+    if (q.exec()) {
+      while (q.next()) {
+        const QString printerId = q.value(2).toString();
+        const int count = counts.value(printerId, 0);
+        if (count >= limitPerPrinter) {
+          continue;
+        }
+        counts.insert(printerId, count + 1);
+
+        QVariantMap item;
+        item.insert("taskId", q.value(0).toString());
+        item.insert("gcodeName", q.value(1).toString());
+        item.insert("printerId", printerId);
+        item.insert("printerName", q.value(3).toString());
+        item.insert("printStatus", q.value(4).toInt());
+        item.insert("progress", q.value(5).toInt());
+        item.insert("elapsedSec", q.value(6).toInt());
+        item.insert("remainingSec", q.value(7).toInt());
+        item.insert("currentLayer", q.value(8).toInt());
+        item.insert("totalLayers", q.value(9).toInt());
+        item.insert("currentFile", q.value(10).toString());
+        item.insert("reason", q.value(11).toString());
+        item.insert("createTime", q.value(12).toLongLong());
+        item.insert("endTime", q.value(13).toLongLong());
+        item.insert("img", q.value(14).toString());
+
+        QVariantList jobs = out.value(printerId).toList();
+        jobs.append(item);
+        out.insert(printerId, jobs);
       }
     }
 
