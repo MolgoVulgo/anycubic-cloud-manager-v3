@@ -872,22 +872,24 @@ TestCase {
 
         page.applyPrinterLocalFilesFromMqtt("p1", "local", [
             { filename: "plate-a.pwmb", size: 2048, timestamp: 0, isDir: false },
+            { fileName: "plate-c.pwmb", size: 3072, timestamp: 0, is_dir: 0 },
             { filename: "folder", size: 0, timestamp: 0, isDir: true }
         ], "done", 0, "")
         wait(0)
 
         var localModel = findObjectByName(page, "printerLocalFilesModel")
         verify(localModel !== null)
-        compare(localModel.count, 1)
+        compare(localModel.count, 2)
         compare(String(localModel.get(0).fileName), "plate-a.pwmb")
+        compare(String(localModel.get(1).fileName), "plate-c.pwmb")
         compare(String(page.selectedPrinterLocalFileName), "plate-a.pwmb")
 
         page.deletePrinterLocalFile("plate-a.pwmb")
         compare(cloudBridge.orderCalls.length, 3)
         compare(cloudBridge.orderCalls[2].orderId, 104)
         compare(String(cloudBridge.orderCalls[2].data.filename), "plate-a.pwmb")
-        compare(localModel.count, 0)
-        compare(String(page.selectedPrinterLocalFileName), "")
+        compare(localModel.count, 1)
+        compare(String(page.selectedPrinterLocalFileName), "plate-c.pwmb")
         verify(String(page.statusMsg).indexOf("Local file deleted") === 0)
 
         page.applyPrinterLocalFilesFromMqtt("p1", "local", [

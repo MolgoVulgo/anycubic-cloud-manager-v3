@@ -122,6 +122,24 @@ bool test_router_routes_release_film_status() {
                   "releaseFilm status should be forced to -1 over ACF/NFEP threshold");
 }
 
+bool test_router_accepts_documented_local_file_list_payload() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/m7/prod-key-01/file/report";
+    const std::string payload = R"json(
+{"type":"file","action":"listLocalFile","state":"done","data":{"files":[{"filename":"plate-a.pwmb","size":2048,"timestamp":1710000000,"is_dir":0}]}}
+)json";
+
+    const auto routed = router.route(topic, payload);
+    return expect(routed.disposition == accloud::mqtt::routing::RouteDisposition::Routed,
+                  "documented listLocalFile payload should route")
+        && expect(routed.envelope.type == "file", "file type should be preserved")
+        && expect(routed.envelope.action == "listLocalFile", "listLocalFile action should be preserved")
+        && expect(routed.envelope.data.contains("files"), "documented data.files array should be preserved")
+        && expect(routed.envelope.data["files"].is_array(), "data.files should remain an array")
+        && expect(routed.envelope.data["files"].size() == 1, "data.files should contain one record");
+}
+
 bool test_store_applies_release_film_status() {
     auto& store = accloud::realtime::PrinterRealtimeStore::instance();
     store.clear();
@@ -413,6 +431,7 @@ int main() {
     ok = test_route_extracts_realtime_fields() && ok;
     ok = test_store_applies_metrics() && ok;
     ok = test_router_routes_release_film_status() && ok;
+    ok = test_router_accepts_documented_local_file_list_payload() && ok;
     ok = test_store_applies_release_film_status() && ok;
     ok = test_router_infers_type_from_topic_when_payload_omits_type() && ok;
     ok = test_router_promotes_wifi_resin_video_types() && ok;

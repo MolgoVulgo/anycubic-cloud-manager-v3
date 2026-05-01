@@ -222,6 +222,28 @@ bool test_session_metadata_fields_are_preserved() {
          expectToken(result, "auth_token", "meta_auth_token");
 }
 
+bool test_empty_har_reports_capture_problem() {
+  const std::string har = R"json(
+{
+  "log": {
+    "version": "1.2",
+    "creator": {"name": "WebInspector"},
+    "pages": [],
+    "entries": []
+  }
+}
+)json";
+
+  HarImportOptions options;
+  options.mergeWithExistingSession = false;
+  options.persistSession = false;
+  const HarImportResult result = accloud::cloud::importHarText(har, options);
+
+  return expect(!result.ok, "empty HAR should be rejected") &&
+         expect(result.message.find("HAR log.entries is empty") != std::string::npos,
+                "empty HAR error should explain that no network entries were captured");
+}
+
 } // namespace
 
 int main() {
@@ -230,6 +252,7 @@ int main() {
   ok = test_base64_response_body() && ok;
   ok = test_query_fallback_and_session_roundtrip() && ok;
   ok = test_session_metadata_fields_are_preserved() && ok;
+  ok = test_empty_har_reports_capture_problem() && ok;
 
   if (!ok) {
     return 1;

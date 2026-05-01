@@ -731,6 +731,10 @@ std::map<std::string, std::string> extractQueryTokens(std::string_view url) {
     error = "HAR log.entries is missing or invalid";
     return false;
   }
+  if (log["entries"].empty()) {
+    error = "HAR log.entries is empty; export a HAR after reloading/login while network capture is active";
+    return false;
+  }
 
   const std::string hostNeedle = lower(hostContains);
   std::vector<Candidate> responseCandidates;
@@ -794,7 +798,11 @@ std::map<std::string, std::string> extractQueryTokens(std::string_view url) {
 
   outSession = normalizeSessionTokens(merged);
   if (outSession.empty()) {
-    error = "No usable token fields found in HAR entries";
+    if (accepted == 0) {
+      error = "No HAR entries matched host filter: " + hostContains;
+    } else {
+      error = "No usable token fields found in matched HAR entries";
+    }
     return false;
   }
   return true;

@@ -2033,10 +2033,11 @@ Item {
         var list = records !== undefined ? records : []
         for (var i = 0; i < list.length; ++i) {
             var record = list[i]
-            var fileName = String(record.filename || "").trim()
+            var fileName = String(record.filename || record.fileName || record.file_name || record.name || "").trim()
             if (fileName.length === 0)
                 continue
-            var isDir = record.isDir === true || Number(record.isDir) > 0
+            var isDir = record.isDir === true || record.is_dir === true
+                    || Number(record.isDir) > 0 || Number(record.is_dir) > 0
             if (isDir)
                 continue
 

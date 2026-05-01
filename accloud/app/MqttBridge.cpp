@@ -288,22 +288,57 @@ QString toQStringField(const nlohmann::json& object, const char* key) {
     return {};
 }
 
+const nlohmann::json* firstArrayField(const nlohmann::json& object,
+                                      std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return nullptr;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || !object[key].is_array()) {
+            continue;
+        }
+        return &object[key];
+    }
+    return nullptr;
+}
+
+QString firstQStringField(const nlohmann::json& object, std::initializer_list<const char*> keys) {
+    for (const char* key : keys) {
+        const QString value = toQStringField(object, key).trimmed();
+        if (!value.isEmpty()) {
+            return value;
+        }
+    }
+    return {};
+}
+
 QVariantMap fileRecordToVariantMap(const nlohmann::json& record) {
     QVariantMap map;
+    if (record.is_string()) {
+        map.insert("filename", QString::fromStdString(record.get<std::string>()));
+        map.insert("path", QString());
+        map.insert("size", 0);
+        map.insert("timestamp", 0);
+        map.insert("isDir", false);
+        return map;
+    }
     if (!record.is_object()) {
         return map;
     }
-    map.insert("filename", toQStringField(record, "filename"));
-    map.insert("path", toQStringField(record, "path"));
+    map.insert("filename", firstQStringField(record, {"filename", "fileName", "file_name", "name"}));
+    map.insert("path", firstQStringField(record, {"path", "dir", "directory"}));
     map.insert("size", jsonInt64ValueOr(record.value("size", nlohmann::json{}), 0));
-    map.insert("timestamp", jsonInt64ValueOr(record.value("timestamp", nlohmann::json{}), 0));
+    map.insert("timestamp", jsonInt64ValueOr(record.value("timestamp", record.value("time", nlohmann::json{})), 0));
     bool isDir = false;
-    if (record.contains("is_dir") && !record["is_dir"].is_null()) {
-        const auto& isDirNode = record["is_dir"];
-        if (isDirNode.is_boolean()) {
-            isDir = isDirNode.get<bool>();
-        } else {
-            isDir = jsonIntValueOr(isDirNode, 0) != 0;
+    for (const char* key : {"is_dir", "isDir", "dir", "directory"}) {
+        if (record.contains(key) && !record[key].is_null()) {
+            const auto& isDirNode = record[key];
+            if (isDirNode.is_boolean()) {
+                isDir = isDirNode.get<bool>();
+            } else {
+                isDir = jsonIntValueOr(isDirNode, 0) != 0;
+            }
+            break;
         }
     }
     map.insert("isDir", isDir);
@@ -597,12 +632,11 @@ MqttBridge::MqttBridge(QObject* parent)
                     source = QStringLiteral("udisk");
                 }
 
-                const bool hasRecordsArray = routed.envelope.data.is_object()
-                    && routed.envelope.data.contains("records")
-                    && routed.envelope.data["records"].is_array();
+                const nlohmann::json* fileRecords =
+                    firstArrayField(routed.envelope.data, {"records", "files"});
                 const bool listLikeAction = actionLower.startsWith(QStringLiteral("list"));
 
-                if (!source.isEmpty() && (hasRecordsArray || listLikeAction)) {
+                if (!source.isEmpty() && (fileRecords != nullptr || listLikeAction)) {
                     std::string effectivePrinterId = routed.printerKey;
                     if (!routed.printerKey.empty()) {
                         const auto it = m_printerKeyToId.find(routed.printerKey);
@@ -612,10 +646,8 @@ MqttBridge::MqttBridge(QObject* parent)
                     }
 
                     QVariantList records;
-                    if (routed.envelope.data.is_object()
-                        && routed.envelope.data.contains("records")
-                        && routed.envelope.data["records"].is_array()) {
-                        for (const auto& record : routed.envelope.data["records"]) {
+                    if (fileRecords != nullptr) {
+                        for (const auto& record : *fileRecords) {
                             records.push_back(fileRecordToVariantMap(record));
                         }
                     }
