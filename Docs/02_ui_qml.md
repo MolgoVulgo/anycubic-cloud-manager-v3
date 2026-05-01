@@ -18,6 +18,11 @@ Ce document fusionne la documentation initiale relative à :
 
 Il devient la référence principale pour la partie interface Qt/QML.
 
+Documents de suivi performance :
+- `ui_latency_performance_analysis.md` : diagnostic ;
+- `ui_latency_correction_plan.md` : plan initial ;
+- `ui_optimization_continuity.md` : marche a suivre apres les premieres optimisations.
+
 ---
 
 ## 2. Position réelle de l’UI

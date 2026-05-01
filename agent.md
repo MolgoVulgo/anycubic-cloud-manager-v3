@@ -31,6 +31,13 @@ Points d’entrée utiles :
 - `accloud/app/MqttBridge.cpp`
 - `accloud/app/MqttBridge.h`
 
+Pour toute intervention UI/QML ou performance perçue, lire aussi :
+- `Docs/ui_latency_performance_analysis.md`
+- `Docs/ui_latency_correction_plan.md`
+- `Docs/ui_optimization_continuity.md`
+
+---
+
 ## Commandes standard
 
 Depuis `accloud/` :
