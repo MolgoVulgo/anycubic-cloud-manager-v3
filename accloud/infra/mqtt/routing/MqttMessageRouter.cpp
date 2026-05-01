@@ -149,10 +149,10 @@ std::map<std::string, int> parseCheckStatus(const nlohmann::json& object) {
 }
 
 bool isKnownPrintState(const std::string& state) {
-    static const std::array<const char*, 14> kStates = {
+    static const std::array<const char*, 15> kStates = {
         "downloading", "checking", "preheating", "printing", "pausing",
         "paused", "resuming", "resumed", "finished", "stoped",
-        "stopping", "updated", "failed", "monitoring",
+        "stopping", "updated", "failed", "monitoring", "waiting",
     };
     return std::any_of(kStates.begin(), kStates.end(), [&](const char* v) {
         return state == v;
@@ -422,6 +422,7 @@ std::optional<accloud::realtime::PrintState> MqttMessageRouter::mapPrintState(co
     if (lowered == "paused") return accloud::realtime::PrintState::Paused;
     if (lowered == "resuming") return accloud::realtime::PrintState::Resuming;
     if (lowered == "resumed") return accloud::realtime::PrintState::Resumed;
+    if (lowered == "waiting") return accloud::realtime::PrintState::Printing;
     if (lowered == "finished") return accloud::realtime::PrintState::Finished;
     if (lowered == "stoped") return accloud::realtime::PrintState::Stopped;
     if (lowered == "stopping") return accloud::realtime::PrintState::Stopping;

@@ -19,6 +19,12 @@ std::vector<accloud::cloud::CloudPrinterInfo> ApplyRealtimeOverlayUseCase::execu
         if (rt.state.has_value()) {
             printer.state = *rt.state;
         }
+        if (rt.printStateText.has_value()) {
+            printer.mqttPrintState = *rt.printStateText;
+        }
+        if (rt.jobStageText.has_value()) {
+            printer.mqttJobStage = *rt.jobStageText;
+        }
         if (rt.progress.has_value()) {
             printer.progress = *rt.progress;
         }

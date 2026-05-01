@@ -367,6 +367,27 @@ bool test_store_tracks_m7_print_workflow_by_taskid() {
         store.clear();
         return false;
     }
+    if (!expect(snapshot->printStateText.has_value() && *snapshot->printStateText == "printing",
+                "raw MQTT print state should be exposed")
+        || !expect(snapshot->jobStageText.has_value() && *snapshot->jobStageText == "printing",
+                   "normalized MQTT job stage should be exposed")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent waiting = printing;
+    waiting.state = "waiting";
+    store.applyEvent(waiting);
+    snapshot = store.get("printer-m7");
+    if (!expect(snapshot.has_value()
+                   && snapshot->state.has_value()
+                   && *snapshot->state == "PRINTING",
+                "waiting should keep the printer busy")
+        || !expect(snapshot->printStateText.has_value() && *snapshot->printStateText == "waiting",
+                   "waiting state should be exposed without replacing legacy busy state")) {
+        store.clear();
+        return false;
+    }
 
     accloud::realtime::PrinterRealtimeEvent finished = loaded;
     finished.state = "finished";
@@ -384,6 +405,257 @@ bool test_store_tracks_m7_print_workflow_by_taskid() {
                   "workReport/free should update availability")
         && expect(snapshot->state.has_value() && *snapshot->state == "READY",
                   "finished job plus free availability should expose READY");
+    store.clear();
+    return ok;
+}
+
+bool test_store_links_command_sent_to_first_mqtt_taskid() {
+    auto& store = accloud::realtime::PrinterRealtimeStore::instance();
+    store.clear();
+
+    store.recordPrintCommandSent("printer-m7", "", "file-123", "msg-123");
+    auto snapshot = store.get("printer-m7");
+    if (!expect(snapshot.has_value(), "command_sent should create a printer snapshot")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::CommandSent,
+                "HTTPS accepted order should create command_sent stage")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->state.has_value() && *snapshot->state == "PENDING",
+                "command_sent should not expose PRINTING")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent downloading;
+    downloading.printerKey = "printer-m7";
+    downloading.type = accloud::realtime::MessageType::Print;
+    downloading.action = "update";
+    downloading.state = "downloading";
+    downloading.msgid = "msg-456";
+    downloading.taskId = std::string("87153347");
+    downloading.downloadProgress = 45;
+    store.applyEvent(downloading);
+
+    snapshot = store.get("printer-m7");
+    const bool ok = expect(snapshot.has_value(), "MQTT update should keep printer snapshot")
+        && expect(snapshot->activeTaskId.has_value() && *snapshot->activeTaskId == "87153347",
+                  "first MQTT taskid should replace pending task key")
+        && expect(snapshot->jobs.size() == 1, "pending job should be migrated, not duplicated")
+        && expect(snapshot->jobs.contains("87153347"), "real taskid job should exist")
+        && expect(snapshot->jobs.at("87153347").fileId.has_value()
+                      && *snapshot->jobs.at("87153347").fileId == "file-123",
+                  "migrated job should keep HTTP file id")
+        && expect(snapshot->jobStage.has_value()
+                      && *snapshot->jobStage == accloud::realtime::PrintJobStage::Downloading,
+                  "MQTT update should advance command_sent to downloading")
+        && expect(snapshot->downloadProgress.has_value() && *snapshot->downloadProgress == 45,
+                  "download progress should be exposed");
+    store.clear();
+    return ok;
+}
+
+bool routeAndApply(accloud::mqtt::routing::MqttMessageRouter& router,
+                   const std::string& topic,
+                   const std::string& payload) {
+    const auto routed = router.route(topic, payload);
+    if (!expect(routed.disposition == accloud::mqtt::routing::RouteDisposition::Routed,
+                "documented workflow payload should route")) {
+        return false;
+    }
+    if (!expect(routed.event.has_value(), "documented workflow payload should produce realtime event")) {
+        return false;
+    }
+    accloud::realtime::PrinterRealtimeStore::instance().applyEvent(*routed.event);
+    return true;
+}
+
+bool test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() {
+    auto& store = accloud::realtime::PrinterRealtimeStore::instance();
+    store.clear();
+
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string printerKey = "printer-m7";
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/128/" + printerKey + "/print/report";
+    const std::string statusTopic =
+        "anycubic/anycubicCloud/v1/printer/public/128/" + printerKey + "/status/report";
+    const std::string taskId = "89470925";
+
+    store.recordPrintCommandSent(printerKey, "", "file-known-from-https", "msg-http-1");
+    auto snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value(), "HTTPS command_sent should create local job")
+        || !expect(snapshot->state.has_value() && *snapshot->state == "PENDING",
+                   "command_sent should expose pending state")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, statusTopic,
+                       R"json({"type":"status","action":"workReport","state":"busy","data":null})json")) {
+        store.clear();
+        return false;
+    }
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"update","state":"downloading","msgid":"msg-update-0","data":{"taskid":"89470925","progress":0,"task_mode":1}})json")) {
+        store.clear();
+        return false;
+    }
+    snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Downloading,
+                "update/downloading progress=0 should enter downloading")
+        || !expect(snapshot->downloadProgress.has_value() && *snapshot->downloadProgress == 0,
+                   "download progress 0 should be exposed")
+        || !expect(snapshot->jobs.size() == 1 && snapshot->jobs.contains(taskId),
+                   "first MQTT taskid should migrate the pending command job")
+        || !expect(snapshot->jobs.at(taskId).fileId.has_value()
+                       && *snapshot->jobs.at(taskId).fileId == "file-known-from-https",
+                   "migrated job should preserve the HTTPS file reference")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"update","state":"downloading","msgid":"msg-update-100","data":{"taskid":"89470925","progress":100,"task_mode":1}})json")) {
+        store.clear();
+        return false;
+    }
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"start","state":"printing","msgid":"msg-start-loaded","data":{"taskid":"89470925","filename":"C1(1).pwsz","curr_layer":0,"total_layers":1210,"progress":0,"print_time":0,"remain_time":113,"task_mode":1,"slicer":"Lychee Slicer"}})json")) {
+        store.clear();
+        return false;
+    }
+    snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Loaded,
+                "start/printing curr_layer=0 should expose loaded")
+        || !expect(snapshot->currentFile.has_value() && *snapshot->currentFile == "C1(1).pwsz",
+                   "start payload should expose filename for UI")
+        || !expect(snapshot->totalLayers.has_value() && *snapshot->totalLayers == 1210,
+                   "start payload should expose total layers")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"monitor","state":"monitoring","msgid":"msg-monitor","data":{"taskid":"89470925","checkStatus":[{"name":"pullForce","status":0},{"name":"motor","status":-2}]}})json")) {
+        store.clear();
+        return false;
+    }
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"autoOperation","state":"monitoring","msgid":"msg-auto","data":{"taskid":"89470925","checkStatus":[{"name":"platform","status":0},{"name":"resin","status":-1}]}})json")) {
+        store.clear();
+        return false;
+    }
+    snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobs.at(taskId).hardwareChecks.at("motor") == -2,
+                "monitor/monitoring checks should attach to the task")
+        || !expect(snapshot->jobs.at(taskId).autoChecks.at("resin") == -1,
+                   "autoOperation/monitoring checks should attach to the task")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"start","state":"preheating","msgid":"msg-preheat","data":{"taskid":"89470925","filename":"C1(1).pwsz","curr_layer":0,"total_layers":1210,"progress":0,"print_time":0,"remain_time":113,"heating_skip_allowed":true,"heating_remain_time":90}})json")) {
+        store.clear();
+        return false;
+    }
+    snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Preheating,
+                "start/preheating should expose preheating")
+        || !expect(snapshot->jobs.at(taskId).heatingSkipAllowed.has_value()
+                       && *snapshot->jobs.at(taskId).heatingSkipAllowed,
+                   "preheating should preserve heating skip flag")
+        || !expect(snapshot->jobs.at(taskId).heatingRemainingSec.has_value()
+                       && *snapshot->jobs.at(taskId).heatingRemainingSec == 90,
+                   "preheating should preserve heating remaining time")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"start","state":"printing","msgid":"msg-print-1","data":{"taskid":"89470925","filename":"C1(1).pwsz","curr_layer":1,"total_layers":1210,"progress":1,"print_time":60,"remain_time":112,"task_mode":1,"slicer":"Lychee Slicer"}})json")) {
+        store.clear();
+        return false;
+    }
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"start","state":"printing","msgid":"msg-print-2","data":{"taskid":"89470925","filename":"C1(1).pwsz","curr_layer":450,"total_layers":1210,"progress":37,"print_time":1800,"remain_time":7200,"task_mode":1,"slicer":"Lychee Slicer"}})json")) {
+        store.clear();
+        return false;
+    }
+    snapshot = store.get(printerKey);
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Printing,
+                "start/printing curr_layer>=1 should expose printing")
+        || !expect(snapshot->progress.has_value() && *snapshot->progress == 37,
+                   "repeated start/printing should update UI progress")
+        || !expect(snapshot->currentLayer.has_value() && *snapshot->currentLayer == 450,
+                   "repeated start/printing should update current layer")
+        || !expect(snapshot->remainingSec.has_value() && *snapshot->remainingSec == 7200,
+                   "repeated start/printing should update remaining time")
+        || !expect(snapshot->elapsedSec.has_value() && *snapshot->elapsedSec == 1800,
+                   "repeated start/printing should update elapsed time")
+        || !expect(snapshot->printStateText.has_value() && *snapshot->printStateText == "printing",
+                   "raw MQTT print state should be exposed for UI")
+        || !expect(snapshot->jobStageText.has_value() && *snapshot->jobStageText == "printing",
+                   "normalized job stage should be exposed for UI")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::cloud::CloudPrinterInfo printer;
+    printer.id = "cloud-printer-id";
+    printer.printerKey = printerKey;
+    printer.state = "READY";
+    printer.progress = -1;
+
+    accloud::usecases::cloud::ApplyRealtimeOverlayUseCase overlay;
+    auto merged = overlay.execute(std::vector<accloud::cloud::CloudPrinterInfo>{printer});
+    if (!expect(merged.size() == 1, "UI overlay should keep one printer")
+        || !expect(merged[0].state == "PRINTING", "UI overlay should expose busy print state")
+        || !expect(merged[0].progress == 37, "UI overlay should expose progress")
+        || !expect(merged[0].elapsedSec == 1800, "UI overlay should expose elapsed seconds")
+        || !expect(merged[0].remainingSec == 7200, "UI overlay should expose remaining seconds")
+        || !expect(merged[0].currentLayer == 450, "UI overlay should expose current layer")
+        || !expect(merged[0].totalLayers == 1210, "UI overlay should expose total layers")
+        || !expect(merged[0].currentFile == "C1(1).pwsz", "UI overlay should expose current file")
+        || !expect(merged[0].mqttPrintState == "printing", "UI overlay should expose raw MQTT print state")
+        || !expect(merged[0].mqttJobStage == "printing", "UI overlay should expose normalized MQTT job stage")) {
+        store.clear();
+        return false;
+    }
+
+    if (!routeAndApply(router, topic,
+                       R"json({"type":"print","action":"start","state":"finished","msgid":"msg-finished","data":{"taskid":"89470925","filename":"C1(1).pwsz","curr_layer":1210,"total_layers":1210,"progress":100,"print_time":9000,"remain_time":0,"task_mode":1}})json")) {
+        store.clear();
+        return false;
+    }
+    if (!routeAndApply(router, statusTopic,
+                       R"json({"type":"status","action":"workReport","state":"free","data":null})json")) {
+        store.clear();
+        return false;
+    }
+
+    merged = overlay.execute(std::vector<accloud::cloud::CloudPrinterInfo>{printer});
+    const bool ok = expect(merged.size() == 1, "Final UI overlay should keep one printer")
+        && expect(merged[0].state == "READY", "workReport/free after finished should expose READY")
+        && expect(merged[0].progress == 100, "finished should expose 100 percent progress")
+        && expect(merged[0].remainingSec == 0, "finished should expose zero remaining time")
+        && expect(merged[0].currentLayer == 1210, "finished should expose final layer")
+        && expect(merged[0].mqttPrintState == "finished", "finished raw MQTT state should reach UI")
+        && expect(merged[0].mqttJobStage == "finished", "finished normalized job stage should reach UI");
     store.clear();
     return ok;
 }
@@ -466,18 +738,20 @@ bool test_tls_provider_local_fallback_paths() {
 bool test_printer_subscription_topics_match_spec() {
     const auto topics = accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
         "m7", "101001");
-    if (!expect(topics.size() == 1, "Printer topics should contain the stable public wildcard")) {
+    if (!expect(topics.size() == 2, "Printer topics should contain the nominal wildcards")) {
         return false;
     }
     std::set<std::string> unique(topics.begin(), topics.end());
     return expect(unique.size() == topics.size(), "Printer topics should stay unique")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
-                  "Public wildcard topic should be present");
+                  "Public wildcard topic should be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
+                  "Server printer wildcard topic should be present");
 }
 
-bool test_subscription_profile_has_4_topics_for_two_printers_fixture() {
-    // Baseline contract as of 2026-03-17:
-    // 2 user topics + (1 printer topic x 2 printers) = 4.
+bool test_subscription_profile_has_6_topics_for_two_printers_fixture() {
+    // Baseline contract as of 2026-05-01:
+    // 2 user topics + (2 printer topics x 2 printers) = 6.
     // If Anycubic changes topic contract, update this assertion in the same commit.
     const std::string userId = "u-123";
     const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -492,16 +766,20 @@ bool test_subscription_profile_has_4_topics_for_two_printers_fixture() {
     topics.insert(topics.end(), p2.begin(), p2.end());
 
     std::set<std::string> unique(topics.begin(), topics.end());
-    return expect(topics.size() == 4, "Fixture with 2 printers must produce 4 subscribed topics")
-        && expect(unique.size() == 4, "Subscription topics must stay unique in fixture")
+    return expect(topics.size() == 6, "Fixture with 2 printers must produce 6 subscribed topics")
+        && expect(unique.size() == 6, "Subscription topics must stay unique in fixture")
         && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/slice/report"),
                   "User slice report topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report"),
                   "User fdm slice report topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
                   "Printer 1 public wildcard topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
+                  "Printer 1 server printer wildcard topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7pro/101002/#"),
-                  "Printer 2 public wildcard topic must be present");
+                  "Printer 2 public wildcard topic must be present")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7pro/101002/#"),
+                  "Printer 2 server printer wildcard topic must be present");
 }
 
 bool test_subscription_profile_keeps_expected_topic_families() {
@@ -517,6 +795,7 @@ bool test_subscription_profile_keeps_expected_topic_families() {
     bool hasSliceReport = false;
     bool hasFdmSliceReport = false;
     bool hasPublicWildcardFamily = false;
+    bool hasServerPrinterWildcardFamily = false;
     for (const auto& topic : topics) {
         if (topic.find("/slice/report") != std::string::npos) {
             hasSliceReport = true;
@@ -528,11 +807,16 @@ bool test_subscription_profile_keeps_expected_topic_families() {
             && topic.size() >= 2 && topic.substr(topic.size() - 2) == "/#") {
             hasPublicWildcardFamily = true;
         }
+        if (topic.find("/v1/server/printer/") != std::string::npos
+            && topic.size() >= 2 && topic.substr(topic.size() - 2) == "/#") {
+            hasServerPrinterWildcardFamily = true;
+        }
     }
 
     return expect(hasSliceReport, "User slice/report family must exist")
         && expect(hasFdmSliceReport, "User fdmslice/report family must exist")
-        && expect(hasPublicWildcardFamily, "v1 printer/public wildcard family must exist");
+        && expect(hasPublicWildcardFamily, "v1 printer/public wildcard family must exist")
+        && expect(hasServerPrinterWildcardFamily, "v1 server/printer wildcard family must exist");
 }
 
 bool test_router_extracts_printer_key_across_topic_families() {
@@ -613,10 +897,12 @@ int main() {
     ok = test_router_extracts_m7_print_workflow_fields() && ok;
     ok = test_router_extracts_m7_check_status_maps() && ok;
     ok = test_store_tracks_m7_print_workflow_by_taskid() && ok;
+    ok = test_store_links_command_sent_to_first_mqtt_taskid() && ok;
+    ok = test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() && ok;
     ok = test_overlay_matches_printer_key_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
     ok = test_printer_subscription_topics_match_spec() && ok;
-    ok = test_subscription_profile_has_4_topics_for_two_printers_fixture() && ok;
+    ok = test_subscription_profile_has_6_topics_for_two_printers_fixture() && ok;
     ok = test_subscription_profile_keeps_expected_topic_families() && ok;
     ok = test_router_extracts_printer_key_across_topic_families() && ok;
     ok = test_telemetry_observation_store_tracks_unknown_signatures() && ok;

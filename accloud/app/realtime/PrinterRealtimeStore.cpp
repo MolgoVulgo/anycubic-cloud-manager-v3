@@ -4,8 +4,7 @@ namespace accloud::realtime {
 namespace {
 
 bool isActiveStage(PrintJobStage stage) {
-    return stage == PrintJobStage::CommandSent
-        || stage == PrintJobStage::Downloading
+    return stage == PrintJobStage::Downloading
         || stage == PrintJobStage::Downloaded
         || stage == PrintJobStage::Loaded
         || stage == PrintJobStage::Checking
@@ -13,8 +12,37 @@ bool isActiveStage(PrintJobStage stage) {
         || stage == PrintJobStage::Printing;
 }
 
+std::string textForStage(PrintJobStage stage) {
+    switch (stage) {
+        case PrintJobStage::CommandSent:
+            return "command_sent";
+        case PrintJobStage::Downloading:
+            return "downloading";
+        case PrintJobStage::Downloaded:
+            return "downloaded";
+        case PrintJobStage::Loaded:
+            return "loaded";
+        case PrintJobStage::Checking:
+            return "checking";
+        case PrintJobStage::Preheating:
+            return "preheating";
+        case PrintJobStage::Printing:
+            return "printing";
+        case PrintJobStage::Finished:
+            return "finished";
+        case PrintJobStage::InterruptedOrUnknown:
+            return "interrupted";
+        case PrintJobStage::Unknown:
+            return "unknown";
+    }
+    return "unknown";
+}
+
 std::optional<std::string> legacyStateFor(const PrinterRealtimeSnapshot& snapshot) {
     if (snapshot.jobStage.has_value()) {
+        if (*snapshot.jobStage == PrintJobStage::CommandSent) {
+            return std::string("PENDING");
+        }
         if (*snapshot.jobStage == PrintJobStage::Finished) {
             if (snapshot.availability.has_value() && *snapshot.availability == PrinterAvailability::Free) {
                 return std::string("READY");
@@ -31,6 +59,33 @@ std::optional<std::string> legacyStateFor(const PrinterRealtimeSnapshot& snapsho
         }
         if (*snapshot.availability == PrinterAvailability::Busy) {
             return std::string("BUSY");
+        }
+    }
+    return std::nullopt;
+}
+
+std::string pendingTaskKey(const std::string& fileId, const std::string& msgId) {
+    if (!msgId.empty()) {
+        return "pending:msgid:" + msgId;
+    }
+    if (!fileId.empty()) {
+        return "pending:file:" + fileId;
+    }
+    return "pending:command";
+}
+
+std::optional<std::string> findCommandSentJobKey(const PrinterRealtimeSnapshot& snapshot) {
+    if (snapshot.activeTaskId.has_value()) {
+        const auto activeIt = snapshot.jobs.find(*snapshot.activeTaskId);
+        if (activeIt != snapshot.jobs.end()
+            && activeIt->second.stage.has_value()
+            && *activeIt->second.stage == PrintJobStage::CommandSent) {
+            return activeIt->first;
+        }
+    }
+    for (const auto& [key, job] : snapshot.jobs) {
+        if (job.stage.has_value() && *job.stage == PrintJobStage::CommandSent) {
+            return key;
         }
     }
     return std::nullopt;
@@ -58,6 +113,12 @@ PrintJobStage stageFromPrintEvent(const PrinterRealtimeEvent& event) {
     if (event.action == "start" && event.state == "finished") {
         return PrintJobStage::Finished;
     }
+    if (event.state == "waiting" || event.state == "resuming" || event.state == "resumed") {
+        return PrintJobStage::Printing;
+    }
+    if (event.state == "pausing" || event.state == "paused" || event.state == "stopping") {
+        return PrintJobStage::InterruptedOrUnknown;
+    }
     if (event.state == "printing") {
         return PrintJobStage::Printing;
     }
@@ -74,6 +135,8 @@ PrintJobStage stageFromPrintEvent(const PrinterRealtimeEvent& event) {
 }
 
 void applyJobFields(PrintJobSnapshot& job, const PrinterRealtimeEvent& event) {
+    if (!event.msgid.empty()) job.msgId = event.msgid;
+    if (!event.state.empty()) job.printStateText = event.state;
     if (event.downloadProgress.has_value()) job.downloadProgress = event.downloadProgress;
     if (event.printProgress.has_value()) job.printProgress = event.printProgress;
     if (event.elapsedSec.has_value()) job.elapsedSec = event.elapsedSec;
@@ -91,7 +154,11 @@ void applyJobFields(PrintJobSnapshot& job, const PrinterRealtimeEvent& event) {
 
 void exposeActiveJob(PrinterRealtimeSnapshot& snapshot, const PrintJobSnapshot& job) {
     snapshot.activeTaskId = job.taskId;
-    if (job.stage.has_value()) snapshot.jobStage = job.stage;
+    if (job.printStateText.has_value()) snapshot.printStateText = job.printStateText;
+    if (job.stage.has_value()) {
+        snapshot.jobStage = job.stage;
+        snapshot.jobStageText = textForStage(*job.stage);
+    }
     if (job.downloadProgress.has_value()) snapshot.downloadProgress = job.downloadProgress;
     if (job.printProgress.has_value()) {
         snapshot.printProgress = job.printProgress;
@@ -123,6 +190,8 @@ void PrinterRealtimeStore::upsert(const std::string& printerId, const PrinterRea
     if (snapshot.state.has_value()) dst.state = snapshot.state;
     if (snapshot.availability.has_value()) dst.availability = snapshot.availability;
     if (snapshot.activeTaskId.has_value()) dst.activeTaskId = snapshot.activeTaskId;
+    if (snapshot.printStateText.has_value()) dst.printStateText = snapshot.printStateText;
+    if (snapshot.jobStageText.has_value()) dst.jobStageText = snapshot.jobStageText;
     if (snapshot.jobStage.has_value()) dst.jobStage = snapshot.jobStage;
     if (snapshot.progress.has_value()) dst.progress = snapshot.progress;
     if (snapshot.downloadProgress.has_value()) dst.downloadProgress = snapshot.downloadProgress;
@@ -141,6 +210,28 @@ void PrinterRealtimeStore::upsert(const std::string& printerId, const PrinterRea
     if (snapshot.printState.has_value()) dst.printState = snapshot.printState;
     for (const auto& [taskId, job] : snapshot.jobs) {
         dst.jobs[taskId] = job;
+    }
+}
+
+void PrinterRealtimeStore::recordPrintCommandSent(const std::string& printerId,
+                                                  const std::string& taskId,
+                                                  const std::string& fileId,
+                                                  const std::string& msgId) {
+    if (printerId.empty()) {
+        return;
+    }
+
+    std::scoped_lock lock(m_mutex);
+    PrinterRealtimeSnapshot& snapshot = m_states[printerId];
+    const std::string key = taskId.empty() ? pendingTaskKey(fileId, msgId) : taskId;
+    PrintJobSnapshot& job = snapshot.jobs[key];
+    job.taskId = key;
+    job.stage = PrintJobStage::CommandSent;
+    if (!fileId.empty()) job.fileId = fileId;
+    if (!msgId.empty()) job.msgId = msgId;
+    exposeActiveJob(snapshot, job);
+    if (auto legacy = legacyStateFor(snapshot); legacy.has_value()) {
+        snapshot.state = legacy;
     }
 }
 
@@ -189,6 +280,16 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
             snapshot.releaseFilmStatusCode = event.releaseFilmStatusCode;
         }
         return;
+    }
+
+    if (snapshot.jobs.find(*event.taskId) == snapshot.jobs.end()) {
+        const auto pendingKey = findCommandSentJobKey(snapshot);
+        if (pendingKey.has_value() && *pendingKey != *event.taskId) {
+            PrintJobSnapshot pending = snapshot.jobs[*pendingKey];
+            snapshot.jobs.erase(*pendingKey);
+            pending.taskId = *event.taskId;
+            snapshot.jobs[*event.taskId] = std::move(pending);
+        }
     }
 
     PrintJobSnapshot& job = snapshot.jobs[*event.taskId];

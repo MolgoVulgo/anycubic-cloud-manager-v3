@@ -30,6 +30,8 @@ const QHash<int, QByteArray>& printerRoleNames() {
       {PrintersModel::ImageRole, "image"},
       {PrintersModel::PreviewRole, "preview"},
       {PrintersModel::ThumbnailUrlRole, "thumbnailUrl"},
+      {PrintersModel::MqttPrintStateRole, "mqttPrintState"},
+      {PrintersModel::MqttJobStageRole, "mqttJobStage"},
   };
   return kRoles;
 }
@@ -177,6 +179,10 @@ QVariant PrintersModel::valueForRole(const QVariantMap& printer, int role) {
       return printer.value(QStringLiteral("preview"));
     case ThumbnailUrlRole:
       return printer.value(QStringLiteral("thumbnailUrl"));
+    case MqttPrintStateRole:
+      return printer.value(QStringLiteral("mqttPrintState"));
+    case MqttJobStageRole:
+      return printer.value(QStringLiteral("mqttJobStage"));
     default:
       return {};
   }

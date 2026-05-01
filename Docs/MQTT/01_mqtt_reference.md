@@ -654,6 +654,9 @@ Lecture correcte :
 - `1306 / waiting` = job bloqué en attente ;
 - `601 / stoped` = arrêt manuel du job dans ce scénario précis.
 
+Côté application, `waiting`, `resuming` et les autres états fins MQTT restent exposés séparément via l’état temps réel MQTT.
+Ils ne remplacent pas l’état métier global `PRINTING`, qui reste utilisé pour bloquer une nouvelle impression tant que la machine est occupée.
+
 ## 13.2 Point de prudence
 
 `platform = 1206` ne doit pas être traité comme un hard-stop fatal isolé.
@@ -841,6 +844,8 @@ Règles couvertes par `accloud_mqtt_flow` :
 - `print/start/finished` termine le job, puis `workReport/free` expose l'état legacy `READY` ;
 - `print/monitor` et `print/autoOperation` attachent leurs `checkStatus` au job courant ;
 - `releaseFilm`, `autoOperation` et `wifi` sont routés comme événements observables et ne passent plus par discovery par défaut.
+
+Le workflow applicatif crée aussi un job local `command_sent` dès acceptation HTTPS de l'ordre d'impression. Si la réponse HTTP ne contient pas de `taskid`, ce job reste en clé pending et est migré vers le premier `taskid` structurant reçu par MQTT (`update/downloading` ou `start/*`). Cette phase n'expose pas l'état legacy `PRINTING`.
 
 ---
 

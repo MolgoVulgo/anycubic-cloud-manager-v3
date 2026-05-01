@@ -37,6 +37,23 @@ Rectangle {
         return typeof provider === "function" ? String(provider(arg)) : fallback
     }
 
+    function printerDisplayStatus() {
+        if (root.selectedPrinter) {
+            var mqttState = String(root.selectedPrinter.mqttPrintState || "").trim()
+            if (mqttState.length > 0)
+                return mqttState
+            var details = root.selectedPrinter.details
+            if (details) {
+                mqttState = String(details.mqttPrintState || "").trim()
+                if (mqttState.length > 0)
+                    return mqttState
+            }
+        }
+        return root.providerText(root.statusChipTextProvider,
+                                 root.selectedPrinter ? root.selectedPrinter.state : "READY",
+                                 qsTr("Ready"))
+    }
+
     function prettyPayload(rawPayload) {
         if (typeof root.prettyJsonProvider === "function")
             return String(root.prettyJsonProvider(rawPayload || ""))
@@ -413,6 +430,13 @@ Rectangle {
         var printStatusText = (printStatusCode >= 0 && typeof root.printStatusTextProvider === "function")
                 ? root.printStatusTextProvider(printStatusCode)
                 : "-"
+        var mqttPrintState = pickText(root.selectedPrinter ? root.selectedPrinter.mqttPrintState : "", "")
+        var mqttJobStage = pickText(root.selectedPrinter ? root.selectedPrinter.mqttJobStage : "", "")
+        var selectedDetails = root.selectedPrinter && root.selectedPrinter.details ? root.selectedPrinter.details : null
+        if (mqttPrintState.length <= 0 && selectedDetails)
+            mqttPrintState = pickText(selectedDetails.mqttPrintState, "")
+        if (mqttJobStage.length <= 0 && selectedDetails)
+            mqttJobStage = pickText(selectedDetails.mqttJobStage, "")
         var progressRaw = pickInt(liveJob.progress,
                                   root.selectedPrinter ? root.selectedPrinter.progress : -1)
         var currentLayerRaw = pickInt(liveJob.currentLayer,
@@ -445,6 +469,8 @@ Rectangle {
         lines.push("  file: " + fileName)
         lines.push("  print_status: " + (printStatusCode >= 0 ? String(printStatusCode) : "-")
                    + " (" + String(printStatusText || "-") + ")")
+        lines.push("  mqtt_print_state: " + (mqttPrintState.length > 0 ? mqttPrintState : "-"))
+        lines.push("  mqtt_job_stage: " + (mqttJobStage.length > 0 ? mqttJobStage : "-"))
         lines.push("  progress_raw: " + (progressRaw >= 0 ? String(progressRaw) : "-"))
         lines.push("  layers: printed=" + (currentLayerRaw >= 0 ? String(currentLayerRaw) : "-")
                    + " total=" + (totalLayersRaw >= 0 ? String(totalLayersRaw) : "-")
@@ -547,9 +573,7 @@ Rectangle {
 
                                     StatusChip {
                                         anchors.centerIn: parent
-                                        status: root.providerText(root.statusChipTextProvider,
-                                                                  root.selectedPrinter ? root.selectedPrinter.state : "READY",
-                                                                  qsTr("Ready"))
+                                        status: root.printerDisplayStatus()
                                     }
                                 }
                             }

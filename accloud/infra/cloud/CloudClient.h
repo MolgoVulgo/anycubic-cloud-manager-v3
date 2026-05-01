@@ -97,6 +97,8 @@ struct CloudPrinterInfo {
     int currentLayer = -1;
     int totalLayers = -1;
     std::string currentFile;
+    std::string mqttPrintState;
+    std::string mqttJobStage;
 };
 
 struct CloudPrintersResult {
