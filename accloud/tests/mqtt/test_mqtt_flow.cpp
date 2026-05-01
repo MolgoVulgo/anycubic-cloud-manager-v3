@@ -66,7 +66,9 @@ bool test_store_applies_metrics() {
     event.type = accloud::realtime::MessageType::Print;
     event.action = "printReport";
     event.state = "printing";
+    event.taskId = std::string("task-42");
     event.progress = 81;
+    event.printProgress = 81;
     event.elapsedSec = 400;
     event.remainingSec = 120;
     event.currentLayer = 55;
@@ -111,6 +113,8 @@ bool test_router_routes_release_film_status() {
         && expect(routed.event.has_value(), "releaseFilm should produce a realtime event")
         && expect(routed.event->type == accloud::realtime::MessageType::Peripheral,
                   "releaseFilm should map to peripheral event")
+        && expect(routed.event->kind == accloud::realtime::EventKind::ReleaseFilmUpdate,
+                  "releaseFilm event kind should be explicit")
         && expect(routed.event->releaseFilmLayers.has_value()
                   && *routed.event->releaseFilmLayers == 30001,
                   "releaseFilm layers should be exposed")
@@ -211,6 +215,177 @@ bool test_router_promotes_wifi_resin_video_types() {
                   "resin should map to Peripheral type")
         && expect(video.event->type == accloud::realtime::MessageType::Peripheral,
                   "video should map to Peripheral type");
+}
+
+bool test_router_extracts_m7_print_workflow_fields() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/128/prod-key-01/print/report";
+    const std::string payload = R"json(
+{"type":"print","action":"start","state":"preheating","msgid":"m-heat","data":{
+  "taskid":"87153347",
+  "filename":"B3_B4.pwsz",
+  "curr_layer":0,
+  "total_layers":1977,
+  "progress":0,
+  "print_time":0,
+  "remain_time":180,
+  "task_mode":1,
+  "slicer":"Lychee Slicer",
+  "heating_remain_time":-1,
+  "heating_skip_allowed":true
+}}
+)json";
+
+    const auto routed = router.route(topic, payload);
+    if (!expect(routed.event.has_value(), "M7 start/preheating should route to an event")) {
+        return false;
+    }
+    const auto& event = *routed.event;
+    return expect(event.taskId.has_value() && *event.taskId == "87153347", "taskid should be parsed")
+        && expect(event.printProgress.has_value() && *event.printProgress == 0,
+                  "print progress should be parsed from start")
+        && expect(event.currentLayer.has_value() && *event.currentLayer == 0,
+                  "curr_layer should be parsed")
+        && expect(event.totalLayers.has_value() && *event.totalLayers == 1977,
+                  "total_layers should be parsed")
+        && expect(event.taskMode.has_value() && *event.taskMode == 1,
+                  "task_mode should be parsed")
+        && expect(event.slicer.has_value() && *event.slicer == "Lychee Slicer",
+                  "slicer should be parsed")
+        && expect(event.heatingSkipAllowed.has_value() && *event.heatingSkipAllowed,
+                  "heating_skip_allowed should be parsed")
+        && expect(!event.heatingRemainingSec.has_value(),
+                  "heating_remain_time=-1 should be treated as unknown");
+}
+
+bool test_router_extracts_m7_check_status_maps() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/128/prod-key-01/print/report";
+    const std::string monitorPayload = R"json(
+{"type":"print","action":"monitor","state":"monitoring","data":{
+  "taskid":"87153347",
+  "checkStatus":[{"name":"pullForce","status":0},{"name":"wifiDev","status":0},{"name":"motor","status":-2}]
+}}
+)json";
+    const std::string autoPayload = R"json(
+{"type":"print","action":"autoOperation","state":"monitoring","data":{
+  "taskid":"87153347",
+  "checkStatus":[{"name":"platform","status":0},{"name":"resin","status":-1}]
+}}
+)json";
+
+    const auto monitor = router.route(topic, monitorPayload);
+    const auto automatic = router.route(topic, autoPayload);
+    return expect(monitor.event.has_value(), "monitor should route to an event")
+        && expect(automatic.event.has_value(), "autoOperation should route to an event")
+        && expect(monitor.event->hardwareChecks.size() == 3,
+                  "monitor checkStatus should populate hardware checks")
+        && expect(monitor.event->hardwareChecks.at("motor") == -2,
+                  "hardware check status should be preserved")
+        && expect(automatic.event->autoChecks.size() == 2,
+                  "autoOperation checkStatus should populate auto checks")
+        && expect(automatic.event->autoChecks.at("resin") == -1,
+                  "auto check status should be preserved");
+}
+
+bool test_store_tracks_m7_print_workflow_by_taskid() {
+    auto& store = accloud::realtime::PrinterRealtimeStore::instance();
+    store.clear();
+
+    accloud::realtime::PrinterRealtimeEvent status;
+    status.printerKey = "printer-m7";
+    status.type = accloud::realtime::MessageType::Status;
+    status.action = "workReport";
+    status.state = "busy";
+    store.applyEvent(status);
+    auto snapshot = store.get("printer-m7");
+    if (!expect(snapshot.has_value(), "busy status should create printer snapshot")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->availability.has_value()
+                   && *snapshot->availability == accloud::realtime::PrinterAvailability::Busy,
+               "workReport/busy should update availability")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->state.has_value() && *snapshot->state == "BUSY",
+                "workReport/busy alone should not become PRINTING")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent downloading;
+    downloading.printerKey = "printer-m7";
+    downloading.type = accloud::realtime::MessageType::Print;
+    downloading.action = "update";
+    downloading.state = "downloading";
+    downloading.taskId = std::string("87153347");
+    downloading.downloadProgress = 100;
+    store.applyEvent(downloading);
+
+    accloud::realtime::PrinterRealtimeEvent loaded;
+    loaded.printerKey = "printer-m7";
+    loaded.type = accloud::realtime::MessageType::Print;
+    loaded.action = "start";
+    loaded.state = "printing";
+    loaded.taskId = std::string("87153347");
+    loaded.currentLayer = 0;
+    loaded.totalLayers = 1977;
+    loaded.printProgress = 0;
+    loaded.currentFile = std::string("B3_B4.pwsz");
+    store.applyEvent(loaded);
+
+    snapshot = store.get("printer-m7");
+    if (!expect(snapshot.has_value(), "loaded job should keep snapshot")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->activeTaskId.has_value() && *snapshot->activeTaskId == "87153347",
+                "active taskid should be tracked")) {
+        store.clear();
+        return false;
+    }
+    if (!expect(snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Loaded,
+                "curr_layer=0 start/printing should be loaded")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent printing = loaded;
+    printing.currentLayer = 1;
+    printing.printProgress = 1;
+    store.applyEvent(printing);
+    snapshot = store.get("printer-m7");
+    if (!expect(snapshot.has_value()
+                   && snapshot->jobStage.has_value()
+                   && *snapshot->jobStage == accloud::realtime::PrintJobStage::Printing,
+                "curr_layer>=1 should become printing")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent finished = loaded;
+    finished.state = "finished";
+    finished.printProgress = 100;
+    store.applyEvent(finished);
+    status.state = "free";
+    store.applyEvent(status);
+    snapshot = store.get("printer-m7");
+    const bool ok = expect(snapshot.has_value()
+                              && snapshot->jobStage.has_value()
+                              && *snapshot->jobStage == accloud::realtime::PrintJobStage::Finished,
+                           "start/finished should finish the active job")
+        && expect(snapshot->availability.has_value()
+                      && *snapshot->availability == accloud::realtime::PrinterAvailability::Free,
+                  "workReport/free should update availability")
+        && expect(snapshot->state.has_value() && *snapshot->state == "READY",
+                  "finished job plus free availability should expose READY");
+    store.clear();
+    return ok;
 }
 
 bool test_overlay_matches_printer_key_fallback() {
@@ -435,6 +610,9 @@ int main() {
     ok = test_store_applies_release_film_status() && ok;
     ok = test_router_infers_type_from_topic_when_payload_omits_type() && ok;
     ok = test_router_promotes_wifi_resin_video_types() && ok;
+    ok = test_router_extracts_m7_print_workflow_fields() && ok;
+    ok = test_router_extracts_m7_check_status_maps() && ok;
+    ok = test_store_tracks_m7_print_workflow_by_taskid() && ok;
     ok = test_overlay_matches_printer_key_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
     ok = test_printer_subscription_topics_match_spec() && ok;

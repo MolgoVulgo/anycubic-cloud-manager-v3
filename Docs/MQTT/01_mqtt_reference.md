@@ -827,6 +827,21 @@ Le socle MQTT doit être gardé sur :
 - non-régression sur les topics réellement utilisés ;
 - absence de duplication de flux après suppression de l’abonnement redondant.
 
+## 18.1 Garde-fous workflow M7 implémentés
+
+Le moteur MQTT maintient un job actif indexé par `taskid` et conserve les jobs vus dans le snapshot temps réel de l'imprimante.
+
+Règles couvertes par `accloud_mqtt_flow` :
+
+- `status/workReport free|busy` met à jour la disponibilité machine, sans créer de job ;
+- `print/update/downloading` alimente la progression de téléchargement ;
+- `print/start/printing` avec `curr_layer=0` produit un job chargé ;
+- `print/start/printing` avec `curr_layer>=1` produit une impression effective ;
+- `print/start/preheating` conserve les informations de préchauffe, avec `heating_remain_time=-1` interprété comme inconnu ;
+- `print/start/finished` termine le job, puis `workReport/free` expose l'état legacy `READY` ;
+- `print/monitor` et `print/autoOperation` attachent leurs `checkStatus` au job courant ;
+- `releaseFilm`, `autoOperation` et `wifi` sont routés comme événements observables et ne passent plus par discovery par défaut.
+
 ---
 
 # 19. Décision finale
