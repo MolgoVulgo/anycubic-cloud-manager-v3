@@ -67,6 +67,47 @@ TestCase {
         return null
     }
 
+    function visibleTextExists(root, text, visited) {
+        if (root === null || root === undefined) {
+            return false
+        }
+        if (visited === null || visited === undefined) {
+            visited = []
+        }
+        for (var v = 0; v < visited.length; ++v) {
+            if (visited[v] === root) {
+                return false
+            }
+        }
+        visited.push(root)
+
+        if (root.visible !== false && root.text !== undefined
+                && String(root.text).indexOf(text) >= 0) {
+            return true
+        }
+
+        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem]
+        for (var d = 0; d < direct.length; ++d) {
+            if (visibleTextExists(direct[d], text, visited)) {
+                return true
+            }
+        }
+
+        var collections = [root.children, root.contentChildren, root.data]
+        for (var c = 0; c < collections.length; ++c) {
+            var kids = collections[c]
+            if (kids === null || kids === undefined) {
+                continue
+            }
+            for (var i = 0; i < kids.length; ++i) {
+                if (visibleTextExists(kids[i], text, visited)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     function test_main_window_has_control_room_layout() {
         var window = createQmlObject("../../../ui/qml/MainWindow.qml")
         compare(window.title, "Anycubic Cloud Control Room")
@@ -99,6 +140,52 @@ TestCase {
         compare(uploadButton.text, "Upload")
 
         page.destroy()
+    }
+
+    function test_printer_details_basic_waiting_metrics() {
+        var history = {
+            count: 2,
+            get: function(index) {
+                if (index === 0) {
+                    return { taskId: "t-running", gcodeName: "running.pwmb", printStatus: 1 }
+                }
+                return { taskId: "t-done", gcodeName: "done.pwmb", printStatus: 2 }
+            }
+        }
+        var panel = createQmlObject("../../../ui/qml/pages/PrinterDetailPanel.qml", {
+            "width": 980,
+            "height": 520,
+            "selectedPrinter": {
+                "id": "p1",
+                "name": "Anycubic Photon Mono M7 Pro",
+                "model": "Anycubic Photon Mono M7 Pro",
+                "type": "LCD",
+                "state": "READY"
+            },
+            "selectedPrinterDetails": {
+                "firmwareVersion": "v1.2.3",
+                "printCount": "42",
+                "releaseFilmLayers": 30001,
+                "releaseFilmTimes": 60,
+                "releaseFilmStatusCode": -1,
+                "printTotalTime": "12h30m",
+                "materialUsed": "1250 ml"
+            },
+            "printerHistoryModel": history
+        })
+        wait(0)
+
+        compare(String(findObjectByName(panel, "printerFirmwareValue").text), "v1.2.3")
+        compare(String(findObjectByName(panel, "printerPrintCountValue").text), "42")
+        compare(String(findObjectByName(panel, "printerFilmStateValue").text),
+                "60 prints | 30001 layers | Film a changer")
+        compare(String(findObjectByName(panel, "printerTotalPrintTimeValue").text), "12.5 h")
+        compare(String(findObjectByName(panel, "printerTotalResinValue").text), "1.25 L")
+        compare(String(findObjectByName(panel, "printerLastPrintedFileValue").text), "done.pwmb")
+        verify(!visibleTextExists(panel, "Model:"))
+        verify(!visibleTextExists(panel, "Printer Type"))
+
+        panel.destroy()
     }
 
     function test_cloud_files_header_and_row_columns_are_aligned() {

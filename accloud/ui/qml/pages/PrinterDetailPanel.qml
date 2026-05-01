@@ -88,6 +88,13 @@ Rectangle {
         return nonNegativeInt(value) >= 0
     }
 
+    function detailText(details, key) {
+        if (!details)
+            return "-"
+        var value = details[key]
+        return hasTextValue(value) ? String(value).trim() : "-"
+    }
+
     function progressRatio(printer) {
         var value = nonNegativeInt(printer ? printer.progress : -1)
         if (value < 0)
@@ -188,32 +195,45 @@ Rectangle {
         return hasTextValue(details.printCount) ? String(details.printCount).trim() : "-"
     }
 
-    function normalizedTotalPrintTimeText(details) {
+    function normalizedTotalPrintHoursText(details) {
         if (!details || !hasTextValue(details.printTotalTime))
             return "-"
         var raw = String(details.printTotalTime).trim()
         var compact = raw.toLowerCase().replace(/\s+/g, "")
         var match = compact.match(/^(\d+)(?:h|hour|hours)(\d+)(?:m|min|mins|minute|minutes)$/)
-        if (match)
-            return qsTr("%1 h %2 min").arg(Number(match[1])).arg(Number(match[2]))
+        if (match) {
+            var totalHours = Number(match[1]) + Number(match[2]) / 60
+            return qsTr("%1 h").arg(formatDecimal(totalHours, 2))
+        }
+        var numeric = Number(raw)
+        if (isFinite(numeric) && numeric >= 0)
+            return qsTr("%1 h").arg(formatDecimal(numeric, 2))
         return raw
     }
 
-    function normalizedMaterialUsedText(details) {
+    function normalizedTotalResinText(details) {
         if (!details || !hasTextValue(details.materialUsed))
             return "-"
         var numeric = Number(details.materialUsed)
         if (isFinite(numeric) && numeric >= 0) {
-            var rounded = Math.round(numeric * 100) / 100
-            var text = String(rounded)
-            if (text.indexOf(".") >= 0)
-                text = text.replace(/0+$/, "").replace(/\.$/, "")
-            return qsTr("%1 ml").arg(text)
+            return qsTr("%1 L").arg(formatDecimal(numeric / 1000, 2))
         }
         var raw = String(details.materialUsed).trim()
-        if (/ml$/i.test(raw))
-            return raw.replace(/\s*ml$/i, " ml")
+        var match = raw.match(/^([0-9]+(?:[.,][0-9]+)?)\s*(ml|l)$/i)
+        if (match) {
+            var value = Number(String(match[1]).replace(",", "."))
+            if (isFinite(value) && value >= 0) {
+                if (String(match[2]).toLowerCase() === "ml")
+                    value = value / 1000
+                return qsTr("%1 L").arg(formatDecimal(value, 2))
+            }
+        }
         return raw
+    }
+
+    function formatDecimal(value, decimals) {
+        var rounded = Number(value).toFixed(decimals)
+        return rounded.replace(/0+$/, "").replace(/\.$/, "")
     }
 
     function printerStatusCode(printer) {
@@ -250,19 +270,51 @@ Rectangle {
     function releaseFilmText(details) {
         if (!details)
             return "-"
+        var layers = nonNegativeInt(details.releaseFilmLayers)
+        var times = nonNegativeInt(details.releaseFilmTimes)
+        var statusCode = Number(details.releaseFilmStatusCode)
+        if (layers >= 0 || times >= 0 || isFinite(statusCode)) {
+            var parts = []
+            if (times >= 0)
+                parts.push(qsTr("%1 prints").arg(times))
+            if (layers >= 0)
+                parts.push(qsTr("%1 layers").arg(layers))
+            if (isFinite(statusCode) && Math.round(statusCode) !== 0)
+                parts.push(qsTr("Film a changer"))
+            else if (isFinite(statusCode))
+                parts.push(qsTr("OK"))
+            return parts.length > 0 ? parts.join(" | ") : "-"
+        }
         var candidates = [
-            details.releaseFilm,
-            details.release_film,
             details.releaseFilmStatus,
             details.release_film_status,
             details.fepStatus,
-            details.fep_status
+            details.fep_status,
+            details.releaseFilm,
+            details.release_film
         ]
         for (var i = 0; i < candidates.length; ++i) {
             if (hasTextValue(candidates[i]))
                 return String(candidates[i]).trim()
         }
         return "-"
+    }
+
+    function lastPrintedFileText() {
+        if (!root.printerHistoryModel || root.printerHistoryModel.count === undefined)
+            return "-"
+        var fallback = ""
+        for (var i = 0; i < root.printerHistoryModel.count; ++i) {
+            var entry = root.printerHistoryModel.get(i)
+            var name = String(entry.gcodeName || entry.currentFile || "").trim()
+            if (name.length <= 0)
+                continue
+            if (fallback.length <= 0)
+                fallback = name
+            if (Number(entry.printStatus) === 2)
+                return name
+        }
+        return fallback.length > 0 ? fallback : "-"
     }
 
     function recentJobStatusInfo(printStatus) {
@@ -466,22 +518,6 @@ Rectangle {
                             color: Theme.fgPrimary
                             font.pixelSize: Theme.fontTitlePx
                             font.bold: true
-                        }
-
-                        Text {
-                            text: qsTr("Model: ") + String(root.selectedPrinter ? root.selectedPrinter.model : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontBodyPx
-                        }
-
-                        Text {
-                            visible: root.printerInfoMode() === "basic"
-                            text: qsTr("Firmware: ")
-                                  + (String(root.selectedPrinterDetails.firmwareVersion || "").length > 0
-                                     ? String(root.selectedPrinterDetails.firmwareVersion)
-                                     : "-")
-                            color: Theme.fgSecondary
-                            font.pixelSize: Theme.fontBodyPx
                         }
 
                         RowLayout {
@@ -791,7 +827,36 @@ Rectangle {
                             rowSpacing: 8
 
                             Rectangle {
-                                visible: root.printCountText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Firmware")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        objectName: "printerFirmwareValue"
+                                        text: root.detailText(root.selectedPrinterDetails, "firmwareVersion")
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -811,6 +876,7 @@ Rectangle {
                                     }
 
                                     Text {
+                                        objectName: "printerPrintCountValue"
                                         text: root.printCountText(root.selectedPrinterDetails)
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
@@ -820,7 +886,36 @@ Rectangle {
                             }
 
                             Rectangle {
-                                visible: root.normalizedTotalPrintTimeText(root.selectedPrinterDetails) !== "-"
+                                Layout.fillWidth: true
+                                radius: Theme.radiusControl
+                                color: Theme.bgSurface
+                                border.width: Theme.borderWidth
+                                border.color: Theme.borderSubtle
+                                implicitHeight: 48
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 2
+
+                                    Text {
+                                        text: qsTr("Film State")
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                    }
+
+                                    Text {
+                                        objectName: "printerFilmStateValue"
+                                        text: root.releaseFilmText(root.selectedPrinterDetails)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontBodyPx
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Rectangle {
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -840,7 +935,8 @@ Rectangle {
                                     }
 
                                     Text {
-                                        text: root.normalizedTotalPrintTimeText(root.selectedPrinterDetails)
+                                        objectName: "printerTotalPrintTimeValue"
+                                        text: root.normalizedTotalPrintHoursText(root.selectedPrinterDetails)
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -850,7 +946,6 @@ Rectangle {
                             }
 
                             Rectangle {
-                                visible: root.normalizedMaterialUsedText(root.selectedPrinterDetails) !== "-"
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -864,13 +959,14 @@ Rectangle {
                                     spacing: 2
 
                                     Text {
-                                        text: qsTr("Material Used")
+                                        text: qsTr("Total Resin")
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                     }
 
                                     Text {
-                                        text: root.normalizedMaterialUsedText(root.selectedPrinterDetails)
+                                        objectName: "printerTotalResinValue"
+                                        text: root.normalizedTotalResinText(root.selectedPrinterDetails)
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -880,7 +976,6 @@ Rectangle {
                             }
 
                             Rectangle {
-                                visible: root.selectedPrinter && root.hasTextValue(root.selectedPrinter.type)
                                 Layout.fillWidth: true
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
@@ -894,43 +989,14 @@ Rectangle {
                                     spacing: 2
 
                                     Text {
-                                        text: qsTr("Printer Type")
+                                        text: qsTr("Last Printed File")
                                         color: Theme.fgSecondary
                                         font.pixelSize: Theme.fontCaptionPx
                                     }
 
                                     Text {
-                                        text: String(root.selectedPrinter ? root.selectedPrinter.type : "-")
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                visible: root.releaseFilmText(root.selectedPrinterDetails) !== "-"
-                                Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
-
-                                    Text {
-                                        text: qsTr("Release Film")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                    }
-
-                                    Text {
-                                        text: root.releaseFilmText(root.selectedPrinterDetails)
+                                        objectName: "printerLastPrintedFileValue"
+                                        text: root.lastPrintedFileText()
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true

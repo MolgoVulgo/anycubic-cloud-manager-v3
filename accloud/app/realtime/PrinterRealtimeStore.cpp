@@ -21,6 +21,10 @@ void PrinterRealtimeStore::upsert(const std::string& printerId, const PrinterRea
     if (snapshot.totalLayers.has_value()) dst.totalLayers = snapshot.totalLayers;
     if (snapshot.currentFile.has_value()) dst.currentFile = snapshot.currentFile;
     if (snapshot.reason.has_value()) dst.reason = snapshot.reason;
+    if (snapshot.releaseFilmStatus.has_value()) dst.releaseFilmStatus = snapshot.releaseFilmStatus;
+    if (snapshot.releaseFilmLayers.has_value()) dst.releaseFilmLayers = snapshot.releaseFilmLayers;
+    if (snapshot.releaseFilmTimes.has_value()) dst.releaseFilmTimes = snapshot.releaseFilmTimes;
+    if (snapshot.releaseFilmStatusCode.has_value()) dst.releaseFilmStatusCode = snapshot.releaseFilmStatusCode;
     if (snapshot.printState.has_value()) dst.printState = snapshot.printState;
 }
 
@@ -80,6 +84,18 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
     if (event.reason.has_value()) {
         snapshot.reason = event.reason;
     }
+    if (event.releaseFilmStatus.has_value()) {
+        snapshot.releaseFilmStatus = event.releaseFilmStatus;
+    }
+    if (event.releaseFilmLayers.has_value()) {
+        snapshot.releaseFilmLayers = event.releaseFilmLayers;
+    }
+    if (event.releaseFilmTimes.has_value()) {
+        snapshot.releaseFilmTimes = event.releaseFilmTimes;
+    }
+    if (event.releaseFilmStatusCode.has_value()) {
+        snapshot.releaseFilmStatusCode = event.releaseFilmStatusCode;
+    }
 
     if (!snapshot.state.has_value()
         && !snapshot.printState.has_value()
@@ -89,7 +105,11 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
         && !snapshot.currentLayer.has_value()
         && !snapshot.totalLayers.has_value()
         && !snapshot.currentFile.has_value()
-        && !snapshot.reason.has_value()) {
+        && !snapshot.reason.has_value()
+        && !snapshot.releaseFilmStatus.has_value()
+        && !snapshot.releaseFilmLayers.has_value()
+        && !snapshot.releaseFilmTimes.has_value()
+        && !snapshot.releaseFilmStatusCode.has_value()) {
         return;
     }
     upsert(event.printerKey, snapshot);

@@ -111,6 +111,20 @@ bool isKnownPrintState(const std::string& state) {
     });
 }
 
+int releaseFilmLayerLimit(const std::optional<std::string>& filmType) {
+    if (!filmType.has_value()) {
+        return 30000;
+    }
+    const std::string type = toLowerAscii(*filmType);
+    if (type.find("acf") != std::string::npos || type.find("nfep") != std::string::npos) {
+        return 30000;
+    }
+    if (type.find("fep") != std::string::npos) {
+        return 10000;
+    }
+    return 30000;
+}
+
 } // namespace
 
 MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::string& payload) const {
@@ -220,6 +234,20 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     event.totalLayers = firstIntField(env.data, {"total_layers", "layer_total", "total_layer"});
     event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
     event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
+    if (env.type == "releaseFilm") {
+        event.releaseFilmStatus = firstStringField(env.data, {"status", "state", "desc", "message", "msg"});
+        if (!event.releaseFilmStatus.has_value() && !env.state.empty()) {
+            event.releaseFilmStatus = env.state;
+        }
+        event.releaseFilmLayers = firstIntField(env.data, {"layers", "layer_count", "layerCount"});
+        event.releaseFilmTimes = firstIntField(env.data, {"times", "print_count", "printCount"});
+        event.releaseFilmStatusCode = firstIntField(env.data, {"status"});
+        const auto filmType = firstStringField(env.data, {"film_type", "filmType", "type", "material"});
+        if (event.releaseFilmLayers.has_value()
+            && *event.releaseFilmLayers > releaseFilmLayerLimit(filmType)) {
+            event.releaseFilmStatusCode = -1;
+        }
+    }
 
     out.event = event;
     out.disposition = RouteDisposition::Routed;
@@ -296,7 +324,7 @@ std::optional<accloud::realtime::MessageType> MqttMessageRouter::mapMessageType(
     if (type == "file") return accloud::realtime::MessageType::File;
     if (type == "peripherie") return accloud::realtime::MessageType::Peripheral;
     // Promoted in v1 for broad realtime coverage without introducing new domain enums.
-    if (type == "wifi" || type == "resin" || type == "video") {
+    if (type == "wifi" || type == "resin" || type == "video" || type == "releaseFilm") {
         return accloud::realtime::MessageType::Peripheral;
     }
     return std::nullopt;

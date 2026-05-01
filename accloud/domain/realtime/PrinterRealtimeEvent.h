@@ -69,6 +69,10 @@ struct PrinterRealtimeEvent {
     std::optional<int> totalLayers;
     std::optional<std::string> currentFile;
     std::optional<std::string> reason;
+    std::optional<std::string> releaseFilmStatus;
+    std::optional<int> releaseFilmLayers;
+    std::optional<int> releaseFilmTimes;
+    std::optional<int> releaseFilmStatusCode;
 };
 
 } // namespace accloud::realtime

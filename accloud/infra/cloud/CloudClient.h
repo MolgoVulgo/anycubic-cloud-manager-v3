@@ -145,6 +145,7 @@ struct CloudPrinterDetailsResult {
     std::string machineMac;
     std::string helpUrl;
     std::string quickStartUrl;
+    std::string releaseFilmStatus;
     std::string releaseFilmLayers;
     std::vector<std::string> tools;
     std::vector<std::string> advances;

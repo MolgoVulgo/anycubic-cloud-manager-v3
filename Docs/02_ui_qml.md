@@ -186,11 +186,11 @@ Fonctions visibles :
 
 Règles d'affichage métriques (panneau détails imprimante) :
 - formater de manière homogène les métriques disponibles (`%`, couches, durées) ;
-- ne pas afficher une carte métrique quand la donnée source n'existe pas ;
+- pour le mode `basic`, garder les cartes attendues stables et afficher `-` quand la donnée source n'existe pas ;
 - ne pas inventer de fallback métier quand le backend ne fournit pas la valeur.
 - utiliser un mode d'affichage unique :
-  - `basic` (ready/offline) : nom/modèle, firmware, status, print count, total print time, material used, printer type, release film ;
-  - `printing` : nom/modèle, status, fichier courant, progression, couches, elapsed, remaining.
+  - `basic` (ready/offline) : nom, status, firmware, print count, release film times/layers/status, total print time in hours, total resin in liters, last printed file ;
+  - `printing` : nom, status, fichier courant, progression, couches, elapsed, remaining.
 - historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
 - en impression, le fichier courant doit exposer le nom du fichier, une
   progression principale, les couches et les durees utiles ; les details

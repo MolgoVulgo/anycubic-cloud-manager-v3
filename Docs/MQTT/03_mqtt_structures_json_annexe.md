@@ -526,9 +526,10 @@ Structure documentaire minimale à supporter :
 
 ## 4.3 Lecture métier prudente
 
-- `times` ressemble à un compteur de cycle / tentative ;
-- `layers` ressemble à un cumul de couches traitées ;
-- `status` reste à interpréter selon couverture future.
+- `times` est expose comme nombre total de prints film ;
+- `layers` est expose comme nombre total de couches film ;
+- `status` est conserve si fourni, mais force a `-1` quand `layers` depasse
+  le seuil film connu : `30000` pour ACF/NFEP, `10000` pour FEP.
 
 ## 4.4 Point observé utile
 
