@@ -1118,7 +1118,7 @@ ApplicationWindow {
                             Loader {
                                 id: mqttPageLoader
                                 anchors.fill: parent
-                                active: controlTabs.currentIndex === 2 || item !== null
+                                active: controlTabs.currentIndex === 2
                                 sourceComponent: Pages.MqttPage {
                                     objectName: "mqttPage"
                                     embeddedInTabsContainer: true

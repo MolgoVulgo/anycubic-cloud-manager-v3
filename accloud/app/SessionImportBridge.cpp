@@ -100,6 +100,66 @@ void finalizeUiMessage(QVariantMap& out) {
   }
 }
 
+QVariantMap buildStartupCheckResult() {
+  UiPerfTrace perf("session_import_bridge.check_startup");
+  QVariantMap out;
+  const cloud::core::SessionProvider sessionProvider;
+
+  const cloud::LoadSessionResult loaded = sessionProvider.loadCurrentSession();
+  perf.setField("session_loaded", loaded.ok ? "1" : "0");
+  if (!loaded.ok) {
+    logging::info("app", "session_import_bridge", "startup_no_session",
+                  "Session introuvable ou invalide",
+                  {{"path", loaded.path.string()}});
+    out.insert("sessionExists", false);
+    out.insert("connectionOk", false);
+    out.insert("message",
+               QString("Aucun fichier session.json trouvé. "
+                       "Importez un fichier HAR pour créer une session."));
+    out.insert("messageKey", QStringLiteral("session.startup.missing"));
+    out.insert("fallbackMessage", QStringLiteral("Session file is missing. Import HAR to continue."));
+    finalizeUiMessage(out);
+    return out;
+  }
+  out.insert("sessionExists", true);
+
+  const std::optional<std::string> accessToken = sessionProvider.requireAccessToken(loaded.session);
+  if (!accessToken.has_value()) {
+    out.insert("connectionOk", false);
+    out.insert("message", QString("session.json ne contient pas de access_token."));
+    out.insert("messageKey", QStringLiteral("session.startup.missing_access_token"));
+    out.insert("fallbackMessage", QStringLiteral("Session file does not contain access token."));
+    finalizeUiMessage(out);
+    return out;
+  }
+
+  logging::info("app", "session_import_bridge", "startup_checking_cloud",
+                "Vérification de la connexion cloud au démarrage");
+  const usecases::cloud::CheckCloudSessionUseCase checkUseCase;
+  const cloud::CloudCheckResult check = checkUseCase.execute();
+  perf.setField("connection_ok", check.ok ? "1" : "0");
+
+  out.insert("connectionOk", check.ok);
+  out.insert("message", QString::fromStdString(check.message));
+  out.insert("messageKey", check.ok
+      ? QStringLiteral("session.startup.cloud_ok")
+      : QStringLiteral("session.startup.cloud_failed"));
+  out.insert("fallbackMessage", check.ok
+      ? QStringLiteral("Cloud session check succeeded.")
+      : QStringLiteral("Cloud session check failed."));
+  out.insert("params", QVariantMap{{QStringLiteral("connectionOk"), check.ok}});
+
+  if (check.ok) {
+    logging::info("app", "session_import_bridge", "startup_ok",
+                  "Démarrage validé : session valide et cloud accessible");
+  } else {
+    logging::warn("app", "session_import_bridge", "startup_cloud_failed",
+                  "Cloud inaccessible au démarrage", {{"reason", check.message}});
+  }
+  finalizeUiMessage(out);
+  return out;
+}
+
 } // namespace
 
 SessionImportBridge::SessionImportBridge(QObject* parent) : QObject(parent) {}
@@ -314,74 +374,13 @@ QVariantMap SessionImportBridge::sessionDetails(const QString& sessionPath) cons
 }
 
 QVariantMap SessionImportBridge::checkStartup() const {
-  UiPerfTrace perf("session_import_bridge.check_startup");
-  QVariantMap out;
-  const cloud::core::SessionProvider sessionProvider;
-
-  // 1. Vérifier que session.json existe et est lisible
-  const cloud::LoadSessionResult loaded = sessionProvider.loadCurrentSession();
-  perf.setField("session_loaded", loaded.ok ? "1" : "0");
-  if (!loaded.ok) {
-    logging::info("app", "session_import_bridge", "startup_no_session",
-                  "Session introuvable ou invalide",
-                  {{"path", loaded.path.string()}});
-    out.insert("sessionExists", false);
-    out.insert("connectionOk", false);
-    out.insert("message",
-               QString("Aucun fichier session.json trouvé. "
-                       "Importez un fichier HAR pour créer une session."));
-    out.insert("messageKey", QStringLiteral("session.startup.missing"));
-    out.insert("fallbackMessage", QStringLiteral("Session file is missing. Import HAR to continue."));
-    finalizeUiMessage(out);
-    return out;
-  }
-  out.insert("sessionExists", true);
-
-  // 2. Récupérer le token d'accès
-  const std::optional<std::string> accessToken = sessionProvider.requireAccessToken(loaded.session);
-  if (!accessToken.has_value()) {
-    out.insert("connectionOk", false);
-    out.insert("message", QString("session.json ne contient pas de access_token."));
-    out.insert("messageKey", QStringLiteral("session.startup.missing_access_token"));
-    out.insert("fallbackMessage", QStringLiteral("Session file does not contain access token."));
-    finalizeUiMessage(out);
-    return out;
-  }
-  // 3. Tester la connexion cloud
-  logging::info("app", "session_import_bridge", "startup_checking_cloud",
-                "Vérification de la connexion cloud au démarrage");
-  const usecases::cloud::CheckCloudSessionUseCase checkUseCase;
-  const cloud::CloudCheckResult check = checkUseCase.execute();
-  perf.setField("connection_ok", check.ok ? "1" : "0");
-
-  out.insert("connectionOk", check.ok);
-  out.insert("message", QString::fromStdString(check.message));
-  out.insert("messageKey", check.ok
-      ? QStringLiteral("session.startup.cloud_ok")
-      : QStringLiteral("session.startup.cloud_failed"));
-  out.insert("fallbackMessage", check.ok
-      ? QStringLiteral("Cloud session check succeeded.")
-      : QStringLiteral("Cloud session check failed."));
-  out.insert("params", QVariantMap{{QStringLiteral("connectionOk"), check.ok}});
-
-  if (check.ok) {
-    logging::info("app", "session_import_bridge", "startup_ok",
-                  "Démarrage validé : session valide et cloud accessible");
-  } else {
-    logging::warn("app", "session_import_bridge", "startup_cloud_failed",
-                  "Cloud inaccessible au démarrage", {{"reason", check.message}});
-  }
-  finalizeUiMessage(out);
-  return out;
+  return buildStartupCheckResult();
 }
 
 void SessionImportBridge::checkStartupAsync() {
   QPointer<SessionImportBridge> self(this);
   std::thread([self]() {
-    if (self.isNull()) {
-      return;
-    }
-    const QVariantMap result = self->checkStartup();
+    const QVariantMap result = buildStartupCheckResult();
     if (self.isNull()) {
       return;
     }

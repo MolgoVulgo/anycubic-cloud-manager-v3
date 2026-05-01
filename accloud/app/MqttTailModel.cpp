@@ -1,5 +1,7 @@
 #include "MqttTailModel.h"
 
+#include <utility>
+
 namespace accloud {
 
 namespace {
@@ -76,7 +78,21 @@ void MqttTailModel::appendMessage(const QString& timestamp,
                                   qsizetype payloadSize,
                                   const QString& line) {
   const int previousCount = count();
-  m_entries.push_back(Entry{timestamp, topic, payload, line, payloadSize});
+  Entry entry{timestamp, topic, payload, line, payloadSize};
+  const bool willEvict = static_cast<int>(m_entries.size()) >= m_maxEntries;
+  if (!willEvict && matchesFilter(entry)) {
+    const int insertRow = static_cast<int>(m_visibleRows.size());
+    beginInsertRows(QModelIndex(), insertRow, insertRow);
+    m_entries.push_back(std::move(entry));
+    m_visibleRows.push_back(static_cast<int>(m_entries.size()) - 1);
+    endInsertRows();
+    if (previousCount != count()) {
+      emit countChanged();
+    }
+    return;
+  }
+
+  m_entries.push_back(std::move(entry));
   while (static_cast<int>(m_entries.size()) > m_maxEntries) {
     m_entries.pop_front();
   }

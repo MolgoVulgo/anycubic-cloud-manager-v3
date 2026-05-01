@@ -152,6 +152,11 @@ MQTT doit être découplé de l'UI visible :
 - pousser des snapshots limités uniquement quand l'onglet est actif ;
 - remplacer le texte brut complet par un modèle paginé/tail.
 
+Etat 2026-05-01:
+- `MqttPage` est désormais chargée uniquement quand l'onglet MQTT est actif.
+- Le tail MQTT côté C++ évite un reset complet du modèle pour les append visibles sans éviction.
+- Les optimisations restantes portent sur la réduction des snapshots/signaux quand l'onglet est inactif.
+
 ## Workflow Logs
 
 ### Chemin actuel

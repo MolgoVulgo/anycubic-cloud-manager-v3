@@ -68,6 +68,7 @@ class CloudFilesModel : public QAbstractListModel {
   [[nodiscard]] static QString fileExtension(const QString& fileName);
   [[nodiscard]] static QString fileTypeText(const QString& fileName);
   [[nodiscard]] static QString dateText(const QVariantMap& file);
+  [[nodiscard]] static Row rowFromMap(const QVariantMap& file);
   [[nodiscard]] bool matchesFilter(const Row& row) const;
   void rebuildVisible();
   void rebuildVisibleReset();

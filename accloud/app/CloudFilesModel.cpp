@@ -3,6 +3,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <utility>
 
 namespace accloud {
 
@@ -163,17 +164,7 @@ void CloudFilesModel::replaceFiles(const QVariantList& files) {
   m_all.clear();
   m_all.reserve(static_cast<std::size_t>(files.size()));
   for (const QVariant& item : files) {
-    QVariantMap raw = item.toMap();
-    const QString fileName = raw.value(QStringLiteral("fileName"), QStringLiteral("-")).toString();
-    QVariantMap display;
-    display.insert(QStringLiteral("fileId"), raw.value(QStringLiteral("fileId")).toString());
-    display.insert(QStringLiteral("fileName"), fileName);
-    display.insert(QStringLiteral("thumbnailUrl"), raw.value(QStringLiteral("thumbnailUrl")).toString());
-    display.insert(QStringLiteral("sizeText"), raw.value(QStringLiteral("sizeText"), QStringLiteral("-")).toString());
-    display.insert(QStringLiteral("fileTypeText"), fileTypeText(fileName));
-    display.insert(QStringLiteral("dateText"), dateText(raw));
-    display.insert(QStringLiteral("status"), raw.value(QStringLiteral("status")));
-    m_all.push_back(Row{std::move(raw), std::move(display)});
+    m_all.push_back(rowFromMap(item.toMap()));
   }
   rebuildVisible();
   endResetModel();
@@ -184,13 +175,32 @@ void CloudFilesModel::replaceFiles(const QVariantList& files) {
 }
 
 void CloudFilesModel::append(const QVariantMap& file) {
-  QVariantList files;
-  files.reserve(static_cast<qsizetype>(m_all.size()) + 1);
-  for (const Row& row : m_all) {
-    files.append(row.raw);
+  const int previousAllCount = static_cast<int>(m_all.size());
+  Row row = rowFromMap(file);
+  if (m_typeFilter != QStringLiteral("all")) {
+    m_all.push_back(std::move(row));
+    rebuildVisibleReset();
+    emit countChanged();
+    return;
   }
-  files.append(file);
-  replaceFiles(files);
+
+  const int start = m_currentPage * m_pageSize;
+  const int end = start + m_pageSize;
+  const bool appearsOnCurrentPage = previousAllCount >= start && previousAllCount < end;
+  ++m_visibleCount;
+  m_totalPages = std::max(1, (m_visibleCount + m_pageSize - 1) / m_pageSize);
+  if (appearsOnCurrentPage) {
+    const int insertRow = static_cast<int>(m_visibleRows.size());
+    beginInsertRows(QModelIndex(), insertRow, insertRow);
+    m_all.push_back(std::move(row));
+    m_visibleRows.push_back(previousAllCount);
+    endInsertRows();
+  } else {
+    m_all.push_back(std::move(row));
+  }
+
+  emit countChanged();
+  emit visibleChanged();
 }
 
 void CloudFilesModel::clear() {
@@ -213,6 +223,20 @@ QString CloudFilesModel::fileTypeText(const QString& fileName) {
 QString CloudFilesModel::dateText(const QVariantMap& file) {
   const QString value = file.value(QStringLiteral("uploadTime")).toString().trimmed();
   return value.isEmpty() ? QStringLiteral("-") : value;
+}
+
+CloudFilesModel::Row CloudFilesModel::rowFromMap(const QVariantMap& file) {
+  QVariantMap raw = file;
+  const QString fileName = raw.value(QStringLiteral("fileName"), QStringLiteral("-")).toString();
+  QVariantMap display;
+  display.insert(QStringLiteral("fileId"), raw.value(QStringLiteral("fileId")).toString());
+  display.insert(QStringLiteral("fileName"), fileName);
+  display.insert(QStringLiteral("thumbnailUrl"), raw.value(QStringLiteral("thumbnailUrl")).toString());
+  display.insert(QStringLiteral("sizeText"), raw.value(QStringLiteral("sizeText"), QStringLiteral("-")).toString());
+  display.insert(QStringLiteral("fileTypeText"), fileTypeText(fileName));
+  display.insert(QStringLiteral("dateText"), dateText(raw));
+  display.insert(QStringLiteral("status"), raw.value(QStringLiteral("status")));
+  return Row{std::move(raw), std::move(display)};
 }
 
 bool CloudFilesModel::matchesFilter(const Row& row) const {

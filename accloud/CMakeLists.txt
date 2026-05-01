@@ -289,6 +289,16 @@ endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_ui_model_tests
+      tests/ui/test_models.cpp
+      app/CloudFilesModel.cpp
+      app/MqttTailModel.cpp
+      app/PrintersModel.cpp
+      app/RecentJobsModel.cpp
+  )
+  target_link_libraries(accloud_ui_model_tests PRIVATE accloud_domain Qt6::Core)
+  add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
+
   add_executable(accloud_log_tests
       tests/cloud/test_log_bridge.cpp
       app/LogBridge.cpp
