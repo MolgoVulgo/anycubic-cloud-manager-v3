@@ -203,9 +203,10 @@ Règles d'affichage métriques (panneau détails imprimante) :
   d'impression ; le refresh periodique du listing imprimantes ne doit pas
   reconstruire l'historique des taches.
 
-Le lancement depuis fichier local stocké sur l'imprimante reste désactivé tant
-que l'`order_id` réel de démarrage n'est pas confirmé. L'entrée UI ne doit pas
-présenter le placeholder `999` comme un flux production.
+Le lancement depuis fichier local stocké sur l'imprimante utilise le flux
+`sendOrder` observe cote reference : `listLocal=103`, `deleteLocal=104`,
+demarrage local `order_id=1`. Le bouton cloud n'est pas expose dans le panneau
+Printer ; le demarrage depuis cloud reste initie depuis les fichiers cloud.
 
 La validation locale de compatibilité fichier/imprimante doit passer par le
 bridge C++ quand il est disponible, avec fallback QML limité aux tests/mocks.

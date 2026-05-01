@@ -33,9 +33,10 @@ Item {
     property bool cloudFilesLoading: false
     property int localFilesPrepareOrderId: 1231
     property int localFilesListOrderId: 103
+    property int localFileDeleteOrderId: 104
     property int localUdiskListOrderId: 101
-    property int localFileStartPrintOrderId: 999
-    readonly property bool localFilePrintEnabled: localFileStartPrintOrderId !== 999
+    property int localFileStartPrintOrderId: 1
+    readonly property bool localFilePrintEnabled: true
     property bool optionDeleteAfterPrint: false
     property bool optionLiftCompensation: false
     property bool optionAutoResinCheck: true
@@ -112,6 +113,7 @@ Item {
 
     ListModel {
         id: printerLocalFilesModel
+        objectName: "printerLocalFilesModel"
     }
 
     RecentJobsModel {
@@ -1930,11 +1932,6 @@ Item {
 
     function openLocalFileDialogForRemotePrint(printerId) {
         var targetPrinterId = String(printerId || selectedPrinterId).trim()
-        if (!localFilePrintEnabled) {
-            statusMsg = qsTr("Printer local file printing is disabled until the start order id is confirmed.")
-            statusSev = "warn"
-            return
-        }
         if (targetPrinterId.length === 0 && printersModel.count <= 0)
             loadPrinters()
         if (targetPrinterId.length === 0)
@@ -2080,11 +2077,6 @@ Item {
 
     function startPrintFromPrinterLocalFile() {
         var targetPrinterId = String(localFilesTargetPrinterId || selectedPrinterId).trim()
-        if (!localFilePrintEnabled) {
-            statusMsg = qsTr("Printer local file printing is disabled until the start order id is confirmed.")
-            statusSev = "warn"
-            return
-        }
         if (targetPrinterId.length === 0) {
             statusMsg = qsTr("Select a printer first.")
             statusSev = "warn"
@@ -2147,21 +2139,84 @@ Item {
             return
         }
 
-        var msgId = String(result.msgId || "").trim()
-        if (localFileStartPrintOrderId === 999) {
-            statusMsg = qsTr("Local print command sent with placeholder order_id=999 (msgid=%1).")
-                    .arg(msgId.length > 0 ? msgId : "-")
-            statusSev = "warn"
-        } else {
-            statusMsg = qsTr("Local print command sent (order_id=%1, msgid=%2).")
-                    .arg(String(localFileStartPrintOrderId))
-                    .arg(msgId.length > 0 ? msgId : "-")
-            statusSev = "success"
-        }
         selectLocalPrinterFileDialog.close()
         if (targetPrinterId === selectedPrinterId)
             refreshSelectedPrinterJobs("print_started", true, false)
         loadPrinters()
+        var msgId = String(result.msgId || "").trim()
+        statusMsg = qsTr("Local print command sent (order_id=%1, msgid=%2).")
+                .arg(String(localFileStartPrintOrderId))
+                .arg(msgId.length > 0 ? msgId : "-")
+        statusSev = "success"
+    }
+
+    function removePrinterLocalFileFromModel(fileName) {
+        var normalized = String(fileName || "").trim()
+        if (normalized.length === 0)
+            return false
+        for (var i = 0; i < printerLocalFilesModel.count; ++i) {
+            if (String(printerLocalFilesModel.get(i).fileId || "") === normalized) {
+                printerLocalFilesModel.remove(i)
+                if (selectedPrinterLocalFileName === normalized)
+                    selectedPrinterLocalFileName = printerLocalFilesModel.count > 0
+                            ? String(printerLocalFilesModel.get(0).fileId || "")
+                            : ""
+                return true
+            }
+        }
+        return false
+    }
+
+    function deletePrinterLocalFile(fileName) {
+        var targetPrinterId = String(localFilesTargetPrinterId || selectedPrinterId).trim()
+        var normalizedFileName = String(fileName || selectedPrinterLocalFileName || "").trim()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+        if (normalizedFileName.length === 0) {
+            statusMsg = qsTr("Select a printer local file first.")
+            statusSev = "warn"
+            return
+        }
+        if (!hasPrinterOrderEndpoint()) {
+            statusMsg = qsTr("Local printer file deletion requires sendOrder backend support.")
+            statusSev = "warn"
+            return
+        }
+
+        statusMsg = qsTr("Deleting local file %1...").arg(normalizedFileName)
+        statusSev = "info"
+        var payload = {
+            "filename": normalizedFileName,
+            "path": "/"
+        }
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              localFileDeleteOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              "local_file_delete:" + normalizedFileName)
+        } else {
+            var result = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      localFileDeleteOrderId,
+                                                      payload,
+                                                      targetPrinterId)
+            applyLocalFileDeleteResult(targetPrinterId, normalizedFileName, result)
+        }
+    }
+
+    function applyLocalFileDeleteResult(targetPrinterId, fileName, result) {
+        if (result.ok !== true) {
+            statusMsg = qsTr("Local file deletion failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Command rejected.")))
+            statusSev = "error"
+            return
+        }
+        removePrinterLocalFileFromModel(fileName)
+        statusMsg = qsTr("Local file deleted: %1").arg(fileName)
+        statusSev = "success"
     }
 
     function openRemotePrintConfig() {
@@ -2383,6 +2438,12 @@ Item {
             if (normalizedContext === "local_file_start") {
                 loading = false
                 root.applyLocalPrintCommandResult(String(printerId || ""), result)
+                return
+            }
+
+            if (normalizedContext.indexOf("local_file_delete:") === 0) {
+                var fileName = normalizedContext.slice(String("local_file_delete:").length)
+                root.applyLocalFileDeleteResult(String(printerId || ""), fileName, result)
             }
         }
 
@@ -2491,12 +2552,15 @@ Item {
 
     PrinterSelectCloudFileDialog {
         id: selectLocalPrinterFileDialog
+        objectName: "selectLocalPrinterFileDialog"
         dialogTitle: qsTr("Select Printer Local File")
         dialogSubtitle: qsTr("Files currently stored on the selected printer")
         emptyText: root.localFilesLoading
                    ? qsTr("Waiting for printer file list...")
                    : qsTr("No local file available on printer.")
         startButtonText: qsTr("Start Local Print")
+        deleteEnabled: true
+        deleteButtonText: qsTr("Delete")
         filesModel: printerLocalFilesModel
         selectedFileId: root.selectedPrinterLocalFileName
         fileTypeProvider: root.fileType
@@ -2504,6 +2568,9 @@ Item {
             root.selectedPrinterLocalFileName = fileId
         }
         onCloseRequested: selectLocalPrinterFileDialog.close()
+        onDeleteRequested: function(fileId, fileName) {
+            root.deletePrinterLocalFile(fileId.length > 0 ? fileId : fileName)
+        }
         onStartRequested: root.startPrintFromPrinterLocalFile()
     }
 

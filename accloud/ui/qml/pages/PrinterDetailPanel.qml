@@ -1021,16 +1021,8 @@ Rectangle {
 
                             AppButton {
                                 Layout.minimumWidth: implicitWidth
-                                text: qsTr("From Cloud File")
-                                variant: "primary"
-                                enabled: root.selectedPrinter !== null
-                                onClicked: root.cloudFileRequested(String(root.selectedPrinter.id || ""))
-                            }
-
-                            AppButton {
-                                Layout.minimumWidth: implicitWidth
                                 text: qsTr("From Local File")
-                                variant: "secondary"
+                                variant: "primary"
                                 enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
                                 ToolTip.visible: hovered && !enabled
                                 ToolTip.delay: 350

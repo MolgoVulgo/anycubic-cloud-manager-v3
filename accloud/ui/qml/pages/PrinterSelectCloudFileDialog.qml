@@ -16,11 +16,14 @@ AppDialogFrame {
     property string dialogSubtitle: qsTr("Compatible files for the selected printer")
     property string emptyText: qsTr("No compatible cloud file for this printer.")
     property string startButtonText: qsTr("Start Printing")
+    property bool deleteEnabled: false
+    property string deleteButtonText: qsTr("Delete")
     property var filesModel: null
     property string selectedFileId: ""
     property var fileTypeProvider: null
 
     signal selectedFileChanged(string fileId)
+    signal deleteRequested(string fileId, string fileName)
     signal closeRequested()
     signal startRequested()
 
@@ -39,6 +42,14 @@ AppDialogFrame {
             Text { Layout.preferredWidth: 80; text: qsTr("Type"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
             Text { Layout.preferredWidth: 90; text: qsTr("Size"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
             Text { Layout.preferredWidth: 86; text: qsTr("Status"); color: Theme.fgSecondary; font.pixelSize: Theme.fontCaptionPx }
+            Text {
+                visible: root.deleteEnabled
+                Layout.preferredWidth: 92
+                text: qsTr("Actions")
+                color: Theme.fgSecondary
+                font.pixelSize: Theme.fontCaptionPx
+                horizontalAlignment: Text.AlignRight
+            }
         }
     }
 
@@ -105,6 +116,16 @@ AppDialogFrame {
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontBodyPx
                     horizontalAlignment: Text.AlignHCenter
+                }
+
+                AppButton {
+                    visible: root.deleteEnabled
+                    Layout.preferredWidth: 84
+                    compact: true
+                    text: root.deleteButtonText
+                    variant: "danger"
+                    onClicked: root.deleteRequested(String(model.fileId || ""),
+                                                    String(model.fileName || model.fileId || ""))
                 }
             }
         }
