@@ -1,0 +1,3073 @@
+{
+  "metadata": {
+    "input_capture_files": [
+      {
+        "file": "mqtt_topic_capture copy.jsonl",
+        "lines": 27748
+      },
+      {
+        "file": "mqtt_topic_capture.jsonl",
+        "lines": 28770
+      }
+    ],
+    "input_transport_log_files": [
+      {
+        "file": "mqtt.jsonl.1",
+        "lines": 7047,
+        "note": "transport/app logs; no MQTT payload available for action analysis"
+      },
+      {
+        "file": "mqtt.jsonl",
+        "lines": 1217,
+        "note": "transport/app logs; no MQTT payload available for action analysis"
+      }
+    ],
+    "deduplicated_records": 28770,
+    "duplicate_records_removed": 27748,
+    "dedupe_key": "direction + topic + ts + canonical(payload)",
+    "first_ts": "2026-04-21T13:49:50.387",
+    "last_ts": "2026-04-30T13:22:18.084",
+    "direction_counts": {
+      "rx": 28770
+    }
+  },
+  "topic_counts": {
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/status/report": 7475,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/releaseFilm/report": 1962,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/print/report": 19256,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/autoOperation/report": 20,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/wifi/report": 20,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/lastWill/report": 11,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/ota/report": 6,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/user/report": 6,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/file/report": 6,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/axis/report": 7,
+    "anycubic/anycubicCloud/v1/printer/public/128/0623a919ab9f14bfd7670e65f1449dff/resin/report": 1
+  },
+  "action_counts": {
+    "workReport": 7475,
+    "get": 1962,
+    "update": 62,
+    "monitor": 39,
+    "reportStatus": 20,
+    "start": 19024,
+    "getSignalStrength": 20,
+    "autoOperation": 131,
+    "onlineReport": 11,
+    "reportVersion": 6,
+    "bindQuery": 6,
+    "cloudRecommendList": 6,
+    "move": 7,
+    "feedResin": 1
+  },
+  "state_counts": {
+    "free": 1962,
+    "done": 2021,
+    "busy": 5513,
+    "downloading": 62,
+    "monitoring": 170,
+    "printing": 18997,
+    "finished": 11,
+    "online": 6,
+    "report-success": 6,
+    "preheating": 16,
+    "offline": 5,
+    "start": 1
+  },
+  "type_counts": {
+    "status": 7475,
+    "releaseFilm": 1962,
+    "print": 19256,
+    "autoOperation": 20,
+    "wifi": 20,
+    "lastWill": 11,
+    "ota": 6,
+    "user": 6,
+    "file": 6,
+    "axis": 7,
+    "resin": 1
+  },
+  "action_state_type_counts": [
+    {
+      "action": "start",
+      "type": "print",
+      "state": "printing",
+      "count": 18997
+    },
+    {
+      "action": "workReport",
+      "type": "status",
+      "state": "busy",
+      "count": 5513
+    },
+    {
+      "action": "workReport",
+      "type": "status",
+      "state": "free",
+      "count": 1962
+    },
+    {
+      "action": "get",
+      "type": "releaseFilm",
+      "state": "done",
+      "count": 1962
+    },
+    {
+      "action": "autoOperation",
+      "type": "print",
+      "state": "monitoring",
+      "count": 131
+    },
+    {
+      "action": "update",
+      "type": "print",
+      "state": "downloading",
+      "count": 62
+    },
+    {
+      "action": "monitor",
+      "type": "print",
+      "state": "monitoring",
+      "count": 39
+    },
+    {
+      "action": "reportStatus",
+      "type": "autoOperation",
+      "state": "done",
+      "count": 20
+    },
+    {
+      "action": "getSignalStrength",
+      "type": "wifi",
+      "state": "done",
+      "count": 20
+    },
+    {
+      "action": "start",
+      "type": "print",
+      "state": "preheating",
+      "count": 16
+    },
+    {
+      "action": "start",
+      "type": "print",
+      "state": "finished",
+      "count": 11
+    },
+    {
+      "action": "move",
+      "type": "axis",
+      "state": "done",
+      "count": 7
+    },
+    {
+      "action": "onlineReport",
+      "type": "lastWill",
+      "state": "online",
+      "count": 6
+    },
+    {
+      "action": "reportVersion",
+      "type": "ota",
+      "state": "report-success",
+      "count": 6
+    },
+    {
+      "action": "bindQuery",
+      "type": "user",
+      "state": "done",
+      "count": 6
+    },
+    {
+      "action": "cloudRecommendList",
+      "type": "file",
+      "state": "done",
+      "count": 6
+    },
+    {
+      "action": "onlineReport",
+      "type": "lastWill",
+      "state": "offline",
+      "count": 5
+    },
+    {
+      "action": "feedResin",
+      "type": "resin",
+      "state": "start",
+      "count": 1
+    }
+  ],
+  "workReport": {
+    "state_counts": {
+      "free": 1962,
+      "busy": 5513
+    },
+    "compressed_state_transitions": {
+      "free->busy": 20,
+      "busy->free": 19
+    }
+  },
+  "monitor_checkStatus_summary": {
+    "airCleanerDev": {
+      "-2": 39
+    },
+    "fpgaDev": {
+      "-2": 39
+    },
+    "motor": {
+      "-2": 39
+    },
+    "platformDev": {
+      "-2": 39
+    },
+    "pullForce": {
+      "0": 39
+    },
+    "resiBoxDev": {
+      "-2": 39
+    },
+    "resinInOutDev": {
+      "-2": 39
+    },
+    "screen0": {
+      "-2": 39
+    },
+    "screen1": {
+      "-2": 39
+    },
+    "spiFlashDev": {
+      "-2": 39
+    },
+    "usbDev": {
+      "-2": 39
+    },
+    "uvBoard": {
+      "-2": 39
+    },
+    "wifiDev": {
+      "0": 39
+    }
+  },
+  "autoOperation_checkStatus_summary": {
+    "autoTop": {
+      "-2": 131
+    },
+    "dynamicRelease": {
+      "-2": 131
+    },
+    "failDetection": {
+      "-2": 131
+    },
+    "levelling": {
+      "-1": 115,
+      "0": 16
+    },
+    "model": {
+      "-2": 131
+    },
+    "offLightCompensation": {
+      "-2": 131
+    },
+    "platform": {
+      "0": 131
+    },
+    "residual": {
+      "-1": 19,
+      "0": 112
+    },
+    "resin": {
+      "-1": 35,
+      "0": 96
+    },
+    "resinAutoLoad": {
+      "-2": 131
+    },
+    "resinAutoUnload": {
+      "-2": 131
+    },
+    "resinCycle": {
+      "-2": 131
+    },
+    "resinCyclePrinting": {
+      "-2": 131
+    },
+    "resinHeat": {
+      "-2": 131
+    }
+  },
+  "reportStatus_currentStatus_summary": {
+    "autoTop": {
+      "support=1,editable=1,status=1": 20
+    },
+    "dynamicRelease": {
+      "support=1,editable=1,status=1": 20
+    },
+    "failDetection": {
+      "support=1,editable=1,status=1": 20
+    },
+    "levelling": {
+      "support=1,editable=0,status=1": 20
+    },
+    "model": {
+      "support=1,editable=0,status=1": 20
+    },
+    "offLightCompensation": {
+      "support=1,editable=1,status=1": 20
+    },
+    "platform": {
+      "support=1,editable=0,status=0": 20
+    },
+    "residual": {
+      "support=1,editable=0,status=1": 20
+    },
+    "resin": {
+      "support=1,editable=0,status=1": 20
+    },
+    "resinAutoLoad": {
+      "support=1,editable=1,status=1": 20
+    },
+    "resinAutoUnload": {
+      "support=0,editable=0,status=0": 20
+    },
+    "resinCycle": {
+      "support=0,editable=0,status=0": 20
+    },
+    "resinCyclePrinting": {
+      "support=0,editable=1,status=0": 20
+    },
+    "resinHeat": {
+      "support=1,editable=1,status=1": 20
+    }
+  },
+  "jobs": [
+    {
+      "taskid": "87153347",
+      "filename": "B3_B4.pwsz",
+      "first_seen": "2026-04-21T15:34:28.319",
+      "last_seen": "2026-04-21T18:15:25.555",
+      "download_progress_sequence": [
+        0,
+        100
+      ],
+      "first_update": "2026-04-21T15:34:28.319",
+      "last_update": "2026-04-21T15:34:29.743",
+      "first_start": "2026-04-21T15:34:31.341",
+      "first_start_state": "printing",
+      "preheat_ts": null,
+      "effective_print_ts_curr_layer_ge_1": "2026-04-21T16:49:05.772",
+      "finished_ts": "2026-04-21T18:15:25.555",
+      "last_start_ts": "2026-04-21T18:15:25.555",
+      "total_layers": 1977,
+      "start_counts_by_state": {
+        "printing": 756,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.598,
+      "preheat_to_effective_print_s": null,
+      "first_to_last_start_s": 9654.214,
+      "action_counts": {
+        "update": 2,
+        "monitor": 2,
+        "start": 757,
+        "autoOperation": 1
+      }
+    },
+    {
+      "taskid": "87212137",
+      "filename": "B5.pwsz",
+      "first_seen": "2026-04-21T19:41:56.284",
+      "last_seen": "2026-04-21T19:42:03.758",
+      "download_progress_sequence": [
+        0,
+        45,
+        100
+      ],
+      "first_update": "2026-04-21T19:41:56.284",
+      "last_update": "2026-04-21T19:41:59.719",
+      "first_start": "2026-04-21T19:42:01.338",
+      "first_start_state": "printing",
+      "preheat_ts": null,
+      "effective_print_ts_curr_layer_ge_1": null,
+      "finished_ts": null,
+      "last_start_ts": "2026-04-21T19:42:01.338",
+      "total_layers": 940,
+      "start_counts_by_state": {
+        "printing": 1
+      },
+      "download_to_first_start_s": 1.619,
+      "preheat_to_effective_print_s": null,
+      "first_to_last_start_s": 0.0,
+      "action_counts": {
+        "update": 3,
+        "monitor": 2,
+        "start": 1,
+        "autoOperation": 1
+      }
+    },
+    {
+      "taskid": "87344227",
+      "filename": "B6-B7-B8.pwsz",
+      "first_seen": "2026-04-22T11:56:31.765",
+      "last_seen": "2026-04-22T12:14:31.633",
+      "download_progress_sequence": [
+        0,
+        100
+      ],
+      "first_update": "2026-04-22T11:56:31.765",
+      "last_update": "2026-04-22T11:56:33.010",
+      "first_start": "2026-04-22T11:56:34.600",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T11:58:06.771",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T12:02:54.897",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-22T12:14:31.633",
+      "total_layers": 445,
+      "start_counts_by_state": {
+        "printing": 40,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.59,
+      "preheat_to_effective_print_s": 288.126,
+      "first_to_last_start_s": 1077.033,
+      "action_counts": {
+        "update": 2,
+        "monitor": 2,
+        "start": 41,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87363999",
+      "filename": "C1.pwsz",
+      "first_seen": "2026-04-22T13:59:35.454",
+      "last_seen": "2026-04-22T15:07:12.893",
+      "download_progress_sequence": [
+        0,
+        66,
+        100
+      ],
+      "first_update": "2026-04-22T13:59:35.454",
+      "last_update": "2026-04-22T13:59:38.206",
+      "first_start": "2026-04-22T13:59:39.787",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T14:01:25.391",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T14:05:55.363",
+      "finished_ts": "2026-04-22T15:07:12.893",
+      "last_start_ts": "2026-04-22T15:07:12.893",
+      "total_layers": 810,
+      "start_counts_by_state": {
+        "printing": 812,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.581,
+      "preheat_to_effective_print_s": 269.972,
+      "first_to_last_start_s": 4053.106,
+      "action_counts": {
+        "update": 3,
+        "monitor": 2,
+        "start": 814,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87391271",
+      "filename": "C2-C3-C4-C5-C7.pwsz",
+      "first_seen": "2026-04-22T16:19:47.119",
+      "last_seen": "2026-04-22T17:31:57.001",
+      "download_progress_sequence": [
+        0,
+        78,
+        100
+      ],
+      "first_update": "2026-04-22T16:19:47.437",
+      "last_update": "2026-04-22T16:19:49.690",
+      "first_start": "2026-04-22T16:19:51.146",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T16:21:35.107",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T16:25:55.257",
+      "finished_ts": "2026-04-22T17:31:57.001",
+      "last_start_ts": "2026-04-22T17:31:57.001",
+      "total_layers": 879,
+      "start_counts_by_state": {
+        "printing": 881,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.456,
+      "preheat_to_effective_print_s": 260.15,
+      "first_to_last_start_s": 4325.855,
+      "action_counts": {
+        "monitor": 2,
+        "update": 3,
+        "start": 883,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87423285",
+      "filename": "C6.pwsz",
+      "first_seen": "2026-04-22T18:37:08.975",
+      "last_seen": "2026-04-22T20:22:59.989",
+      "download_progress_sequence": [
+        0,
+        35,
+        100
+      ],
+      "first_update": "2026-04-22T18:37:09.267",
+      "last_update": "2026-04-22T18:37:12.622",
+      "first_start": "2026-04-22T18:37:14.415",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T18:38:58.579",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T18:43:20.921",
+      "finished_ts": "2026-04-22T20:22:59.989",
+      "last_start_ts": "2026-04-22T20:22:59.989",
+      "total_layers": 1465,
+      "start_counts_by_state": {
+        "printing": 1467,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.793,
+      "preheat_to_effective_print_s": 262.342,
+      "first_to_last_start_s": 6345.574,
+      "action_counts": {
+        "monitor": 2,
+        "update": 3,
+        "start": 1469,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87454686",
+      "filename": "D1-D2-D3-D5-D7.pwsz",
+      "first_seen": "2026-04-22T20:51:01.833",
+      "last_seen": "2026-04-22T21:39:04.792",
+      "download_progress_sequence": [
+        0,
+        100
+      ],
+      "first_update": "2026-04-22T20:51:02.131",
+      "last_update": "2026-04-22T20:51:03.638",
+      "first_start": "2026-04-22T20:51:05.692",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T20:52:49.233",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T20:57:02.475",
+      "finished_ts": "2026-04-22T21:39:04.792",
+      "last_start_ts": "2026-04-22T21:39:04.792",
+      "total_layers": 488,
+      "start_counts_by_state": {
+        "printing": 490,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 2.054,
+      "preheat_to_effective_print_s": 253.242,
+      "first_to_last_start_s": 2879.1,
+      "action_counts": {
+        "monitor": 2,
+        "update": 2,
+        "start": 492,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87469595",
+      "filename": "D6.pwsz",
+      "first_seen": "2026-04-22T22:02:01.207",
+      "last_seen": "2026-04-22T23:38:51.448",
+      "download_progress_sequence": [
+        0,
+        23,
+        67,
+        100
+      ],
+      "first_update": "2026-04-22T22:02:01.207",
+      "last_update": "2026-04-22T22:02:09.032",
+      "first_start": "2026-04-22T22:02:10.947",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-22T22:03:54.824",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-22T22:08:09.255",
+      "finished_ts": "2026-04-22T23:38:51.448",
+      "last_start_ts": "2026-04-22T23:38:51.448",
+      "total_layers": 1314,
+      "start_counts_by_state": {
+        "printing": 1310,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.915,
+      "preheat_to_effective_print_s": 254.431,
+      "first_to_last_start_s": 5800.501,
+      "action_counts": {
+        "update": 4,
+        "monitor": 2,
+        "start": 1312,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87570661",
+      "filename": "D5-D4-C1.pwsz",
+      "first_seen": "2026-04-23T12:00:15.509",
+      "last_seen": "2026-04-23T13:28:41.922",
+      "download_progress_sequence": [
+        0,
+        59,
+        100
+      ],
+      "first_update": "2026-04-23T12:00:15.509",
+      "last_update": "2026-04-23T12:00:18.517",
+      "first_start": "2026-04-23T12:00:20.510",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-23T12:02:05.930",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-23T12:06:46.971",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-23T13:28:41.922",
+      "total_layers": 1210,
+      "start_counts_by_state": {
+        "printing": 1086,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.993,
+      "preheat_to_effective_print_s": 281.041,
+      "first_to_last_start_s": 5301.412,
+      "action_counts": {
+        "update": 3,
+        "monitor": 2,
+        "start": 1087,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87591225",
+      "filename": "D6.pwsz",
+      "first_seen": "2026-04-23T14:04:13.522",
+      "last_seen": "2026-04-23T16:08:47.547",
+      "download_progress_sequence": [
+        0,
+        17,
+        56,
+        100
+      ],
+      "first_update": "2026-04-23T14:04:13.522",
+      "last_update": "2026-04-23T14:04:22.135",
+      "first_start": "2026-04-23T14:04:23.884",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-23T14:06:07.631",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-23T14:10:23.640",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-23T16:08:47.547",
+      "total_layers": 2250,
+      "start_counts_by_state": {
+        "printing": 1663,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.749,
+      "preheat_to_effective_print_s": 256.009,
+      "first_to_last_start_s": 7463.663,
+      "action_counts": {
+        "update": 4,
+        "monitor": 2,
+        "start": 1664,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87630035",
+      "filename": "E1-E2-E3-E5-E6.pwsz",
+      "first_seen": "2026-04-23T17:13:29.720",
+      "last_seen": "2026-04-23T18:01:02.790",
+      "download_progress_sequence": [
+        0,
+        94,
+        100
+      ],
+      "first_update": "2026-04-23T17:13:29.720",
+      "last_update": "2026-04-23T17:13:31.953",
+      "first_start": "2026-04-23T17:13:33.489",
+      "first_start_state": "printing",
+      "preheat_ts": null,
+      "effective_print_ts_curr_layer_ge_1": "2026-04-23T17:19:35.918",
+      "finished_ts": "2026-04-23T18:01:02.790",
+      "last_start_ts": "2026-04-23T18:01:02.790",
+      "total_layers": 495,
+      "start_counts_by_state": {
+        "printing": 497,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.536,
+      "preheat_to_effective_print_s": null,
+      "first_to_last_start_s": 2849.301,
+      "action_counts": {
+        "update": 3,
+        "monitor": 2,
+        "start": 498,
+        "autoOperation": 3
+      }
+    },
+    {
+      "taskid": "87649848",
+      "filename": "E4-E7.pwsz",
+      "first_seen": "2026-04-23T18:36:22.065",
+      "last_seen": "2026-04-23T20:52:04.157",
+      "download_progress_sequence": [
+        0,
+        13,
+        49,
+        86,
+        100
+      ],
+      "first_update": "2026-04-23T18:36:22.065",
+      "last_update": "2026-04-23T18:36:30.958",
+      "first_start": "2026-04-23T18:36:33.142",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-23T18:38:17.291",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-23T18:42:37.271",
+      "finished_ts": "2026-04-23T20:52:04.157",
+      "last_start_ts": "2026-04-23T20:52:04.157",
+      "total_layers": 1991,
+      "start_counts_by_state": {
+        "printing": 1993,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 2.184,
+      "preheat_to_effective_print_s": 259.98,
+      "first_to_last_start_s": 8131.015,
+      "action_counts": {
+        "update": 5,
+        "monitor": 2,
+        "start": 1995,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "87793966",
+      "filename": "A1-v2.pwsz",
+      "first_seen": "2026-04-24T11:29:24.584",
+      "last_seen": "2026-04-24T14:35:22.087",
+      "download_progress_sequence": [
+        0,
+        12,
+        35,
+        56,
+        77,
+        100
+      ],
+      "first_update": "2026-04-24T11:29:24.591",
+      "last_update": "2026-04-24T11:29:38.729",
+      "first_start": "2026-04-24T11:29:40.999",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-24T11:31:27.236",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-24T11:36:13.876",
+      "finished_ts": "2026-04-24T14:35:22.087",
+      "last_start_ts": "2026-04-24T14:35:22.087",
+      "total_layers": 2909,
+      "start_counts_by_state": {
+        "printing": 2911,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 2.27,
+      "preheat_to_effective_print_s": 286.64,
+      "first_to_last_start_s": 11141.088,
+      "action_counts": {
+        "monitor": 2,
+        "update": 6,
+        "start": 2913,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "88747018",
+      "filename": "B1-B2-B5.pwsz",
+      "first_seen": "2026-04-28T16:05:41.954",
+      "last_seen": "2026-04-28T16:31:24.717",
+      "download_progress_sequence": [
+        0,
+        12,
+        42,
+        72,
+        100
+      ],
+      "first_update": "2026-04-28T16:05:41.964",
+      "last_update": "2026-04-28T16:05:52.715",
+      "first_start": "2026-04-28T16:05:54.724",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-28T16:07:40.186",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-28T16:12:06.235",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-28T16:31:24.717",
+      "total_layers": 1082,
+      "start_counts_by_state": {
+        "printing": 126,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 2.009,
+      "preheat_to_effective_print_s": 266.049,
+      "first_to_last_start_s": 1529.993,
+      "action_counts": {
+        "monitor": 2,
+        "update": 5,
+        "start": 127,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "88790862",
+      "filename": "B3-B4-B6-B8-C7-D1-D2-D7-E2-E6.pwsz",
+      "first_seen": "2026-04-28T19:19:18.833",
+      "last_seen": "2026-04-28T22:00:37.907",
+      "download_progress_sequence": [
+        0,
+        42,
+        100
+      ],
+      "first_update": "2026-04-28T19:19:18.833",
+      "last_update": "2026-04-28T19:19:21.996",
+      "first_start": "2026-04-28T19:19:23.933",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-28T19:21:09.954",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-28T19:25:33.898",
+      "finished_ts": "2026-04-28T22:00:37.907",
+      "last_start_ts": "2026-04-28T22:00:37.907",
+      "total_layers": 1977,
+      "start_counts_by_state": {
+        "printing": 1979,
+        "preheating": 1,
+        "finished": 1
+      },
+      "download_to_first_start_s": 1.937,
+      "preheat_to_effective_print_s": 263.944,
+      "first_to_last_start_s": 9673.974,
+      "action_counts": {
+        "update": 3,
+        "monitor": 2,
+        "start": 1981,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "88925268",
+      "filename": "B5-v2.pwsz",
+      "first_seen": "2026-04-29T11:35:35.708",
+      "last_seen": "2026-04-29T11:37:18.919",
+      "download_progress_sequence": [
+        0,
+        77,
+        100
+      ],
+      "first_update": "2026-04-29T11:35:35.712",
+      "last_update": "2026-04-29T11:35:37.959",
+      "first_start": "2026-04-29T11:35:39.756",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-29T11:37:18.893",
+      "effective_print_ts_curr_layer_ge_1": null,
+      "finished_ts": null,
+      "last_start_ts": "2026-04-29T11:37:18.893",
+      "total_layers": 1083,
+      "start_counts_by_state": {
+        "printing": 1,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.797,
+      "preheat_to_effective_print_s": null,
+      "first_to_last_start_s": 99.137,
+      "action_counts": {
+        "monitor": 2,
+        "update": 3,
+        "start": 2,
+        "autoOperation": 6
+      }
+    },
+    {
+      "taskid": "88946284",
+      "filename": "E4-E7.pwsz",
+      "first_seen": "2026-04-29T13:50:53.316",
+      "last_seen": "2026-04-29T15:54:33.082",
+      "download_progress_sequence": [],
+      "first_update": null,
+      "last_update": null,
+      "first_start": "2026-04-29T13:50:53.543",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-29T13:52:26.087",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-29T13:56:48.995",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-29T15:54:33.082",
+      "total_layers": 1991,
+      "start_counts_by_state": {
+        "printing": 1029,
+        "preheating": 1
+      },
+      "download_to_first_start_s": null,
+      "preheat_to_effective_print_s": 262.908,
+      "first_to_last_start_s": 7419.539,
+      "action_counts": {
+        "monitor": 2,
+        "start": 1030,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "88997191",
+      "filename": "C2-C3-C4-C5-C7.pwsz",
+      "first_seen": "2026-04-29T18:00:22.147",
+      "last_seen": "2026-04-29T19:13:11.317",
+      "download_progress_sequence": [
+        0,
+        100
+      ],
+      "first_update": "2026-04-29T18:00:22.160",
+      "last_update": "2026-04-29T18:00:24.270",
+      "first_start": "2026-04-29T18:00:25.172",
+      "first_start_state": "printing",
+      "preheat_ts": null,
+      "effective_print_ts_curr_layer_ge_1": "2026-04-29T18:21:11.105",
+      "finished_ts": "2026-04-29T19:13:11.317",
+      "last_start_ts": "2026-04-29T19:13:11.317",
+      "total_layers": 879,
+      "start_counts_by_state": {
+        "printing": 823,
+        "finished": 1
+      },
+      "download_to_first_start_s": 0.902,
+      "preheat_to_effective_print_s": null,
+      "first_to_last_start_s": 4366.145,
+      "action_counts": {
+        "monitor": 1,
+        "update": 2,
+        "start": 824
+      }
+    },
+    {
+      "taskid": "89034769",
+      "filename": "D3-D4-D5-C6-E1-E5.pwsz",
+      "first_seen": "2026-04-29T20:42:27.687",
+      "last_seen": "2026-04-29T21:40:01.893",
+      "download_progress_sequence": [
+        0,
+        24,
+        77,
+        100
+      ],
+      "first_update": "2026-04-29T20:42:27.687",
+      "last_update": "2026-04-29T20:42:33.076",
+      "first_start": "2026-04-29T20:42:34.761",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-29T20:44:00.680",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-29T20:48:27.151",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-29T21:40:01.893",
+      "total_layers": 1210,
+      "start_counts_by_state": {
+        "printing": 669,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.685,
+      "preheat_to_effective_print_s": 266.471,
+      "first_to_last_start_s": 3447.132,
+      "action_counts": {
+        "update": 4,
+        "monitor": 2,
+        "start": 670,
+        "autoOperation": 8
+      }
+    },
+    {
+      "taskid": "89158716",
+      "filename": "B7-D4-D5.pwsz",
+      "first_seen": "2026-04-30T12:29:30.360",
+      "last_seen": "2026-04-30T13:22:18.084",
+      "download_progress_sequence": [
+        0,
+        100
+      ],
+      "first_update": "2026-04-30T12:29:30.360",
+      "last_update": "2026-04-30T12:29:32.364",
+      "first_start": "2026-04-30T12:29:33.466",
+      "first_start_state": "printing",
+      "preheat_ts": "2026-04-30T12:37:08.424",
+      "effective_print_ts_curr_layer_ge_1": "2026-04-30T12:41:53.392",
+      "finished_ts": null,
+      "last_start_ts": "2026-04-30T13:22:18.084",
+      "total_layers": 575,
+      "start_counts_by_state": {
+        "printing": 463,
+        "preheating": 1
+      },
+      "download_to_first_start_s": 1.102,
+      "preheat_to_effective_print_s": 284.968,
+      "first_to_last_start_s": 3164.618,
+      "action_counts": {
+        "update": 2,
+        "monitor": 2,
+        "start": 464,
+        "autoOperation": 8
+      }
+    }
+  ],
+  "start_segments": {
+    "total_segments_between_consecutive_start": 19023,
+    "same_taskid_segments": 19004,
+    "different_taskid_segments": [
+      {
+        "from_taskid": "87153347",
+        "from_file": "B3_B4.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-21T18:15:25.555",
+        "to_taskid": "87212137",
+        "to_file": "B5.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-21T19:42:01.338",
+        "between_count": 345,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 169
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 169
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 169,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "87212137",
+            "progress": 0
+          },
+          {
+            "taskid": "87212137",
+            "progress": 45
+          },
+          {
+            "taskid": "87212137",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 169,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 36,
+          "layers": 39494
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 37,
+          "layers": 41471
+        },
+        "monitor_taskids": [
+          "87212137"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87212137",
+        "from_file": "B5.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-21T19:42:01.338",
+        "to_taskid": "87344227",
+        "to_file": "B6-B7-B8.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T11:56:34.600",
+        "between_count": 79,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 32
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 32
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 4
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 2
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 2
+          },
+          {
+            "action": "getSignalStrength",
+            "type": "wifi",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "autoOperation",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "online",
+            "count": 1
+          },
+          {
+            "action": "reportVersion",
+            "type": "ota",
+            "state": "report-success",
+            "count": 1
+          },
+          {
+            "action": "bindQuery",
+            "type": "user",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "cloudRecommendList",
+            "type": "file",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 4,
+          "free": 32
+        },
+        "update_progress": [
+          {
+            "taskid": "87344227",
+            "progress": 0
+          },
+          {
+            "taskid": "87344227",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 32,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 38,
+          "layers": 42411
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 38,
+          "layers": 42411
+        },
+        "monitor_taskids": [
+          "87212137",
+          "87344227"
+        ],
+        "autoOperation_taskids": [
+          "87212137"
+        ],
+        "signal_strength": [
+          49
+        ]
+      },
+      {
+        "from_taskid": "87344227",
+        "from_file": "B6-B7-B8.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-22T12:14:31.633",
+        "to_taskid": "87363999",
+        "to_file": "C1.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T13:59:39.787",
+        "between_count": 23,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 8
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 8
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 8,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "87363999",
+            "progress": 0
+          },
+          {
+            "taskid": "87363999",
+            "progress": 66
+          },
+          {
+            "taskid": "87363999",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 8,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 39,
+          "layers": 42856
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 39,
+          "layers": 42856
+        },
+        "monitor_taskids": [
+          "87363999"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87363999",
+        "from_file": "C1.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-22T15:07:12.893",
+        "to_taskid": "87391271",
+        "to_file": "C2-C3-C4-C5-C7.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T16:19:51.146",
+        "between_count": 297,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 145
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 145
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 2,
+          "free": 145
+        },
+        "update_progress": [
+          {
+            "taskid": "87391271",
+            "progress": 0
+          },
+          {
+            "taskid": "87391271",
+            "progress": 78
+          },
+          {
+            "taskid": "87391271",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 145,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 40,
+          "layers": 43666
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 40,
+          "layers": 43666
+        },
+        "monitor_taskids": [
+          "87391271"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87391271",
+        "from_file": "C2-C3-C4-C5-C7.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-22T17:31:57.001",
+        "to_taskid": "87423285",
+        "to_file": "C6.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T18:37:14.415",
+        "between_count": 268,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 131
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 131
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 131,
+          "busy": 1
+        },
+        "update_progress": [
+          {
+            "taskid": "87423285",
+            "progress": 0
+          },
+          {
+            "taskid": "87423285",
+            "progress": 35
+          },
+          {
+            "taskid": "87423285",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 131,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 40,
+          "layers": 43666
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 41,
+          "layers": 44545
+        },
+        "monitor_taskids": [
+          "87423285"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87423285",
+        "from_file": "C6.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-22T20:22:59.989",
+        "to_taskid": "87454686",
+        "to_file": "D1-D2-D3-D5-D7.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T20:51:05.692",
+        "between_count": 119,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 57
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 57
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 2
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 57,
+          "busy": 1
+        },
+        "update_progress": [
+          {
+            "taskid": "87454686",
+            "progress": 0
+          },
+          {
+            "taskid": "87454686",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 57,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 41,
+          "layers": 44545
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 42,
+          "layers": 46010
+        },
+        "monitor_taskids": [
+          "87454686"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87454686",
+        "from_file": "D1-D2-D3-D5-D7.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-22T21:39:04.792",
+        "to_taskid": "87469595",
+        "to_file": "D6.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-22T22:02:10.947",
+        "between_count": 101,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 46
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 46
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 4
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 3
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 3,
+          "free": 46
+        },
+        "update_progress": [
+          {
+            "taskid": "87469595",
+            "progress": 0
+          },
+          {
+            "taskid": "87469595",
+            "progress": 23
+          },
+          {
+            "taskid": "87469595",
+            "progress": 67
+          },
+          {
+            "taskid": "87469595",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 46,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 42,
+          "layers": 46010
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 43,
+          "layers": 46498
+        },
+        "monitor_taskids": [
+          "87469595"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87469595",
+        "from_file": "D6.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-22T23:38:51.448",
+        "to_taskid": "87570661",
+        "to_file": "D5-D4-C1.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-23T12:00:20.510",
+        "between_count": 123,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 56
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 55
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "offline",
+            "count": 1
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "online",
+            "count": 1
+          },
+          {
+            "action": "reportVersion",
+            "type": "ota",
+            "state": "report-success",
+            "count": 1
+          },
+          {
+            "action": "bindQuery",
+            "type": "user",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "cloudRecommendList",
+            "type": "file",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 56,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "87570661",
+            "progress": 0
+          },
+          {
+            "taskid": "87570661",
+            "progress": 59
+          },
+          {
+            "taskid": "87570661",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 55,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 43,
+          "layers": 46498
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 44,
+          "layers": 0
+        },
+        "monitor_taskids": [
+          "87570661"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87570661",
+        "from_file": "D5-D4-C1.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-23T13:28:41.922",
+        "to_taskid": "87591225",
+        "to_file": "D6.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-23T14:04:23.884",
+        "between_count": 146,
+        "action_state_counts": [
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 69
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 68
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 4
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 3
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 68,
+          "busy": 3
+        },
+        "update_progress": [
+          {
+            "taskid": "87591225",
+            "progress": 0
+          },
+          {
+            "taskid": "87591225",
+            "progress": 17
+          },
+          {
+            "taskid": "87591225",
+            "progress": 56
+          },
+          {
+            "taskid": "87591225",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 69,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 45,
+          "layers": 1210
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 45,
+          "layers": 1210
+        },
+        "monitor_taskids": [
+          "87591225"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87591225",
+        "from_file": "D6.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-23T16:08:47.547",
+        "to_taskid": "87630035",
+        "to_file": "E1-E2-E3-E5-E6.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-23T17:13:33.489",
+        "between_count": 9,
+        "action_state_counts": [
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 1
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 1,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "87630035",
+            "progress": 0
+          },
+          {
+            "taskid": "87630035",
+            "progress": 94
+          },
+          {
+            "taskid": "87630035",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 1,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 46,
+          "layers": 3460
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 46,
+          "layers": 3460
+        },
+        "monitor_taskids": [
+          "87630035"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87630035",
+        "from_file": "E1-E2-E3-E5-E6.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-23T18:01:02.790",
+        "to_taskid": "87649848",
+        "to_file": "E4-E7.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-23T18:36:33.142",
+        "between_count": 154,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 72
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 72
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 5
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 3
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 3,
+          "free": 72
+        },
+        "update_progress": [
+          {
+            "taskid": "87649848",
+            "progress": 0
+          },
+          {
+            "taskid": "87649848",
+            "progress": 13
+          },
+          {
+            "taskid": "87649848",
+            "progress": 49
+          },
+          {
+            "taskid": "87649848",
+            "progress": 86
+          },
+          {
+            "taskid": "87649848",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 72,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 46,
+          "layers": 3460
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 47,
+          "layers": 3955
+        },
+        "monitor_taskids": [
+          "87649848"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87649848",
+        "from_file": "E4-E7.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-23T20:52:04.157",
+        "to_taskid": "87793966",
+        "to_file": "A1-v2.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-24T11:29:40.999",
+        "between_count": 660,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 324
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 324
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 6
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 4
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 4,
+          "free": 324
+        },
+        "update_progress": [
+          {
+            "taskid": "87793966",
+            "progress": 0
+          },
+          {
+            "taskid": "87793966",
+            "progress": 12
+          },
+          {
+            "taskid": "87793966",
+            "progress": 35
+          },
+          {
+            "taskid": "87793966",
+            "progress": 56
+          },
+          {
+            "taskid": "87793966",
+            "progress": 77
+          },
+          {
+            "taskid": "87793966",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 324,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 47,
+          "layers": 3955
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 48,
+          "layers": 5946
+        },
+        "monitor_taskids": [
+          "87793966"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "87793966",
+        "from_file": "A1-v2.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-24T14:35:22.087",
+        "to_taskid": "88747018",
+        "to_file": "B1-B2-B5.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-28T16:05:54.724",
+        "between_count": 208,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 99
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 99
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 5
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 3
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 99,
+          "busy": 3
+        },
+        "update_progress": [
+          {
+            "taskid": "88747018",
+            "progress": 0
+          },
+          {
+            "taskid": "88747018",
+            "progress": 12
+          },
+          {
+            "taskid": "88747018",
+            "progress": 42
+          },
+          {
+            "taskid": "88747018",
+            "progress": 72
+          },
+          {
+            "taskid": "88747018",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 99,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 48,
+          "layers": 5946
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 52,
+          "layers": 15543
+        },
+        "monitor_taskids": [
+          "88747018"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "88747018",
+        "from_file": "B1-B2-B5.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-28T16:31:24.717",
+        "to_taskid": "88790862",
+        "to_file": "B3-B4-B6-B8-C7-D1-D2-D7-E2-E6.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-28T19:19:23.933",
+        "between_count": 13,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 3
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 3
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 3,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "88790862",
+            "progress": 0
+          },
+          {
+            "taskid": "88790862",
+            "progress": 42
+          },
+          {
+            "taskid": "88790862",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 3,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 53,
+          "layers": 16625
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 53,
+          "layers": 16625
+        },
+        "monitor_taskids": [
+          "88790862"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "88790862",
+        "from_file": "B3-B4-B6-B8-C7-D1-D2-D7-E2-E6.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-28T22:00:37.907",
+        "to_taskid": "88925268",
+        "to_file": "B5-v2.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-29T11:35:39.756",
+        "between_count": 63,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 24
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 24
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 3
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 3
+          },
+          {
+            "action": "move",
+            "type": "axis",
+            "state": "done",
+            "count": 2
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "offline",
+            "count": 1
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "online",
+            "count": 1
+          },
+          {
+            "action": "reportVersion",
+            "type": "ota",
+            "state": "report-success",
+            "count": 1
+          },
+          {
+            "action": "bindQuery",
+            "type": "user",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "cloudRecommendList",
+            "type": "file",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 3,
+          "free": 24
+        },
+        "update_progress": [
+          {
+            "taskid": "88925268",
+            "progress": 0
+          },
+          {
+            "taskid": "88925268",
+            "progress": 77
+          },
+          {
+            "taskid": "88925268",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 24,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 53,
+          "layers": 16625
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 54,
+          "layers": 18602
+        },
+        "monitor_taskids": [
+          "88925268"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "88925268",
+        "from_file": "B5-v2.pwsz",
+        "from_state": "preheating",
+        "from_ts": "2026-04-29T11:37:18.893",
+        "to_taskid": "88946284",
+        "to_file": "E4-E7.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-29T13:50:53.543",
+        "between_count": 17,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 6
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 4
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 4
+          },
+          {
+            "action": "autoOperation",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 6,
+          "free": 4
+        },
+        "update_progress": [],
+        "releaseFilm_get_count": 4,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 55,
+          "layers": 19685
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 55,
+          "layers": 19685
+        },
+        "monitor_taskids": [
+          "88946284"
+        ],
+        "autoOperation_taskids": [
+          "88925268"
+        ],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "88946284",
+        "from_file": "E4-E7.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-29T15:54:33.082",
+        "to_taskid": "88997191",
+        "to_file": "C2-C3-C4-C5-C7.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-29T18:00:25.172",
+        "between_count": 874,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 429
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 429
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "offline",
+            "count": 2
+          },
+          {
+            "action": "onlineReport",
+            "type": "lastWill",
+            "state": "online",
+            "count": 2
+          },
+          {
+            "action": "reportVersion",
+            "type": "ota",
+            "state": "report-success",
+            "count": 2
+          },
+          {
+            "action": "bindQuery",
+            "type": "user",
+            "state": "done",
+            "count": 2
+          },
+          {
+            "action": "cloudRecommendList",
+            "type": "file",
+            "state": "done",
+            "count": 2
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 2,
+          "free": 429
+        },
+        "update_progress": [
+          {
+            "taskid": "88997191",
+            "progress": 0
+          },
+          {
+            "taskid": "88997191",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 429,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 56,
+          "layers": 21676
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 56,
+          "layers": 21676
+        },
+        "monitor_taskids": [
+          "88997191"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "88997191",
+        "from_file": "C2-C3-C4-C5-C7.pwsz",
+        "from_state": "finished",
+        "from_ts": "2026-04-29T19:13:11.317",
+        "to_taskid": "89034769",
+        "to_file": "D3-D4-D5-C6-E1-E5.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-29T20:42:34.761",
+        "between_count": 579,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 283
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 283
+          },
+          {
+            "action": "move",
+            "type": "axis",
+            "state": "done",
+            "count": 5
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 4
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "free": 283,
+          "busy": 2
+        },
+        "update_progress": [
+          {
+            "taskid": "89034769",
+            "progress": 0
+          },
+          {
+            "taskid": "89034769",
+            "progress": 24
+          },
+          {
+            "taskid": "89034769",
+            "progress": 77
+          },
+          {
+            "taskid": "89034769",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 283,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 56,
+          "layers": 21676
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 57,
+          "layers": 22555
+        },
+        "monitor_taskids": [
+          "89034769"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      },
+      {
+        "from_taskid": "89034769",
+        "from_file": "D3-D4-D5-C6-E1-E5.pwsz",
+        "from_state": "printing",
+        "from_ts": "2026-04-29T21:40:01.893",
+        "to_taskid": "89158716",
+        "to_file": "B7-D4-D5.pwsz",
+        "to_state": "printing",
+        "to_ts": "2026-04-30T12:29:33.466",
+        "between_count": 16,
+        "action_state_counts": [
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "busy",
+            "count": 4
+          },
+          {
+            "action": "workReport",
+            "type": "status",
+            "state": "free",
+            "count": 4
+          },
+          {
+            "action": "get",
+            "type": "releaseFilm",
+            "state": "done",
+            "count": 4
+          },
+          {
+            "action": "update",
+            "type": "print",
+            "state": "downloading",
+            "count": 2
+          },
+          {
+            "action": "monitor",
+            "type": "print",
+            "state": "monitoring",
+            "count": 1
+          },
+          {
+            "action": "reportStatus",
+            "type": "autoOperation",
+            "state": "done",
+            "count": 1
+          }
+        ],
+        "workReport_states": {
+          "busy": 4,
+          "free": 4
+        },
+        "update_progress": [
+          {
+            "taskid": "89158716",
+            "progress": 0
+          },
+          {
+            "taskid": "89158716",
+            "progress": 100
+          }
+        ],
+        "releaseFilm_get_count": 4,
+        "releaseFilm_first": {
+          "status": 0,
+          "times": 58,
+          "layers": 23765
+        },
+        "releaseFilm_last": {
+          "status": 0,
+          "times": 58,
+          "layers": 23765
+        },
+        "monitor_taskids": [
+          "89158716"
+        ],
+        "autoOperation_taskids": [],
+        "signal_strength": []
+      }
+    ],
+    "between_count_distribution": [
+      {
+        "key": 0,
+        "count": 14641
+      },
+      {
+        "key": 1,
+        "count": 3946
+      },
+      {
+        "key": 2,
+        "count": 272
+      },
+      {
+        "key": 3,
+        "count": 53
+      },
+      {
+        "key": 4,
+        "count": 17
+      },
+      {
+        "key": 6,
+        "count": 15
+      },
+      {
+        "key": 10,
+        "count": 13
+      },
+      {
+        "key": 7,
+        "count": 12
+      },
+      {
+        "key": 8,
+        "count": 10
+      },
+      {
+        "key": 11,
+        "count": 7
+      },
+      {
+        "key": 5,
+        "count": 6
+      },
+      {
+        "key": 9,
+        "count": 4
+      },
+      {
+        "key": 12,
+        "count": 2
+      },
+      {
+        "key": 13,
+        "count": 2
+      },
+      {
+        "key": 62,
+        "count": 2
+      },
+      {
+        "key": 345,
+        "count": 1
+      },
+      {
+        "key": 79,
+        "count": 1
+      },
+      {
+        "key": 23,
+        "count": 1
+      },
+      {
+        "key": 297,
+        "count": 1
+      },
+      {
+        "key": 268,
+        "count": 1
+      },
+      {
+        "key": 119,
+        "count": 1
+      },
+      {
+        "key": 101,
+        "count": 1
+      },
+      {
+        "key": 123,
+        "count": 1
+      },
+      {
+        "key": 146,
+        "count": 1
+      },
+      {
+        "key": 154,
+        "count": 1
+      },
+      {
+        "key": 660,
+        "count": 1
+      },
+      {
+        "key": 208,
+        "count": 1
+      },
+      {
+        "key": 63,
+        "count": 1
+      },
+      {
+        "key": 17,
+        "count": 1
+      },
+      {
+        "key": 29,
+        "count": 1
+      },
+      {
+        "key": 874,
+        "count": 1
+      },
+      {
+        "key": 579,
+        "count": 1
+      },
+      {
+        "key": 27,
+        "count": 1
+      },
+      {
+        "key": 16,
+        "count": 1
+      },
+      {
+        "key": 113,
+        "count": 1
+      },
+      {
+        "key": 67,
+        "count": 1
+      }
+    ],
+    "between_action_state_counts_all_segments": [
+      {
+        "action": "workReport",
+        "type": "status",
+        "state": "busy",
+        "count": 5511
+      },
+      {
+        "action": "workReport",
+        "type": "status",
+        "state": "free",
+        "count": 1955
+      },
+      {
+        "action": "get",
+        "type": "releaseFilm",
+        "state": "done",
+        "count": 1955
+      },
+      {
+        "action": "autoOperation",
+        "type": "print",
+        "state": "monitoring",
+        "count": 131
+      },
+      {
+        "action": "update",
+        "type": "print",
+        "state": "downloading",
+        "count": 60
+      },
+      {
+        "action": "monitor",
+        "type": "print",
+        "state": "monitoring",
+        "count": 38
+      },
+      {
+        "action": "getSignalStrength",
+        "type": "wifi",
+        "state": "done",
+        "count": 20
+      },
+      {
+        "action": "reportStatus",
+        "type": "autoOperation",
+        "state": "done",
+        "count": 19
+      },
+      {
+        "action": "move",
+        "type": "axis",
+        "state": "done",
+        "count": 7
+      },
+      {
+        "action": "onlineReport",
+        "type": "lastWill",
+        "state": "online",
+        "count": 6
+      },
+      {
+        "action": "reportVersion",
+        "type": "ota",
+        "state": "report-success",
+        "count": 6
+      },
+      {
+        "action": "bindQuery",
+        "type": "user",
+        "state": "done",
+        "count": 6
+      },
+      {
+        "action": "cloudRecommendList",
+        "type": "file",
+        "state": "done",
+        "count": 6
+      },
+      {
+        "action": "onlineReport",
+        "type": "lastWill",
+        "state": "offline",
+        "count": 5
+      },
+      {
+        "action": "feedResin",
+        "type": "resin",
+        "state": "start",
+        "count": 1
+      }
+    ],
+    "between_action_state_counts_only_different_taskid_segments": [
+      {
+        "action": "workReport",
+        "type": "status",
+        "state": "free",
+        "count": 1955
+      },
+      {
+        "action": "get",
+        "type": "releaseFilm",
+        "state": "done",
+        "count": 1955
+      },
+      {
+        "action": "update",
+        "type": "print",
+        "state": "downloading",
+        "count": 60
+      },
+      {
+        "action": "workReport",
+        "type": "status",
+        "state": "busy",
+        "count": 51
+      },
+      {
+        "action": "monitor",
+        "type": "print",
+        "state": "monitoring",
+        "count": 20
+      },
+      {
+        "action": "reportStatus",
+        "type": "autoOperation",
+        "state": "done",
+        "count": 19
+      },
+      {
+        "action": "move",
+        "type": "axis",
+        "state": "done",
+        "count": 7
+      },
+      {
+        "action": "onlineReport",
+        "type": "lastWill",
+        "state": "online",
+        "count": 5
+      },
+      {
+        "action": "reportVersion",
+        "type": "ota",
+        "state": "report-success",
+        "count": 5
+      },
+      {
+        "action": "bindQuery",
+        "type": "user",
+        "state": "done",
+        "count": 5
+      },
+      {
+        "action": "cloudRecommendList",
+        "type": "file",
+        "state": "done",
+        "count": 5
+      },
+      {
+        "action": "onlineReport",
+        "type": "lastWill",
+        "state": "offline",
+        "count": 4
+      },
+      {
+        "action": "autoOperation",
+        "type": "print",
+        "state": "monitoring",
+        "count": 2
+      },
+      {
+        "action": "getSignalStrength",
+        "type": "wifi",
+        "state": "done",
+        "count": 1
+      }
+    ]
+  }
+}

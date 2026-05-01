@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -79,6 +80,35 @@ std::optional<int> firstIntField(const nlohmann::json& object,
     return std::nullopt;
 }
 
+std::optional<bool> firstBoolField(const nlohmann::json& object,
+                                   std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        const auto& value = object[key];
+        if (value.is_boolean()) {
+            return value.get<bool>();
+        }
+        if (value.is_number_integer()) {
+            return value.get<int>() != 0;
+        }
+        if (value.is_string()) {
+            const std::string lowered = toLowerAscii(value.get<std::string>());
+            if (lowered == "true" || lowered == "1" || lowered == "yes") {
+                return true;
+            }
+            if (lowered == "false" || lowered == "0" || lowered == "no") {
+                return false;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> firstStringField(const nlohmann::json& object,
                                             std::initializer_list<const char*> keys) {
     if (!object.is_object()) {
@@ -98,6 +128,24 @@ std::optional<std::string> firstStringField(const nlohmann::json& object,
         }
     }
     return std::nullopt;
+}
+
+std::map<std::string, int> parseCheckStatus(const nlohmann::json& object) {
+    std::map<std::string, int> out;
+    if (!object.is_object() || !object.contains("checkStatus") || !object["checkStatus"].is_array()) {
+        return out;
+    }
+    for (const auto& item : object["checkStatus"]) {
+        if (!item.is_object()) {
+            continue;
+        }
+        const auto name = firstStringField(item, {"name"});
+        const auto status = firstIntField(item, {"status"});
+        if (name.has_value() && status.has_value()) {
+            out[*name] = *status;
+        }
+    }
+    return out;
 }
 
 bool isKnownPrintState(const std::string& state) {
@@ -205,6 +253,14 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     accloud::realtime::PrinterRealtimeEvent event;
     event.type = *messageTypeOpt;
     event.kind = mapEventKind(*messageTypeOpt);
+    event.wireType = env.type;
+    if (env.type == "releaseFilm") {
+        event.kind = accloud::realtime::EventKind::ReleaseFilmUpdate;
+    } else if (env.type == "autoOperation") {
+        event.kind = accloud::realtime::EventKind::AutoOperationUpdate;
+    } else if (env.type == "wifi") {
+        event.kind = accloud::realtime::EventKind::WifiUpdate;
+    }
     event.printerKey = out.printerKey;
     event.action = env.action;
     event.state = env.state;
@@ -213,13 +269,35 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     if (event.type == accloud::realtime::MessageType::Print && !env.state.empty()) {
         event.printState = mapPrintState(env.state);
     }
+    event.taskId = firstStringField(env.data, {"taskid", "task_id"});
     event.progress = firstIntField(env.data, {"progress", "print_progress", "percent", "percentage"});
+    if (env.type == "print" && env.action == "update" && env.state == "downloading") {
+        event.downloadProgress = event.progress;
+    }
+    if (env.type == "print" && env.action == "start") {
+        event.printProgress = event.progress;
+    }
     event.elapsedSec = firstIntField(env.data, {"elapsed_sec", "elapsed_time", "used_time", "duration", "print_time"});
     event.remainingSec = firstIntField(env.data, {"remaining_sec", "remaining_time", "left_time", "remain_time", "remain_sec"});
     event.currentLayer = firstIntField(env.data, {"current_layer", "curr_layer", "layer_now", "layer"});
     event.totalLayers = firstIntField(env.data, {"total_layers", "layer_total", "total_layer"});
+    event.taskMode = firstIntField(env.data, {"task_mode", "taskMode"});
+    event.heatingSkipAllowed = firstBoolField(env.data, {"heating_skip_allowed", "heatingSkipAllowed"});
+    const auto heatingRemaining = firstIntField(env.data, {"heating_remain_time", "heating_remaining_time", "heatingRemainTime"});
+    if (heatingRemaining.has_value() && *heatingRemaining >= 0) {
+        event.heatingRemainingSec = heatingRemaining;
+    }
     event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
+    event.slicer = firstStringField(env.data, {"slicer"});
     event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
+    const auto checks = parseCheckStatus(env.data);
+    if (!checks.empty()) {
+        if (env.type == "print" && env.action == "autoOperation") {
+            event.autoChecks = checks;
+        } else if (env.type == "print" && env.action == "monitor") {
+            event.hardwareChecks = checks;
+        }
+    }
 
     out.event = event;
     out.disposition = RouteDisposition::Routed;
@@ -296,7 +374,8 @@ std::optional<accloud::realtime::MessageType> MqttMessageRouter::mapMessageType(
     if (type == "file") return accloud::realtime::MessageType::File;
     if (type == "peripherie") return accloud::realtime::MessageType::Peripheral;
     // Promoted in v1 for broad realtime coverage without introducing new domain enums.
-    if (type == "wifi" || type == "resin" || type == "video") {
+    if (type == "wifi" || type == "resin" || type == "video"
+        || type == "releaseFilm" || type == "autoOperation" || type == "axis") {
         return accloud::realtime::MessageType::Peripheral;
     }
     return std::nullopt;

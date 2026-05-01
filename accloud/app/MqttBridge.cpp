@@ -141,6 +141,20 @@ bool isSensitiveKey(const std::string& key) {
         || lowered == "authorization";
 }
 
+bool isPrintOrderProgressEnvelope(const mqtt::routing::MqttEnvelope& envelope) {
+    if (envelope.type != "print") {
+        return false;
+    }
+    if (envelope.state == "failed") {
+        return true;
+    }
+    if (!envelope.data.is_object() || !envelope.data.contains("taskid") || envelope.data["taskid"].is_null()) {
+        return false;
+    }
+    return (envelope.action == "update" && envelope.state == "downloading")
+        || envelope.action == "start";
+}
+
 void redactJsonInPlace(nlohmann::json& node) {
     if (node.is_object()) {
         for (auto it = node.begin(); it != node.end(); ++it) {
@@ -659,10 +673,11 @@ MqttBridge::MqttBridge(QObject* parent)
 
             const bool ok = routed.envelope.state != "failed";
             auto& tracker = usecases::cloud::OrderResponseTracker::instance();
-            if (!routed.envelope.msgid.empty()) {
+            if (!routed.envelope.msgid.empty() && isPrintOrderProgressEnvelope(routed.envelope)) {
                 (void)tracker.resolveByMsgid(routed.envelope.msgid, ok, routed.envelope.state);
             } else if (!routed.printerKey.empty() && routed.event.has_value()
-                       && routed.event->type == realtime::MessageType::Print) {
+                       && routed.event->type == realtime::MessageType::Print
+                       && isPrintOrderProgressEnvelope(routed.envelope)) {
                 auto it = m_printerKeyToId.find(routed.printerKey);
                 const std::string printerId = (it != m_printerKeyToId.end()) ? it->second : routed.printerKey;
                 (void)tracker.resolveByFallback(printerId,
