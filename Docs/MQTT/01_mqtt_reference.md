@@ -654,6 +654,9 @@ Lecture correcte :
 - `1306 / waiting` = job bloqué en attente ;
 - `601 / stoped` = arrêt manuel du job dans ce scénario précis.
 
+Côté application, `waiting`, `resuming` et les autres états fins MQTT restent exposés séparément via l’état temps réel MQTT.
+Ils ne remplacent pas l’état métier global `PRINTING`, qui reste utilisé pour bloquer une nouvelle impression tant que la machine est occupée.
+
 ## 13.2 Point de prudence
 
 `platform = 1206` ne doit pas être traité comme un hard-stop fatal isolé.
@@ -826,6 +829,23 @@ Le socle MQTT doit être gardé sur :
 - redaction des secrets ;
 - non-régression sur les topics réellement utilisés ;
 - absence de duplication de flux après suppression de l’abonnement redondant.
+
+## 18.1 Garde-fous workflow M7 implémentés
+
+Le moteur MQTT maintient un job actif indexé par `taskid` et conserve les jobs vus dans le snapshot temps réel de l'imprimante.
+
+Règles couvertes par `accloud_mqtt_flow` :
+
+- `status/workReport free|busy` met à jour la disponibilité machine, sans créer de job ;
+- `print/update/downloading` alimente la progression de téléchargement ;
+- `print/start/printing` avec `curr_layer=0` produit un job chargé ;
+- `print/start/printing` avec `curr_layer>=1` produit une impression effective ;
+- `print/start/preheating` conserve les informations de préchauffe, avec `heating_remain_time=-1` interprété comme inconnu ;
+- `print/start/finished` termine le job, puis `workReport/free` expose l'état legacy `READY` ;
+- `print/monitor` et `print/autoOperation` attachent leurs `checkStatus` au job courant ;
+- `releaseFilm`, `autoOperation` et `wifi` sont routés comme événements observables et ne passent plus par discovery par défaut.
+
+Le workflow applicatif crée aussi un job local `command_sent` dès acceptation HTTPS de l'ordre d'impression. Si la réponse HTTP ne contient pas de `taskid`, ce job reste en clé pending et est migré vers le premier `taskid` structurant reçu par MQTT (`update/downloading` ou `start/*`). Cette phase n'expose pas l'état legacy `PRINTING`.
 
 ---
 

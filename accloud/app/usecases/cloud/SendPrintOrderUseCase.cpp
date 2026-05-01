@@ -1,5 +1,6 @@
 #include "SendPrintOrderUseCase.h"
 
+#include "app/realtime/PrinterRealtimeStore.h"
 #include "OrderResponseTracker.h"
 #include "infra/cloud/api/PrintOrderApi.h"
 #include "infra/cloud/core/SessionProvider.h"
@@ -26,6 +27,9 @@ accloud::cloud::CloudPrintOrderResult SendPrintOrderUseCase::execute(const std::
         result.correlationStatus = OrderResponseTracker::outcomeToString(CorrelationOutcome::Failure);
         return result;
     }
+
+    accloud::realtime::PrinterRealtimeStore::instance().recordPrintCommandSent(
+        printerId, result.taskId, fileId, result.msgId);
 
     TrackerOpenRequest request;
     request.printerId = printerId;

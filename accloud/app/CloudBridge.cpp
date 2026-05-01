@@ -618,6 +618,16 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("currentLayer",p.currentLayer);
     m.insert("totalLayers", p.totalLayers);
     m.insert("currentFile", QString::fromStdString(p.currentFile));
+    m.insert("mqttPrintState", QString::fromStdString(p.mqttPrintState));
+    m.insert("mqttJobStage", QString::fromStdString(p.mqttJobStage));
+    QVariantMap details;
+    if (!p.mqttPrintState.empty()) {
+        details.insert(QStringLiteral("mqttPrintState"), QString::fromStdString(p.mqttPrintState));
+    }
+    if (!p.mqttJobStage.empty()) {
+        details.insert(QStringLiteral("mqttJobStage"), QString::fromStdString(p.mqttJobStage));
+    }
+    m.insert("details", details);
     return m;
 }
 
@@ -647,6 +657,18 @@ void applyRealtimeOverlayToPrinterMap(
     if (rt.state.has_value()) {
         printer.insert(QStringLiteral("state"), QString::fromStdString(*rt.state));
     }
+    if (rt.printStateText.has_value()) {
+        printer.insert(QStringLiteral("mqttPrintState"), QString::fromStdString(*rt.printStateText));
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        details.insert(QStringLiteral("mqttPrintState"), QString::fromStdString(*rt.printStateText));
+        printer.insert(QStringLiteral("details"), details);
+    }
+    if (rt.jobStageText.has_value()) {
+        printer.insert(QStringLiteral("mqttJobStage"), QString::fromStdString(*rt.jobStageText));
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        details.insert(QStringLiteral("mqttJobStage"), QString::fromStdString(*rt.jobStageText));
+        printer.insert(QStringLiteral("details"), details);
+    }
     if (rt.progress.has_value()) {
         printer.insert(QStringLiteral("progress"), *rt.progress);
     }
@@ -668,6 +690,26 @@ void applyRealtimeOverlayToPrinterMap(
     if (rt.reason.has_value()) {
         printer.insert(QStringLiteral("reason"), QString::fromStdString(*rt.reason));
     }
+    if (rt.releaseFilmStatus.has_value()) {
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        details.insert(QStringLiteral("releaseFilmStatus"), QString::fromStdString(*rt.releaseFilmStatus));
+        printer.insert(QStringLiteral("details"), details);
+    }
+    if (rt.releaseFilmLayers.has_value()
+        || rt.releaseFilmTimes.has_value()
+        || rt.releaseFilmStatusCode.has_value()) {
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        if (rt.releaseFilmLayers.has_value()) {
+            details.insert(QStringLiteral("releaseFilmLayers"), *rt.releaseFilmLayers);
+        }
+        if (rt.releaseFilmTimes.has_value()) {
+            details.insert(QStringLiteral("releaseFilmTimes"), *rt.releaseFilmTimes);
+        }
+        if (rt.releaseFilmStatusCode.has_value()) {
+            details.insert(QStringLiteral("releaseFilmStatusCode"), *rt.releaseFilmStatusCode);
+        }
+        printer.insert(QStringLiteral("details"), details);
+    }
 }
 
 QVariantMap printerDetailsToMap(const cloud::CloudPrinterDetailsResult& d) {
@@ -686,6 +728,7 @@ QVariantMap printerDetailsToMap(const cloud::CloudPrinterDetailsResult& d) {
     m.insert("machineMac", QString::fromStdString(d.machineMac));
     m.insert("helpUrl", QString::fromStdString(d.helpUrl));
     m.insert("quickStartUrl", QString::fromStdString(d.quickStartUrl));
+    m.insert("releaseFilmStatus", QString::fromStdString(d.releaseFilmStatus));
     m.insert("releaseFilmLayers", QString::fromStdString(d.releaseFilmLayers));
 
     QVariantList tools;

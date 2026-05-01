@@ -35,13 +35,14 @@ Statut documentaire : `IMPLEMENTE`
 - dialog `Select Local Printer File`
 
 ### Flux boutons `Print` (source officielle)
-- `From Cloud File`:
-  - source cloud uniquement
-  - filtre sur fichiers compatibles imprimante
+- impression cloud:
+  - exposee depuis l'onglet fichiers cloud, pas comme bouton du panneau Printer
+  - filtre sur fichiers compatibles imprimante conserve
 - `From Local File`:
   - source stockage local imprimante uniquement
   - listing via `sendOrder(order_id=103)` puis reponse MQTT `file/listLocal`
-  - impression locale: `order_id` cible observe = `1` (validation finale en cours)
+  - suppression via `sendOrder(order_id=104)` et retrait de la ligne locale apres succes
+  - impression locale: `order_id` cible observe = `1`
 
 Reference snapshot: `Docs/02_ui_qml.md`
 

@@ -27,8 +27,7 @@ Statut documentaire : `IMPLEMENTE`
 - Elapsed / Remaining (best-effort).
 
 4) **Actions**
-- `From Cloud File` (principal).
-- `From Local File` (secondaire, listing local imprimante via `order_id=103`).
+- `From Local File` (principal, listing local imprimante via `order_id=103`, suppression via `order_id=104`).
 
 5) **Historique recent**
 - Liste compacte des derniers projets de l'imprimante (task/status/progress/start/end).

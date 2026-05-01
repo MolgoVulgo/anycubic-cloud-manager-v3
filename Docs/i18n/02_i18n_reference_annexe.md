@@ -439,4 +439,3 @@ Le besoin est de :
 - relier l’inventaire aux décisions d’architecture.
 
 Cette annexe est le support prévu pour cette étape.
-

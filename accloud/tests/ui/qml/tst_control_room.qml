@@ -5,12 +5,17 @@ import QtTest 1.3
 TestCase {
     name: "ControlRoomUi"
     property var cloudBridge: undefined
+    property var mqttBridge: undefined
 
     function cleanup() {
         if (cloudBridge !== undefined && cloudBridge !== null && cloudBridge.destroy !== undefined) {
             cloudBridge.destroy()
         }
         cloudBridge = undefined
+        if (mqttBridge !== undefined && mqttBridge !== null && mqttBridge.destroy !== undefined) {
+            mqttBridge.destroy()
+        }
+        mqttBridge = undefined
     }
 
     function createQmlObject(path, props) {
@@ -67,6 +72,47 @@ TestCase {
         return null
     }
 
+    function visibleTextExists(root, text, visited) {
+        if (root === null || root === undefined) {
+            return false
+        }
+        if (visited === null || visited === undefined) {
+            visited = []
+        }
+        for (var v = 0; v < visited.length; ++v) {
+            if (visited[v] === root) {
+                return false
+            }
+        }
+        visited.push(root)
+
+        if (root.visible !== false && root.text !== undefined
+                && String(root.text).indexOf(text) >= 0) {
+            return true
+        }
+
+        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem]
+        for (var d = 0; d < direct.length; ++d) {
+            if (visibleTextExists(direct[d], text, visited)) {
+                return true
+            }
+        }
+
+        var collections = [root.children, root.contentChildren, root.data]
+        for (var c = 0; c < collections.length; ++c) {
+            var kids = collections[c]
+            if (kids === null || kids === undefined) {
+                continue
+            }
+            for (var i = 0; i < kids.length; ++i) {
+                if (visibleTextExists(kids[i], text, visited)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     function test_main_window_has_control_room_layout() {
         var window = createQmlObject("../../../ui/qml/MainWindow.qml")
         compare(window.title, "Anycubic Cloud Control Room")
@@ -99,6 +145,52 @@ TestCase {
         compare(uploadButton.text, "Upload")
 
         page.destroy()
+    }
+
+    function test_printer_details_basic_waiting_metrics() {
+        var history = {
+            count: 2,
+            get: function(index) {
+                if (index === 0) {
+                    return { taskId: "t-running", gcodeName: "running.pwmb", printStatus: 1 }
+                }
+                return { taskId: "t-done", gcodeName: "done.pwmb", printStatus: 2 }
+            }
+        }
+        var panel = createQmlObject("../../../ui/qml/pages/PrinterDetailPanel.qml", {
+            "width": 980,
+            "height": 520,
+            "selectedPrinter": {
+                "id": "p1",
+                "name": "Anycubic Photon Mono M7 Pro",
+                "model": "Anycubic Photon Mono M7 Pro",
+                "type": "LCD",
+                "state": "READY"
+            },
+            "selectedPrinterDetails": {
+                "firmwareVersion": "v1.2.3",
+                "printCount": "42",
+                "releaseFilmLayers": 30001,
+                "releaseFilmTimes": 60,
+                "releaseFilmStatusCode": -1,
+                "printTotalTime": "12h30m",
+                "materialUsed": "1250 ml"
+            },
+            "printerHistoryModel": history
+        })
+        wait(0)
+
+        compare(String(findObjectByName(panel, "printerFirmwareValue").text), "v1.2.3")
+        compare(String(findObjectByName(panel, "printerPrintCountValue").text), "42")
+        compare(String(findObjectByName(panel, "printerFilmStateValue").text),
+                "60 prints | 30001 layers | Film a changer")
+        compare(String(findObjectByName(panel, "printerTotalPrintTimeValue").text), "12.5 h")
+        compare(String(findObjectByName(panel, "printerTotalResinValue").text), "1.25 L")
+        compare(String(findObjectByName(panel, "printerLastPrintedFileValue").text), "done.pwmb")
+        verify(!visibleTextExists(panel, "Model:"))
+        verify(!visibleTextExists(panel, "Printer Type"))
+
+        panel.destroy()
     }
 
     function test_cloud_files_header_and_row_columns_are_aligned() {
@@ -742,46 +834,76 @@ TestCase {
         cloudBridge = undefined
     }
 
-    function test_printer_local_file_print_is_disabled_while_order_id_is_placeholder() {
-        cloudBridge = {
-            fetchPrinters: function() {
-                return {
-                    ok: true,
-                    message: "ok",
-                    printers: [
-                        {
-                            id: "p1",
-                            name: "Printer One",
-                            model: "Mono M7",
-                            type: "LCD",
-                            state: "READY",
-                            reason: "free",
-                            available: 1,
-                            progress: -1,
-                            elapsedSec: -1,
-                            remainingSec: -1,
-                            currentFile: "",
-                            lastSeen: "now"
-                        }
-                    ]
-                }
-            },
-            fetchFiles: function() { return { ok: true, files: [] } },
-            fetchCompatiblePrintersByExt: function() { return { ok: true, printers: [] } },
-            fetchCompatiblePrintersByFileId: function() { return { ok: true, printers: [] } },
-            fetchReasonCatalog: function() { return { ok: true, reasons: [] } },
-            fetchPrinterDetails: function() { return { ok: true, details: {} } },
-            fetchPrinterProjects: function() { return { ok: true, projects: [] } },
-            sendPrintOrder: function() { return { ok: true, taskId: "123" } },
-            sendPrinterOrder: function() { return { ok: true, msgId: "msg-1" } }
-        }
+    function test_printer_local_file_modal_lists_deletes_and_starts() {
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject { property bool connected: true }',
+                                        this,
+                                        "printerMqttBridgeMock")
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal filesUpdatedFromCloud(var files, string message);' +
+                                         'signal printersUpdatedFromCloud(var printers, string message);' +
+                                         'signal printerInsightsUpdatedFromCloud(string printerId, var details, var projects, string detailsRawJson, string projectsRawJson, string message);' +
+                                         'signal syncFailed(string scope, string message);' +
+                                         'property var orderCalls: [];' +
+                                         'function fetchQuota() { return { ok: true, totalBytes: 0, usedBytes: 0 } }' +
+                                         'function fetchPrinters() { return { ok: true, message: "ok", printers: [ { id: "p1", name: "Printer One", model: "Mono M7", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now" } ] } }' +
+                                         'function fetchFiles(page, limit) { return { ok: true, files: [] } }' +
+                                         'function fetchCompatiblePrintersByExt(ext) { return { ok: true, printers: [] } }' +
+                                         'function fetchCompatiblePrintersByFileId(fileId) { return { ok: true, printers: [] } }' +
+                                         'function fetchReasonCatalog() { return { ok: true, reasons: [] } }' +
+                                         'function fetchPrinterDetails(printerId) { return { ok: true, details: {} } }' +
+                                         'function fetchPrinterProjects(printerId, page, limit) { return { ok: true, projects: [] } }' +
+                                         'function sendPrintOrder() { return { ok: true, taskId: "123" } }' +
+                                         'function sendPrinterOrder(printerId, orderId, data, projectId) { orderCalls.push({ printerId: String(printerId), orderId: Number(orderId), data: data, projectId: String(projectId || "") }); return { ok: true, msgId: "msg-" + String(orderId) } }' +
+                                         '}', this, "printerLocalFileBridgeMock")
 
         var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
-        compare(page.localFilePrintEnabled, false)
+        compare(page.localFilePrintEnabled, true)
+        compare(page.localFileStartPrintOrderId, 1)
+        compare(page.localFilesListOrderId, 103)
+        compare(page.localFileDeleteOrderId, 104)
         page.openLocalFileDialogForRemotePrint("p1")
-        compare(String(page.statusMsg), "Printer local file printing is disabled until the start order id is confirmed.")
+        compare(cloudBridge.orderCalls.length, 2)
+        compare(cloudBridge.orderCalls[0].orderId, 1231)
+        compare(cloudBridge.orderCalls[1].orderId, 103)
+
+        var dialog = findObjectByName(page, "selectLocalPrinterFileDialog")
+        verify(dialog !== null)
+        compare(dialog.deleteEnabled, true)
+
+        page.applyPrinterLocalFilesFromMqtt("p1", "local", [
+            { filename: "plate-a.pwmb", size: 2048, timestamp: 0, isDir: false },
+            { fileName: "plate-c.pwmb", size: 3072, timestamp: 0, is_dir: 0 },
+            { filename: "folder", size: 0, timestamp: 0, isDir: true }
+        ], "done", 0, "")
+        wait(0)
+
+        var localModel = findObjectByName(page, "printerLocalFilesModel")
+        verify(localModel !== null)
+        compare(localModel.count, 2)
+        compare(String(localModel.get(0).fileName), "plate-a.pwmb")
+        compare(String(localModel.get(1).fileName), "plate-c.pwmb")
+        compare(String(page.selectedPrinterLocalFileName), "plate-a.pwmb")
+
+        page.deletePrinterLocalFile("plate-a.pwmb")
+        compare(cloudBridge.orderCalls.length, 3)
+        compare(cloudBridge.orderCalls[2].orderId, 104)
+        compare(String(cloudBridge.orderCalls[2].data.filename), "plate-a.pwmb")
+        compare(localModel.count, 1)
+        compare(String(page.selectedPrinterLocalFileName), "plate-c.pwmb")
+        verify(String(page.statusMsg).indexOf("Local file deleted") === 0)
+
+        page.applyPrinterLocalFilesFromMqtt("p1", "local", [
+            { filename: "plate-b.pwmb", size: 4096, timestamp: 0, isDir: false }
+        ], "done", 0, "")
+        page.startPrintFromPrinterLocalFile()
+        compare(cloudBridge.orderCalls.length, 4)
+        compare(cloudBridge.orderCalls[3].orderId, 1)
+        compare(String(cloudBridge.orderCalls[3].data.filename), "plate-b.pwmb")
+        verify(String(page.statusMsg).indexOf("Local print command sent") === 0)
+
         page.destroy()
         cloudBridge = undefined
+        mqttBridge = undefined
     }
 
     function test_printer_tabs_title_contains_status() {

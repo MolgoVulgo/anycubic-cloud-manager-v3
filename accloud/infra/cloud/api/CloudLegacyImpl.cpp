@@ -1123,6 +1123,12 @@ CloudPrinterDetailsResult legacyFetchPrinterDetails(const std::string& accessTok
         out.quickStartUrl = jFirst(data, {"quick_start_url"});
 
         const auto& releaseFilm = data.value("releaseFilm", nlohmann::json::object());
+        out.releaseFilmStatus = jFirst(releaseFilm,
+                                       {"status", "state", "desc", "name", "label", "release_film_status"});
+        if (out.releaseFilmStatus.empty()) {
+            out.releaseFilmStatus = jFirst(data,
+                                           {"releaseFilmStatus", "release_film_status", "fepStatus", "fep_status"});
+        }
         out.releaseFilmLayers = jFirst(releaseFilm, {"layers"});
 
         const auto& tools = data.value("tools", nlohmann::json::array());

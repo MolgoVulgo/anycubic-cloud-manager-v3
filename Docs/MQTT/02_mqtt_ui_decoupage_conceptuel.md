@@ -519,4 +519,3 @@ La structure conceptuelle cible est donc :
 5. **Historique et métriques secondaires**
 
 Cette séparation permet d’éviter une UI trop proche du protocole et de construire une interface lisible, stable et orientée usage.
-

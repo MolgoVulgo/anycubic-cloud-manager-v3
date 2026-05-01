@@ -18,6 +18,11 @@ Ce document fusionne la documentation initiale relative à :
 
 Il devient la référence principale pour la partie interface Qt/QML.
 
+Documents de suivi performance :
+- `ui_latency_performance_analysis.md` : diagnostic ;
+- `ui_latency_correction_plan.md` : plan initial ;
+- `ui_optimization_continuity.md` : marche a suivre apres les premieres optimisations.
+
 ---
 
 ## 2. Position réelle de l’UI
@@ -181,11 +186,11 @@ Fonctions visibles :
 
 Règles d'affichage métriques (panneau détails imprimante) :
 - formater de manière homogène les métriques disponibles (`%`, couches, durées) ;
-- ne pas afficher une carte métrique quand la donnée source n'existe pas ;
+- pour le mode `basic`, garder les cartes attendues stables et afficher `-` quand la donnée source n'existe pas ;
 - ne pas inventer de fallback métier quand le backend ne fournit pas la valeur.
 - utiliser un mode d'affichage unique :
-  - `basic` (ready/offline) : nom/modèle, firmware, status, print count, total print time, material used, printer type, release film ;
-  - `printing` : nom/modèle, status, fichier courant, progression, couches, elapsed, remaining.
+  - `basic` (ready/offline) : nom, status, firmware, print count, release film times/layers/status, total print time in hours, total resin in liters, last printed file ;
+  - `printing` : nom, status, fichier courant, progression, couches, elapsed, remaining.
 - historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
 - en impression, le fichier courant doit exposer le nom du fichier, une
   progression principale, les couches et les durees utiles ; les details
@@ -198,9 +203,10 @@ Règles d'affichage métriques (panneau détails imprimante) :
   d'impression ; le refresh periodique du listing imprimantes ne doit pas
   reconstruire l'historique des taches.
 
-Le lancement depuis fichier local stocké sur l'imprimante reste désactivé tant
-que l'`order_id` réel de démarrage n'est pas confirmé. L'entrée UI ne doit pas
-présenter le placeholder `999` comme un flux production.
+Le lancement depuis fichier local stocké sur l'imprimante utilise le flux
+`sendOrder` observe cote reference : `listLocal=103`, `deleteLocal=104`,
+demarrage local `order_id=1`. Le bouton cloud n'est pas expose dans le panneau
+Printer ; le demarrage depuis cloud reste initie depuis les fichiers cloud.
 
 La validation locale de compatibilité fichier/imprimante doit passer par le
 bridge C++ quand il est disponible, avec fallback QML limité aux tests/mocks.
