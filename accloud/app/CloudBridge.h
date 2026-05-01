@@ -99,6 +99,11 @@ public:
                                              int orderId,
                                              const QVariantMap& data = QVariantMap(),
                                              const QString& projectId = QString()) const;
+    Q_INVOKABLE void sendPrinterOrderAsync(const QString& printerId,
+                                           int orderId,
+                                           const QVariantMap& data = QVariantMap(),
+                                           const QString& projectId = QString(),
+                                           const QString& context = QString());
 
     // ── Téléchargement asynchrone ─────────────────────────────────────────
     // signedUrl : URL obtenue via getDownloadUrl()
@@ -124,6 +129,10 @@ Q_SIGNALS:
     void deleteFileFinished(const QString& fileId, const QVariantMap& result);
     void downloadUrlReady(const QString& fileId, const QVariantMap& result);
     void printOrderFinished(const QString& printerId, const QString& fileId, const QVariantMap& result);
+    void printerOrderFinished(const QString& context,
+                              const QString& printerId,
+                              int orderId,
+                              const QVariantMap& result);
     void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
     void printersUpdatedFromCache(const QVariantList& printers, const QString& message);
     void printersUpdatedFromCloud(const QVariantList& printers, const QString& message);

@@ -1003,6 +1003,16 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
 
     const QVariantList cachedPrinters = m_cache->loadPrinters();
     perf.setCount("cached_printers", cachedPrinters.size());
+    QStringList printerIds;
+    printerIds.reserve(cachedPrinters.size());
+    for (const QVariant& item : cachedPrinters) {
+        const QString printerId = item.toMap().value(QStringLiteral("id")).toString().trimmed();
+        if (!printerId.isEmpty() && !printerIds.contains(printerId)) {
+            printerIds.push_back(printerId);
+        }
+    }
+    const QVariantMap cachedProjectsByPrinter = m_cache->loadRecentJobsForPrinters(printerIds, 20);
+    perf.setCount("cached_jobs_printers", cachedProjectsByPrinter.size());
     const auto realtimeSnapshots = accloud::realtime::PrinterRealtimeStore::instance().snapshotAll();
     QVariantList printers;
     printers.reserve(cachedPrinters.size());
@@ -1015,7 +1025,7 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("currentLayer"), -1);
         printer.insert(QStringLiteral("totalLayers"), -1);
         printer.insert(QStringLiteral("details"), QVariantMap{});
-        const QVariantList cachedProjects = m_cache->loadJobsForPrinter(printerId, 1, 20);
+        const QVariantList cachedProjects = cachedProjectsByPrinter.value(printerId).toList();
         if (!cachedProjects.isEmpty()) {
             const QVariantMap firstProject = cachedProjects.first().toMap();
             const QString firstName = firstProject.value(QStringLiteral("currentFile")).toString().trimmed().isEmpty()
@@ -2038,6 +2048,28 @@ QVariantMap CloudBridge::sendPrinterOrder(const QString& printerId,
     }
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::sendPrinterOrderAsync(const QString& printerId,
+                                        int orderId,
+                                        const QVariantMap& data,
+                                        const QString& projectId,
+                                        const QString& context) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedPrinterId = printerId.trimmed();
+    const QString normalizedProjectId = projectId.trimmed();
+    const QString normalizedContext = context.trimmed();
+    launchBackgroundTask([this, normalizedPrinterId, orderId, data, normalizedProjectId, normalizedContext]() {
+        const QVariantMap result = sendPrinterOrder(normalizedPrinterId,
+                                                    orderId,
+                                                    data,
+                                                    normalizedProjectId);
+        QMetaObject::invokeMethod(this, [this, normalizedContext, normalizedPrinterId, orderId, result]() {
+            emit printerOrderFinished(normalizedContext, normalizedPrinterId, orderId, result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 // ── startDownload (async) ─────────────────────────────────────────────────
