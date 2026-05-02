@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -97,8 +98,12 @@ struct CloudPrinterInfo {
     int currentLayer = -1;
     int totalLayers = -1;
     std::string currentFile;
+    std::string mqttActiveTaskId;
     std::string mqttPrintState;
     std::string mqttJobStage;
+    int mqttDownloadProgress = -1;
+    std::map<std::string, int> mqttHardwareChecks;
+    std::map<std::string, int> mqttAutoChecks;
 };
 
 struct CloudPrintersResult {

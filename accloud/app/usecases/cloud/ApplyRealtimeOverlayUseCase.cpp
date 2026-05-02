@@ -19,11 +19,24 @@ std::vector<accloud::cloud::CloudPrinterInfo> ApplyRealtimeOverlayUseCase::execu
         if (rt.state.has_value()) {
             printer.state = *rt.state;
         }
+        if (rt.activeTaskId.has_value()) {
+            printer.mqttActiveTaskId = *rt.activeTaskId;
+        }
         if (rt.printStateText.has_value()) {
             printer.mqttPrintState = *rt.printStateText;
         }
         if (rt.jobStageText.has_value()) {
             printer.mqttJobStage = *rt.jobStageText;
+        }
+        if (rt.downloadProgress.has_value()) {
+            printer.mqttDownloadProgress = *rt.downloadProgress;
+        }
+        if (rt.activeTaskId.has_value()) {
+            const auto jobIt = rt.jobs.find(*rt.activeTaskId);
+            if (jobIt != rt.jobs.end()) {
+                printer.mqttHardwareChecks = jobIt->second.hardwareChecks;
+                printer.mqttAutoChecks = jobIt->second.autoChecks;
+            }
         }
         if (rt.progress.has_value()) {
             printer.progress = *rt.progress;
