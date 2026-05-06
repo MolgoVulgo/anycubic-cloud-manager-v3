@@ -54,6 +54,161 @@ Rectangle {
                                  qsTr("Ready"))
     }
 
+    function selectedMqttDetails() {
+        if (root.selectedPrinter && root.selectedPrinter.details)
+            return root.selectedPrinter.details
+        return ({})
+    }
+
+    function selectedMqttField(name, fallback) {
+        if (root.selectedPrinter && root.selectedPrinter[name] !== undefined
+                && root.selectedPrinter[name] !== null
+                && String(root.selectedPrinter[name]).trim().length > 0)
+            return root.selectedPrinter[name]
+        var details = selectedMqttDetails()
+        if (details && details[name] !== undefined && details[name] !== null
+                && String(details[name]).trim().length > 0)
+            return details[name]
+        return fallback
+    }
+
+    function checkCount(mapValue) {
+        if (!mapValue)
+            return 0
+        return Object.keys(mapValue).length
+    }
+
+    function checkIssueKeys(mapValue) {
+        var out = []
+        if (!mapValue)
+            return out
+        var keys = Object.keys(mapValue)
+        for (var i = 0; i < keys.length; ++i) {
+            var value = Number(mapValue[keys[i]])
+            if (isFinite(value) && value !== 0 && value !== -2)
+                out.push(keys[i] + "=" + String(mapValue[keys[i]]))
+        }
+        return out
+    }
+
+    function checkStatus(mapValue) {
+        if (checkIssueKeys(mapValue).length > 0)
+            return qsTr("stop")
+        if (checkCount(mapValue) > 0)
+            return qsTr("done")
+        return qsTr("pending")
+    }
+
+    function checkSummary(mapValue, emptyText) {
+        var issues = checkIssueKeys(mapValue)
+        if (issues.length > 0)
+            return issues.join(", ")
+        if (checkCount(mapValue) > 0)
+            return qsTr("done")
+        return emptyText
+    }
+
+    function currentCheckIssues() {
+        var details = selectedMqttDetails()
+        var issues = []
+        var hardwareIssues = checkIssueKeys(details.mqttHardwareChecks || ({}))
+        var autoIssues = checkIssueKeys(details.mqttAutoChecks || ({}))
+        if (hardwareIssues.length > 0)
+            issues.push(qsTr("Hardware: %1").arg(hardwareIssues.join(", ")))
+        if (autoIssues.length > 0)
+            issues.push(qsTr("Auto: %1").arg(autoIssues.join(", ")))
+        return issues
+    }
+
+    function openCheckErrorDialogIfNeeded() {
+        var issues = currentCheckIssues()
+        if (issues.length <= 0)
+            return
+        checkErrorDialog.detailsText = issues.join("\n")
+        checkErrorDialog.open()
+    }
+
+    function workflowStepStatus(stage, printState, step) {
+        var stageOrder = {
+            "command_sent": 1,
+            "downloading": 2,
+            "downloaded": 3,
+            "loaded": 4,
+            "checking": 5,
+            "preheating": 6,
+            "printing": 7,
+            "finished": 8
+        }
+        var targetOrder = stageOrder[step] || 0
+        var currentOrder = stageOrder[stage] || 0
+        if (stage === step)
+            return qsTr("active")
+        if (step === "checking" && printState === "monitoring")
+            return qsTr("active")
+        if (step === "printing" && (printState === "waiting" || printState === "resuming" || printState === "resumed"))
+            return printState
+        if (targetOrder > 0 && currentOrder > targetOrder)
+            return qsTr("done")
+        return qsTr("pending")
+    }
+
+    function workflowStatusRows() {
+        var details = selectedMqttDetails()
+        var stage = String(selectedMqttField("mqttJobStage", "") || "").trim()
+        var printState = String(selectedMqttField("mqttPrintState", "") || "").trim()
+        var activeTaskId = String(selectedMqttField("mqttActiveTaskId", "") || "").trim()
+        var downloadProgress = nonNegativeInt(selectedMqttField("mqttDownloadProgress", -1))
+        var hardwareChecks = details.mqttHardwareChecks || ({})
+        var autoChecks = details.mqttAutoChecks || ({})
+        var hardwareStatus = checkStatus(hardwareChecks)
+        var autoStatus = checkStatus(autoChecks)
+        var checksStatus = hardwareStatus === qsTr("stop") || autoStatus === qsTr("stop")
+                           ? qsTr("stop")
+                           : ((hardwareStatus === qsTr("done") || autoStatus === qsTr("done"))
+                              ? qsTr("done")
+                              : qsTr("pending"))
+        var rows = [
+            {
+                "label": qsTr("Command"),
+                "status": workflowStepStatus(stage, printState, "command_sent"),
+                "value": activeTaskId.length > 0 ? activeTaskId : qsTr("HTTPS accepted")
+            },
+            {
+                "label": qsTr("Download"),
+                "status": workflowStepStatus(stage, printState, downloadProgress >= 100 ? "downloaded" : "downloading"),
+                "value": downloadProgress >= 0 ? qsTr("%1 %").arg(downloadProgress) : "-"
+            },
+            {
+                "label": qsTr("Loaded"),
+                "status": workflowStepStatus(stage, printState, "loaded"),
+                "value": root.currentFileText(root.selectedPrinter)
+            },
+            {
+                "label": qsTr("Checks"),
+                "status": checksStatus,
+                "value": qsTr("Hardware: %1 | Auto: %2")
+                         .arg(checkSummary(hardwareChecks, qsTr("pending")))
+                         .arg(checkSummary(autoChecks, qsTr("not required")))
+            },
+            {
+                "label": qsTr("Preheat"),
+                "status": workflowStepStatus(stage, printState, "preheating"),
+                "value": printState.length > 0 ? printState : "-"
+            },
+            {
+                "label": qsTr("Printing"),
+                "status": workflowStepStatus(stage, printState, "printing"),
+                "value": root.layersProgressText(root.selectedPrinter)
+            },
+            {
+                "label": qsTr("Finished"),
+                "status": workflowStepStatus(stage, printState, "finished"),
+                "value": stage === "finished" ? root.progressPercentText(root.selectedPrinter) : "-"
+            }
+        ]
+        return rows
+    }
+
     function prettyPayload(rawPayload) {
         if (typeof root.prettyJsonProvider === "function")
             return String(root.prettyJsonProvider(rawPayload || ""))
@@ -556,24 +711,96 @@ Rectangle {
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderSubtle
                                 Layout.fillWidth: true
-                                implicitHeight: 34
+                                implicitHeight: 188
 
-                                Item {
+                                ColumnLayout {
                                     anchors.fill: parent
                                     anchors.margins: 8
+                                    spacing: 8
 
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: qsTr("Status")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        font.bold: true
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        Text {
+                                            text: qsTr("Status")
+                                            color: Theme.fgSecondary
+                                            font.pixelSize: Theme.fontCaptionPx
+                                            font.bold: true
+                                        }
+
+                                        Item {
+                                            Layout.fillWidth: true
+                                        }
+
+                                        StatusChip {
+                                            status: root.printerDisplayStatus()
+                                        }
                                     }
 
-                                    StatusChip {
-                                        anchors.centerIn: parent
-                                        status: root.printerDisplayStatus()
+                                    GridLayout {
+                                        Layout.fillWidth: true
+                                        columns: 2
+                                        columnSpacing: 10
+                                        rowSpacing: 4
+
+                                        Repeater {
+                                            model: root.workflowStatusRows()
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+
+                                                Rectangle {
+                                                    Layout.preferredWidth: 7
+                                                    Layout.preferredHeight: 7
+                                                    radius: 3
+                                                    color: modelData.status === qsTr("done")
+                                                           ? Theme.stateSuccess
+                                                           : (modelData.status === qsTr("stop")
+                                                              ? Theme.stateError
+                                                           : (modelData.status === qsTr("pending")
+                                                              ? Theme.fgMuted
+                                                              : Theme.stateRunning))
+                                                }
+
+                                                Text {
+                                                    text: modelData.label
+                                                    color: Theme.fgSecondary
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    font.bold: true
+                                                }
+
+                                                Text {
+                                                    text: String(modelData.status || "-")
+                                                    color: modelData.status === qsTr("done")
+                                                           ? Theme.stateSuccess
+                                                           : (modelData.status === qsTr("stop")
+                                                              ? Theme.stateError
+                                                           : (modelData.status === qsTr("pending")
+                                                              ? Theme.fgMuted
+                                                              : Theme.stateRunning))
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    font.bold: true
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: String(modelData.value || "-")
+                                                    color: Theme.fgPrimary
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                AppButton {
+                                                    visible: modelData.status === qsTr("stop")
+                                                    text: qsTr("Details")
+                                                    variant: "danger"
+                                                    compact: true
+                                                    onClicked: root.openCheckErrorDialogIfNeeded()
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1191,6 +1418,32 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            AppDialogFrame {
+                id: checkErrorDialog
+                title: qsTr("Printer check stopped")
+                subtitle: qsTr("Resolve the printer check issue before continuing.")
+                dialogSize: "small"
+                minimumWidth: 520
+                maximumWidth: 720
+                property string detailsText: ""
+
+                Text {
+                    Layout.fillWidth: true
+                    text: checkErrorDialog.detailsText
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
+                    wrapMode: Text.WordWrap
+                }
+
+                footerTrailingData: [
+                    AppButton {
+                        text: qsTr("OK")
+                        variant: "primary"
+                        onClicked: checkErrorDialog.close()
+                    }
+                ]
             }
 
             Rectangle {

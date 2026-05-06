@@ -71,6 +71,14 @@ QString formatStatus(int status) {
     }
 }
 
+QVariantMap intMapToVariantMap(const std::map<std::string, int>& source) {
+    QVariantMap out;
+    for (const auto& [key, value] : source) {
+        out.insert(QString::fromStdString(key), value);
+    }
+    return out;
+}
+
 QString formatUploadTime(long long updateTimeEpochSec) {
     if (updateTimeEpochSec <= 0)
         return {};
@@ -618,14 +626,28 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("currentLayer",p.currentLayer);
     m.insert("totalLayers", p.totalLayers);
     m.insert("currentFile", QString::fromStdString(p.currentFile));
+    m.insert("mqttActiveTaskId", QString::fromStdString(p.mqttActiveTaskId));
     m.insert("mqttPrintState", QString::fromStdString(p.mqttPrintState));
     m.insert("mqttJobStage", QString::fromStdString(p.mqttJobStage));
+    m.insert("mqttDownloadProgress", p.mqttDownloadProgress);
     QVariantMap details;
+    if (!p.mqttActiveTaskId.empty()) {
+        details.insert(QStringLiteral("mqttActiveTaskId"), QString::fromStdString(p.mqttActiveTaskId));
+    }
     if (!p.mqttPrintState.empty()) {
         details.insert(QStringLiteral("mqttPrintState"), QString::fromStdString(p.mqttPrintState));
     }
     if (!p.mqttJobStage.empty()) {
         details.insert(QStringLiteral("mqttJobStage"), QString::fromStdString(p.mqttJobStage));
+    }
+    if (p.mqttDownloadProgress >= 0) {
+        details.insert(QStringLiteral("mqttDownloadProgress"), p.mqttDownloadProgress);
+    }
+    if (!p.mqttHardwareChecks.empty()) {
+        details.insert(QStringLiteral("mqttHardwareChecks"), intMapToVariantMap(p.mqttHardwareChecks));
+    }
+    if (!p.mqttAutoChecks.empty()) {
+        details.insert(QStringLiteral("mqttAutoChecks"), intMapToVariantMap(p.mqttAutoChecks));
     }
     m.insert("details", details);
     return m;
@@ -657,6 +679,12 @@ void applyRealtimeOverlayToPrinterMap(
     if (rt.state.has_value()) {
         printer.insert(QStringLiteral("state"), QString::fromStdString(*rt.state));
     }
+    if (rt.activeTaskId.has_value()) {
+        printer.insert(QStringLiteral("mqttActiveTaskId"), QString::fromStdString(*rt.activeTaskId));
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        details.insert(QStringLiteral("mqttActiveTaskId"), QString::fromStdString(*rt.activeTaskId));
+        printer.insert(QStringLiteral("details"), details);
+    }
     if (rt.printStateText.has_value()) {
         printer.insert(QStringLiteral("mqttPrintState"), QString::fromStdString(*rt.printStateText));
         QVariantMap details = printer.value(QStringLiteral("details")).toMap();
@@ -668,6 +696,25 @@ void applyRealtimeOverlayToPrinterMap(
         QVariantMap details = printer.value(QStringLiteral("details")).toMap();
         details.insert(QStringLiteral("mqttJobStage"), QString::fromStdString(*rt.jobStageText));
         printer.insert(QStringLiteral("details"), details);
+    }
+    if (rt.downloadProgress.has_value()) {
+        printer.insert(QStringLiteral("mqttDownloadProgress"), *rt.downloadProgress);
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        details.insert(QStringLiteral("mqttDownloadProgress"), *rt.downloadProgress);
+        printer.insert(QStringLiteral("details"), details);
+    }
+    if (rt.activeTaskId.has_value()) {
+        const auto jobIt = rt.jobs.find(*rt.activeTaskId);
+        if (jobIt != rt.jobs.end()) {
+            QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+            if (!jobIt->second.hardwareChecks.empty()) {
+                details.insert(QStringLiteral("mqttHardwareChecks"), intMapToVariantMap(jobIt->second.hardwareChecks));
+            }
+            if (!jobIt->second.autoChecks.empty()) {
+                details.insert(QStringLiteral("mqttAutoChecks"), intMapToVariantMap(jobIt->second.autoChecks));
+            }
+            printer.insert(QStringLiteral("details"), details);
+        }
     }
     if (rt.progress.has_value()) {
         printer.insert(QStringLiteral("progress"), *rt.progress);

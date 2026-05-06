@@ -631,8 +631,14 @@ bool test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() {
         || !expect(merged[0].currentLayer == 450, "UI overlay should expose current layer")
         || !expect(merged[0].totalLayers == 1210, "UI overlay should expose total layers")
         || !expect(merged[0].currentFile == "C1(1).pwsz", "UI overlay should expose current file")
+        || !expect(merged[0].mqttActiveTaskId == taskId, "UI overlay should expose active taskid")
+        || !expect(merged[0].mqttDownloadProgress == 100, "UI overlay should expose download progress")
         || !expect(merged[0].mqttPrintState == "printing", "UI overlay should expose raw MQTT print state")
-        || !expect(merged[0].mqttJobStage == "printing", "UI overlay should expose normalized MQTT job stage")) {
+        || !expect(merged[0].mqttJobStage == "printing", "UI overlay should expose normalized MQTT job stage")
+        || !expect(merged[0].mqttHardwareChecks.at("motor") == -2,
+                   "UI overlay should expose hardware checks")
+        || !expect(merged[0].mqttAutoChecks.at("resin") == -1,
+                   "UI overlay should expose autoOperation checks")) {
         store.clear();
         return false;
     }
