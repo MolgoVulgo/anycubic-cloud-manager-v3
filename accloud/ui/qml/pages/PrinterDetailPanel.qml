@@ -72,12 +72,6 @@ Rectangle {
         return fallback
     }
 
-    function checkCount(mapValue) {
-        if (!mapValue)
-            return 0
-        return Object.keys(mapValue).length
-    }
-
     function checkIssueKeys(mapValue) {
         var out = []
         if (!mapValue)
@@ -91,32 +85,84 @@ Rectangle {
         return out
     }
 
-    function checkStatus(mapValue) {
-        if (checkIssueKeys(mapValue).length > 0)
+    function mergedCheckIssues() {
+        var details = selectedMqttDetails()
+        return checkIssueKeys(details.mqttHardwareChecks || ({}))
+                .concat(checkIssueKeys(details.mqttAutoChecks || ({})))
+    }
+
+    function hasCheckData() {
+        var details = selectedMqttDetails()
+        return Object.keys(details.mqttHardwareChecks || ({})).length > 0
+                || Object.keys(details.mqttAutoChecks || ({})).length > 0
+    }
+
+    function checkStatus() {
+        var details = selectedMqttDetails()
+        var resinStatus = String(details.mqttResinStatus || selectedMqttField("mqttResinStatus", "") || "").trim()
+        if (mergedCheckIssues().length > 0 || resinStatus === "stop")
             return qsTr("stop")
-        if (checkCount(mapValue) > 0)
+        if (resinStatus === "warning")
+            return qsTr("warning")
+        if (hasCheckData() || resinStatus === "done")
             return qsTr("done")
         return qsTr("pending")
     }
 
-    function checkSummary(mapValue, emptyText) {
-        var issues = checkIssueKeys(mapValue)
+    function checkSummary(stage) {
+        var details = selectedMqttDetails()
+        var issues = mergedCheckIssues()
         if (issues.length > 0)
             return issues.join(", ")
-        if (checkCount(mapValue) > 0)
+        var resinStatus = String(details.mqttResinStatus || selectedMqttField("mqttResinStatus", "") || "").trim()
+        if (resinStatus === "stop" || resinStatus === "warning") {
+            var resinMessage = String(details.mqttResinMessage || selectedMqttField("mqttResinMessage", "") || "").trim()
+            return resinMessage.length > 0 ? resinMessage : resinStatus
+        }
+        if (resinStatus === "resin fill")
+            return qsTr("resin fill")
+        if (stage === "checking")
+            return qsTr("hardware")
+        if (stage === "preheating")
+            return qsTr("preheat")
+        if (stage === "printing" || stage === "finished")
             return qsTr("done")
-        return emptyText
+        if (hasCheckData() || resinStatus === "done")
+            return qsTr("done")
+        return qsTr("pending")
     }
 
     function currentCheckIssues() {
         var details = selectedMqttDetails()
         var issues = []
-        var hardwareIssues = checkIssueKeys(details.mqttHardwareChecks || ({}))
-        var autoIssues = checkIssueKeys(details.mqttAutoChecks || ({}))
-        if (hardwareIssues.length > 0)
-            issues.push(qsTr("Hardware: %1").arg(hardwareIssues.join(", ")))
-        if (autoIssues.length > 0)
-            issues.push(qsTr("Auto: %1").arg(autoIssues.join(", ")))
+        var checkIssues = mergedCheckIssues()
+        if (checkIssues.length > 0)
+            issues.push(qsTr("Check: %1").arg(checkIssues.join(", ")))
+        var resinMessage = String(details.mqttResinMessage || selectedMqttField("mqttResinMessage", "") || "").trim()
+        var resinStatus = String(details.mqttResinStatus || selectedMqttField("mqttResinStatus", "") || "").trim()
+        if (resinMessage.length > 0 && (resinStatus === "stop" || resinStatus === "warning"))
+            issues.push(qsTr("Resin: %1").arg(resinMessage))
+        var resinDetails = []
+        var resinPhase = String(details.mqttResinPhase || "").trim()
+        var resinPrePrint = String(details.mqttResinPrePrintFillStatus || "").trim()
+        var resinRuntime = String(details.mqttResinRuntimeTopupStatus || "").trim()
+        var resinBottle = String(details.mqttResinBottleStatus || "").trim()
+        var resinVat = String(details.mqttResinVatStatus || "").trim()
+        var resinCode = String(details.mqttResinLastFeedCode || "").trim()
+        if (resinPhase.length > 0)
+            resinDetails.push(qsTr("phase=%1").arg(resinPhase))
+        if (resinPrePrint.length > 0)
+            resinDetails.push(qsTr("pre-print=%1").arg(resinPrePrint))
+        if (resinRuntime.length > 0)
+            resinDetails.push(qsTr("runtime=%1").arg(resinRuntime))
+        if (resinBottle.length > 0)
+            resinDetails.push(qsTr("bottle=%1").arg(resinBottle))
+        if (resinVat.length > 0)
+            resinDetails.push(qsTr("vat=%1").arg(resinVat))
+        if (resinCode.length > 0 && resinCode !== "-1")
+            resinDetails.push(qsTr("code=%1").arg(resinCode))
+        if (resinDetails.length > 0 && (resinStatus === "stop" || resinStatus === "warning"))
+            issues.push(resinDetails.join(" | "))
         return issues
     }
 
@@ -158,15 +204,12 @@ Rectangle {
         var printState = String(selectedMqttField("mqttPrintState", "") || "").trim()
         var activeTaskId = String(selectedMqttField("mqttActiveTaskId", "") || "").trim()
         var downloadProgress = nonNegativeInt(selectedMqttField("mqttDownloadProgress", -1))
-        var hardwareChecks = details.mqttHardwareChecks || ({})
-        var autoChecks = details.mqttAutoChecks || ({})
-        var hardwareStatus = checkStatus(hardwareChecks)
-        var autoStatus = checkStatus(autoChecks)
-        var checksStatus = hardwareStatus === qsTr("stop") || autoStatus === qsTr("stop")
-                           ? qsTr("stop")
-                           : ((hardwareStatus === qsTr("done") || autoStatus === qsTr("done"))
-                              ? qsTr("done")
-                              : qsTr("pending"))
+        var checksStatus = checkStatus()
+        if (checksStatus === qsTr("pending")
+                && (stage === "checking" || stage === "preheating" || printState === "monitoring"))
+            checksStatus = qsTr("active")
+        if (checksStatus === qsTr("pending") && (stage === "printing" || stage === "finished"))
+            checksStatus = qsTr("done")
         var rows = [
             {
                 "label": qsTr("Command"),
@@ -184,16 +227,9 @@ Rectangle {
                 "value": root.currentFileText(root.selectedPrinter)
             },
             {
-                "label": qsTr("Checks"),
+                "label": qsTr("Check"),
                 "status": checksStatus,
-                "value": qsTr("Hardware: %1 | Auto: %2")
-                         .arg(checkSummary(hardwareChecks, qsTr("pending")))
-                         .arg(checkSummary(autoChecks, qsTr("not required")))
-            },
-            {
-                "label": qsTr("Preheat"),
-                "status": workflowStepStatus(stage, printState, "preheating"),
-                "value": printState.length > 0 ? printState : "-"
+                "value": checkSummary(stage)
             },
             {
                 "label": qsTr("Printing"),
@@ -207,6 +243,30 @@ Rectangle {
             }
         ]
         return rows
+    }
+
+    function hasActiveWorkflowStatus() {
+        var stage = String(selectedMqttField("mqttJobStage", "") || "").trim()
+        var printState = String(selectedMqttField("mqttPrintState", "") || "").trim()
+        if (stage === "command_sent"
+                || stage === "downloading"
+                || stage === "downloaded"
+                || stage === "loaded"
+                || stage === "checking"
+                || stage === "preheating"
+                || stage === "printing")
+            return true
+        if (printState === "downloading"
+                || printState === "monitoring"
+                || printState === "preheating"
+                || printState === "printing"
+                || printState === "waiting"
+                || printState === "pausing"
+                || printState === "paused"
+                || printState === "resuming"
+                || printState === "resumed")
+            return true
+        return false
     }
 
     function prettyPayload(rawPayload) {
@@ -706,6 +766,7 @@ Rectangle {
                             spacing: 8
 
                             Rectangle {
+                                visible: root.hasActiveWorkflowStatus()
                                 radius: Theme.radiusControl
                                 color: Theme.cardAlt
                                 border.width: Theme.borderWidth
@@ -759,9 +820,11 @@ Rectangle {
                                                            ? Theme.stateSuccess
                                                            : (modelData.status === qsTr("stop")
                                                               ? Theme.stateError
+                                                           : (modelData.status === qsTr("warning")
+                                                              ? Theme.stateWarning
                                                            : (modelData.status === qsTr("pending")
                                                               ? Theme.fgMuted
-                                                              : Theme.stateRunning))
+                                                              : Theme.stateRunning)))
                                                 }
 
                                                 Text {
@@ -777,9 +840,11 @@ Rectangle {
                                                            ? Theme.stateSuccess
                                                            : (modelData.status === qsTr("stop")
                                                               ? Theme.stateError
+                                                           : (modelData.status === qsTr("warning")
+                                                              ? Theme.stateWarning
                                                            : (modelData.status === qsTr("pending")
                                                               ? Theme.fgMuted
-                                                              : Theme.stateRunning))
+                                                              : Theme.stateRunning)))
                                                     font.pixelSize: Theme.fontCaptionPx
                                                     font.bold: true
                                                 }
@@ -794,6 +859,7 @@ Rectangle {
 
                                                 AppButton {
                                                     visible: modelData.status === qsTr("stop")
+                                                             || modelData.status === qsTr("warning")
                                                     text: qsTr("Details")
                                                     variant: "danger"
                                                     compact: true
@@ -1422,8 +1488,8 @@ Rectangle {
 
             AppDialogFrame {
                 id: checkErrorDialog
-                title: qsTr("Printer check stopped")
-                subtitle: qsTr("Resolve the printer check issue before continuing.")
+                title: qsTr("Printer message")
+                subtitle: qsTr("Resolve the printer message before continuing.")
                 dialogSize: "small"
                 minimumWidth: 520
                 maximumWidth: 720

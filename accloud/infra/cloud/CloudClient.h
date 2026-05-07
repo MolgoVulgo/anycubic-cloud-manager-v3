@@ -104,6 +104,15 @@ struct CloudPrinterInfo {
     int mqttDownloadProgress = -1;
     std::map<std::string, int> mqttHardwareChecks;
     std::map<std::string, int> mqttAutoChecks;
+    std::string mqttResinStatus;
+    std::string mqttResinMessage;
+    std::string mqttResinPhase;
+    std::string mqttResinPrePrintFillStatus;
+    std::string mqttResinRuntimeTopupStatus;
+    std::string mqttResinBottleStatus;
+    std::string mqttResinVatStatus;
+    int mqttResinLastFeedCode = -1;
+    bool mqttResinBlocking = false;
 };
 
 struct CloudPrintersResult {

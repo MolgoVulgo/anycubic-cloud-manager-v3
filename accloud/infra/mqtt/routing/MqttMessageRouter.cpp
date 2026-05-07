@@ -304,6 +304,13 @@ MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::st
     event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
     event.slicer = firstStringField(env.data, {"slicer"});
     event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
+    if (!event.reason.has_value()) {
+        event.reason = firstStringField(env.raw, {"reason", "reason_text", "message", "msg"});
+    }
+    event.code = firstIntField(env.raw, {"code", "status"});
+    if (!event.code.has_value()) {
+        event.code = firstIntField(env.data, {"code", "status"});
+    }
     if (env.type == "releaseFilm") {
         event.releaseFilmStatus = firstStringField(env.data, {"status", "state", "desc", "message", "msg"});
         if (!event.releaseFilmStatus.has_value() && !env.state.empty()) {

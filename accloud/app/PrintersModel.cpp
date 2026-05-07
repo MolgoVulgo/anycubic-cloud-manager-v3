@@ -34,6 +34,9 @@ const QHash<int, QByteArray>& printerRoleNames() {
       {PrintersModel::MqttJobStageRole, "mqttJobStage"},
       {PrintersModel::MqttActiveTaskIdRole, "mqttActiveTaskId"},
       {PrintersModel::MqttDownloadProgressRole, "mqttDownloadProgress"},
+      {PrintersModel::MqttResinStatusRole, "mqttResinStatus"},
+      {PrintersModel::MqttResinMessageRole, "mqttResinMessage"},
+      {PrintersModel::MqttResinBlockingRole, "mqttResinBlocking"},
   };
   return kRoles;
 }
@@ -189,6 +192,12 @@ QVariant PrintersModel::valueForRole(const QVariantMap& printer, int role) {
       return printer.value(QStringLiteral("mqttActiveTaskId"));
     case MqttDownloadProgressRole:
       return printer.value(QStringLiteral("mqttDownloadProgress"));
+    case MqttResinStatusRole:
+      return printer.value(QStringLiteral("mqttResinStatus"));
+    case MqttResinMessageRole:
+      return printer.value(QStringLiteral("mqttResinMessage"));
+    case MqttResinBlockingRole:
+      return printer.value(QStringLiteral("mqttResinBlocking"));
     default:
       return {};
   }

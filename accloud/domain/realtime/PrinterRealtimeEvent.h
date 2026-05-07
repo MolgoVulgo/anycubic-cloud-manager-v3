@@ -100,6 +100,7 @@ struct PrinterRealtimeEvent {
     std::optional<std::string> currentFile;
     std::optional<std::string> slicer;
     std::optional<std::string> reason;
+    std::optional<int> code;
     std::optional<std::string> releaseFilmStatus;
     std::optional<int> releaseFilmLayers;
     std::optional<int> releaseFilmTimes;

@@ -217,6 +217,27 @@ bool test_router_promotes_wifi_resin_video_types() {
                   "video should map to Peripheral type");
 }
 
+bool test_router_extracts_resin_feed_message() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const std::string topic =
+        "anycubic/anycubicCloud/v1/printer/public/m7/101001/resin/report";
+    const std::string payload = R"json(
+{"type":"resin","action":"feedResin","code":1501,"msg":"resin bottle empty","data":{}}
+)json";
+
+    const auto routed = router.route(topic, payload);
+    return expect(routed.disposition == accloud::mqtt::routing::RouteDisposition::Routed,
+                  "feedResin should route")
+        && expect(routed.event.has_value(), "feedResin should produce realtime event")
+        && expect(routed.event->wireType == "resin", "resin wire type should be preserved")
+        && expect(routed.event->action == "feedResin", "feedResin action should be preserved")
+        && expect(routed.event->code.has_value() && *routed.event->code == 1501,
+                  "feedResin code should be parsed from root")
+        && expect(routed.event->reason.has_value()
+                  && *routed.event->reason == "resin bottle empty",
+                  "feedResin root msg should be exposed as reason");
+}
+
 bool test_router_extracts_m7_print_workflow_fields() {
     accloud::mqtt::routing::MqttMessageRouter router;
     const std::string topic =
@@ -288,6 +309,96 @@ bool test_router_extracts_m7_check_status_maps() {
                   "autoOperation checkStatus should populate auto checks")
         && expect(automatic.event->autoChecks.at("resin") == -1,
                   "auto check status should be preserved");
+}
+
+bool test_store_tracks_resin_fill_and_runtime_message() {
+    auto& store = accloud::realtime::PrinterRealtimeStore::instance();
+    store.clear();
+
+    accloud::realtime::PrinterRealtimeEvent loaded;
+    loaded.printerKey = "printer-resin";
+    loaded.type = accloud::realtime::MessageType::Print;
+    loaded.action = "start";
+    loaded.state = "printing";
+    loaded.taskId = std::string("task-resin");
+    loaded.currentLayer = 0;
+    loaded.totalLayers = 100;
+    loaded.printProgress = 0;
+    store.applyEvent(loaded);
+
+    accloud::realtime::PrinterRealtimeEvent autoCheck;
+    autoCheck.printerKey = "printer-resin";
+    autoCheck.type = accloud::realtime::MessageType::Print;
+    autoCheck.action = "autoOperation";
+    autoCheck.state = "monitoring";
+    autoCheck.taskId = std::string("task-resin");
+    autoCheck.autoChecks = {{"resin", 0}};
+    store.applyEvent(autoCheck);
+
+    accloud::realtime::PrinterRealtimeEvent preheat = loaded;
+    preheat.state = "preheating";
+    store.applyEvent(preheat);
+
+    auto snapshot = store.get("printer-resin");
+    if (!expect(snapshot.has_value(), "resin fill snapshot should exist")
+        || !expect(snapshot->resin.prePrintFillStatus.has_value()
+                      && *snapshot->resin.prePrintFillStatus == "done",
+                  "preheating should infer resin pre-print fill success")
+        || !expect(snapshot->resin.uiStatus.has_value()
+                      && *snapshot->resin.uiStatus == "done",
+                  "resin UI status should be done after inferred success")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent printing = loaded;
+    printing.currentLayer = 5;
+    printing.printProgress = 5;
+    store.applyEvent(printing);
+
+    accloud::realtime::PrinterRealtimeEvent resin;
+    resin.printerKey = "printer-resin";
+    resin.type = accloud::realtime::MessageType::Peripheral;
+    resin.wireType = "resin";
+    resin.action = "feedResin";
+    resin.code = 1501;
+    resin.reason = std::string("resin bottle empty");
+    store.applyEvent(resin);
+
+    snapshot = store.get("printer-resin");
+    if (!expect(snapshot.has_value(), "runtime resin snapshot should exist")
+        || !expect(snapshot->resin.runtimeTopupStatus.has_value()
+                      && *snapshot->resin.runtimeTopupStatus == "bottle_empty_or_unavailable",
+                  "runtime feedResin 1501 should mark bottle/source issue")
+        || !expect(snapshot->resin.vatStatus.has_value()
+                      && *snapshot->resin.vatStatus == "assumed_ok",
+                  "runtime feedResin 1501 alone should not mark vat empty")
+        || !expect(snapshot->resin.blockingPrint.has_value()
+                      && !*snapshot->resin.blockingPrint,
+                  "runtime feedResin 1501 alone should not block print")
+        || !expect(snapshot->resin.message.has_value()
+                      && *snapshot->resin.message == "resin bottle empty",
+                  "runtime resin message should be stored for UI modal")) {
+        store.clear();
+        return false;
+    }
+
+    accloud::cloud::CloudPrinterInfo printer;
+    printer.id = "printer-resin";
+    printer.state = "READY";
+    accloud::usecases::cloud::ApplyRealtimeOverlayUseCase overlay;
+    auto merged = overlay.execute(std::vector<accloud::cloud::CloudPrinterInfo>{printer});
+    const bool ok = expect(merged.size() == 1, "resin UI overlay should keep one printer")
+        && expect(merged[0].mqttResinStatus == "warning",
+                  "resin UI overlay should expose warning status")
+        && expect(merged[0].mqttResinMessage == "resin bottle empty",
+                  "resin UI overlay should expose modal message")
+        && expect(merged[0].mqttResinLastFeedCode == 1501,
+                  "resin UI overlay should expose feedResin code")
+        && expect(!merged[0].mqttResinBlocking,
+                  "resin UI overlay should expose non-blocking runtime topup issue");
+    store.clear();
+    return ok;
 }
 
 bool test_store_tracks_m7_print_workflow_by_taskid() {
@@ -900,8 +1011,10 @@ int main() {
     ok = test_store_applies_release_film_status() && ok;
     ok = test_router_infers_type_from_topic_when_payload_omits_type() && ok;
     ok = test_router_promotes_wifi_resin_video_types() && ok;
+    ok = test_router_extracts_resin_feed_message() && ok;
     ok = test_router_extracts_m7_print_workflow_fields() && ok;
     ok = test_router_extracts_m7_check_status_maps() && ok;
+    ok = test_store_tracks_resin_fill_and_runtime_message() && ok;
     ok = test_store_tracks_m7_print_workflow_by_taskid() && ok;
     ok = test_store_links_command_sent_to_first_mqtt_taskid() && ok;
     ok = test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() && ok;
