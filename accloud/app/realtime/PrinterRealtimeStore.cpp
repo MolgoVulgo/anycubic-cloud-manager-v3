@@ -313,8 +313,6 @@ void exposeActiveJob(PrinterRealtimeSnapshot& snapshot, const PrintJobSnapshot& 
     if (job.printProgress.has_value()) {
         snapshot.printProgress = job.printProgress;
         snapshot.progress = job.printProgress;
-    } else if (job.downloadProgress.has_value()) {
-        snapshot.progress = job.downloadProgress;
     }
     if (job.elapsedSec.has_value()) snapshot.elapsedSec = job.elapsedSec;
     if (job.remainingSec.has_value()) snapshot.remainingSec = job.remainingSec;

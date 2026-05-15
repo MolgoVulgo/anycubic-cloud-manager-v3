@@ -1183,7 +1183,9 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("remainingSec"), -1);
         printer.insert(QStringLiteral("currentLayer"), -1);
         printer.insert(QStringLiteral("totalLayers"), -1);
-        printer.insert(QStringLiteral("details"), QVariantMap{});
+        if (!printer.contains(QStringLiteral("details"))) {
+            printer.insert(QStringLiteral("details"), QVariantMap{});
+        }
         const QVariantList cachedProjects = cachedProjectsByPrinter.value(printerId).toList();
         if (!cachedProjects.isEmpty()) {
             const QVariantMap firstProject = cachedProjects.first().toMap();
@@ -1478,6 +1480,9 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
         }
         if (detailsResult.ok) {
             detailsMap = printerDetailsToMap(detailsResult);
+            if (m_cache != nullptr) {
+                m_cache->savePrinterDetails(normalizedPrinterId, detailsMap);
+            }
         }
 
         QVariantList projects;

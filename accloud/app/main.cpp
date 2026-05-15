@@ -23,9 +23,12 @@
 
 #include <QGuiApplication>
 #include <QImageReader>
+#include <QLockFile>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QDir>
+#include <QStandardPaths>
 #include <QUrl>
 #endif
 
@@ -61,6 +64,15 @@ bool hasArg(int argc, char** argv, std::string_view flag) {
 
 #if defined(ACCLOUD_WITH_QT)
 constexpr bool kBuildDebugEnabled = accloud::debug::kEnabled;
+
+QString singleInstanceLockPath() {
+  QString baseDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+  if (baseDir.trimmed().isEmpty()) {
+    baseDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+  }
+  QDir{}.mkpath(baseDir);
+  return QDir(baseDir).filePath(QStringLiteral("anycubic-cloud-manager-v3.lock"));
+}
 
 void qtMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& message) {
   accloud::logging::Level level = accloud::logging::Level::kInfo;
@@ -160,6 +172,87 @@ int main(int argc, char** argv) {
 
     QGuiApplication app(argc, argv);
     qInstallMessageHandler(qtMessageHandler);
+    QLockFile singleInstanceLock(singleInstanceLockPath());
+    if (!singleInstanceLock.tryLock(100)) {
+      qint64 pid = 0;
+      QString hostname;
+      QString appname;
+      singleInstanceLock.getLockInfo(&pid, &hostname, &appname);
+      accloud::logging::warn("app", "bootstrap", "single_instance_already_running",
+                             "Application instance already running",
+                             {{"pid", std::to_string(pid)},
+                              {"host", hostname.toStdString()},
+                              {"app", appname.toStdString()}});
+      QQmlApplicationEngine noticeEngine;
+      noticeEngine.loadData(R"qml(
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+
+ApplicationWindow {
+    id: root
+    width: 420
+    height: 170
+    minimumWidth: 420
+    minimumHeight: 170
+    maximumWidth: 420
+    maximumHeight: 170
+    visible: true
+    title: "Anycubic Cloud Manager"
+    color: "#f8f2e7"
+    onClosing: Qt.quit()
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: 14
+        radius: 8
+        color: "#fffaf1"
+        border.width: 1
+        border.color: "#dccfb9"
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 12
+
+            Text {
+                Layout.fillWidth: true
+                text: "Deja lance"
+                color: "#2f2a24"
+                font.pixelSize: 20
+                font.bold: true
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: "Il y a deja une putain d'instance de lancee, mon amour."
+                color: "#5f574b"
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: "OK"
+                    onClicked: Qt.quit()
+                }
+            }
+        }
+    }
+}
+)qml");
+      if (noticeEngine.rootObjects().isEmpty()) {
+        qInstallMessageHandler(nullptr);
+        accloud::logging::shutdown();
+        return 2;
+      }
+      exitCode = app.exec();
+      qInstallMessageHandler(nullptr);
+      accloud::logging::shutdown();
+      return exitCode == 0 ? 2 : exitCode;
+    }
     {
       QStringList formats;
       const auto supported = QImageReader::supportedImageFormats();

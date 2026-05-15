@@ -11,7 +11,7 @@ export ACCLOUD_DEBUG=ON
 usage() {
   cat <<'EOF'
 Usage:
-  ./start.sh
+  ./start.sh              # defaults to mode 2
   ./start.sh 1 [-- <app_args...>]
   ./start.sh 2 [-- <app_args...>]
 
@@ -69,6 +69,7 @@ fi
 
 cd "${APP_DIR}"
 
+arg_count=$#
 mode="${1:-}"
 if [[ "${mode}" == "-h" || "${mode}" == "--help" ]]; then
   usage
@@ -87,10 +88,14 @@ fi
 app_args=("$@")
 
 if [[ -z "${mode}" ]]; then
-  echo "Choisissez une option:"
-  echo "  1) Compilation debug -> execution debug"
-  echo "  2) Execution debug"
-  read -r -p "Votre choix [1-2]: " mode
+  if [[ ${arg_count} -eq 0 ]]; then
+    mode="2"
+  else
+    echo "Choisissez une option:"
+    echo "  1) Compilation debug -> execution debug"
+    echo "  2) Execution debug"
+    read -r -p "Votre choix [1-2]: " mode
+  fi
 fi
 
 case "${mode}" in

@@ -54,6 +54,61 @@ QVariantMap decodePayloadText(const QString& payload) {
   return doc.object().toVariantMap();
 }
 
+QVariantMap printerDetailsFromColumns(const QSqlQuery& q, int firstColumn) {
+  QVariantMap details;
+  const QString firmwareVersion = q.value(firstColumn).toString();
+  const QString printCount = q.value(firstColumn + 1).toString();
+  const QString printTotalTime = q.value(firstColumn + 2).toString();
+  const QString materialUsed = q.value(firstColumn + 3).toString();
+  const QString releaseFilmStatus = q.value(firstColumn + 4).toString();
+  const QString releaseFilmLayers = q.value(firstColumn + 5).toString();
+  const int releaseFilmTimes = q.value(firstColumn + 6).toInt();
+  const int releaseFilmStatusCode = q.value(firstColumn + 7).toInt();
+  if (!firmwareVersion.trimmed().isEmpty()) details.insert(QStringLiteral("firmwareVersion"), firmwareVersion);
+  if (!printCount.trimmed().isEmpty()) details.insert(QStringLiteral("printCount"), printCount);
+  if (!printTotalTime.trimmed().isEmpty()) details.insert(QStringLiteral("printTotalTime"), printTotalTime);
+  if (!materialUsed.trimmed().isEmpty()) details.insert(QStringLiteral("materialUsed"), materialUsed);
+  if (!releaseFilmStatus.trimmed().isEmpty()) details.insert(QStringLiteral("releaseFilmStatus"), releaseFilmStatus);
+  if (!releaseFilmLayers.trimmed().isEmpty()) details.insert(QStringLiteral("releaseFilmLayers"), releaseFilmLayers);
+  if (releaseFilmTimes >= 0) details.insert(QStringLiteral("releaseFilmTimes"), releaseFilmTimes);
+  if (releaseFilmStatusCode >= 0) details.insert(QStringLiteral("releaseFilmStatusCode"), releaseFilmStatusCode);
+  return details;
+}
+
+bool hasMeaningfulDetailValue(const QVariant& value) {
+  if (!value.isValid() || value.isNull()) {
+    return false;
+  }
+  bool ok = false;
+  const int intValue = value.toInt(&ok);
+  if (ok) {
+    return intValue >= 0;
+  }
+  const QString text = value.toString().trimmed();
+  return !text.isEmpty() && text != QStringLiteral("-");
+}
+
+QVariantMap mergePrinterDetails(const QVariantMap& existing, const QVariantMap& incoming) {
+  QVariantMap merged = existing;
+  for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it) {
+    if (hasMeaningfulDetailValue(it.value())) {
+      merged.insert(it.key(), it.value());
+    }
+  }
+  return merged;
+}
+
+QString detailString(const QVariantMap& details, const QString& key) {
+  const QString value = details.value(key).toString().trimmed();
+  return value.isNull() ? QStringLiteral("") : value;
+}
+
+int detailInt(const QVariantMap& details, const QString& key) {
+  bool ok = false;
+  const int value = details.value(key, -1).toInt(&ok);
+  return ok ? value : -1;
+}
+
 QString encodePayloadMap(const QVariantMap& map) {
   const QJsonObject obj = QJsonObject::fromVariantMap(map);
   const QJsonDocument doc(obj);
@@ -280,6 +335,14 @@ bool runSchema(QSqlDatabase& db) {
                      "  reason TEXT NOT NULL DEFAULT '',"
                      "  available INTEGER NOT NULL DEFAULT -1,"
                      "  current_file TEXT NOT NULL DEFAULT '',"
+                     "  firmware_version TEXT NOT NULL DEFAULT '',"
+                     "  print_count TEXT NOT NULL DEFAULT '',"
+                     "  print_total_time TEXT NOT NULL DEFAULT '',"
+                     "  material_used TEXT NOT NULL DEFAULT '',"
+                     "  release_film_status TEXT NOT NULL DEFAULT '',"
+                     "  release_film_layers TEXT NOT NULL DEFAULT '',"
+                     "  release_film_times INTEGER NOT NULL DEFAULT -1,"
+                     "  release_film_status_code INTEGER NOT NULL DEFAULT -1,"
                      "  updated_at INTEGER NOT NULL"
                      ")"),
       QStringLiteral("CREATE TABLE IF NOT EXISTS jobs ("
@@ -332,6 +395,30 @@ bool runSchema(QSqlDatabase& db) {
       || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
                              QStringLiteral("machine_type"),
                              QStringLiteral("machine_type TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("firmware_version"),
+                             QStringLiteral("firmware_version TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("print_count"),
+                             QStringLiteral("print_count TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("print_total_time"),
+                             QStringLiteral("print_total_time TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("material_used"),
+                             QStringLiteral("material_used TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("release_film_status"),
+                             QStringLiteral("release_film_status TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("release_film_layers"),
+                             QStringLiteral("release_film_layers TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("release_film_times"),
+                             QStringLiteral("release_film_times INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("release_film_status_code"),
+                             QStringLiteral("release_film_status_code INTEGER NOT NULL DEFAULT -1"))
       || !ensureColumnExists(db, QStringLiteral("jobs"),
                              QStringLiteral("progress"),
                              QStringLiteral("progress INTEGER NOT NULL DEFAULT -1"))
@@ -522,7 +609,9 @@ QVariantList LocalCacheStore::loadPrinters() const {
 
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "SELECT printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file "
+        "SELECT printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file, "
+        "firmware_version, print_count, print_total_time, material_used, release_film_status, release_film_layers, "
+        "release_film_times, release_film_status_code "
         "FROM cloud_printers ORDER BY updated_at DESC"));
     if (q.exec()) {
       while (q.next()) {
@@ -538,6 +627,7 @@ QVariantList LocalCacheStore::loadPrinters() const {
         item.insert("reason", q.value(8).toString());
         item.insert("available", q.value(9).toInt());
         item.insert("currentFile", q.value(10).toString());
+        item.insert("details", printerDetailsFromColumns(q, 11));
         out.append(item);
       }
     }
@@ -832,6 +922,17 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
       return false;
     }
 
+    QHash<QString, QVariantMap> existingDetails;
+    QSqlQuery existing(db);
+    if (existing.exec(QStringLiteral(
+            "SELECT printer_id, firmware_version, print_count, print_total_time, material_used, "
+            "release_film_status, release_film_layers, release_film_times, release_film_status_code "
+            "FROM cloud_printers"))) {
+      while (existing.next()) {
+        existingDetails.insert(existing.value(0).toString(), printerDetailsFromColumns(existing, 1));
+      }
+    }
+
     QSqlQuery clear(db);
     ok = clear.exec(QStringLiteral("DELETE FROM cloud_printers"));
 
@@ -839,14 +940,22 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO cloud_printers("
-          "printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file, updated_at"
+          "printer_id, printer_key, machine_type, name, model, type, last_seen, state, reason, available, current_file, "
+          "firmware_version, print_count, print_total_time, material_used, release_film_status, release_film_layers, "
+          "release_film_times, release_film_status_code, updated_at"
           ") VALUES("
-          ":id, :printerKey, :machineType, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, :updatedAt"
+          ":id, :printerKey, :machineType, :name, :model, :type, :lastSeen, :state, :reason, :available, :currentFile, "
+          ":firmwareVersion, :printCount, :printTotalTime, :materialUsed, :releaseFilmStatus, :releaseFilmLayers, "
+          ":releaseFilmTimes, :releaseFilmStatusCode, :updatedAt"
           ")"));
       for (const QVariant& item : printers) {
         const QVariantMap map = item.toMap();
         const QString id = map.value(QStringLiteral("id")).toString().trimmed();
         if (id.isEmpty()) continue;
+        const QVariantMap incomingDetails = map.value(QStringLiteral("details")).toMap();
+        QVariantMap details = existingDetails.contains(id)
+            ? mergePrinterDetails(existingDetails.value(id), incomingDetails)
+            : incomingDetails;
 
         const QString printerKey = map.value(QStringLiteral("printerKey")).toString().trimmed().isEmpty()
             ? map.value(QStringLiteral("key")).toString().trimmed()
@@ -862,8 +971,20 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
         ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
         ins.bindValue(QStringLiteral(":available"), map.value(QStringLiteral("available"), -1));
         ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+        ins.bindValue(QStringLiteral(":firmwareVersion"), detailString(details, QStringLiteral("firmwareVersion")));
+        ins.bindValue(QStringLiteral(":printCount"), detailString(details, QStringLiteral("printCount")));
+        ins.bindValue(QStringLiteral(":printTotalTime"), detailString(details, QStringLiteral("printTotalTime")));
+        ins.bindValue(QStringLiteral(":materialUsed"), detailString(details, QStringLiteral("materialUsed")));
+        ins.bindValue(QStringLiteral(":releaseFilmStatus"), detailString(details, QStringLiteral("releaseFilmStatus")));
+        ins.bindValue(QStringLiteral(":releaseFilmLayers"), detailString(details, QStringLiteral("releaseFilmLayers")));
+        ins.bindValue(QStringLiteral(":releaseFilmTimes"), detailInt(details, QStringLiteral("releaseFilmTimes")));
+        ins.bindValue(QStringLiteral(":releaseFilmStatusCode"), detailInt(details, QStringLiteral("releaseFilmStatusCode")));
         ins.bindValue(QStringLiteral(":updatedAt"), now);
         if (!ins.exec()) {
+          logging::error("app", "local_cache", "printer_cache_insert_failed",
+                         "Unable to insert printer into local cache",
+                         {{"printerId", id.toStdString()},
+                          {"error", ins.lastError().text().toStdString()}});
           ok = false;
           break;
         }
@@ -1129,6 +1250,74 @@ bool LocalCacheStore::upsertJobsForPrinter(const QString& printerId, const QVari
     } else {
       db.rollback();
     }
+
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return ok;
+}
+
+bool LocalCacheStore::savePrinterDetails(const QString& printerId, const QVariantMap& details) const {
+  if (!ensureReady()) {
+    return false;
+  }
+
+  const QString normalizedPrinterId = printerId.trimmed();
+  if (normalizedPrinterId.isEmpty()) {
+    return false;
+  }
+
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  bool ok = false;
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) {
+      closeAndRemoveDatabase(db, connectionName);
+      return false;
+    }
+
+    QVariantMap mergedDetails = details;
+    QSqlQuery existing(db);
+    existing.prepare(QStringLiteral(
+        "SELECT firmware_version, print_count, print_total_time, material_used, "
+        "release_film_status, release_film_layers, release_film_times, release_film_status_code "
+        "FROM cloud_printers WHERE printer_id=:printerId"));
+    existing.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+    if (existing.exec() && existing.next()) {
+      mergedDetails = mergePrinterDetails(printerDetailsFromColumns(existing, 0), details);
+    }
+
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "INSERT INTO cloud_printers("
+        "printer_id, firmware_version, print_count, print_total_time, material_used, release_film_status, "
+        "release_film_layers, release_film_times, release_film_status_code, updated_at"
+        ") VALUES("
+        ":printerId, :firmwareVersion, :printCount, :printTotalTime, :materialUsed, :releaseFilmStatus, "
+        ":releaseFilmLayers, :releaseFilmTimes, :releaseFilmStatusCode, :updatedAt"
+        ") ON CONFLICT(printer_id) DO UPDATE SET "
+        "firmware_version=excluded.firmware_version,"
+        "print_count=excluded.print_count,"
+        "print_total_time=excluded.print_total_time,"
+        "material_used=excluded.material_used,"
+        "release_film_status=excluded.release_film_status,"
+        "release_film_layers=excluded.release_film_layers,"
+        "release_film_times=excluded.release_film_times,"
+        "release_film_status_code=excluded.release_film_status_code,"
+        "updated_at=excluded.updated_at"));
+    q.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+    q.bindValue(QStringLiteral(":firmwareVersion"), detailString(mergedDetails, QStringLiteral("firmwareVersion")));
+    q.bindValue(QStringLiteral(":printCount"), detailString(mergedDetails, QStringLiteral("printCount")));
+    q.bindValue(QStringLiteral(":printTotalTime"), detailString(mergedDetails, QStringLiteral("printTotalTime")));
+    q.bindValue(QStringLiteral(":materialUsed"), detailString(mergedDetails, QStringLiteral("materialUsed")));
+    q.bindValue(QStringLiteral(":releaseFilmStatus"), detailString(mergedDetails, QStringLiteral("releaseFilmStatus")));
+    q.bindValue(QStringLiteral(":releaseFilmLayers"), detailString(mergedDetails, QStringLiteral("releaseFilmLayers")));
+    q.bindValue(QStringLiteral(":releaseFilmTimes"), detailInt(mergedDetails, QStringLiteral("releaseFilmTimes")));
+    q.bindValue(QStringLiteral(":releaseFilmStatusCode"), detailInt(mergedDetails, QStringLiteral("releaseFilmStatusCode")));
+    q.bindValue(QStringLiteral(":updatedAt"), nowEpochSec());
+    ok = q.exec();
 
     db.close();
   }

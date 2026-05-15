@@ -565,7 +565,9 @@ bool test_store_links_command_sent_to_first_mqtt_taskid() {
                       && *snapshot->jobStage == accloud::realtime::PrintJobStage::Downloading,
                   "MQTT update should advance command_sent to downloading")
         && expect(snapshot->downloadProgress.has_value() && *snapshot->downloadProgress == 45,
-                  "download progress should be exposed");
+                  "download progress should be exposed")
+        && expect(!snapshot->progress.has_value(),
+                  "download progress should not feed print progress");
     store.clear();
     return ok;
 }
@@ -623,6 +625,8 @@ bool test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() {
                 "update/downloading progress=0 should enter downloading")
         || !expect(snapshot->downloadProgress.has_value() && *snapshot->downloadProgress == 0,
                    "download progress 0 should be exposed")
+        || !expect(!snapshot->progress.has_value(),
+                   "download progress 0 should not feed print progress")
         || !expect(snapshot->jobs.size() == 1 && snapshot->jobs.contains(taskId),
                    "first MQTT taskid should migrate the pending command job")
         || !expect(snapshot->jobs.at(taskId).fileId.has_value()

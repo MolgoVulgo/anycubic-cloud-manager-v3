@@ -40,12 +40,12 @@ Rectangle {
     function printerDisplayStatus() {
         if (root.selectedPrinter) {
             var mqttState = String(root.selectedPrinter.mqttPrintState || "").trim()
-            if (mqttState.length > 0)
+            if (mqttState.length > 0 && mqttState.toLowerCase() !== "finished")
                 return mqttState
             var details = root.selectedPrinter.details
             if (details) {
                 mqttState = String(details.mqttPrintState || "").trim()
-                if (mqttState.length > 0)
+                if (mqttState.length > 0 && mqttState.toLowerCase() !== "finished")
                     return mqttState
             }
         }
@@ -79,7 +79,20 @@ Rectangle {
         var keys = Object.keys(mapValue)
         for (var i = 0; i < keys.length; ++i) {
             var value = Number(mapValue[keys[i]])
-            if (isFinite(value) && value !== 0 && value !== -2)
+            if (isFinite(value) && value !== 0 && value !== -1 && value !== -2)
+                out.push(keys[i] + "=" + String(mapValue[keys[i]]))
+        }
+        return out
+    }
+
+    function checkWaitingKeys(mapValue) {
+        var out = []
+        if (!mapValue)
+            return out
+        var keys = Object.keys(mapValue)
+        for (var i = 0; i < keys.length; ++i) {
+            var value = Number(mapValue[keys[i]])
+            if (isFinite(value) && value === -1)
                 out.push(keys[i] + "=" + String(mapValue[keys[i]]))
         }
         return out
@@ -89,6 +102,12 @@ Rectangle {
         var details = selectedMqttDetails()
         return checkIssueKeys(details.mqttHardwareChecks || ({}))
                 .concat(checkIssueKeys(details.mqttAutoChecks || ({})))
+    }
+
+    function mergedCheckWaiting() {
+        var details = selectedMqttDetails()
+        return checkWaitingKeys(details.mqttHardwareChecks || ({}))
+                .concat(checkWaitingKeys(details.mqttAutoChecks || ({})))
     }
 
     function hasCheckData() {
@@ -104,6 +123,8 @@ Rectangle {
             return qsTr("stop")
         if (resinStatus === "warning")
             return qsTr("warning")
+        if (mergedCheckWaiting().length > 0)
+            return qsTr("wait")
         if (hasCheckData() || resinStatus === "done")
             return qsTr("done")
         return qsTr("pending")
@@ -114,6 +135,9 @@ Rectangle {
         var issues = mergedCheckIssues()
         if (issues.length > 0)
             return issues.join(", ")
+        var waiting = mergedCheckWaiting()
+        if (waiting.length > 0)
+            return waiting.join(", ")
         var resinStatus = String(details.mqttResinStatus || selectedMqttField("mqttResinStatus", "") || "").trim()
         if (resinStatus === "stop" || resinStatus === "warning") {
             var resinMessage = String(details.mqttResinMessage || selectedMqttField("mqttResinMessage", "") || "").trim()
@@ -182,8 +206,7 @@ Rectangle {
             "loaded": 4,
             "checking": 5,
             "preheating": 6,
-            "printing": 7,
-            "finished": 8
+            "printing": 7
         }
         var targetOrder = stageOrder[step] || 0
         var currentOrder = stageOrder[stage] || 0
@@ -212,7 +235,7 @@ Rectangle {
             checksStatus = qsTr("done")
         var rows = [
             {
-                "label": qsTr("Command"),
+                "label": qsTr("Task"),
                 "status": workflowStepStatus(stage, printState, "command_sent"),
                 "value": activeTaskId.length > 0 ? activeTaskId : qsTr("HTTPS accepted")
             },
@@ -235,11 +258,6 @@ Rectangle {
                 "label": qsTr("Printing"),
                 "status": workflowStepStatus(stage, printState, "printing"),
                 "value": root.layersProgressText(root.selectedPrinter)
-            },
-            {
-                "label": qsTr("Finished"),
-                "status": workflowStepStatus(stage, printState, "finished"),
-                "value": stage === "finished" ? root.progressPercentText(root.selectedPrinter) : "-"
             }
         ]
         return rows
@@ -316,6 +334,12 @@ Rectangle {
         return String(value === undefined || value === null ? "" : value).trim().length > 0
     }
 
+    function hasMeaningfulDetailValue(value) {
+        if (!hasTextValue(value))
+            return false
+        return String(value).trim() !== "-"
+    }
+
     function hasNonNegativeMetric(value) {
         return nonNegativeInt(value) >= 0
     }
@@ -325,6 +349,27 @@ Rectangle {
             return "-"
         var value = details[key]
         return hasTextValue(value) ? String(value).trim() : "-"
+    }
+
+    function effectiveBasicDetails() {
+        var out = {}
+        function merge(source) {
+            if (!source)
+                return
+            var keys = Object.keys(source)
+            for (var i = 0; i < keys.length; ++i) {
+                var key = keys[i]
+                var value = source[key]
+                if (out[key] === undefined || !hasMeaningfulDetailValue(out[key]))
+                    out[key] = value
+            }
+        }
+        merge(root.selectedPrinterDetails || ({}))
+        if (root.selectedPrinter) {
+            merge(root.selectedPrinter.details || ({}))
+            merge(root.selectedPrinter)
+        }
+        return out
     }
 
     function progressRatio(printer) {
@@ -550,6 +595,11 @@ Rectangle {
     }
 
     function recentJobStatusInfo(printStatus) {
+        var taskId = arguments.length > 1 ? String(arguments[1] || "").trim() : ""
+        var printerId = arguments.length > 2 ? String(arguments[2] || "").trim() : ""
+        if (isActiveRecentJob(taskId, printerId))
+            return { label: qsTr("In progress"), bg: Theme.statusInfoBg, fg: Theme.stateRunning, border: Theme.stateRunning }
+
         var code = Number(printStatus)
         if (isFinite(code))
             code = Math.round(code)
@@ -565,6 +615,24 @@ Rectangle {
         if (code === 4)
             return { label: qsTr("Canceled"), bg: Theme.statusWarningBg, fg: Theme.stateWarning, border: Theme.stateWarning }
         return { label: qsTr("Unknown"), bg: Theme.bgCardSubtle, fg: Theme.fgPrimary, border: Theme.borderDefault }
+    }
+
+    function isActiveRecentJob(taskId, printerId) {
+        var activeTaskId = String(selectedMqttField("mqttActiveTaskId", "") || "").trim()
+        if (taskId.length > 0 && activeTaskId.length > 0 && taskId === activeTaskId)
+            return true
+
+        var liveTaskId = String(root.selectedLiveJobData && root.selectedLiveJobData.taskId !== undefined
+                                ? root.selectedLiveJobData.taskId : "").trim()
+        if (taskId.length > 0 && liveTaskId.length > 0 && taskId === liveTaskId)
+            return true
+
+        var livePrinterId = String(root.selectedLiveJobData && root.selectedLiveJobData.printerId !== undefined
+                                   ? root.selectedLiveJobData.printerId : "").trim()
+        var liveStatus = Number(root.selectedLiveJobData && root.selectedLiveJobData.printStatus !== undefined
+                                ? root.selectedLiveJobData.printStatus : -1)
+        return printerId.length > 0 && livePrinterId.length > 0 && printerId === livePrinterId
+                && isFinite(liveStatus) && Math.round(liveStatus) === 1
     }
 
     function historyDurationText(startEpoch, endEpoch) {
@@ -738,70 +806,67 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.fillHeight: false
                 spacing: 10
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: deviceDetailsContent.implicitHeight + 20
                     radius: Theme.radiusControl
                     color: Theme.bgWindow
                     border.width: Theme.borderWidth
                     border.color: Theme.borderSubtle
 
                     ColumnLayout {
+                        id: deviceDetailsContent
                         anchors.fill: parent
                         anchors.margins: 10
                         spacing: 8
 
-                        Text {
-                            text: String(root.selectedPrinter ? root.selectedPrinter.name : "-")
-                            color: Theme.fgPrimary
-                            font.pixelSize: Theme.fontTitlePx
-                            font.bold: true
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(root.selectedPrinter ? root.selectedPrinter.name : "-")
+                                color: Theme.fgPrimary
+                                font.pixelSize: Theme.fontTitlePx
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            StatusChip {
+                                objectName: "printerHeaderStatusChip"
+                                status: root.printerDisplayStatus()
+                            }
                         }
 
                         RowLayout {
+                            visible: root.hasActiveWorkflowStatus()
                             Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            Layout.maximumHeight: visible ? implicitHeight : 0
                             spacing: 8
 
                             Rectangle {
-                                visible: root.hasActiveWorkflowStatus()
                                 radius: Theme.radiusControl
                                 color: Theme.cardAlt
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderSubtle
                                 Layout.fillWidth: true
-                                implicitHeight: 188
+                                implicitHeight: workflowStatusContent.implicitHeight + 16
 
                                 ColumnLayout {
+                                    id: workflowStatusContent
                                     anchors.fill: parent
                                     anchors.margins: 8
-                                    spacing: 8
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
-
-                                        Text {
-                                            text: qsTr("Status")
-                                            color: Theme.fgSecondary
-                                            font.pixelSize: Theme.fontCaptionPx
-                                            font.bold: true
-                                        }
-
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
-
-                                        StatusChip {
-                                            status: root.printerDisplayStatus()
-                                        }
-                                    }
+                                    spacing: 6
 
                                     GridLayout {
                                         Layout.fillWidth: true
-                                        columns: 2
+                                        columns: 3
                                         columnSpacing: 10
                                         rowSpacing: 4
 
@@ -823,7 +888,7 @@ Rectangle {
                                                            : (modelData.status === qsTr("warning")
                                                               ? Theme.stateWarning
                                                            : (modelData.status === qsTr("pending")
-                                                              ? Theme.fgMuted
+                                                              ? Theme.fgSecondary
                                                               : Theme.stateRunning)))
                                                 }
 
@@ -843,7 +908,7 @@ Rectangle {
                                                            : (modelData.status === qsTr("warning")
                                                               ? Theme.stateWarning
                                                            : (modelData.status === qsTr("pending")
-                                                              ? Theme.fgMuted
+                                                              ? Theme.fgSecondary
                                                               : Theme.stateRunning)))
                                                     font.pixelSize: Theme.fontCaptionPx
                                                     font.bold: true
@@ -875,6 +940,8 @@ Rectangle {
                         Rectangle {
                             visible: root.printerInfoMode() === "printing"
                             Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? 176 : 0
+                            Layout.maximumHeight: visible ? 176 : 0
                             radius: Theme.radiusControl
                             color: Theme.bgSurface
                             border.width: Theme.borderWidth
@@ -1010,6 +1077,8 @@ Rectangle {
                         GridLayout {
                             visible: root.printerInfoMode() === "printing"
                             Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            Layout.maximumHeight: visible ? implicitHeight : 0
                             columns: 2
                             columnSpacing: 8
                             rowSpacing: 8
@@ -1139,6 +1208,8 @@ Rectangle {
                         GridLayout {
                             visible: root.printerInfoMode() === "basic"
                             Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            Layout.maximumHeight: visible ? implicitHeight : 0
                             columns: 2
                             columnSpacing: 8
                             rowSpacing: 8
@@ -1164,7 +1235,7 @@ Rectangle {
 
                                     Text {
                                         objectName: "printerFirmwareValue"
-                                        text: root.detailText(root.selectedPrinterDetails, "firmwareVersion")
+                                        text: root.detailText(root.effectiveBasicDetails(), "firmwareVersion")
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -1194,7 +1265,7 @@ Rectangle {
 
                                     Text {
                                         objectName: "printerPrintCountValue"
-                                        text: root.printCountText(root.selectedPrinterDetails)
+                                        text: root.printCountText(root.effectiveBasicDetails())
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -1223,7 +1294,7 @@ Rectangle {
 
                                     Text {
                                         objectName: "printerFilmStateValue"
-                                        text: root.releaseFilmText(root.selectedPrinterDetails)
+                                        text: root.releaseFilmText(root.effectiveBasicDetails())
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -1253,7 +1324,7 @@ Rectangle {
 
                                     Text {
                                         objectName: "printerTotalPrintTimeValue"
-                                        text: root.normalizedTotalPrintHoursText(root.selectedPrinterDetails)
+                                        text: root.normalizedTotalPrintHoursText(root.effectiveBasicDetails())
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -1283,7 +1354,7 @@ Rectangle {
 
                                     Text {
                                         objectName: "printerTotalResinValue"
-                                        text: root.normalizedTotalResinText(root.selectedPrinterDetails)
+                                        text: root.normalizedTotalResinText(root.effectiveBasicDetails())
                                         color: Theme.fgPrimary
                                         font.pixelSize: Theme.fontBodyPx
                                         font.bold: true
@@ -1329,8 +1400,6 @@ Rectangle {
                             color: Theme.fgSecondary
                             font.pixelSize: Theme.fontCaptionPx
                         }
-
-                        Item { Layout.fillHeight: true }
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -1404,7 +1473,7 @@ Rectangle {
                                     Rectangle {
                                         id: recentJobStatusBadge
                                         objectName: "recentJobStatusBadge"
-                                        readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus)
+                                        readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus, model.taskId, model.printerId)
                                         anchors.top: parent.top
                                         anchors.right: parent.right
                                         width: Math.max(74, statusText.implicitWidth + 12)
