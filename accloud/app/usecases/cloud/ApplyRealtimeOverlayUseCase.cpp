@@ -31,6 +31,33 @@ std::vector<accloud::cloud::CloudPrinterInfo> ApplyRealtimeOverlayUseCase::execu
         if (rt.downloadProgress.has_value()) {
             printer.mqttDownloadProgress = *rt.downloadProgress;
         }
+        if (rt.resin.uiStatus.has_value()) {
+            printer.mqttResinStatus = *rt.resin.uiStatus;
+        }
+        if (rt.resin.message.has_value()) {
+            printer.mqttResinMessage = *rt.resin.message;
+        }
+        if (rt.resin.phase.has_value()) {
+            printer.mqttResinPhase = *rt.resin.phase;
+        }
+        if (rt.resin.prePrintFillStatus.has_value()) {
+            printer.mqttResinPrePrintFillStatus = *rt.resin.prePrintFillStatus;
+        }
+        if (rt.resin.runtimeTopupStatus.has_value()) {
+            printer.mqttResinRuntimeTopupStatus = *rt.resin.runtimeTopupStatus;
+        }
+        if (rt.resin.bottleStatus.has_value()) {
+            printer.mqttResinBottleStatus = *rt.resin.bottleStatus;
+        }
+        if (rt.resin.vatStatus.has_value()) {
+            printer.mqttResinVatStatus = *rt.resin.vatStatus;
+        }
+        if (rt.resin.lastFeedResinCode.has_value()) {
+            printer.mqttResinLastFeedCode = *rt.resin.lastFeedResinCode;
+        }
+        if (rt.resin.blockingPrint.has_value()) {
+            printer.mqttResinBlocking = *rt.resin.blockingPrint;
+        }
         if (rt.activeTaskId.has_value()) {
             const auto jobIt = rt.jobs.find(*rt.activeTaskId);
             if (jobIt != rt.jobs.end()) {

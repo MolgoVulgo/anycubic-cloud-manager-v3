@@ -30,6 +30,20 @@ struct PrintJobSnapshot {
     std::map<std::string, int> autoChecks;
 };
 
+struct ResinRealtimeState {
+    bool autoLoadSeen{false};
+    std::optional<std::string> phase;
+    std::optional<std::string> prePrintFillStatus;
+    std::optional<std::string> runtimeTopupStatus;
+    std::optional<std::string> bottleStatus;
+    std::optional<std::string> vatStatus;
+    std::optional<int> lastFeedResinCode;
+    std::optional<std::string> lastFeedResinPhase;
+    std::optional<std::string> message;
+    std::optional<bool> blockingPrint;
+    std::optional<std::string> uiStatus;
+};
+
 struct PrinterRealtimeSnapshot {
     std::optional<std::string> state;
     std::optional<PrinterAvailability> availability;
@@ -52,6 +66,7 @@ struct PrinterRealtimeSnapshot {
     std::optional<int> releaseFilmTimes;
     std::optional<int> releaseFilmStatusCode;
     std::optional<PrintState> printState;
+    ResinRealtimeState resin;
     std::map<std::string, PrintJobSnapshot> jobs;
 };
 

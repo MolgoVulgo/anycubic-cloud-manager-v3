@@ -1028,12 +1028,49 @@ Item {
         selectedPrinterLiveSnapshot = selectedPrinterLiveData()
     }
 
+    function hasMeaningfulDetailValue(value) {
+        if (value === undefined || value === null)
+            return false
+        var text = String(value).trim()
+        return text.length > 0 && text !== "-"
+    }
+
+    function mergePrinterDetails(current, incoming) {
+        var merged = {}
+        function copy(source, overwrite) {
+            if (source === undefined || source === null)
+                return
+            var keys = Object.keys(source)
+            for (var i = 0; i < keys.length; ++i) {
+                var key = keys[i]
+                var value = source[key]
+                if (overwrite || merged[key] === undefined)
+                    merged[key] = value
+            }
+        }
+        copy(current || ({}), false)
+        if (incoming !== undefined && incoming !== null) {
+            var incomingKeys = Object.keys(incoming)
+            for (var i = 0; i < incomingKeys.length; ++i) {
+                var key = incomingKeys[i]
+                var value = incoming[key]
+                if (hasMeaningfulDetailValue(value))
+                    merged[key] = value
+            }
+        }
+        return merged
+    }
+
+    function updateSelectedPrinterDetails(incoming) {
+        selectedPrinterDetails = mergePrinterDetails(selectedPrinterDetails, incoming || ({}))
+    }
+
     function syncSelectedPrinterDetailsFromModel() {
         var selected = selectedPrinterData()
         if (!selected)
             return
         if (selected.details !== undefined)
-            selectedPrinterDetails = selected.details
+            updateSelectedPrinterDetails(selected.details)
         if (selected.detailsRawJson !== undefined)
             selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
         if (selected.projectsRawJson !== undefined)
@@ -1146,7 +1183,7 @@ Item {
         var selected = selectedPrinterData()
         if (selected) {
             if (selected.details !== undefined)
-                selectedPrinterDetails = selected.details
+                updateSelectedPrinterDetails(selected.details)
             if (selected.detailsRawJson !== undefined)
                 selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
             if (selected.projectsRawJson !== undefined)
@@ -1196,7 +1233,7 @@ Item {
                             && selectedPrinterDetails !== undefined
                             && Object.keys(selectedPrinterDetails).length > 0
                     if (hasFetchedDetails || !hasCurrentDetails)
-                        selectedPrinterDetails = fetchedDetails
+                        updateSelectedPrinterDetails(fetchedDetails)
                 }
                 if (detailsRes.rawJson !== undefined)
                     selectedPrinterDetailsRawJson = String(detailsRes.rawJson || selectedPrinterDetailsRawJson)
@@ -2106,7 +2143,7 @@ Item {
         }
 
         loading = true
-        statusMsg = qsTr("Sending local print command for %1...")
+        statusMsg = qsTr("Sending local print task for %1...")
                 .arg(selectedFileName)
         statusSev = "info"
 
@@ -2134,8 +2171,8 @@ Item {
 
     function applyLocalPrintCommandResult(targetPrinterId, result) {
         if (result.ok !== true) {
-            statusMsg = qsTr("Local print command failed: %1")
-                    .arg(backendStatusDetail(result.message, qsTr("Command rejected.")))
+            statusMsg = qsTr("Local print task failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
             statusSev = "error"
             return
         }
@@ -2145,7 +2182,7 @@ Item {
             refreshSelectedPrinterJobs("print_started", true, false)
         loadPrinters()
         var msgId = String(result.msgId || "").trim()
-        statusMsg = qsTr("Local print command sent (order_id=%1, msgid=%2).")
+        statusMsg = qsTr("Local print task sent (order_id=%1, msgid=%2).")
                 .arg(String(localFileStartPrintOrderId))
                 .arg(msgId.length > 0 ? msgId : "-")
         statusSev = "success"
@@ -2211,7 +2248,7 @@ Item {
     function applyLocalFileDeleteResult(targetPrinterId, fileName, result) {
         if (result.ok !== true) {
             statusMsg = qsTr("Local file deletion failed: %1")
-                    .arg(backendStatusDetail(result.message, qsTr("Command rejected.")))
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
             statusSev = "error"
             return
         }
@@ -2466,7 +2503,7 @@ Item {
 
             var resolvedDetails = details !== undefined ? details : ({})
             if (resolvedDetails !== null && Object.keys(resolvedDetails).length > 0)
-                root.selectedPrinterDetails = resolvedDetails
+                root.updateSelectedPrinterDetails(resolvedDetails)
 
             var list = projects !== undefined ? projects : []
             setLiveProjectFromList(list)

@@ -630,6 +630,9 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("mqttPrintState", QString::fromStdString(p.mqttPrintState));
     m.insert("mqttJobStage", QString::fromStdString(p.mqttJobStage));
     m.insert("mqttDownloadProgress", p.mqttDownloadProgress);
+    m.insert("mqttResinStatus", QString::fromStdString(p.mqttResinStatus));
+    m.insert("mqttResinMessage", QString::fromStdString(p.mqttResinMessage));
+    m.insert("mqttResinBlocking", p.mqttResinBlocking);
     QVariantMap details;
     if (!p.mqttActiveTaskId.empty()) {
         details.insert(QStringLiteral("mqttActiveTaskId"), QString::fromStdString(p.mqttActiveTaskId));
@@ -649,6 +652,33 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     if (!p.mqttAutoChecks.empty()) {
         details.insert(QStringLiteral("mqttAutoChecks"), intMapToVariantMap(p.mqttAutoChecks));
     }
+    if (!p.mqttResinStatus.empty()) {
+        details.insert(QStringLiteral("mqttResinStatus"), QString::fromStdString(p.mqttResinStatus));
+    }
+    if (!p.mqttResinMessage.empty()) {
+        details.insert(QStringLiteral("mqttResinMessage"), QString::fromStdString(p.mqttResinMessage));
+    }
+    if (!p.mqttResinPhase.empty()) {
+        details.insert(QStringLiteral("mqttResinPhase"), QString::fromStdString(p.mqttResinPhase));
+    }
+    if (!p.mqttResinPrePrintFillStatus.empty()) {
+        details.insert(QStringLiteral("mqttResinPrePrintFillStatus"),
+                       QString::fromStdString(p.mqttResinPrePrintFillStatus));
+    }
+    if (!p.mqttResinRuntimeTopupStatus.empty()) {
+        details.insert(QStringLiteral("mqttResinRuntimeTopupStatus"),
+                       QString::fromStdString(p.mqttResinRuntimeTopupStatus));
+    }
+    if (!p.mqttResinBottleStatus.empty()) {
+        details.insert(QStringLiteral("mqttResinBottleStatus"), QString::fromStdString(p.mqttResinBottleStatus));
+    }
+    if (!p.mqttResinVatStatus.empty()) {
+        details.insert(QStringLiteral("mqttResinVatStatus"), QString::fromStdString(p.mqttResinVatStatus));
+    }
+    if (p.mqttResinLastFeedCode >= 0) {
+        details.insert(QStringLiteral("mqttResinLastFeedCode"), p.mqttResinLastFeedCode);
+    }
+    details.insert(QStringLiteral("mqttResinBlocking"), p.mqttResinBlocking);
     m.insert("details", details);
     return m;
 }
@@ -701,6 +731,45 @@ void applyRealtimeOverlayToPrinterMap(
         printer.insert(QStringLiteral("mqttDownloadProgress"), *rt.downloadProgress);
         QVariantMap details = printer.value(QStringLiteral("details")).toMap();
         details.insert(QStringLiteral("mqttDownloadProgress"), *rt.downloadProgress);
+        printer.insert(QStringLiteral("details"), details);
+    }
+    if (rt.resin.uiStatus.has_value()
+        || rt.resin.message.has_value()
+        || rt.resin.phase.has_value()
+        || rt.resin.lastFeedResinCode.has_value()) {
+        QVariantMap details = printer.value(QStringLiteral("details")).toMap();
+        if (rt.resin.uiStatus.has_value()) {
+            printer.insert(QStringLiteral("mqttResinStatus"), QString::fromStdString(*rt.resin.uiStatus));
+            details.insert(QStringLiteral("mqttResinStatus"), QString::fromStdString(*rt.resin.uiStatus));
+        }
+        if (rt.resin.message.has_value()) {
+            printer.insert(QStringLiteral("mqttResinMessage"), QString::fromStdString(*rt.resin.message));
+            details.insert(QStringLiteral("mqttResinMessage"), QString::fromStdString(*rt.resin.message));
+        }
+        if (rt.resin.phase.has_value()) {
+            details.insert(QStringLiteral("mqttResinPhase"), QString::fromStdString(*rt.resin.phase));
+        }
+        if (rt.resin.prePrintFillStatus.has_value()) {
+            details.insert(QStringLiteral("mqttResinPrePrintFillStatus"),
+                           QString::fromStdString(*rt.resin.prePrintFillStatus));
+        }
+        if (rt.resin.runtimeTopupStatus.has_value()) {
+            details.insert(QStringLiteral("mqttResinRuntimeTopupStatus"),
+                           QString::fromStdString(*rt.resin.runtimeTopupStatus));
+        }
+        if (rt.resin.bottleStatus.has_value()) {
+            details.insert(QStringLiteral("mqttResinBottleStatus"), QString::fromStdString(*rt.resin.bottleStatus));
+        }
+        if (rt.resin.vatStatus.has_value()) {
+            details.insert(QStringLiteral("mqttResinVatStatus"), QString::fromStdString(*rt.resin.vatStatus));
+        }
+        if (rt.resin.lastFeedResinCode.has_value()) {
+            details.insert(QStringLiteral("mqttResinLastFeedCode"), *rt.resin.lastFeedResinCode);
+        }
+        if (rt.resin.blockingPrint.has_value()) {
+            printer.insert(QStringLiteral("mqttResinBlocking"), *rt.resin.blockingPrint);
+            details.insert(QStringLiteral("mqttResinBlocking"), *rt.resin.blockingPrint);
+        }
         printer.insert(QStringLiteral("details"), details);
     }
     if (rt.activeTaskId.has_value()) {
@@ -1114,7 +1183,9 @@ QVariantMap CloudBridge::loadCachedPrinters() const {
         printer.insert(QStringLiteral("remainingSec"), -1);
         printer.insert(QStringLiteral("currentLayer"), -1);
         printer.insert(QStringLiteral("totalLayers"), -1);
-        printer.insert(QStringLiteral("details"), QVariantMap{});
+        if (!printer.contains(QStringLiteral("details"))) {
+            printer.insert(QStringLiteral("details"), QVariantMap{});
+        }
         const QVariantList cachedProjects = cachedProjectsByPrinter.value(printerId).toList();
         if (!cachedProjects.isEmpty()) {
             const QVariantMap firstProject = cachedProjects.first().toMap();
@@ -1409,6 +1480,9 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
         }
         if (detailsResult.ok) {
             detailsMap = printerDetailsToMap(detailsResult);
+            if (m_cache != nullptr) {
+                m_cache->savePrinterDetails(normalizedPrinterId, detailsMap);
+            }
         }
 
         QVariantList projects;

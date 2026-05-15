@@ -106,6 +106,11 @@ MQTT auth mode:
 
 MQTT runtime state exposed to UI:
 - `Disconnected`, `Connecting`, `Connected`, `Subscribed`, `Degraded`, `Reconnecting`
+- Print workflow overlay fields include task id, MQTT print state, normalized job stage, download progress,
+  check maps, and resin status/message.
+- Resin `feedResin` messages are interpreted with the current print phase: pre-print errors are blocking,
+  while runtime `code=1501` is treated as a bottle/autoload source issue unless a later print failure makes
+  it a blocking material fault.
 
 MQTT discovery behavior (M7-first):
 - Unknown/invalid MQTT envelopes are captured in an internal observation store.

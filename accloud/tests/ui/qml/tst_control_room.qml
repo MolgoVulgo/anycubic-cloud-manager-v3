@@ -432,19 +432,90 @@ TestCase {
                                             totalLayers: 200,
                                             elapsedSec: 600,
                                             remainingSec: 900,
-                                            currentFile: "demo.pwmb"
+                                            currentFile: "demo.pwmb",
+                                            details: {
+                                                firmwareVersion: "FW-NESTED",
+                                                printCount: "12",
+                                                releaseFilmLayers: 42,
+                                                releaseFilmTimes: 3,
+                                                releaseFilmStatusCode: 0,
+                                                printTotalTime: "10h30m",
+                                                materialUsed: 250,
+                                                lastPrintedFile: "done.pwmb"
+                                            }
                                         }
                                     })
         var runningStatus = panel.recentJobStatusInfo(1)
         var failedStatus = panel.recentJobStatusInfo(3)
+        var activeCloudCanceledStatus = panel.recentJobStatusInfo(4, "task-active", "p1")
         verify(String(runningStatus.bg).length > 0)
         verify(String(runningStatus.border).length > 0)
         verify(String(failedStatus.bg).length > 0)
         verify(String(failedStatus.border).length > 0)
+        panel.selectedLiveJobData = { taskId: "task-active", printerId: "p1", printStatus: 1 }
+        activeCloudCanceledStatus = panel.recentJobStatusInfo(4, "task-active", "p1")
+        compare(String(activeCloudCanceledStatus.label), "In progress")
 
         var progressBar = findObjectByName(panel, "printerCurrentPrintProgressBar")
         verify(progressBar !== null)
         verify(Math.abs(progressBar.value - 0.42) < 0.001)
+        var headerStatusChip = findObjectByName(panel, "printerHeaderStatusChip")
+        verify(headerStatusChip !== null)
+        panel.selectedPrinter.mqttPrintState = "finished"
+        verify(String(panel.printerDisplayStatus()).toLowerCase() !== "finished")
+        panel.selectedPrinter.details = { mqttPrintState: "finished" }
+        verify(String(panel.printerDisplayStatus()).toLowerCase() !== "finished")
+        panel.selectedPrinter.details = {
+            mqttJobStage: "downloading",
+            mqttPrintState: "downloading",
+            mqttActiveTaskId: "task-1",
+            mqttDownloadProgress: 42
+        }
+        var workflowRows = panel.workflowStatusRows()
+        compare(workflowRows.length, 5)
+        compare(String(workflowRows[0].label), "Task")
+        for (var workflowIndex = 0; workflowIndex < workflowRows.length; ++workflowIndex) {
+            verify(String(workflowRows[workflowIndex].label) !== "Command")
+            verify(String(workflowRows[workflowIndex].label) !== "Finished")
+        }
+        panel.selectedPrinter.details = {
+            mqttJobStage: "checking",
+            mqttPrintState: "monitoring",
+            mqttActiveTaskId: "task-active",
+            mqttAutoChecks: { levelling: -1, platform: 0 }
+        }
+        compare(String(panel.checkStatus()), "wait")
+        compare(String(panel.checkSummary("checking")), "levelling=-1")
+        compare(panel.currentCheckIssues().length, 0)
+        panel.selectedPrinter.details = {
+            mqttJobStage: "checking",
+            mqttPrintState: "monitoring",
+            mqttActiveTaskId: "task-active",
+            mqttAutoChecks: { levelling: 1 }
+        }
+        compare(String(panel.checkStatus()), "stop")
+        panel.selectedPrinter.details = {
+            firmwareVersion: "FW-NESTED",
+            printCount: "12",
+            releaseFilmLayers: 42,
+            releaseFilmTimes: 3,
+            releaseFilmStatusCode: 0,
+            printTotalTime: "10h30m",
+            materialUsed: 250,
+            lastPrintedFile: "done.pwmb"
+        }
+        panel.selectedPrinterDetails = {
+            firmwareVersion: "-",
+            printCount: "-",
+            printTotalTime: "-",
+            materialUsed: "-"
+        }
+        var fallbackDetails = panel.effectiveBasicDetails()
+        compare(String(fallbackDetails.firmwareVersion), "FW-NESTED")
+        compare(String(panel.detailText(fallbackDetails, "firmwareVersion")), "FW-NESTED")
+        compare(String(panel.printCountText(fallbackDetails)), "12")
+        compare(String(panel.normalizedTotalPrintHoursText(fallbackDetails)), "10.5 h")
+        compare(String(panel.normalizedTotalResinText(fallbackDetails)), "0.25 L")
         panel.destroy()
 
         var mainPanel = createQmlObject("../../../ui/qml/pages/PrinterMainPanel.qml", {
@@ -899,7 +970,7 @@ TestCase {
         compare(cloudBridge.orderCalls.length, 4)
         compare(cloudBridge.orderCalls[3].orderId, 1)
         compare(String(cloudBridge.orderCalls[3].data.filename), "plate-b.pwmb")
-        verify(String(page.statusMsg).indexOf("Local print command sent") === 0)
+        verify(String(page.statusMsg).indexOf("Local print task sent") === 0)
 
         page.destroy()
         cloudBridge = undefined
@@ -1118,7 +1189,7 @@ TestCase {
                                          '}' +
                                          'function loadCachedPrinters() {' +
                                          '  return { ok: true, endpoint: "/mock/printers", rawJson: "{}", printers: [' +
-                                         '    { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-DB-1" }, projects: [ { taskId: "t-cache-1", gcodeName: "cached.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 20, reason: "", createTime: 1, endTime: 0, img: "" } ] }' +
+                                         '    { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now", details: { firmwareVersion: "FW-DB-1", printTotalTime: "10h30m" }, projects: [ { taskId: "t-cache-1", gcodeName: "cached.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 1, progress: 20, reason: "", createTime: 1, endTime: 0, img: "" } ] }' +
                                          '  ] }' +
                                          '}' +
                                          'function refreshPrintersAsync(force) { refreshCalls += 1; lastForce = force }' +
@@ -1140,16 +1211,20 @@ TestCase {
         compare(String(page.lastJobsRefreshReason), "startup")
         compare(String(page.selectedPrinterId), "cached-p1")
         compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-DB-1")
+        compare(String(page.selectedPrinterDetails.printTotalTime), "10h30m")
 
         var history = findObjectByName(page, "printerHistoryModel")
         verify(history !== null)
         tryCompare(history, "count", 1)
         compare(String(history.get(0).taskId), "t-cache-1")
 
-        cloudBridge.printerInsightsUpdatedFromCloud("cached-p1", {}, [
+        cloudBridge.printerInsightsUpdatedFromCloud("cached-p1", { firmwareVersion: "FW-CLOUD-2", printTotalTime: "12h30m", materialUsed: "250 ml" }, [
             { taskId: "t-cloud-2", gcodeName: "cloud.pwmb", printerId: "cached-p1", printerName: "Cached Printer", printStatus: 2, progress: 100, reason: "", createTime: 2, endTime: 3, img: "" }
         ], "", "", "ok")
         wait(0)
+        compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-CLOUD-2")
+        compare(String(page.selectedPrinterDetails.printTotalTime), "12h30m")
+        compare(String(page.selectedPrinterDetails.materialUsed), "250 ml")
         compare(history.count, 2)
         compare(String(history.get(0).taskId), "t-cloud-2")
         compare(String(history.get(1).taskId), "t-cache-1")
@@ -1165,11 +1240,13 @@ TestCase {
 
         var insightCallsBeforePrinterRefresh = cloudBridge.insightRefreshCalls
         cloudBridge.printersUpdatedFromCloud([
-            { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "PRINTING", reason: "printing", available: 1, progress: 30, elapsedSec: 300, remainingSec: 600, currentFile: "a.pwmb", lastSeen: "now", details: { firmwareVersion: "FW-CLOUD-2" }, projects: [] }
+            { id: "cached-p1", name: "Cached Printer", model: "Mono", type: "LCD", state: "PRINTING", reason: "printing", available: 1, progress: 30, elapsedSec: 300, remainingSec: 600, currentFile: "a.pwmb", lastSeen: "now", details: { mqttResinBlocking: false, printTotalTime: "-" }, projects: [] }
         ], "ok")
         wait(0)
         tryCompare(page, "selectedPrinterId", "cached-p1")
         compare(String(page.selectedPrinterDetails.firmwareVersion), "FW-CLOUD-2")
+        compare(String(page.selectedPrinterDetails.printTotalTime), "12h30m")
+        compare(String(page.selectedPrinterDetails.materialUsed), "250 ml")
         compare(cloudBridge.insightRefreshCalls, insightCallsBeforePrinterRefresh)
 
         cloudBridge.printersUpdatedFromCloud([

@@ -41,7 +41,10 @@ class PrintersModel : public QAbstractListModel {
     MqttPrintStateRole,
     MqttJobStageRole,
     MqttActiveTaskIdRole,
-    MqttDownloadProgressRole
+    MqttDownloadProgressRole,
+    MqttResinStatusRole,
+    MqttResinMessageRole,
+    MqttResinBlockingRole
   };
 
   explicit PrintersModel(QObject* parent = nullptr);

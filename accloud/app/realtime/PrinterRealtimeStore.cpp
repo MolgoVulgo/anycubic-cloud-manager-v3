@@ -1,7 +1,17 @@
 #include "PrinterRealtimeStore.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace accloud::realtime {
 namespace {
+
+std::string toLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
 
 bool isActiveStage(PrintJobStage stage) {
     return stage == PrintJobStage::Downloading
@@ -62,6 +72,146 @@ std::optional<std::string> legacyStateFor(const PrinterRealtimeSnapshot& snapsho
         }
     }
     return std::nullopt;
+}
+
+bool checkMapHasResin(const std::map<std::string, int>& checks) {
+    return std::any_of(checks.begin(), checks.end(), [](const auto& item) {
+        return toLowerAscii(item.first).find("resin") != std::string::npos;
+    });
+}
+
+std::string resinPhaseFor(const PrinterRealtimeSnapshot& snapshot) {
+    if (!snapshot.jobStage.has_value()) {
+        return snapshot.activeTaskId.has_value() ? "before_preheating" : "idle";
+    }
+    switch (*snapshot.jobStage) {
+        case PrintJobStage::CommandSent:
+        case PrintJobStage::Downloading:
+        case PrintJobStage::Downloaded:
+        case PrintJobStage::Loaded:
+        case PrintJobStage::Checking:
+            return "before_preheating";
+        case PrintJobStage::Preheating:
+            return "preheating";
+        case PrintJobStage::Printing:
+            return "during_print";
+        case PrintJobStage::Finished:
+            return "finished";
+        case PrintJobStage::InterruptedOrUnknown:
+            return "interrupted";
+        case PrintJobStage::Unknown:
+            return "unknown";
+    }
+    return "unknown";
+}
+
+std::string resinMessageFor(const PrinterRealtimeEvent& event) {
+    if (event.reason.has_value() && !event.reason->empty()) {
+        return *event.reason;
+    }
+    if (event.code.has_value()) {
+        return "feedResin code=" + std::to_string(*event.code);
+    }
+    return "feedResin";
+}
+
+void inferResinSuccessOnPreheat(PrinterRealtimeSnapshot& snapshot) {
+    if (!snapshot.jobStage.has_value() || *snapshot.jobStage != PrintJobStage::Preheating) {
+        return;
+    }
+    if (!snapshot.resin.autoLoadSeen
+        && !snapshot.resin.lastFeedResinCode.has_value()
+        && !snapshot.resin.prePrintFillStatus.has_value()) {
+        return;
+    }
+    if (snapshot.resin.blockingPrint.value_or(false)) {
+        return;
+    }
+    snapshot.resin.phase = std::string("preheating");
+    snapshot.resin.prePrintFillStatus = std::string("done");
+    snapshot.resin.vatStatus = std::string("assumed_ok");
+    snapshot.resin.blockingPrint = false;
+    snapshot.resin.uiStatus = std::string("done");
+}
+
+void applyResinFeedEvent(PrinterRealtimeSnapshot& snapshot, const PrinterRealtimeEvent& event) {
+    const std::string phase = resinPhaseFor(snapshot);
+    const int code = event.code.value_or(0);
+    snapshot.resin.phase = phase;
+    snapshot.resin.lastFeedResinCode = code;
+    snapshot.resin.lastFeedResinPhase = phase;
+    snapshot.resin.message = resinMessageFor(event);
+
+    if (phase == "during_print") {
+        if (code == 0) {
+            snapshot.resin.runtimeTopupStatus = std::string("done");
+            snapshot.resin.blockingPrint = false;
+            snapshot.resin.uiStatus = std::string("done");
+            return;
+        }
+        snapshot.resin.runtimeTopupStatus = code == 1501
+            ? std::string("bottle_empty_or_unavailable")
+            : std::string("warning");
+        snapshot.resin.bottleStatus = code == 1501
+            ? std::string("empty_or_unavailable")
+            : std::string("warning");
+        snapshot.resin.vatStatus = std::string("assumed_ok");
+        snapshot.resin.blockingPrint = false;
+        snapshot.resin.uiStatus = std::string("warning");
+        return;
+    }
+
+    if (code == 0) {
+        snapshot.resin.prePrintFillStatus = std::string("done");
+        snapshot.resin.vatStatus = std::string("assumed_ok");
+        snapshot.resin.blockingPrint = false;
+        snapshot.resin.uiStatus = std::string("done");
+        return;
+    }
+
+    snapshot.resin.prePrintFillStatus = std::string("error");
+    snapshot.resin.blockingPrint = true;
+    snapshot.resin.uiStatus = std::string("stop");
+}
+
+void updateResinFromPrintEvent(PrinterRealtimeSnapshot& snapshot, const PrinterRealtimeEvent& event) {
+    if (!event.autoChecks.empty() && checkMapHasResin(event.autoChecks)) {
+        snapshot.resin.autoLoadSeen = true;
+        if (!snapshot.resin.prePrintFillStatus.has_value()) {
+            snapshot.resin.prePrintFillStatus = std::string("checking");
+            snapshot.resin.uiStatus = std::string("resin fill");
+        }
+    }
+
+    inferResinSuccessOnPreheat(snapshot);
+
+    if (!snapshot.jobStage.has_value()
+        || *snapshot.jobStage != PrintJobStage::InterruptedOrUnknown
+        || !snapshot.resin.lastFeedResinCode.has_value()
+        || *snapshot.resin.lastFeedResinCode == 0) {
+        return;
+    }
+
+    snapshot.resin.vatStatus = std::string("suspected_resin_issue");
+    snapshot.resin.blockingPrint = true;
+    snapshot.resin.uiStatus = std::string("stop");
+    if (event.reason.has_value() && !event.reason->empty()) {
+        snapshot.resin.message = *event.reason;
+    }
+}
+
+bool hasResinData(const ResinRealtimeState& resin) {
+    return resin.autoLoadSeen
+        || resin.phase.has_value()
+        || resin.prePrintFillStatus.has_value()
+        || resin.runtimeTopupStatus.has_value()
+        || resin.bottleStatus.has_value()
+        || resin.vatStatus.has_value()
+        || resin.lastFeedResinCode.has_value()
+        || resin.lastFeedResinPhase.has_value()
+        || resin.message.has_value()
+        || resin.blockingPrint.has_value()
+        || resin.uiStatus.has_value();
 }
 
 std::string pendingTaskKey(const std::string& fileId, const std::string& msgId) {
@@ -163,8 +313,6 @@ void exposeActiveJob(PrinterRealtimeSnapshot& snapshot, const PrintJobSnapshot& 
     if (job.printProgress.has_value()) {
         snapshot.printProgress = job.printProgress;
         snapshot.progress = job.printProgress;
-    } else if (job.downloadProgress.has_value()) {
-        snapshot.progress = job.downloadProgress;
     }
     if (job.elapsedSec.has_value()) snapshot.elapsedSec = job.elapsedSec;
     if (job.remainingSec.has_value()) snapshot.remainingSec = job.remainingSec;
@@ -208,6 +356,7 @@ void PrinterRealtimeStore::upsert(const std::string& printerId, const PrinterRea
     if (snapshot.releaseFilmTimes.has_value()) dst.releaseFilmTimes = snapshot.releaseFilmTimes;
     if (snapshot.releaseFilmStatusCode.has_value()) dst.releaseFilmStatusCode = snapshot.releaseFilmStatusCode;
     if (snapshot.printState.has_value()) dst.printState = snapshot.printState;
+    if (hasResinData(snapshot.resin)) dst.resin = snapshot.resin;
     for (const auto& [taskId, job] : snapshot.jobs) {
         dst.jobs[taskId] = job;
     }
@@ -279,6 +428,9 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
         if (event.releaseFilmStatusCode.has_value()) {
             snapshot.releaseFilmStatusCode = event.releaseFilmStatusCode;
         }
+        if (event.wireType == "resin" && event.action == "feedResin") {
+            applyResinFeedEvent(snapshot, event);
+        }
         return;
     }
 
@@ -310,6 +462,7 @@ void PrinterRealtimeStore::applyEvent(const PrinterRealtimeEvent& event) {
     snapshot.printState = event.printState.value_or(PrintState::Unknown);
     if (event.reason.has_value()) snapshot.reason = event.reason;
     exposeActiveJob(snapshot, job);
+    updateResinFromPrintEvent(snapshot, event);
     if (auto legacy = legacyStateFor(snapshot); legacy.has_value()) {
         snapshot.state = legacy;
     }

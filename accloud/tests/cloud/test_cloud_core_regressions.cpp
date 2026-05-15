@@ -147,6 +147,18 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     printers.append(printer);
     ok = ok && expect(cache.replacePrinters(printers), "replacePrinters should succeed");
 
+    QVariantMap printerDetails;
+    printerDetails.insert("firmwareVersion", "FW-1");
+    printerDetails.insert("printCount", "42");
+    printerDetails.insert("printTotalTime", "12h 30m");
+    printerDetails.insert("materialUsed", "250 ml");
+    printerDetails.insert("releaseFilmStatus", "ok");
+    printerDetails.insert("releaseFilmLayers", "120");
+    printerDetails.insert("releaseFilmTimes", 7);
+    printerDetails.insert("releaseFilmStatusCode", 0);
+    ok = ok && expect(cache.savePrinterDetails("printer-1", printerDetails),
+                      "savePrinterDetails should succeed");
+
     const QVariantList loadedPrinters = cache.loadPrinters();
     ok = ok && expect(loadedPrinters.size() == 1, "loadPrinters should return one printer");
     if (!loadedPrinters.isEmpty()) {
@@ -155,6 +167,34 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
         ok = ok && expect(p.value("printerKey").toString() == "printer-key-1", "printerKey mismatch");
         ok = ok && expect(p.value("machineType").toString() == "128", "machineType mismatch");
         ok = ok && expect(p.value("state").toString() == "READY", "printer state mismatch");
+        const QVariantMap details = p.value("details").toMap();
+        ok = ok && expect(details.value("firmwareVersion").toString() == "FW-1",
+                          "cached printer details firmware mismatch");
+        ok = ok && expect(details.value("printCount").toString() == "42",
+                          "cached printer details print count mismatch");
+        ok = ok && expect(details.value("releaseFilmStatusCode").toInt() == 0,
+                          "cached printer details release film status mismatch");
+    }
+
+    QVariantMap partialDetails;
+    partialDetails.insert("mqttResinBlocking", false);
+    partialDetails.insert("printTotalTime", "-");
+    printer.insert("details", partialDetails);
+    printer.insert("state", "OFFLINE");
+    QVariantList offlinePrinters;
+    offlinePrinters.append(printer);
+    ok = ok && expect(cache.replacePrinters(offlinePrinters),
+                      "replacePrinters should merge partial details with cached static details");
+    const QVariantList offlineLoadedPrinters = cache.loadPrinters();
+    if (!offlineLoadedPrinters.isEmpty()) {
+        const QVariantMap p = offlineLoadedPrinters.first().toMap();
+        const QVariantMap details = p.value("details").toMap();
+        ok = ok && expect(p.value("state").toString() == "OFFLINE",
+                          "offline printer state should be cached");
+        ok = ok && expect(details.value("firmwareVersion").toString() == "FW-1",
+                          "offline cached printer should keep firmware details");
+        ok = ok && expect(details.value("printTotalTime").toString() == "12h 30m",
+                          "partial refresh should not erase cached print total time");
     }
 
     QVariantMap oldJob;

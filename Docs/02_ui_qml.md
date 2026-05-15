@@ -192,6 +192,12 @@ Règles d'affichage métriques (panneau détails imprimante) :
   - `basic` (ready/offline) : nom, status, firmware, print count, release film times/layers/status, total print time in hours, total resin in liters, last printed file ;
   - `printing` : nom, status, fichier courant, progression, couches, elapsed, remaining.
 - historique "Recent Jobs" : cartes compactes avec badge statut, dates et durée lisible.
+- si un job recent correspond a une tache MQTT active, le badge doit rester
+  actif et ne pas afficher `Canceled` sur la seule base d'un statut cloud
+  transitoire.
+- dans le workflow d'impression, les checks MQTT `status=-1` indiquent un
+  controle en cours (`wait`) ; seuls les vrais codes d'erreur doivent afficher
+  `stop` et ouvrir les details bloquants.
 - en impression, le fichier courant doit exposer le nom du fichier, une
   progression principale, les couches et les durees utiles ; les details
   techniques de preview/image restent reserves au debug.
