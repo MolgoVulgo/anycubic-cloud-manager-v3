@@ -21,7 +21,7 @@ makedepends=(
   'gcc'
 )
 source=(
-  "anycubic-cloud-manager-v3-main.zip::https://codeload.github.com/MolgoVulgo/anycubic-cloud-manager-v3/zip/refs/heads/main"
+  "anycubic-cloud-manager-v3-aur.zip::https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/heads/aur.zip"
   "accloud.desktop"
 )
 sha256sums=(
@@ -30,14 +30,14 @@ sha256sums=(
 )
 
 build() {
-  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-main/accloud"
+  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-aur/accloud"
   cd "${_srcdir}"
   cmake --preset prod
   cmake --build --preset prod --target accloud_cli
 }
 
 package() {
-  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-main/accloud"
+  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-aur/accloud"
   cd "${_srcdir}"
 
   install -d "${pkgdir}/opt/accloud"
