@@ -17,6 +17,7 @@
 #include "app/usecases/cloud/SendPrintOrderUseCase.h"
 #include "app/usecases/cloud/UploadLocalFileUseCase.h"
 #include "infra/cloud/HarImporter.h"
+#include "infra/config/AppPaths.h"
 #include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
 
@@ -34,13 +35,13 @@
 #include <QMetaObject>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
-#include <QStandardPaths>
 #include <QUrl>
 #include <QVariantList>
 #include <QCryptographicHash>
 
 #include <cmath>
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <string>
 
@@ -298,11 +299,11 @@ QString normalizedThumbnailUrl(const QString& raw) {
 }
 
 QString thumbnailCacheDirPath() {
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (base.isEmpty()) {
+    const std::filesystem::path configured = accloud::config::thumbnailDir();
+    if (configured.empty()) {
         return {};
     }
-    const QString dir = base + QStringLiteral("/thumbnails");
+    const QString dir = QString::fromStdString(configured.string());
     QDir().mkpath(dir);
     return dir;
 }

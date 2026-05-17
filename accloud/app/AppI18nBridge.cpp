@@ -1,6 +1,6 @@
 #include "AppI18nBridge.h"
+#include "UserPaths.h"
 
-#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QLibraryInfo>
 #include <QLocale>
@@ -105,15 +105,8 @@ bool AppI18nBridge::setLanguage(const QString& languageCode) {
   const QString requested = normalizeRequestedLanguage(languageCode);
   const QString languageKey = QString::fromLatin1(kLanguageKey);
 
-  QString org = QCoreApplication::organizationName();
-  if (org.trimmed().isEmpty()) {
-    org = QStringLiteral("accloud");
-  }
-  QString app = QCoreApplication::applicationName();
-  if (app.trimmed().isEmpty()) {
-    app = QStringLiteral("accloud");
-  }
-  QSettings settings(org, app);
+  const QString settingsPath = accloud::app::userSettingsIniPath();
+  QSettings settings(settingsPath, QSettings::IniFormat);
   settings.setValue(languageKey, requested);
   settings.sync();
 
@@ -122,15 +115,8 @@ bool AppI18nBridge::setLanguage(const QString& languageCode) {
 
 void AppI18nBridge::applyStartupLanguage() {
   const QString languageKey = QString::fromLatin1(kLanguageKey);
-  QString org = QCoreApplication::organizationName();
-  if (org.trimmed().isEmpty()) {
-    org = QStringLiteral("accloud");
-  }
-  QString app = QCoreApplication::applicationName();
-  if (app.trimmed().isEmpty()) {
-    app = QStringLiteral("accloud");
-  }
-  QSettings settings(org, app);
+  const QString settingsPath = accloud::app::userSettingsIniPath();
+  QSettings settings(settingsPath, QSettings::IniFormat);
   const QString requested =
       normalizeRequestedLanguage(settings.value(languageKey, QStringLiteral("system")).toString());
   applyLanguage(requested);

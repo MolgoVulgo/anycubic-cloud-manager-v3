@@ -10,6 +10,8 @@
 #include <string>
 #include <system_error>
 
+#include "infra/config/AppPaths.h"
+
 namespace accloud::mqtt::core {
 
 struct OpenSslCompatResult {
@@ -54,12 +56,7 @@ inline OpenSslCompatResult ensureOpenSslSecurityLevelCompat(bool enableCompatMod
     if (overridePath != nullptr && *overridePath != '\0') {
         confPath = std::filesystem::path(overridePath);
     } else {
-        std::error_code ec;
-        auto tempDir = std::filesystem::temp_directory_path(ec);
-        if (ec) {
-            return {false, false, "temp_dir_unavailable", ec.message(), {}};
-        }
-        confPath = tempDir / "accloud_openssl_seclevel0.cnf";
+        confPath = accloud::config::opensslCompatPath();
     }
 
     if (confPath.has_parent_path()) {

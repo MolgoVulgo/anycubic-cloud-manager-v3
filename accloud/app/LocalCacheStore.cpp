@@ -1,4 +1,5 @@
 #include "LocalCacheStore.h"
+#include "UserPaths.h"
 
 #include "infra/logging/JsonlLogger.h"
 
@@ -27,7 +28,7 @@ QString resolveDbPath() {
   if (const char* env = std::getenv("ACCLOUD_DB_PATH"); env != nullptr && *env != '\0') {
     return QString::fromUtf8(env);
   }
-  return QStringLiteral("accloud_cache.db");
+  return accloud::app::userCacheDbPath();
 }
 
 qint64 readNow() {

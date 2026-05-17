@@ -22,7 +22,7 @@ ApplicationWindow {
     property bool debugUi: buildDebugEnabled
                                && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
-    property string sessionTargetPath: "~/.config/accloud/session.json"
+    property string sessionTargetPath: ""
     property string sessionDetailsText: qsTr("No session check executed yet.")
     property int render3dDefaultQualityIndex: 2
     property string render3dDefaultPalette: "Palette Steel"

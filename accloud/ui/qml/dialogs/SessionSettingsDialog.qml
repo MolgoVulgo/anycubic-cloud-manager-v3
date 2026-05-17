@@ -18,7 +18,7 @@ AppDialogFrame {
     property bool importInProgress: false
     property string statusMessage: qsTr("Status: ready for HAR analysis.")
     property string resultDetails: qsTr("No analysis executed.")
-    property string sessionTargetPath: "~/.config/accloud/session.json"
+    property string sessionTargetPath: ""
     property bool pendingValid: false
     property string analyzedHarPath: ""
 

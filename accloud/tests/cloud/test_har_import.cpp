@@ -1,6 +1,7 @@
 #include "infra/cloud/HarImporter.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -244,6 +245,24 @@ bool test_empty_har_reports_capture_problem() {
                 "empty HAR error should explain that no network entries were captured");
 }
 
+bool test_default_session_path_uses_local_share_acm() {
+  const std::filesystem::path resolved = accloud::cloud::resolveSessionPath(std::nullopt);
+  const std::filesystem::path expectedSuffix =
+      std::filesystem::path(".local") / "share" / "acm" / "session.json";
+  bool ok = expect(resolved.filename() == "session.json",
+                   "default session path should end with session.json");
+  const std::string resolvedText = resolved.generic_string();
+  ok = ok && expect(resolvedText.find("/.local/share/acm/session.json") != std::string::npos
+                        || resolvedText == ".local/share/acm/session.json",
+                    "default session path should target ~/.local/share/acm/session.json");
+  if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+    const std::filesystem::path expected = std::filesystem::path(home) / expectedSuffix;
+    ok = ok && expect(resolved == expected,
+                      "default session path should be rooted in HOME/.local/share/acm/session.json");
+  }
+  return ok;
+}
+
 } // namespace
 
 int main() {
@@ -253,6 +272,7 @@ int main() {
   ok = test_query_fallback_and_session_roundtrip() && ok;
   ok = test_session_metadata_fields_are_preserved() && ok;
   ok = test_empty_har_reports_capture_problem() && ok;
+  ok = test_default_session_path_uses_local_share_acm() && ok;
 
   if (!ok) {
     return 1;

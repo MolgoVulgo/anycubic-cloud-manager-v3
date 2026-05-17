@@ -1,23 +1,15 @@
 #include "UiSettingsBridge.h"
+#include "UserPaths.h"
 
-#include <QCoreApplication>
 #include <QSettings>
 
 namespace accloud {
 
 UiSettingsBridge::UiSettingsBridge(QObject* parent)
     : QObject(parent) {
-  QString org = QCoreApplication::organizationName();
-  if (org.trimmed().isEmpty()) {
-    org = QStringLiteral("accloud");
-  }
-
-  QString app = QCoreApplication::applicationName();
-  if (app.trimmed().isEmpty()) {
-    app = QStringLiteral("accloud");
-  }
-
-  m_settings = new QSettings(org, app, this);
+  accloud::app::ensureUserLocalRoot();
+  const QString iniPath = accloud::app::userSettingsIniPath();
+  m_settings = new QSettings(iniPath, QSettings::IniFormat, this);
 }
 
 UiSettingsBridge::~UiSettingsBridge() = default;

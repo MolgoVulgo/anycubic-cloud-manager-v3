@@ -1,5 +1,6 @@
 #include "infra/logging/JsonlLogger.h"
 
+#include "infra/config/AppPaths.h"
 #include "infra/logging/Redactor.h"
 #include "infra/logging/Rotator.h"
 
@@ -79,10 +80,7 @@ std::string sanitizeSinkName(std::string_view source) {
 }
 
 std::filesystem::path defaultLogDir() {
-  if (const char* env = std::getenv("ACCLOUD_LOG_DIR"); env != nullptr && *env != '\0') {
-    return std::filesystem::path(env);
-  }
-  return std::filesystem::path("logs");
+  return accloud::config::logDir();
 }
 
 std::string toIso8601Local(std::chrono::system_clock::time_point ts) {

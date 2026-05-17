@@ -1,4 +1,5 @@
 #include "infra/cloud/HarImporter.h"
+#include "infra/config/AppPaths.h"
 #include "infra/logging/JsonlLogger.h"
 
 #include <nlohmann/json.hpp>
@@ -819,12 +820,7 @@ std::filesystem::path resolveSessionPath(
   if (pathOverride.has_value()) {
     return *pathOverride;
   }
-
-  if (const char* env = std::getenv("ACCLOUD_SESSION_PATH");
-      env != nullptr && *env != '\0') {
-    return std::filesystem::path(env);
-  }
-  return std::filesystem::path("session.json");
+  return accloud::config::sessionPath();
 }
 
 LoadSessionResult loadSessionFile(

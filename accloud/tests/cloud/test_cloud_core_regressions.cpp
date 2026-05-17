@@ -1,5 +1,6 @@
 #include "app/LocalCacheStore.h"
 #include "app/usecases/cloud/OrderResponseTracker.h"
+#include "infra/config/AppPaths.h"
 #include "infra/cloud/core/ResponseEnvelopeParser.h"
 
 #include <QCoreApplication>
@@ -312,6 +313,16 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     return ok;
 }
 
+bool test_thumbnail_dir_defaults_to_local_share_acm() {
+    const std::filesystem::path thumbnailDir = accloud::config::thumbnailDir();
+    const std::string dirText = thumbnailDir.generic_string();
+    bool ok = expect(!dirText.empty(), "thumbnail dir should not be empty");
+    ok = ok && expect(dirText.find("/.local/share/acm/thumbnails") != std::string::npos
+                          || dirText == ".local/share/acm/thumbnails",
+                      "thumbnail dir should default to ~/.local/share/acm/thumbnails");
+    return ok;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -320,6 +331,7 @@ int main(int argc, char** argv) {
     ok = test_response_envelope_parser_contract() && ok;
     ok = test_order_response_tracker_lifecycle() && ok;
     ok = test_local_cache_store_roundtrip_and_sync_state() && ok;
+    ok = test_thumbnail_dir_defaults_to_local_share_acm() && ok;
     if (!ok) {
         return 1;
     }
