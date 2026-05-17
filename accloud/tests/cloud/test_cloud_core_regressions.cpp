@@ -313,13 +313,13 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     return ok;
 }
 
-bool test_thumbnail_dir_defaults_to_local_share_acm() {
+bool test_thumbnail_dir_defaults_to_local_share_accloud() {
     const std::filesystem::path thumbnailDir = accloud::config::thumbnailDir();
     const std::string dirText = thumbnailDir.generic_string();
     bool ok = expect(!dirText.empty(), "thumbnail dir should not be empty");
-    ok = ok && expect(dirText.find("/.local/share/acm/thumbnails") != std::string::npos
-                          || dirText == ".local/share/acm/thumbnails",
-                      "thumbnail dir should default to ~/.local/share/acm/thumbnails");
+    ok = ok && expect(dirText.find("/.local/share/accloud/thumbnails") != std::string::npos
+                          || dirText == ".local/share/accloud/thumbnails",
+                      "thumbnail dir should default to ~/.local/share/accloud/thumbnails");
     return ok;
 }
 
@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
     ok = test_response_envelope_parser_contract() && ok;
     ok = test_order_response_tracker_lifecycle() && ok;
     ok = test_local_cache_store_roundtrip_and_sync_state() && ok;
-    ok = test_thumbnail_dir_defaults_to_local_share_acm() && ok;
+    ok = test_thumbnail_dir_defaults_to_local_share_accloud() && ok;
     if (!ok) {
         return 1;
     }

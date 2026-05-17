@@ -26,16 +26,16 @@ inline std::string trim(std::string value) {
 
 inline std::filesystem::path defaultRoot() {
   if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-    return std::filesystem::path(home) / ".local" / "share" / "acm";
+    return std::filesystem::path(home) / ".local" / "share" / "accloud";
   }
-  return std::filesystem::path(".local/share/acm");
+  return std::filesystem::path(".local/share/accloud");
 }
 
 inline std::filesystem::path configPath() {
   if (const char* env = std::getenv("ACCLOUD_PATHS_INI"); env != nullptr && *env != '\0') {
     return std::filesystem::path(env);
   }
-  return defaultRoot() / "acm.ini";
+  return defaultRoot() / "accloud.ini";
 }
 
 inline std::map<std::string, std::string> defaultEntries() {
@@ -48,7 +48,7 @@ inline std::map<std::string, std::string> defaultEntries() {
       {"tmp", (root / "tmp").string()},
       {"thumbnails", (root / "thumbnails").string()},
       {"openssl_compat", (root / "tmp" / "accloud_openssl_seclevel0.cnf").string()},
-      {"logs", "/var/log/acm"},
+      {"logs", "/var/log/accloud"},
   };
 }
 
