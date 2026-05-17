@@ -21,23 +21,21 @@ makedepends=(
   'gcc'
 )
 source=(
-  "anycubic-cloud-manager-v3-aur.zip::https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/heads/aur.zip"
-  "accloud.desktop"
+  "anycubic-cloud-manager-v3-main.zip::https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/heads/main.zip"
 )
 sha256sums=(
-  'SKIP'
   'SKIP'
 )
 
 build() {
-  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-aur/accloud"
+  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-main/accloud"
   cd "${_srcdir}"
   cmake --preset prod
   cmake --build --preset prod --target accloud_cli
 }
 
 package() {
-  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-aur/accloud"
+  local _srcdir="${srcdir}/anycubic-cloud-manager-v3-main/accloud"
   cd "${_srcdir}"
 
   install -d "${pkgdir}/opt/accloud"
@@ -48,7 +46,7 @@ package() {
   fi
 
   install -d "${pkgdir}/usr/share/applications"
-  install -m644 "${srcdir}/accloud.desktop" "${pkgdir}/usr/share/applications/accloud.desktop"
+  install -m644 "packaging/arch/accloud.desktop" "${pkgdir}/usr/share/applications/accloud.desktop"
 
   install -d "${pkgdir}/usr/share/metainfo"
   install -m644 "packaging/org.accloud.App.metainfo.xml" \
