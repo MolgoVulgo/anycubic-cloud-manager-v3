@@ -160,7 +160,7 @@ Default runtime files and directories:
 - tmp: `~/.local/share/accloud/tmp`
 - OpenSSL compat profile: `~/.local/share/accloud/tmp/accloud_openssl_seclevel0.cnf`
 - thumbnails cache: `~/.local/share/accloud/thumbnails`
-- logs: `/var/log/accloud`
+- logs: `~/.local/share/accloud/logs`
 
 Environment overrides:
 - `ACCLOUD_SESSION_PATH`
@@ -183,7 +183,7 @@ Install layout from package:
 - binary and resources under `/opt/accloud`
 - desktop entry: `/usr/share/applications/accloud.desktop`
 - metainfo: `/usr/share/metainfo/org.accloud.App.metainfo.xml`
-- log directory created: `/var/log/accloud`
+- runtime logs default directory: `~/.local/share/accloud/logs`
 
 Build package locally:
 

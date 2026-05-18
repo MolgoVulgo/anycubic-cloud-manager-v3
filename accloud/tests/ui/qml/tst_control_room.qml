@@ -6,6 +6,8 @@ TestCase {
     name: "ControlRoomUi"
     property var cloudBridge: undefined
     property var mqttBridge: undefined
+    property var sessionImportBridge: undefined
+    property bool accloudProdUi: false
 
     function cleanup() {
         if (cloudBridge !== undefined && cloudBridge !== null && cloudBridge.destroy !== undefined) {
@@ -16,6 +18,12 @@ TestCase {
             mqttBridge.destroy()
         }
         mqttBridge = undefined
+        if (sessionImportBridge !== undefined && sessionImportBridge !== null
+                && sessionImportBridge.destroy !== undefined) {
+            sessionImportBridge.destroy()
+        }
+        sessionImportBridge = undefined
+        accloudProdUi = false
     }
 
     function createQmlObject(path, props) {
@@ -131,6 +139,43 @@ TestCase {
             verify(menuBar.contentChildren.length >= 3)
         }
         verify(findObjectByName(window, "render3dDefaultsDialog") !== null)
+
+        window.close()
+        window.destroy()
+    }
+
+    function test_main_window_prod_hides_mqtt_and_logs_tabs() {
+        accloudProdUi = true
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+
+        var mqttTab = findObjectByName(window, "mqttTabButton")
+        var logTab = findObjectByName(window, "logTabButton")
+        verify(mqttTab !== null)
+        verify(logTab !== null)
+        compare(mqttTab.visible, false)
+        compare(logTab.visible, false)
+
+        window.close()
+        window.destroy()
+    }
+
+    function test_main_window_startup_triggers_mqtt_autoconnect() {
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                        'property bool connected: false;' +
+                                        'property int ensureCalls: 0;' +
+                                        'function ensureAutoConnected() { ensureCalls += 1; return true }' +
+                                        '}',
+                                        this,
+                                        "mainWindowMqttAutoConnectMock")
+        sessionImportBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                                 'function checkStartup() { return { sessionExists: true, connectionOk: true, message: "ok" } }' +
+                                                 '}',
+                                                 this,
+                                                 "mainWindowSessionStartupMock")
+
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        wait(0)
+        compare(mqttBridge.ensureCalls, 1)
 
         window.close()
         window.destroy()
@@ -971,6 +1016,50 @@ TestCase {
         compare(cloudBridge.orderCalls[3].orderId, 1)
         compare(String(cloudBridge.orderCalls[3].data.filename), "plate-b.pwmb")
         verify(String(page.statusMsg).indexOf("Local print task sent") === 0)
+
+        page.destroy()
+        cloudBridge = undefined
+        mqttBridge = undefined
+    }
+
+    function test_printer_local_file_modal_autoconnects_mqtt_then_requests_list() {
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                        'property bool connected: false;' +
+                                        'property int ensureCalls: 0;' +
+                                        'function ensureAutoConnected() { ensureCalls += 1; return true }' +
+                                        '}',
+                                        this,
+                                        "printerMqttAutoConnectMock")
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal filesUpdatedFromCloud(var files, string message);' +
+                                         'signal printersUpdatedFromCloud(var printers, string message);' +
+                                         'signal printerInsightsUpdatedFromCloud(string printerId, var details, var projects, string detailsRawJson, string projectsRawJson, string message);' +
+                                         'signal syncFailed(string scope, string message);' +
+                                         'property var orderCalls: [];' +
+                                         'function fetchQuota() { return { ok: true, totalBytes: 0, usedBytes: 0 } }' +
+                                         'function fetchPrinters() { return { ok: true, message: "ok", printers: [ { id: "p1", name: "Printer One", model: "Mono M7", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now" } ] } }' +
+                                         'function fetchFiles(page, limit) { return { ok: true, files: [] } }' +
+                                         'function fetchCompatiblePrintersByExt(ext) { return { ok: true, printers: [] } }' +
+                                         'function fetchCompatiblePrintersByFileId(fileId) { return { ok: true, printers: [] } }' +
+                                         'function fetchReasonCatalog() { return { ok: true, reasons: [] } }' +
+                                         'function fetchPrinterDetails(printerId) { return { ok: true, details: {} } }' +
+                                         'function fetchPrinterProjects(printerId, page, limit) { return { ok: true, projects: [] } }' +
+                                         'function sendPrintOrder() { return { ok: true, taskId: "123" } }' +
+                                         'function sendPrinterOrder(printerId, orderId, data, projectId) { orderCalls.push({ printerId: String(printerId), orderId: Number(orderId), data: data, projectId: String(projectId || "") }); return { ok: true, msgId: "msg-" + String(orderId) } }' +
+                                         '}',
+                                         this,
+                                         "printerLocalFileAutoConnectBridgeMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        page.openLocalFileDialogForRemotePrint("p1")
+        compare(mqttBridge.ensureCalls, 1)
+        compare(cloudBridge.orderCalls.length, 0)
+
+        mqttBridge.connected = true
+        wait(0)
+        compare(cloudBridge.orderCalls.length, 2)
+        compare(cloudBridge.orderCalls[0].orderId, 1231)
+        compare(cloudBridge.orderCalls[1].orderId, 103)
 
         page.destroy()
         cloudBridge = undefined

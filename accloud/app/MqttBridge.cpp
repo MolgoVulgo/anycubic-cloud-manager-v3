@@ -1022,6 +1022,14 @@ QString MqttBridge::messagesForTopic(const QString& topic) const {
     return out.join('\n');
 }
 
+bool MqttBridge::ensureAutoConnected() {
+    if (connected()) {
+        return true;
+    }
+    m_manualMode = false;
+    return attemptAutoConnect();
+}
+
 bool MqttBridge::attemptAutoConnect() {
     if (m_manualMode) {
         return false;

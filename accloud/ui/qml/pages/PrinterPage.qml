@@ -28,6 +28,7 @@ Item {
     property string selectedCloudFileId: ""
     property string selectedPrinterLocalFileName: ""
     property string localFilesTargetPrinterId: ""
+    property string pendingLocalFilesPrinterId: ""
     property string pendingCloudFilesPrinterId: ""
     property bool localFilesLoading: false
     property bool cloudFilesLoading: false
@@ -2001,12 +2002,27 @@ Item {
             return
         }
         if (!hasConnectedMqttBridge()) {
-            localFilesLoading = false
-            statusMsg = qsTr("MQTT must be connected to receive printer local file list.")
-            statusSev = "warn"
+            pendingLocalFilesPrinterId = targetPrinterId
+            statusMsg = qsTr("Connecting MQTT to retrieve printer local files...")
+            statusSev = "info"
+            if (typeof mqttBridge !== "undefined"
+                    && mqttBridge !== null
+                    && typeof mqttBridge.ensureAutoConnected === "function") {
+                mqttBridge.ensureAutoConnected()
+            } else {
+                localFilesLoading = false
+                pendingLocalFilesPrinterId = ""
+                statusMsg = qsTr("MQTT must be connected to receive printer local file list.")
+                statusSev = "warn"
+            }
             return
         }
 
+        pendingLocalFilesPrinterId = ""
+        requestPrinterLocalFiles(targetPrinterId)
+    }
+
+    function requestPrinterLocalFiles(targetPrinterId) {
         if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
             cloudBridge.sendPrinterOrderAsync(targetPrinterId,
                                               localFilesPrepareOrderId,
@@ -2044,6 +2060,13 @@ Item {
 
         statusMsg = qsTr("Loading local files from printer...")
         statusSev = "info"
+    }
+
+    function openPrinterDetailsDialog(printerId) {
+        var normalizedPrinterId = String(printerId || "").trim()
+        if (normalizedPrinterId.length > 0)
+            choosePrinter(normalizedPrinterId)
+        printerDetailsDialog.open()
     }
 
     function applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message) {
@@ -2565,6 +2588,16 @@ Item {
         function onPrinterFileListReceived(printerId, source, records, state, code, message) {
             root.applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message)
         }
+
+        function onConnectedChanged() {
+            if (!mqttBridge || mqttBridge.connected !== true)
+                return
+            var pendingPrinterId = String(root.pendingLocalFilesPrinterId || "").trim()
+            if (pendingPrinterId.length <= 0)
+                return
+            root.pendingLocalFilesPrinterId = ""
+            root.requestPrinterLocalFiles(pendingPrinterId)
+        }
     }
 
     PrinterSelectCloudFileDialog {
@@ -2704,15 +2737,15 @@ Item {
             root.openLocalFileDialogForRemotePrint(printerId)
         }
         onPrinterMqttDetailsRequested: function(printerId) {
-            root.buildPrinterMqttDetails(printerId)
-            mqttDetailsDialog.open()
+            root.openPrinterDetailsDialog(printerId)
         }
     }
 
     AppDialogFrame {
-        id: mqttDetailsDialog
-        title: root.mqttDetailsTitle.length > 0 ? root.mqttDetailsTitle : qsTr("MQTT details")
-        subtitle: qsTr("All captured broker messages for this printer")
+        id: printerDetailsDialog
+        objectName: "printerDetailsDialog"
+        title: qsTr("Printer details")
+        subtitle: qsTr("Current printer characteristics")
         minimumWidth: 980
         maximumWidth: 1280
         minimumHeight: 560
@@ -2724,8 +2757,9 @@ Item {
             clip: true
 
             TextArea {
+                objectName: "printerDetailsDialogText"
                 readOnly: true
-                text: root.mqttDetailsText
+                text: root.prettyJson(root.selectedPrinterDetails || ({}))
                 wrapMode: TextEdit.NoWrap
                 color: Theme.fgPrimary
                 font.family: "monospace"

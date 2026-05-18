@@ -66,6 +66,7 @@ public:
     Q_INVOKABLE void clearRaw();
     Q_INVOKABLE QVariantMap suggestedConnection() const;
     Q_INVOKABLE QString messagesForTopic(const QString& topic) const;
+    Q_INVOKABLE bool ensureAutoConnected();
 
 signals:
     void statusChanged();

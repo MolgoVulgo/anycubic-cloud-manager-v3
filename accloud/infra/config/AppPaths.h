@@ -48,7 +48,7 @@ inline std::map<std::string, std::string> defaultEntries() {
       {"tmp", (root / "tmp").string()},
       {"thumbnails", (root / "thumbnails").string()},
       {"openssl_compat", (root / "tmp" / "accloud_openssl_seclevel0.cnf").string()},
-      {"logs", "/var/log/accloud"},
+      {"logs", (root / "logs").string()},
   };
 }
 
@@ -69,6 +69,12 @@ inline std::map<std::string, std::string> loadOrCreateIni() {
       if (!key.empty() && !val.empty()) {
         entries[key] = val;
       }
+    }
+    const auto logsIt = entries.find("logs");
+    const auto rootIt = entries.find("root");
+    if (logsIt != entries.end() && logsIt->second == "/var/log/accloud" && rootIt != entries.end()
+        && !rootIt->second.empty()) {
+      logsIt->second = (std::filesystem::path(rootIt->second) / "logs").string();
     }
     return entries;
   }

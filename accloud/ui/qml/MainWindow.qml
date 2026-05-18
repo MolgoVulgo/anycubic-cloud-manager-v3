@@ -19,6 +19,8 @@ ApplicationWindow {
     property string globalStatusOpId: "op_shell_status"
     property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                      && accloudBuildDebugEnabled === true
+    property bool prodUi: (typeof accloudProdUi !== "undefined")
+                          && accloudProdUi === true
     property bool debugUi: buildDebugEnabled
                                && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
@@ -192,6 +194,12 @@ ApplicationWindow {
     function applyStartupCheckResult(check) {
         if (check.sessionExists === true && check.connectionOk === true) {
             root.statusText = qsTr("Active session. Auto-refresh every 30s.")
+            if (typeof mqttBridge !== "undefined"
+                    && mqttBridge !== null
+                    && mqttBridge.connected !== true
+                    && typeof mqttBridge.ensureAutoConnected === "function") {
+                mqttBridge.ensureAutoConnected()
+            }
         } else {
             var startupText = backendStatusText(check.message, qsTr("Session validation required."))
             root.statusText = startupText
@@ -1054,6 +1062,7 @@ ApplicationWindow {
                         AppTabButton {
                             objectName: "mqttTabButton"
                             text: qsTr("MQTT")
+                            visible: !root.prodUi
                         }
 
                         AppTabButton {
@@ -1061,6 +1070,7 @@ ApplicationWindow {
                             text: root.buildDebugEnabled
                                   ? qsTr("Logs")
                                   : qsTr("Logs (disabled in this build)")
+                            visible: !root.prodUi
                         }
 
                         onCurrentIndexChanged: {
@@ -1112,6 +1122,7 @@ ApplicationWindow {
 
                         Item {
                             objectName: "mqttPageHost"
+                            visible: !root.prodUi
                             Layout.fillWidth: true
                             Layout.fillHeight: true
 
@@ -1129,6 +1140,7 @@ ApplicationWindow {
 
                         Item {
                             objectName: "logPageHost"
+                            visible: !root.prodUi
                             Layout.fillWidth: true
                             Layout.fillHeight: true
 

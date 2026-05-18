@@ -285,6 +285,8 @@ ApplicationWindow {
     appI18nBridge.applyStartupLanguage();
     engine.rootContext()->setContextProperty("accloudBuildDebugEnabled",
                                              kBuildDebugEnabled);
+    engine.rootContext()->setContextProperty("accloudProdUi",
+                                             !kBuildDebugEnabled);
     engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
     engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
     engine.rootContext()->setContextProperty("mqttBridge", &mqttBridge);
