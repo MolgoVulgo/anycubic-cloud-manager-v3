@@ -1,16 +1,17 @@
 # accloud
 
-C++20 Qt/Kirigami skeleton for Anycubic Cloud Manager V3.
+C++20 / Qt6 / QML application for Anycubic Cloud Manager V3.
 
-This directory materializes the architecture from `Docs/03_photon_viewer_formats.md`:
+This directory materializes the architecture from `docs/03_photon_viewer_formats.md`:
 - layered modules (`ui`, `domain`, `infra`, `render3d`, `tests`)
 - Photon multi-format drivers (`PWMB`, `PWS`, `PHZ`, `PHOTONS`, `PWSZ`)
 - async jobs, cache, logging, and cloud workflows
 
-Logging reference:
-- `../Docs/01_core_web_cloud_sync.md`
-- `../Docs/00_documentation_consolidee_index.md` (documentation map)
-- `../Docs/01_core_web_cloud_sync.md` (implemented vs target matrix)
+Primary documentation:
+- `../docs/00_documentation_consolidee_index.md` (global map)
+- `../docs/01_core_web_cloud_sync.md` (core cloud and sync behavior)
+- `../docs/02_ui_qml.md` (UI/QML behavior)
+- `../docs/03_photon_viewer_formats.md` (photon/viewer formats)
 
 ## Build
 
@@ -29,7 +30,7 @@ ctest --preset default --output-on-failure
 Core regression guard run (MQTT + LOG + HAR + CLOUD CORE + SECURITY):
 
 ```bash
-./tools/ci/run_core_tests.sh
+../tools/ci/run_core_tests.sh
 ```
 
 MQTT topics baseline guard:
@@ -50,7 +51,7 @@ Cloud core regression guards:
 Security regression guards:
 - Sensitive key/value and message token redaction checks.
 
-When Qt6 is unavailable, the build falls back to a headless skeleton mode.
+When Qt6 is unavailable, the build falls back to a headless mode.
 
 ### Debug tooling split
 
@@ -70,7 +71,7 @@ cmake --build --preset prod
 ```
 
 Detailed guide:
-- `../Docs/01_core_web_cloud_sync.md`
+- `../docs/01_core_web_cloud_sync.md`
 
 ### MQTT build behavior
 
@@ -93,13 +94,13 @@ Notes:
 
 Default local TLS resource fallback:
 - preferred:
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_ca.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.key`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_ca.crt`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_client.crt`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_client.key`
 - legacy compatibility (still accepted):
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_client.key`
 
 MQTT auth mode:
 - mode is fixed to `slicer` in runtime.
@@ -139,3 +140,58 @@ Optional overrides:
 - `ACCLOUD_DEVICE_ID` (default: `manager-anycubic-cloud-dev`)
 - `ACCLOUD_USER_AGENT` (default: `manager-anycubic-cloud/0.1.0`)
 - `ACCLOUD_CLIENT_VERSION` (default: `0.1.0`)
+
+## Runtime data paths
+
+Runtime paths are centralized in:
+- `infra/config/AppPaths.h`
+
+Default root:
+- `~/.local/share/accloud`
+
+Generated path configuration file:
+- `~/.local/share/accloud/accloud.ini`
+- override supported with `ACCLOUD_PATHS_INI`
+
+Default runtime files and directories:
+- session: `~/.local/share/accloud/session.json`
+- settings: `~/.local/share/accloud/settings.ini`
+- local cache DB: `~/.local/share/accloud/accloud_cache.db`
+- tmp: `~/.local/share/accloud/tmp`
+- OpenSSL compat profile: `~/.local/share/accloud/tmp/accloud_openssl_seclevel0.cnf`
+- thumbnails cache: `~/.local/share/accloud/thumbnails`
+- logs: `~/.local/share/accloud/logs`
+
+Environment overrides:
+- `ACCLOUD_SESSION_PATH`
+- `ACCLOUD_DB_PATH`
+- `ACCLOUD_LOG_DIR`
+- `ACCLOUD_THUMBNAIL_DIR`
+- `ACCLOUD_MQTT_OPENSSL_CONF_PATH`
+
+## Arch Linux packaging (AUR workflow)
+
+Packaging files:
+- `packaging/arch/PKGBUILD`
+- `packaging/arch/accloud.desktop`
+
+Current source archive target:
+- branch `aur` archive:
+  `https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/heads/aur.zip`
+
+Install layout from package:
+- binary and resources under `/opt/accloud`
+- desktop entry: `/usr/share/applications/accloud.desktop`
+- metainfo: `/usr/share/metainfo/org.accloud.App.metainfo.xml`
+- runtime logs default directory: `~/.local/share/accloud/logs`
+
+Build package locally:
+
+```bash
+cd packaging/arch
+makepkg -si
+```
+
+Important:
+- use Arch packaging as install path authority;
+- do not use direct `cmake --install` on the host system.
