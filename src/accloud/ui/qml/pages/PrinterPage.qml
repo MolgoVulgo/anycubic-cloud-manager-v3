@@ -64,6 +64,8 @@ Item {
     property bool startupJobsRefreshed: false
     property var printerHadActiveJobById: ({})
     property var pendingRemotePrintByPrinterId: ({})
+    property bool pendingPrintDeleteAfterPrint: false
+    property var pendingPostPrintCloudDeleteByFileId: ({})
     property string lastJobsRefreshReason: ""
     property string mqttDetailsTitle: ""
     property string mqttDetailsText: ""
@@ -970,11 +972,101 @@ Item {
             "reason": qsTr("Waiting for printer telemetry"),
             "createTime": Math.floor(Date.now() / 1000),
             "endTime": 0,
-            "img": ""
+            "img": "",
+            "deleteAfterPrint": fileData && fileData.deleteAfterPrint === true
         }
         pendingRemotePrintByPrinterId = next
         liveProjectData = next[key]
         refreshSelectedPrinterLiveSnapshot()
+    }
+
+    function requestPostPrintLocalDelete(printerId, pendingPrint) {
+        var targetPrinterId = String(printerId || "").trim()
+        var fileName = String(pendingPrint && pendingPrint.currentFile !== undefined ? pendingPrint.currentFile : "").trim()
+        if (fileName.length <= 0)
+            fileName = String(pendingPrint && pendingPrint.gcodeName !== undefined ? pendingPrint.gcodeName : "").trim()
+        if (targetPrinterId.length === 0 || fileName.length === 0 || !hasPrinterOrderEndpoint())
+            return false
+
+        var payload = {
+            "filename": fileName,
+            "path": "/"
+        }
+        var context = "post_print_local_delete:" + String(pendingPrint.fileId || "") + ":" + fileName
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              localFileDeleteOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+            return true
+        }
+        var localDeleteResult = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                             localFileDeleteOrderId,
+                                                             payload,
+                                                             targetPrinterId)
+        if (localDeleteResult.ok !== true)
+            return false
+        return true
+    }
+
+    function requestPostPrintCloudDelete(printerId, fileId) {
+        var normalizedFileId = String(fileId || "").trim()
+        if (normalizedFileId.length === 0 || !hasCloudBridge() || typeof cloudBridge.deleteFile !== "function")
+            return false
+        var next = {}
+        for (var key in pendingPostPrintCloudDeleteByFileId)
+            next[key] = pendingPostPrintCloudDeleteByFileId[key]
+        next[normalizedFileId] = String(printerId || "")
+        pendingPostPrintCloudDeleteByFileId = next
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(normalizedFileId)
+            return true
+        }
+        var cloudDeleteResult = cloudBridge.deleteFile(normalizedFileId)
+        if (cloudDeleteResult.ok !== true)
+            return false
+        statusMsg = qsTr("Print finished. File deleted locally and in cloud.")
+        statusSev = "success"
+        clearPendingRemotePrint(printerId)
+        var cleaned = {}
+        for (var existing in pendingPostPrintCloudDeleteByFileId) {
+            if (existing !== normalizedFileId)
+                cleaned[existing] = pendingPostPrintCloudDeleteByFileId[existing]
+        }
+        pendingPostPrintCloudDeleteByFileId = cleaned
+        return true
+    }
+
+    function maybeRunPostPrintCleanup(printerId) {
+        var pending = pendingRemotePrintForPrinter(printerId)
+        if (!pending)
+            return
+        if (pending.deleteAfterPrint !== true) {
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        var localDeleteOk = requestPostPrintLocalDelete(printerId, pending)
+        if (!localDeleteOk) {
+            statusMsg = qsTr("Print finished, but local file deletion failed. Cloud deletion skipped.")
+            statusSev = "warn"
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        var fileId = String(pending.fileId || "").trim()
+        if (fileId.length <= 0) {
+            statusMsg = qsTr("Print finished. Local file deleted, but cloud file id is missing.")
+            statusSev = "warn"
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        if (typeof cloudBridge.sendPrinterOrderAsync !== "function") {
+            if (!requestPostPrintCloudDelete(printerId, fileId)) {
+                statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                statusSev = "warn"
+                clearPendingRemotePrint(printerId)
+            }
+        }
     }
 
     function clearPendingRemotePrint(printerId) {
@@ -1427,7 +1519,7 @@ Item {
 
     function detectPrintCompletionTransitions() {
         var nextState = {}
-        var finishedSelectedPrinter = false
+        var finishedPrinterIds = []
         for (var i = 0; i < printersModel.count; ++i) {
             var printer = printersModel.get(i)
             var printerId = String(printer.id || "")
@@ -1436,11 +1528,13 @@ Item {
             var active = printerHasActiveJob(printer)
             var hadActive = printerHadActiveJobById[printerId] === true
             nextState[printerId] = active
-            if (hadActive && !active && printerId === selectedPrinterId)
-                finishedSelectedPrinter = true
+            if (hadActive && !active)
+                finishedPrinterIds.push(printerId)
         }
         printerHadActiveJobById = nextState
-        if (finishedSelectedPrinter)
+        for (var j = 0; j < finishedPrinterIds.length; ++j)
+            maybeRunPostPrintCleanup(finishedPrinterIds[j])
+        if (finishedPrinterIds.indexOf(selectedPrinterId) >= 0)
             refreshSelectedPrinterJobs("print_finished", true, false)
     }
 
@@ -2348,6 +2442,7 @@ Item {
             pendingPrintPrinterId = remotePrinterId
             pendingPrintFileId = fileId
             pendingPrintFileData = fileData
+            pendingPrintDeleteAfterPrint = optionDeleteAfterPrint === true
             statusMsg = qsTr("Sending print order...")
             statusSev = "info"
             cloudBridge.sendPrintOrderAsync(remotePrinterId,
@@ -2361,16 +2456,18 @@ Item {
                                            fileId,
                                            optionDeleteAfterPrint,
                                            false)
-        applyPrintOrderResult(remotePrinterId, fileId, r, fileData)
+        applyPrintOrderResult(remotePrinterId, fileId, r, fileData, optionDeleteAfterPrint === true)
     }
 
-    function applyPrintOrderResult(printerId, fileId, r, fileData) {
+    function applyPrintOrderResult(printerId, fileId, r, fileData, deleteAfterPrint) {
         if (r.ok === true) {
             var taskId = String(r.taskId || "")
             var successMessage = taskId.length > 0
                     ? (qsTr("Print order sent (task_id=%1)").arg(taskId))
                     : qsTr("Print order sent.")
-            markRemotePrintAccepted(printerId, fileData, taskId)
+            var trackedFileData = fileData ? fileData : ({})
+            trackedFileData.deleteAfterPrint = deleteAfterPrint === true
+            markRemotePrintAccepted(printerId, trackedFileData, taskId)
             remotePrintConfigDialog.close()
             if (printerId !== selectedPrinterId)
                 choosePrinter(printerId)
@@ -2468,11 +2565,13 @@ Item {
                 return
             }
             var fileData = root.pendingPrintFileData
+            var deleteAfterPrint = root.pendingPrintDeleteAfterPrint
             root.remotePrintSubmitting = false
             root.pendingPrintPrinterId = ""
             root.pendingPrintFileId = ""
             root.pendingPrintFileData = null
-            root.applyPrintOrderResult(printerId, fileId, result, fileData)
+            root.pendingPrintDeleteAfterPrint = false
+            root.applyPrintOrderResult(printerId, fileId, result, fileData, deleteAfterPrint)
         }
 
         function onPrinterOrderFinished(context, printerId, orderId, result) {
@@ -2505,7 +2604,46 @@ Item {
             if (normalizedContext.indexOf("local_file_delete:") === 0) {
                 var fileName = normalizedContext.slice(String("local_file_delete:").length)
                 root.applyLocalFileDeleteResult(String(printerId || ""), fileName, result)
+                return
             }
+
+            if (normalizedContext.indexOf("post_print_local_delete:") === 0) {
+                var parts = normalizedContext.split(":")
+                var cloudFileId = parts.length > 1 ? String(parts[1] || "") : ""
+                if (result.ok !== true) {
+                    root.statusMsg = qsTr("Print finished, but local file deletion failed. Cloud deletion skipped.")
+                    root.statusSev = "warn"
+                    root.clearPendingRemotePrint(String(printerId || ""))
+                    return
+                }
+                if (!root.requestPostPrintCloudDelete(String(printerId || ""), cloudFileId)) {
+                    root.statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                    root.statusSev = "warn"
+                    root.clearPendingRemotePrint(String(printerId || ""))
+                }
+                return
+            }
+        }
+
+        function onDeleteFileFinished(fileId, result) {
+            var normalizedFileId = String(fileId || "").trim()
+            var printerId = String(root.pendingPostPrintCloudDeleteByFileId[normalizedFileId] || "")
+            if (printerId.length <= 0)
+                return
+            var next = {}
+            for (var key in root.pendingPostPrintCloudDeleteByFileId) {
+                if (key !== normalizedFileId)
+                    next[key] = root.pendingPostPrintCloudDeleteByFileId[key]
+            }
+            root.pendingPostPrintCloudDeleteByFileId = next
+            if (result && result.ok === true) {
+                root.statusMsg = qsTr("Print finished. File deleted locally and in cloud.")
+                root.statusSev = "success"
+            } else {
+                root.statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                root.statusSev = "warn"
+            }
+            root.clearPendingRemotePrint(printerId)
         }
 
         function onReasonCatalogUpdatedFromCloud(reasons, message) {
