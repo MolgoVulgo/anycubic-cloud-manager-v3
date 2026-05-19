@@ -2,16 +2,16 @@
 
 C++20 / Qt6 / QML application for Anycubic Cloud Manager V3.
 
-This directory materializes the architecture from `Docs/03_photon_viewer_formats.md`:
+This directory materializes the architecture from `docs/03_photon_viewer_formats.md`:
 - layered modules (`ui`, `domain`, `infra`, `render3d`, `tests`)
 - Photon multi-format drivers (`PWMB`, `PWS`, `PHZ`, `PHOTONS`, `PWSZ`)
 - async jobs, cache, logging, and cloud workflows
 
 Primary documentation:
-- `../Docs/00_documentation_consolidee_index.md` (global map)
-- `../Docs/01_core_web_cloud_sync.md` (core cloud and sync behavior)
-- `../Docs/02_ui_qml.md` (UI/QML behavior)
-- `../Docs/03_photon_viewer_formats.md` (photon/viewer formats)
+- `../docs/00_documentation_consolidee_index.md` (global map)
+- `../docs/01_core_web_cloud_sync.md` (core cloud and sync behavior)
+- `../docs/02_ui_qml.md` (UI/QML behavior)
+- `../docs/03_photon_viewer_formats.md` (photon/viewer formats)
 
 ## Build
 
@@ -30,7 +30,7 @@ ctest --preset default --output-on-failure
 Core regression guard run (MQTT + LOG + HAR + CLOUD CORE + SECURITY):
 
 ```bash
-./tools/ci/run_core_tests.sh
+../tools/ci/run_core_tests.sh
 ```
 
 MQTT topics baseline guard:
@@ -71,7 +71,7 @@ cmake --build --preset prod
 ```
 
 Detailed guide:
-- `../Docs/01_core_web_cloud_sync.md`
+- `../docs/01_core_web_cloud_sync.md`
 
 ### MQTT build behavior
 
@@ -94,13 +94,13 @@ Notes:
 
 Default local TLS resource fallback:
 - preferred:
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_ca.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqtt_tls_client.key`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_ca.crt`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_client.crt`
+- `../resources/mqtt/tls/anycubic_mqtt_tls_client.key`
 - legacy compatibility (still accepted):
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
-  - `accloud/resources/mqtt/tls/anycubic_mqqt_tls_client.key`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_ca.crt`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_client.crt`
+- `../resources/mqtt/tls/anycubic_mqqt_tls_client.key`
 
 MQTT auth mode:
 - mode is fixed to `slicer` in runtime.
