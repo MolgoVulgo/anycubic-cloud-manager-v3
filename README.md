@@ -33,18 +33,18 @@ La documentation active est organisée autour de deux niveaux :
 
 Ordre de lecture recommandé :
 
-1. `Docs/00_documentation_consolidee_index.md`
-2. `Docs/01_core_web_cloud_sync.md`
-3. `Docs/02_ui_qml.md`
-4. `Docs/03_photon_viewer_formats.md`
+1. `docs/00_documentation_consolidee_index.md`
+2. `docs/01_core_web_cloud_sync.md`
+3. `docs/02_ui_qml.md`
+4. `docs/03_photon_viewer_formats.md`
 
 ### 2. Sections spécialisées
 
-* `Docs/MQTT/README.md`
-* `Docs/i18n/README.md`
-* `Docs/Anycubic Cloud Client/README.md`
-* `Docs/Photon Viewer/README.md`
-* `Docs/photon_files/README.md`
+* `docs/MQTT/README.md`
+* `docs/i18n/README.md`
+* `docs/Anycubic Cloud Client/README.md`
+* `docs/Photon Viewer/README.md`
+* `docs/photon_files/README.md`
 
 ## Convention de numérotation
 
@@ -69,7 +69,7 @@ Le projet repose sur **CMake** avec des presets de build. La lecture normale du 
 * `CMakeLists.txt`
 * `CMakePresets.json`
 * `accloud/`
-* `Docs/`
+* `docs/`
 
 Les détails d’implémentation, d’architecture et de périmètre fonctionnel doivent être lus dans les documents consolidés plutôt que reconstruits à partir de fragments historiques.
 
@@ -77,7 +77,7 @@ Les détails d’implémentation, d’architecture et de périmètre fonctionnel
 
 Pour une lecture structurée du dépôt, commencer par :
 
-* `Docs/README.md`
+* `docs/README.md`
 
 Puis suivre le socle `00..03` avant d’ouvrir les sections spécialisées.
 
@@ -105,4 +105,4 @@ Ce dépôt est la base active du projet **Anycubic Cloud Manager V3** pour :
 Le bon point d’entrée n’est pas un document isolé, mais le couple :
 
 * `README.md` racine
-* `Docs/README.md`
+* `docs/README.md`

@@ -1,7 +1,7 @@
 # agent.md — anycubic-cloud-manager-v3
 
 Ce fichier définit les contraintes projet que Codex doit charger en premier.
-Le détail long est dans `Docs/codex-agent-project.md`.
+Le détail long est dans `docs/codex-agent-project.md`.
 
 Le dépôt doit être traité en priorité comme un projet :
 - C++20 / Qt6 / QML ;
@@ -22,19 +22,19 @@ Lire d’abord :
 1. `accloud/CMakeLists.txt`
 2. `accloud/CMakePresets.json`
 3. `accloud/README.md`
-4. `Docs/00_documentation_consolidee_index.md`
-5. `Docs/codex-agent-project.md`
+4. `docs/00_documentation_consolidee_index.md`
+5. `docs/codex-agent-project.md`
 6. la zone fonctionnelle réellement touchée
 
 Points d’entrée utiles :
-- `accloud/app/main.cpp`
-- `accloud/app/MqttBridge.cpp`
-- `accloud/app/MqttBridge.h`
+- `src/accloud/app/main.cpp`
+- `src/accloud/app/MqttBridge.cpp`
+- `src/accloud/app/MqttBridge.h`
 
 Pour toute intervention UI/QML ou performance perçue, lire aussi :
-- `Docs/ui_latency_performance_analysis.md`
-- `Docs/ui_latency_correction_plan.md`
-- `Docs/ui_optimization_continuity.md`
+- `docs/ui_latency_performance_analysis.md`
+- `docs/ui_latency_correction_plan.md`
+- `docs/ui_optimization_continuity.md`
 
 ---
 
@@ -70,7 +70,7 @@ Ne pas inventer de commande si le dépôt ne l’expose pas.
 ## Politique de modification
 
 - Modifier uniquement les fichiers nécessaires à l’intention du changement.
-- Si un changement impacte le debug MQTT ou le comportement utilisateur, mettre à jour la documentation associée dans `Docs/`.
+- Si un changement impacte le debug MQTT ou le comportement utilisateur, mettre à jour la documentation associée dans `docs/`.
 - En cas de doute architectural, corriger dans le module déjà responsable plutôt que déplacer la responsabilité.
 - Ne jamais générer du code en solo : exposer d’abord le constat technique et ce qui va être modifié.
 
