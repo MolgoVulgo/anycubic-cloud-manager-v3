@@ -15,7 +15,13 @@ option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + 
 find_package(nlohmann_json CONFIG REQUIRED)
 
 add_library(accloud_domain INTERFACE)
-target_include_directories(accloud_domain INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+set(ACCLOUD_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
+set(ACCLOUD_SRC_ROOT ${ACCLOUD_REPO_ROOT}/src/accloud)
+set(ACCLOUD_TESTS_ROOT ${ACCLOUD_REPO_ROOT}/tests)
+set(ACCLOUD_TOOLS_ROOT ${ACCLOUD_REPO_ROOT}/tools)
+set(ACCLOUD_I18N_ROOT ${ACCLOUD_REPO_ROOT}/i18n)
+
+target_include_directories(accloud_domain INTERFACE ${ACCLOUD_SRC_ROOT})
 
 set(ACCLOUD_INFRA_SOURCES
     infra/photons/PhotonsReader.cpp
@@ -94,16 +100,17 @@ set(ACCLOUD_INFRA_SOURCES
     render3d/gl/MeshlessVolume.cpp
     render3d/qtquick/QmlGlItem.cpp
 )
+list(TRANSFORM ACCLOUD_INFRA_SOURCES PREPEND "${ACCLOUD_SRC_ROOT}/")
 
 add_library(accloud_infra OBJECT ${ACCLOUD_INFRA_SOURCES})
-target_include_directories(accloud_infra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(accloud_infra PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_infra PRIVATE accloud_domain nlohmann_json::nlohmann_json)
 
 add_executable(accloud_cli
-    app/main.cpp
-    app/App.cpp
+    ${ACCLOUD_SRC_ROOT}/app/main.cpp
+    ${ACCLOUD_SRC_ROOT}/app/App.cpp
 )
-set_source_files_properties(app/main.cpp PROPERTIES SKIP_AUTOMOC ON)
+set_source_files_properties(${ACCLOUD_SRC_ROOT}/app/main.cpp PROPERTIES SKIP_AUTOMOC ON)
 target_link_libraries(accloud_cli PRIVATE accloud_domain accloud_infra)
 
 find_package(OpenSSL QUIET)
@@ -141,28 +148,38 @@ if(ACCLOUD_ENABLE_QT)
     endif()
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
     set(ACCLOUD_APP_QT_SOURCES
-        app/resources.qrc
-        app/AppI18nBridge.cpp
-        app/AppI18nBridge.h
-        app/CloudBridge.cpp
-        app/CloudBridge.h
-        app/MqttBridge.cpp
-        app/MqttBridge.h
-        app/LocalCacheStore.cpp
-        app/LocalCacheStore.h
-        app/UiSettingsBridge.cpp
-        app/UiSettingsBridge.h
-        app/SessionImportBridge.cpp
-        app/SessionImportBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/resources.qrc
+        ${ACCLOUD_SRC_ROOT}/app/AppI18nBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/AppI18nBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.h
+        ${ACCLOUD_SRC_ROOT}/app/CloudBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/CloudBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/MqttBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/MqttBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.h
+        ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrintersModel.h
+        ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.h
+        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
+        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.h
+        ${ACCLOUD_SRC_ROOT}/app/UiSettingsBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/UiSettingsBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/SessionImportBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/SessionImportBridge.h
     )
 
     if(ACCLOUD_DEBUG)
       list(APPEND ACCLOUD_APP_QT_SOURCES
-          app/resources_debug.qrc
-          app/LogBridge.cpp
-          app/LogBridge.h
-          app/UiClickTracer.cpp
-          app/UiClickTracer.h
+          ${ACCLOUD_SRC_ROOT}/app/resources_debug.qrc
+          ${ACCLOUD_SRC_ROOT}/app/LogBridge.cpp
+          ${ACCLOUD_SRC_ROOT}/app/LogBridge.h
+          ${ACCLOUD_SRC_ROOT}/app/LogTailModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/LogTailModel.h
+          ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.cpp
+          ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.h
       )
     endif()
 
@@ -172,19 +189,19 @@ if(ACCLOUD_ENABLE_QT)
     find_package(Qt6 QUIET COMPONENTS LinguistTools)
     if(TARGET Qt6::lrelease)
       set(ACCLOUD_I18N_TS_FILES
-          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_en.ts
-          ${CMAKE_CURRENT_SOURCE_DIR}/i18n/accloud_fr.ts
+          ${ACCLOUD_I18N_ROOT}/accloud_en.ts
+          ${ACCLOUD_I18N_ROOT}/accloud_fr.ts
       )
       file(GLOB_RECURSE ACCLOUD_I18N_QML_FILES
-          ${CMAKE_CURRENT_SOURCE_DIR}/ui/qml/*.qml
+          ${ACCLOUD_SRC_ROOT}/ui/qml/*.qml
       )
       qt_add_translations(accloud_cli
           TS_FILES ${ACCLOUD_I18N_TS_FILES}
           SOURCES
-              app/main.cpp
-              app/AppI18nBridge.cpp
-              app/CloudBridge.cpp
-              app/SessionImportBridge.cpp
+              ${ACCLOUD_SRC_ROOT}/app/main.cpp
+              ${ACCLOUD_SRC_ROOT}/app/AppI18nBridge.cpp
+              ${ACCLOUD_SRC_ROOT}/app/CloudBridge.cpp
+              ${ACCLOUD_SRC_ROOT}/app/SessionImportBridge.cpp
               ${ACCLOUD_I18N_QML_FILES}
           RESOURCE_PREFIX "/i18n"
       )
@@ -198,10 +215,23 @@ if(ACCLOUD_ENABLE_QT)
   if(ACCLOUD_ENABLE_QML_TESTS)
     find_package(Qt6 QUIET COMPONENTS QuickTest)
     if(TARGET Qt6::QuickTest)
-      add_executable(accloud_qml_tests tests/ui/tst_ui_main.cpp)
+      add_executable(accloud_qml_tests
+          ${ACCLOUD_TESTS_ROOT}/ui/tst_ui_main.cpp
+          ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.h
+          ${ACCLOUD_SRC_ROOT}/app/LogTailModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/LogTailModel.h
+          ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.h
+          ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/PrintersModel.h
+          ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.h
+      )
       target_link_libraries(accloud_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::QuickControls2)
+      target_include_directories(accloud_qml_tests PRIVATE ${ACCLOUD_SRC_ROOT})
       target_compile_definitions(accloud_qml_tests PRIVATE
-          QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml"
+          QUICK_TEST_SOURCE_DIR="${ACCLOUD_TESTS_ROOT}/ui/qml"
       )
       add_test(
         NAME accloud_ui_qml
@@ -209,7 +239,7 @@ if(ACCLOUD_ENABLE_QT)
       )
       add_test(
         NAME accloud_ui_qml_upload
-        COMMAND accloud_qml_tests -platform offscreen -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/qml/tst_cloud_files_upload.qml
+        COMMAND accloud_qml_tests -platform offscreen -input ${ACCLOUD_TESTS_ROOT}/ui/qml/tst_cloud_files_upload.qml
       )
     else()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
@@ -224,14 +254,14 @@ find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(
     NAME accloud_ui_migration_check
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_ui_migration.py
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_ui_migration.py
   )
 else()
   message(WARNING "Python3 interpreter not found: skipping UI migration guard test")
 endif()
 
 add_executable(accloud_har_tests
-    tests/cloud/test_har_import.cpp
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_har_import.cpp
 )
 target_link_libraries(accloud_har_tests PRIVATE accloud_domain accloud_infra)
 if(OpenSSL_FOUND)
@@ -244,8 +274,8 @@ add_test(NAME accloud_har_import COMMAND accloud_har_tests)
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Sql)
   add_executable(accloud_cloud_core_tests
-      tests/cloud/test_cloud_core_regressions.cpp
-      app/LocalCacheStore.cpp
+      ${ACCLOUD_TESTS_ROOT}/cloud/test_cloud_core_regressions.cpp
+      ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
   )
   target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
   add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)
@@ -254,7 +284,7 @@ else()
 endif()
 
 add_executable(accloud_security_tests
-    tests/cloud/test_redactor.cpp
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_redactor.cpp
 )
 target_link_libraries(accloud_security_tests PRIVATE accloud_domain accloud_infra)
 if(OpenSSL_FOUND)
@@ -266,9 +296,20 @@ endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_ui_model_tests
+      ${ACCLOUD_TESTS_ROOT}/ui/test_models.cpp
+      ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.cpp
+      ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
+      ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
+      ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
+  )
+  target_link_libraries(accloud_ui_model_tests PRIVATE accloud_domain Qt6::Core)
+  add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
+
   add_executable(accloud_log_tests
-      tests/cloud/test_log_bridge.cpp
-      app/LogBridge.cpp
+      ${ACCLOUD_TESTS_ROOT}/cloud/test_log_bridge.cpp
+      ${ACCLOUD_SRC_ROOT}/app/LogBridge.cpp
+      ${ACCLOUD_SRC_ROOT}/app/LogTailModel.cpp
   )
   target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
   add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
@@ -277,7 +318,7 @@ else()
 endif()
 
 add_executable(accloud_mqtt_tests
-    tests/mqtt/test_mqtt_flow.cpp
+    ${ACCLOUD_TESTS_ROOT}/mqtt/test_mqtt_flow.cpp
 )
 target_link_libraries(accloud_mqtt_tests PRIVATE accloud_domain accloud_infra)
 if(OpenSSL_FOUND)
@@ -289,7 +330,7 @@ endif()
 add_test(NAME accloud_mqtt_flow COMMAND accloud_mqtt_tests)
 
 add_executable(accloud_mqtt_live_check
-    tests/mqtt/test_mqtt_live_broker.cpp
+    ${ACCLOUD_TESTS_ROOT}/mqtt/test_mqtt_live_broker.cpp
 )
 target_link_libraries(accloud_mqtt_live_check PRIVATE accloud_domain accloud_infra)
 if(OpenSSL_FOUND)

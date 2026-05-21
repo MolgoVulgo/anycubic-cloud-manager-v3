@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=accloud
+Exec=accloud_cli
+Icon=org.accloud.App
+Categories=Utility;Graphics;
+Terminal=false

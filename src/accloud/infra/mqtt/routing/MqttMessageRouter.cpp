@@ -1,0 +1,551 @@
+#include "MqttMessageRouter.h"
+
+#include "infra/mqtt/observability/MqttTelemetry.h"
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <map>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace accloud::mqtt::routing {
+namespace {
+
+std::string toLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::vector<std::string> splitTopic(const std::string& topic) {
+    std::vector<std::string> parts;
+    std::stringstream ss(topic);
+    std::string item;
+    while (std::getline(ss, item, '/')) {
+        parts.push_back(item);
+    }
+    return parts;
+}
+
+std::optional<std::string> topicEndpoint(const std::string& topic) {
+    const auto parts = splitTopic(topic);
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+    if (parts.back() == "report" && parts.size() >= 2) {
+        return parts[parts.size() - 2];
+    }
+    // legacy: .../online/status
+    if (parts.size() >= 2 && parts[parts.size() - 2] == "online" && parts.back() == "status") {
+        return std::string("status");
+    }
+    return parts.back();
+}
+
+std::optional<int> jsonToInt(const nlohmann::json& value) {
+    if (value.is_number_integer()) {
+        return value.get<int>();
+    }
+    if (value.is_number_float()) {
+        return static_cast<int>(value.get<double>());
+    }
+    if (value.is_string()) {
+        try {
+            return std::stoi(value.get<std::string>());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<int> firstIntField(const nlohmann::json& object,
+                                 std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        auto parsed = jsonToInt(object[key]);
+        if (parsed.has_value()) {
+            return parsed;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> firstBoolField(const nlohmann::json& object,
+                                   std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        const auto& value = object[key];
+        if (value.is_boolean()) {
+            return value.get<bool>();
+        }
+        if (value.is_number_integer()) {
+            return value.get<int>() != 0;
+        }
+        if (value.is_string()) {
+            const std::string lowered = toLowerAscii(value.get<std::string>());
+            if (lowered == "true" || lowered == "1" || lowered == "yes") {
+                return true;
+            }
+            if (lowered == "false" || lowered == "0" || lowered == "no") {
+                return false;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> firstStringField(const nlohmann::json& object,
+                                            std::initializer_list<const char*> keys) {
+    if (!object.is_object()) {
+        return std::nullopt;
+    }
+    for (const char* key : keys) {
+        if (!object.contains(key) || object[key].is_null()) {
+            continue;
+        }
+        if (object[key].is_string()) {
+            const std::string value = object[key].get<std::string>();
+            if (!value.empty()) {
+                return value;
+            }
+        } else if (object[key].is_number_integer()) {
+            return std::to_string(object[key].get<long long>());
+        }
+    }
+    return std::nullopt;
+}
+
+std::map<std::string, int> parseCheckStatus(const nlohmann::json& object) {
+    std::map<std::string, int> out;
+    if (!object.is_object() || !object.contains("checkStatus") || !object["checkStatus"].is_array()) {
+        return out;
+    }
+    for (const auto& item : object["checkStatus"]) {
+        if (!item.is_object()) {
+            continue;
+        }
+        const auto name = firstStringField(item, {"name"});
+        const auto status = firstIntField(item, {"status"});
+        if (name.has_value() && status.has_value()) {
+            out[*name] = *status;
+        }
+    }
+    return out;
+}
+
+bool isKnownPrintState(const std::string& state) {
+    static const std::array<const char*, 15> kStates = {
+        "downloading", "checking", "preheating", "printing", "pausing",
+        "paused", "resuming", "resumed", "finished", "stoped",
+        "stopping", "updated", "failed", "monitoring", "waiting",
+    };
+    return std::any_of(kStates.begin(), kStates.end(), [&](const char* v) {
+        return state == v;
+    });
+}
+
+int releaseFilmLayerLimit(const std::optional<std::string>& filmType) {
+    if (!filmType.has_value()) {
+        return 30000;
+    }
+    const std::string type = toLowerAscii(*filmType);
+    if (type.find("acf") != std::string::npos || type.find("nfep") != std::string::npos) {
+        return 30000;
+    }
+    if (type.find("fep") != std::string::npos) {
+        return 10000;
+    }
+    return 30000;
+}
+
+} // namespace
+
+MqttRouteResult MqttMessageRouter::route(const std::string& topic, const std::string& payload) const {
+    MqttRouteResult out;
+    out.topic = topic;
+    out.isUserTopic = topicIsUserReport(topic);
+    const auto printerKey = extractPrinterKey(topic);
+    out.isPrinterTopic = printerKey.has_value();
+    if (printerKey.has_value()) {
+        out.printerKey = *printerKey;
+    }
+
+    if (payload.empty()) {
+        out.disposition = RouteDisposition::Ignored;
+        out.reason = "empty_payload";
+        return out;
+    }
+
+    nlohmann::json root;
+    try {
+        root = nlohmann::json::parse(payload);
+    } catch (...) {
+        observability::MqttTelemetry::instance().incrementParseErrors();
+        out.disposition = RouteDisposition::InvalidJson;
+        out.reason = "invalid_json";
+        return out;
+    }
+    if (!root.is_object()) {
+        observability::MqttTelemetry::instance().incrementParseErrors();
+        out.disposition = RouteDisposition::InvalidEnvelope;
+        out.reason = "root_not_object";
+        return out;
+    }
+
+    MqttEnvelope env;
+    env.type = toStringField(root, "type");
+    if (env.type.empty()) {
+        auto inferredType = topicEndpoint(topic);
+        if (inferredType.has_value()) {
+            env.type = *inferredType;
+        }
+    }
+    env.action = toStringField(root, "action");
+    if (env.action.empty()) {
+        env.action = toStringField(root, "cmd");
+    }
+    if (env.action.empty()) {
+        if (topic.find("/report") != std::string::npos) {
+            env.action = "report";
+        } else if (topicEndpoint(topic).has_value()) {
+            env.action = "topic";
+        }
+    }
+    env.state = normalizeState(root);
+    env.msgid = toStringField(root, "msgid");
+    if (root.contains("data") && root["data"].is_object()) {
+        env.data = root["data"];
+    }
+    env.raw = root;
+    out.envelope = env;
+    out.signature = makeSignature(env);
+
+    if (env.type.empty()) {
+        observability::MqttTelemetry::instance().incrementParseErrors();
+        out.disposition = RouteDisposition::InvalidEnvelope;
+        out.reason = "missing_type";
+        return out;
+    }
+
+    if (!isKnownType(env.type)) {
+        observability::MqttTelemetry::instance().recordUnknownSignature(out.signature);
+        out.disposition = RouteDisposition::UnknownMessage;
+        out.reason = "unknown_type";
+        return out;
+    }
+
+    if (out.isPrinterTopic && isStateRequiredForType(env.type) && env.state.empty()) {
+        observability::MqttTelemetry::instance().incrementParseErrors();
+        out.disposition = RouteDisposition::InvalidEnvelope;
+        out.reason = "missing_state_on_printer_topic";
+        return out;
+    }
+
+    auto messageTypeOpt = mapMessageType(env.type);
+    if (!messageTypeOpt.has_value()) {
+        observability::MqttTelemetry::instance().recordUnknownSignature(out.signature);
+        out.disposition = RouteDisposition::UnknownMessage;
+        out.reason = "type_not_mapped";
+        return out;
+    }
+
+    accloud::realtime::PrinterRealtimeEvent event;
+    event.type = *messageTypeOpt;
+    event.kind = mapEventKind(*messageTypeOpt);
+    event.wireType = env.type;
+    if (env.type == "releaseFilm") {
+        event.kind = accloud::realtime::EventKind::ReleaseFilmUpdate;
+    } else if (env.type == "autoOperation") {
+        event.kind = accloud::realtime::EventKind::AutoOperationUpdate;
+    } else if (env.type == "wifi") {
+        event.kind = accloud::realtime::EventKind::WifiUpdate;
+    }
+    event.printerKey = out.printerKey;
+    event.action = env.action;
+    event.state = env.state;
+    event.msgid = env.msgid;
+    event.topic = topic;
+    if (event.type == accloud::realtime::MessageType::Print && !env.state.empty()) {
+        event.printState = mapPrintState(env.state);
+    }
+    event.taskId = firstStringField(env.data, {"taskid", "task_id"});
+    event.progress = firstIntField(env.data, {"progress", "print_progress", "percent", "percentage"});
+    if (env.type == "print" && env.action == "update" && env.state == "downloading") {
+        event.downloadProgress = event.progress;
+    }
+    if (env.type == "print" && env.action == "start") {
+        event.printProgress = event.progress;
+    }
+    event.elapsedSec = firstIntField(env.data, {"elapsed_sec", "elapsed_time", "used_time", "duration", "print_time"});
+    event.remainingSec = firstIntField(env.data, {"remaining_sec", "remaining_time", "left_time", "remain_time", "remain_sec"});
+    event.currentLayer = firstIntField(env.data, {"current_layer", "curr_layer", "layer_now", "layer"});
+    event.totalLayers = firstIntField(env.data, {"total_layers", "layer_total", "total_layer"});
+    event.taskMode = firstIntField(env.data, {"task_mode", "taskMode"});
+    event.heatingSkipAllowed = firstBoolField(env.data, {"heating_skip_allowed", "heatingSkipAllowed"});
+    const auto heatingRemaining = firstIntField(env.data, {"heating_remain_time", "heating_remaining_time", "heatingRemainTime"});
+    if (heatingRemaining.has_value() && *heatingRemaining >= 0) {
+        event.heatingRemainingSec = heatingRemaining;
+    }
+    event.currentFile = firstStringField(env.data, {"current_file", "file_name", "filename", "name"});
+    event.slicer = firstStringField(env.data, {"slicer"});
+    event.reason = firstStringField(env.data, {"reason", "reason_text", "message", "msg"});
+    if (!event.reason.has_value()) {
+        event.reason = firstStringField(env.raw, {"reason", "reason_text", "message", "msg"});
+    }
+    event.code = firstIntField(env.raw, {"code", "status"});
+    if (!event.code.has_value()) {
+        event.code = firstIntField(env.data, {"code", "status"});
+    }
+    if (env.type == "releaseFilm") {
+        event.releaseFilmStatus = firstStringField(env.data, {"status", "state", "desc", "message", "msg"});
+        if (!event.releaseFilmStatus.has_value() && !env.state.empty()) {
+            event.releaseFilmStatus = env.state;
+        }
+        event.releaseFilmLayers = firstIntField(env.data, {"layers", "layer_count", "layerCount"});
+        event.releaseFilmTimes = firstIntField(env.data, {"times", "print_count", "printCount"});
+        event.releaseFilmStatusCode = firstIntField(env.data, {"status"});
+        const auto filmType = firstStringField(env.data, {"film_type", "filmType", "type", "material"});
+        if (event.releaseFilmLayers.has_value()
+            && *event.releaseFilmLayers > releaseFilmLayerLimit(filmType)) {
+            event.releaseFilmStatusCode = -1;
+        }
+    }
+    const auto checks = parseCheckStatus(env.data);
+    if (!checks.empty()) {
+        if (env.type == "print" && env.action == "autoOperation") {
+            event.autoChecks = checks;
+        } else if (env.type == "print" && env.action == "monitor") {
+            event.hardwareChecks = checks;
+        }
+    }
+
+    out.event = event;
+    out.disposition = RouteDisposition::Routed;
+    out.reason = "ok";
+    return out;
+}
+
+bool MqttMessageRouter::isKnownType(const std::string& type) {
+    static const std::array<const char*, 23> kTypes = {
+        "lastWill", "user", "status", "ota", "tempature", "fan",
+        "print", "multiColorBox", "extfilbox", "file", "peripherie",
+        "airpure", "autoOperation", "axis", "exposure", "network",
+        "releaseFilm", "residual", "resin", "response", "smartResinVat",
+        "wifi", "video",
+    };
+    return std::any_of(kTypes.begin(), kTypes.end(), [&](const char* v) {
+        return type == v;
+    });
+}
+
+bool MqttMessageRouter::isStateRequiredForType(const std::string& type) {
+    return type == "lastWill" || type == "status" || type == "print";
+}
+
+std::string MqttMessageRouter::normalizeState(const nlohmann::json& root) {
+    if (!root.contains("state") || root["state"].is_null()) {
+        return {};
+    }
+    if (root["state"].is_string()) {
+        const std::string value = root["state"].get<std::string>();
+        if (value.empty()) {
+            return {};
+        }
+        return value;
+    }
+    if (root["state"].is_number_integer()) {
+        return std::to_string(root["state"].get<long long>());
+    }
+    if (root["state"].is_boolean()) {
+        return root["state"].get<bool>() ? "true" : "false";
+    }
+    return {};
+}
+
+std::string MqttMessageRouter::toStringField(const nlohmann::json& root, const char* key) {
+    if (!root.contains(key) || root[key].is_null()) {
+        return {};
+    }
+    if (root[key].is_string()) {
+        return root[key].get<std::string>();
+    }
+    if (root[key].is_number_integer()) {
+        return std::to_string(root[key].get<long long>());
+    }
+    if (root[key].is_number_float()) {
+        return std::to_string(root[key].get<double>());
+    }
+    if (root[key].is_boolean()) {
+        return root[key].get<bool>() ? "true" : "false";
+    }
+    return {};
+}
+
+std::optional<accloud::realtime::MessageType> MqttMessageRouter::mapMessageType(const std::string& type) {
+    if (type == "lastWill") return accloud::realtime::MessageType::LastWill;
+    if (type == "user") return accloud::realtime::MessageType::User;
+    if (type == "status") return accloud::realtime::MessageType::Status;
+    if (type == "ota") return accloud::realtime::MessageType::Ota;
+    if (type == "tempature") return accloud::realtime::MessageType::Temperature;
+    if (type == "fan") return accloud::realtime::MessageType::Fan;
+    if (type == "print") return accloud::realtime::MessageType::Print;
+    if (type == "multiColorBox") return accloud::realtime::MessageType::MultiColorBox;
+    if (type == "extfilbox") return accloud::realtime::MessageType::ExternalFilamentBox;
+    if (type == "file") return accloud::realtime::MessageType::File;
+    if (type == "peripherie") return accloud::realtime::MessageType::Peripheral;
+    // Promoted in v1 for broad realtime coverage without introducing new domain enums.
+    if (type == "wifi" || type == "resin" || type == "video"
+        || type == "releaseFilm" || type == "autoOperation" || type == "axis") {
+        return accloud::realtime::MessageType::Peripheral;
+    }
+    return std::nullopt;
+}
+
+std::optional<accloud::realtime::PrintState> MqttMessageRouter::mapPrintState(const std::string& state) {
+    const std::string lowered = toLowerAscii(state);
+    if (!isKnownPrintState(lowered)) {
+        return accloud::realtime::PrintState::Unknown;
+    }
+    if (lowered == "downloading") return accloud::realtime::PrintState::Downloading;
+    if (lowered == "checking") return accloud::realtime::PrintState::Checking;
+    if (lowered == "preheating") return accloud::realtime::PrintState::Preheating;
+    if (lowered == "printing") return accloud::realtime::PrintState::Printing;
+    if (lowered == "pausing") return accloud::realtime::PrintState::Pausing;
+    if (lowered == "paused") return accloud::realtime::PrintState::Paused;
+    if (lowered == "resuming") return accloud::realtime::PrintState::Resuming;
+    if (lowered == "resumed") return accloud::realtime::PrintState::Resumed;
+    if (lowered == "waiting") return accloud::realtime::PrintState::Printing;
+    if (lowered == "finished") return accloud::realtime::PrintState::Finished;
+    if (lowered == "stoped") return accloud::realtime::PrintState::Stopped;
+    if (lowered == "stopping") return accloud::realtime::PrintState::Stopping;
+    if (lowered == "updated") return accloud::realtime::PrintState::Updated;
+    if (lowered == "failed") return accloud::realtime::PrintState::Failed;
+    if (lowered == "monitoring") return accloud::realtime::PrintState::Printing;
+    return accloud::realtime::PrintState::Unknown;
+}
+
+accloud::realtime::EventKind MqttMessageRouter::mapEventKind(accloud::realtime::MessageType type) {
+    using EventKind = accloud::realtime::EventKind;
+    using MessageType = accloud::realtime::MessageType;
+    switch (type) {
+        case MessageType::LastWill:
+            return EventKind::LastWillStatus;
+        case MessageType::User:
+            return EventKind::UserBinding;
+        case MessageType::Status:
+            return EventKind::PrinterAvailability;
+        case MessageType::Ota:
+            return EventKind::OtaProgress;
+        case MessageType::Temperature:
+            return EventKind::TemperatureUpdate;
+        case MessageType::Fan:
+            return EventKind::FanUpdate;
+        case MessageType::Print:
+            return EventKind::PrintUpdate;
+        case MessageType::MultiColorBox:
+            return EventKind::MultiColorBoxUpdate;
+        case MessageType::ExternalFilamentBox:
+            return EventKind::ExternalFilamentBoxUpdate;
+        case MessageType::File:
+            return EventKind::FileUpdate;
+        case MessageType::Peripheral:
+            return EventKind::PeripheralUpdate;
+        case MessageType::Unknown:
+            return EventKind::Unknown;
+    }
+    return EventKind::Unknown;
+}
+
+std::string MqttMessageRouter::makeSignature(const MqttEnvelope& envelope) {
+    return envelope.type + "|" + envelope.action + "|" + (envelope.state.empty() ? "-" : envelope.state);
+}
+
+bool MqttMessageRouter::topicIsUserReport(const std::string& topic) {
+    const auto parts = splitTopic(topic);
+    if (parts.size() != 8) {
+        return false;
+    }
+    const bool prefixOk = parts[0] == "anycubic"
+        && parts[1] == "anycubicCloud"
+        && parts[2] == "v1"
+        && parts[3] == "server"
+        && parts[4] == "app";
+    if (!prefixOk) {
+        return false;
+    }
+    const std::string tail = parts[6] + "/" + parts[7];
+    return tail == "slice/report" || tail == "fdmslice/report";
+}
+
+std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::string& topic) {
+    const auto parts = splitTopic(topic);
+    if (parts.size() < 6) {
+        return std::nullopt;
+    }
+    if (parts[0] != "anycubic" || parts[1] != "anycubicCloud") {
+        return std::nullopt;
+    }
+
+    // v1 families.
+    if (parts.size() >= 7 && parts[2] == "v1") {
+        // anycubic/anycubicCloud/v1/printer/app/<machine_type>/<printer_key>/...
+        if (parts[3] == "printer" && parts[4] == "app" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/printer/public/<machine_type>/<printer_key>/...
+        if (parts[3] == "printer" && parts[4] == "public" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/+/public/<machine_type>/<printer_key>/...
+        if (parts[4] == "public" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/slicer/printer/<machine_type>/<printer_key>/...
+        if (parts[3] == "slicer" && parts[4] == "printer" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/server/printer/<machine_type>/<device_id>/...
+        if (parts[3] == "server" && parts[4] == "printer" && !parts[6].empty()) {
+            return parts[6];
+        }
+
+        // anycubic/anycubicCloud/v1/+/printer/<machine_type>/<device_id>/...
+        if (parts[4] == "printer" && !parts[6].empty()) {
+            return parts[6];
+        }
+    }
+
+    // legacy families.
+    // anycubic/anycubicCloud/+/printer/<machine_type>/<device_id>/...
+    if (parts.size() >= 6 && parts[2] == "+" && parts[3] == "printer" && !parts[5].empty()) {
+        return parts[5];
+    }
+
+    // anycubic/anycubicCloud/printer/public/<machine_type>/<device_id>/...
+    if (parts.size() >= 6 && parts[2] == "printer" && parts[3] == "public" && !parts[5].empty()) {
+        return parts[5];
+    }
+
+    return std::nullopt;
+}
+
+} // namespace accloud::mqtt::routing
