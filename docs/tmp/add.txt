@@ -1,0 +1,91 @@
+Endpoint commun :
+
+POST /p/p/workbench/api/work/operation/sendOrder
+Host: cloud-universe.anycubic.com
+Content-Type: application/x-www-form-urlencoded
+
+Commande générique :
+
+data=<json_urlencoded>&order_id=1224&printer_id=525668&project_id=0
+
+Décodage fonctionnel :
+
+order_id = 1224
+feed_type = 1  => remplissage / Feed / infeed
+feed_type = 2  => vidage / Unload / rewinding
+type = 1       => démarrer
+type = 0       => arrêter / stop volontaire
+Commandes trouvées
+Séquence	Timestamp	Action	Payload décodé	Résultat
+1	17:04:30	Démarrage remplissage	{"feed_type":1,"type":1}	Operation successful, puis MQTT feed_type=1,status=3, machine busy
+1	17:05:00	Arrêt volontaire remplissage	{"feed_type":1,"type":0}	Operation successful, puis Manual end of feed process, code 1503, machine free
+2	17:05:09	Démarrage remplissage cycle entier	{"feed_type":1,"type":1}	Operation successful, puis MQTT feed_type=1,status=3, machine busy
+2	17:08:43	Fin côté imprimante	pas de commande HTTP	MQTT : Bottle out of stock during infeed, code 1501, machine free
+3	17:09:30	Démarrage vidage	{"feed_type":2,"type":1}	Operation successful, puis MQTT feed_type=2,status=2, machine busy
+3	17:09:43	Arrêt volontaire vidage	{"feed_type":2,"type":0}	Operation successful, puis Manual end during re-feed, code 1504, machine free
+4	17:09:49	Démarrage vidage cycle entier	{"feed_type":2,"type":1}	Operation successful, puis MQTT feed_type=2,status=2, machine busy
+4	17:18:37	Fin côté imprimante	pas de commande HTTP dans cloud_Log.log	MQTT app : feed_type=2,status=11, machine free
+Corps HTTP exacts utiles
+
+Remplissage — start :
+
+data=%7B%0A%20%20%20%20%22feed_type%22%3A%201%2C%0A%20%20%20%20%22type%22%3A%201%0A%7D%0A&order_id=1224&printer_id=525668&project_id=0
+
+Remplissage — stop volontaire :
+
+data=%7B%0A%20%20%20%20%22feed_type%22%3A%201%2C%0A%20%20%20%20%22type%22%3A%200%0A%7D%0A&order_id=1224&printer_id=525668&project_id=0
+
+Vidage — start :
+
+data=%7B%0A%20%20%20%20%22feed_type%22%3A%202%2C%0A%20%20%20%20%22type%22%3A%201%0A%7D%0A&order_id=1224&printer_id=525668&project_id=0
+
+Vidage — stop volontaire :
+
+data=%7B%0A%20%20%20%20%22feed_type%22%3A%202%2C%0A%20%20%20%20%22type%22%3A%200%0A%7D%0A&order_id=1224&printer_id=525668&project_id=0
+Payloads JSON à intégrer côté client
+{
+  "order_id": 1224,
+  "printer_id": 525668,
+  "project_id": 0,
+  "data": {
+    "feed_type": 1,
+    "type": 1
+  }
+}
+{
+  "order_id": 1224,
+  "printer_id": 525668,
+  "project_id": 0,
+  "data": {
+    "feed_type": 1,
+    "type": 0
+  }
+}
+{
+  "order_id": 1224,
+  "printer_id": 525668,
+  "project_id": 0,
+  "data": {
+    "feed_type": 2,
+    "type": 1
+  }
+}
+{
+  "order_id": 1224,
+  "printer_id": 525668,
+  "project_id": 0,
+  "data": {
+    "feed_type": 2,
+    "type": 0
+  }
+}
+Points à retenir
+
+order_id=1224 est la commande unique pour le module “Automatic feeding and discharging”.
+
+Le stop volontaire n’a pas un order_id séparé : c’est le même order_id=1224, même feed_type, mais avec type=0.
+
+La fin de cycle complète n’émet pas de commande HTTP supplémentaire. Elle remonte uniquement par MQTT/applicatif :
+
+remplissage terminé/échoué : code=1501, Bottle out of stock during infeed
+vidage terminé : feed_type=2, status=11, state=free

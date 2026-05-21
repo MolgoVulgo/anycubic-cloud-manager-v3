@@ -214,6 +214,12 @@ Le lancement depuis fichier local stocké sur l'imprimante utilise le flux
 demarrage local `order_id=1`. Le bouton cloud n'est pas expose dans le panneau
 Printer ; le demarrage depuis cloud reste initie depuis les fichiers cloud.
 
+Les actions "Automatic feeding and discharging" du panneau Printer utilisent
+`sendOrder` avec `order_id=1224` :
+- remplissage : `data={"feed_type":1,"type":1}`
+- vidage : `data={"feed_type":2,"type":1}`
+- arret volontaire (meme commande) : `type=0` avec le `feed_type` courant.
+
 La validation locale de compatibilité fichier/imprimante doit passer par le
 bridge C++ quand il est disponible, avec fallback QML limité aux tests/mocks.
 
