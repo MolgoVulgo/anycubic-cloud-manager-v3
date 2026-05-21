@@ -79,6 +79,12 @@ Remote print guardrails:
 - switch to MQTT observation;
 - never open an empty viewer or start an unrelated action when a file was selected.
 
+Printer-side resin feed controls use the same `sendOrder` endpoint with
+`order_id=1224`:
+- fill start: `data={"feed_type":1,"type":1}`
+- drain start: `data={"feed_type":2,"type":1}`
+- manual stop (same command family): `type=0` with the active `feed_type`.
+
 ## Logs page
 
 Logs are available only in debug builds. In production builds, the UI should explain that the debug log viewer is disabled instead of exposing partial tooling.

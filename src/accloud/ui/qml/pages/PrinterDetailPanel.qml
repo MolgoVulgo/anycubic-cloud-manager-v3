@@ -32,6 +32,7 @@ Rectangle {
 
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
+    signal resinFeedRequested(string printerId, int feedType)
 
     function providerText(provider, arg, fallback) {
         return typeof provider === "function" ? String(provider(arg)) : fallback
@@ -1401,6 +1402,69 @@ Rectangle {
                             font.pixelSize: Theme.fontCaptionPx
                         }
 
+                        Rectangle {
+                            objectName: "printerFunctionsCard"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: functionsCardContent.implicitHeight + 16
+                            Layout.maximumHeight: functionsCardContent.implicitHeight + 16
+                            radius: Theme.radiusControl
+                            color: Theme.bgSurface
+                            border.width: Theme.borderWidth
+                            border.color: Theme.borderSubtle
+
+                            ColumnLayout {
+                                id: functionsCardContent
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Functions")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 4
+                                    columnSpacing: 8
+                                    rowSpacing: 8
+
+                                    AppButton {
+                                        objectName: "printerFunctionFeedingButton"
+                                        Layout.fillWidth: true
+                                        text: qsTr("Feeding")
+                                        compact: true
+                                        onClicked: feedingDialog.open()
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB1Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B1")
+                                        compact: true
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB2Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B2")
+                                        compact: true
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB3Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B3")
+                                        compact: true
+                                    }
+                                }
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -1553,6 +1617,56 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            AppDialogFrame {
+                id: feedingDialog
+                objectName: "printerFeedingDialog"
+                title: qsTr("Feeding")
+                dialogSize: "small"
+                minimumWidth: 420
+                maximumWidth: 560
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("remplissage et le recyclage automatiques de la résine")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
+                    wrapMode: Text.WordWrap
+                }
+
+                footerTrailingData: [
+                    AppButton {
+                        objectName: "printerFeedingFillButton"
+                        text: qsTr("Remplissage")
+                        variant: "primary"
+                        onClicked: {
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : "")
+                            if (printerId.length > 0)
+                                root.resinFeedRequested(printerId, 1)
+                            feedingDialog.close()
+                        }
+                    },
+                    AppButton {
+                        objectName: "printerFeedingDrainButton"
+                        text: qsTr("Vidage")
+                        onClicked: {
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : "")
+                            if (printerId.length > 0)
+                                root.resinFeedRequested(printerId, 2)
+                            feedingDialog.close()
+                        }
+                    },
+                    AppButton {
+                        objectName: "printerFeedingCancelButton"
+                        text: qsTr("Cancel")
+                        onClicked: feedingDialog.close()
+                    }
+                ]
             }
 
             AppDialogFrame {

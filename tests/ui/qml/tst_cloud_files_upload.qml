@@ -14,6 +14,10 @@ TestCase {
 
     function createQmlObject(path, props) {
         var component = Qt.createComponent(path)
+        if (component.status !== Component.Ready && path.indexOf("../../../ui/qml/") === 0) {
+            var sourcePath = "../../../src/accloud/ui/qml/" + path.slice(String("../../../ui/qml/").length)
+            component = Qt.createComponent(sourcePath)
+        }
         compare(component.status, Component.Ready, "Unable to load " + path + " -> " + component.errorString())
         var object = component.createObject(null, props ? props : {})
         verify(object !== null, "Unable to create object for " + path)

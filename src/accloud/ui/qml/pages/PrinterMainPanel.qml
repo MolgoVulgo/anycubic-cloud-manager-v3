@@ -36,6 +36,7 @@ AppPageFrame {
     signal printerMqttDetailsRequested(string printerId)
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
+    signal resinFeedRequested(string printerId, int feedType)
 
     component DebugTag: Rectangle {
         property string label: ""
@@ -125,6 +126,7 @@ AppPageFrame {
                 localizedTextProvider: root.localizedTextProvider
                 onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
                 onLocalFileRequested: function(printerId) { root.localFileRequested(printerId) }
+                onResinFeedRequested: function(printerId, feedType) { root.resinFeedRequested(printerId, feedType) }
             }
         }
 

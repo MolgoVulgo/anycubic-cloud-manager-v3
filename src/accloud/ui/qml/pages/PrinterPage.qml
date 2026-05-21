@@ -37,6 +37,7 @@ Item {
     property int localFileDeleteOrderId: 104
     property int localUdiskListOrderId: 101
     property int localFileStartPrintOrderId: 1
+    property int resinFeedOrderId: 1224
     readonly property bool localFilePrintEnabled: true
     property bool optionDeleteAfterPrint: false
     property bool optionLiftCompensation: false
@@ -2374,6 +2375,68 @@ Item {
         statusSev = "success"
     }
 
+    function startResinFeedOperation(printerId, feedType) {
+        var targetPrinterId = String(printerId || selectedPrinterId).trim()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+        var normalizedFeedType = Number(feedType)
+        if (!(normalizedFeedType === 1 || normalizedFeedType === 2)) {
+            statusMsg = qsTr("Invalid resin operation.")
+            statusSev = "warn"
+            return
+        }
+        if (!hasPrinterOrderEndpoint()) {
+            statusMsg = qsTr("Resin operation requires sendOrder backend support.")
+            statusSev = "warn"
+            return
+        }
+
+        var payload = {
+            "feed_type": normalizedFeedType,
+            "type": 1
+        }
+        var label = normalizedFeedType === 1 ? qsTr("resin fill") : qsTr("resin drain")
+        var context = "resin_feed_start:" + String(normalizedFeedType)
+        statusMsg = qsTr("Starting %1 operation...").arg(label)
+        statusSev = "info"
+
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              resinFeedOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+        } else {
+            var result = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      resinFeedOrderId,
+                                                      payload,
+                                                      targetPrinterId)
+            applyResinFeedCommandResult(targetPrinterId, normalizedFeedType, result)
+        }
+    }
+
+    function applyResinFeedCommandResult(targetPrinterId, feedType, result) {
+        if (result.ok !== true) {
+            statusMsg = qsTr("Resin operation failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
+            statusSev = "error"
+            return
+        }
+        var msgId = String(result.msgId || "").trim()
+        var label = Number(feedType) === 1 ? qsTr("resin fill") : qsTr("resin drain")
+        statusMsg = qsTr("%1 sent (order_id=%2, msgid=%3).")
+                .arg(label)
+                .arg(String(resinFeedOrderId))
+                .arg(msgId.length > 0 ? msgId : "-")
+        statusSev = "success"
+        loadPrinters()
+        if (String(targetPrinterId || "") === selectedPrinterId)
+            refreshSelectedPrinterJobs("resin_feed_start", true, false)
+    }
+
     function openRemotePrintConfig() {
         if (!ensureSelectedCloudFile())
             return
@@ -2621,6 +2684,14 @@ Item {
                     root.statusSev = "warn"
                     root.clearPendingRemotePrint(String(printerId || ""))
                 }
+                return
+            }
+
+            if (normalizedContext.indexOf("resin_feed_start:") === 0) {
+                var feedTypeText = normalizedContext.slice(String("resin_feed_start:").length)
+                root.applyResinFeedCommandResult(String(printerId || ""),
+                                                 Number(feedTypeText),
+                                                 result)
                 return
             }
         }
@@ -2873,6 +2944,9 @@ Item {
         }
         onLocalFileRequested: function(printerId) {
             root.openLocalFileDialogForRemotePrint(printerId)
+        }
+        onResinFeedRequested: function(printerId, feedType) {
+            root.startResinFeedOperation(printerId, feedType)
         }
         onPrinterMqttDetailsRequested: function(printerId) {
             root.openPrinterDetailsDialog(printerId)
