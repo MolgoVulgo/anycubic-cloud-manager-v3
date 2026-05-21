@@ -18,6 +18,9 @@ AppPageFrame {
     property var selectedLiveJobData: ({})
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
+    property bool feedingOperationActive: false
+    property int feedingOperationType: 0
+    property bool feedingStopInProgress: false
     property bool loadingPrinterHistory: false
     property var printerHistoryModel: null
     property string printersEndpointPath: ""
@@ -37,6 +40,7 @@ AppPageFrame {
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
     signal resinFeedRequested(string printerId, int feedType)
+    signal resinFeedStopRequested(string printerId, int feedType)
 
     component DebugTag: Rectangle {
         property string label: ""
@@ -107,10 +111,14 @@ AppPageFrame {
                 Layout.fillHeight: true
                 embeddedInTabsContainer: true
                 selectedPrinter: root.selectedPrinter
+                selectedPrinterId: root.selectedPrinterId
                 selectedPrinterDetails: root.selectedPrinterDetails
                 selectedLiveJobData: root.selectedLiveJobData
                 selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
                 selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
+                feedingOperationActive: root.feedingOperationActive
+                feedingOperationType: root.feedingOperationType
+                feedingStopInProgress: root.feedingStopInProgress
                 loadingPrinterHistory: root.loadingPrinterHistory
                 localFilePrintEnabled: root.localFilePrintEnabled
                 printerHistoryModel: root.printerHistoryModel
@@ -127,6 +135,7 @@ AppPageFrame {
                 onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
                 onLocalFileRequested: function(printerId) { root.localFileRequested(printerId) }
                 onResinFeedRequested: function(printerId, feedType) { root.resinFeedRequested(printerId, feedType) }
+                onResinFeedStopRequested: function(printerId, feedType) { root.resinFeedStopRequested(printerId, feedType) }
             }
         }
 

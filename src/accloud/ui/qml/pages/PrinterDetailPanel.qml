@@ -9,6 +9,7 @@ Rectangle {
     objectName: "deviceDetailsPanel"
 
     property var selectedPrinter: null
+    property string selectedPrinterId: ""
     property var selectedPrinterDetails: ({})
     property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
@@ -19,6 +20,9 @@ Rectangle {
     property string printersEndpointRawJson: ""
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
+    property bool feedingOperationActive: false
+    property int feedingOperationType: 0 // 1=fill, 2=drain
+    property bool feedingStopInProgress: false
     readonly property string currentPreviewSource: normalizedImageSource(currentFileImageSource())
 
     property var statusChipTextProvider: null
@@ -33,6 +37,7 @@ Rectangle {
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
     signal resinFeedRequested(string printerId, int feedType)
+    signal resinFeedStopRequested(string printerId, int feedType)
 
     function providerText(provider, arg, fallback) {
         return typeof provider === "function" ? String(provider(arg)) : fallback
@@ -533,10 +538,50 @@ Rectangle {
     }
 
     function isPrinterPrinting() {
+        if (root.feedingOperationActive)
+            return false
         var liveStatus = liveJobStatusCode(root.selectedLiveJobData)
         if (liveStatus === 1)
             return true
-        return printerStatusCode(root.selectedPrinter) === 1
+        if (printerStatusCode(root.selectedPrinter) !== 1)
+            return false
+
+        var details = selectedMqttDetails()
+        var stage = String(details.mqttJobStage || selectedMqttField("mqttJobStage", "") || "").trim()
+        var printState = String(details.mqttPrintState || selectedMqttField("mqttPrintState", "") || "").trim()
+        if (stage === "downloading"
+                || stage === "loaded"
+                || stage === "checking"
+                || stage === "preheating"
+                || stage === "printing")
+            return true
+        if (printState === "downloading"
+                || printState === "monitoring"
+                || printState === "preheating"
+                || printState === "printing"
+                || printState === "waiting"
+                || printState === "pausing"
+                || printState === "paused"
+                || printState === "resuming"
+                || printState === "resumed")
+            return true
+
+        var progress = Number(root.selectedPrinter && root.selectedPrinter.progress !== undefined
+                              ? root.selectedPrinter.progress
+                              : -1)
+        var currentLayer = Number(root.selectedPrinter && root.selectedPrinter.currentLayer !== undefined
+                                  ? root.selectedPrinter.currentLayer
+                                  : -1)
+        var totalLayers = Number(root.selectedPrinter && root.selectedPrinter.totalLayers !== undefined
+                                ? root.selectedPrinter.totalLayers
+                                : -1)
+        return (isFinite(progress) && progress >= 0)
+                || (isFinite(currentLayer) && currentLayer >= 0)
+                || (isFinite(totalLayers) && totalLayers > 0)
+    }
+
+    function feedingOperationLabel() {
+        return feedingOperationType === 2 ? qsTr("vidage") : qsTr("remplissage")
     }
 
     function printerInfoMode() {
@@ -1626,10 +1671,15 @@ Rectangle {
                 dialogSize: "small"
                 minimumWidth: 420
                 maximumWidth: 560
+                allowScrimClose: !root.feedingOperationActive
+                allowEscapeClose: !root.feedingOperationActive
+                showCloseButton: !root.feedingOperationActive
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("remplissage et le recyclage automatiques de la résine")
+                    text: root.feedingOperationActive
+                          ? qsTr("Operation de %1 en cours.").arg(root.feedingOperationLabel())
+                          : qsTr("remplissage et le recyclage automatiques de la résine")
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontBodyPx
                     wrapMode: Text.WordWrap
@@ -1638,33 +1688,47 @@ Rectangle {
                 footerTrailingData: [
                     AppButton {
                         objectName: "printerFeedingFillButton"
+                        visible: !root.feedingOperationActive
                         text: qsTr("Remplissage")
                         variant: "primary"
                         onClicked: {
                             var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
                                                    ? root.selectedPrinter.id
-                                                   : "")
+                                                   : root.selectedPrinterId)
                             if (printerId.length > 0)
                                 root.resinFeedRequested(printerId, 1)
-                            feedingDialog.close()
                         }
                     },
                     AppButton {
                         objectName: "printerFeedingDrainButton"
+                        visible: !root.feedingOperationActive
                         text: qsTr("Vidage")
                         onClicked: {
                             var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
                                                    ? root.selectedPrinter.id
-                                                   : "")
+                                                   : root.selectedPrinterId)
                             if (printerId.length > 0)
                                 root.resinFeedRequested(printerId, 2)
-                            feedingDialog.close()
                         }
                     },
                     AppButton {
                         objectName: "printerFeedingCancelButton"
-                        text: qsTr("Cancel")
-                        onClicked: feedingDialog.close()
+                        text: root.feedingOperationActive ? qsTr("Stop") : qsTr("Cancel")
+                        enabled: !root.feedingStopInProgress
+                        onClicked: {
+                            if (!root.feedingOperationActive) {
+                                feedingDialog.close()
+                                return
+                            }
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : root.selectedPrinterId)
+                            if (printerId.length > 0)
+                                root.resinFeedStopRequested(printerId,
+                                                            root.feedingOperationType > 0
+                                                            ? root.feedingOperationType
+                                                            : 1)
+                        }
                     }
                 ]
             }

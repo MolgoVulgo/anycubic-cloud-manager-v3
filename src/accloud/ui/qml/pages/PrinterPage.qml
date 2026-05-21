@@ -70,6 +70,11 @@ Item {
     property string lastJobsRefreshReason: ""
     property string mqttDetailsTitle: ""
     property string mqttDetailsText: ""
+    property bool resinFeedActive: false
+    property int resinFeedType: 0
+    property bool resinFeedStopSubmitting: false
+    property string resinFeedPrinterId: ""
+    property bool resinFeedObservedRunningState: false
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
     property int mqttRealtimeDebounceMs: 700
@@ -1120,6 +1125,42 @@ Item {
 
     function refreshSelectedPrinterLiveSnapshot() {
         selectedPrinterLiveSnapshot = selectedPrinterLiveData()
+        updateResinFeedOperationState()
+    }
+
+    function updateResinFeedOperationState() {
+        if (!resinFeedActive)
+            return
+        var targetPrinterId = String(resinFeedPrinterId || "").trim()
+        if (targetPrinterId.length <= 0)
+            return
+        var printer = printerDataById(targetPrinterId)
+        if (!printer)
+            return
+
+        var state = String(printer.state || "").toUpperCase().trim()
+        var reason = String(printer.reason || "").toLowerCase().trim()
+        var mqttPrintState = String(printer.mqttPrintState || "").toLowerCase().trim()
+        var isBusyState = state === "BUSY" || reason === "busy" || mqttPrintState === "busy"
+        var isPrintingState = state === "PRINTING"
+                || mqttPrintState === "printing"
+                || mqttPrintState === "preheating"
+                || mqttPrintState === "monitoring"
+                || mqttPrintState === "downloading"
+        if (isBusyState || isPrintingState) {
+            resinFeedObservedRunningState = true
+            return
+        }
+
+        if (resinFeedObservedRunningState) {
+            resinFeedActive = false
+            resinFeedType = 0
+            resinFeedStopSubmitting = false
+            resinFeedPrinterId = ""
+            resinFeedObservedRunningState = false
+            statusMsg = qsTr("Resin operation finished.")
+            statusSev = "success"
+        }
     }
 
     function hasMeaningfulDetailValue(value) {
@@ -2402,6 +2443,11 @@ Item {
         var context = "resin_feed_start:" + String(normalizedFeedType)
         statusMsg = qsTr("Starting %1 operation...").arg(label)
         statusSev = "info"
+        resinFeedActive = true
+        resinFeedType = normalizedFeedType
+        resinFeedStopSubmitting = false
+        resinFeedPrinterId = targetPrinterId
+        resinFeedObservedRunningState = false
 
         if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
             cloudBridge.sendPrinterOrderAsync(targetPrinterId,
@@ -2414,12 +2460,49 @@ Item {
                                                       resinFeedOrderId,
                                                       payload,
                                                       targetPrinterId)
-            applyResinFeedCommandResult(targetPrinterId, normalizedFeedType, result)
+            applyResinFeedStartResult(targetPrinterId, normalizedFeedType, result)
         }
     }
 
-    function applyResinFeedCommandResult(targetPrinterId, feedType, result) {
+    function stopResinFeedOperation(printerId, feedType) {
+        var targetPrinterId = String(printerId || resinFeedPrinterId || selectedPrinterId).trim()
+        var normalizedFeedType = Number(feedType)
+        if (!(normalizedFeedType === 1 || normalizedFeedType === 2))
+            normalizedFeedType = Number(resinFeedType)
+        if (targetPrinterId.length <= 0 || !(normalizedFeedType === 1 || normalizedFeedType === 2))
+            return
+        if (!hasPrinterOrderEndpoint())
+            return
+        resinFeedStopSubmitting = true
+        statusMsg = qsTr("Stopping resin operation...")
+        statusSev = "info"
+        var payload = {
+            "feed_type": normalizedFeedType,
+            "type": 0
+        }
+        var context = "resin_feed_stop:" + String(normalizedFeedType)
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              resinFeedOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+        } else {
+            var result = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      resinFeedOrderId,
+                                                      payload,
+                                                      targetPrinterId)
+            applyResinFeedStopResult(targetPrinterId, normalizedFeedType, result)
+        }
+    }
+
+    function applyResinFeedStartResult(targetPrinterId, feedType, result) {
         if (result.ok !== true) {
+            resinFeedActive = false
+            resinFeedType = 0
+            resinFeedStopSubmitting = false
+            resinFeedPrinterId = ""
+            resinFeedObservedRunningState = false
             statusMsg = qsTr("Resin operation failed: %1")
                     .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
             statusSev = "error"
@@ -2435,6 +2518,28 @@ Item {
         loadPrinters()
         if (String(targetPrinterId || "") === selectedPrinterId)
             refreshSelectedPrinterJobs("resin_feed_start", true, false)
+    }
+
+    function applyResinFeedStopResult(targetPrinterId, feedType, result) {
+        resinFeedStopSubmitting = false
+        if (result.ok !== true) {
+            statusMsg = qsTr("Resin stop failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
+            statusSev = "error"
+            return
+        }
+        resinFeedActive = false
+        resinFeedType = 0
+        resinFeedPrinterId = ""
+        resinFeedObservedRunningState = false
+        var msgId = String(result.msgId || "").trim()
+        statusMsg = qsTr("Resin operation stopped (order_id=%1, msgid=%2).")
+                .arg(String(resinFeedOrderId))
+                .arg(msgId.length > 0 ? msgId : "-")
+        statusSev = "success"
+        loadPrinters()
+        if (String(targetPrinterId || "") === selectedPrinterId)
+            refreshSelectedPrinterJobs("resin_feed_stop", true, false)
     }
 
     function openRemotePrintConfig() {
@@ -2689,9 +2794,17 @@ Item {
 
             if (normalizedContext.indexOf("resin_feed_start:") === 0) {
                 var feedTypeText = normalizedContext.slice(String("resin_feed_start:").length)
-                root.applyResinFeedCommandResult(String(printerId || ""),
-                                                 Number(feedTypeText),
-                                                 result)
+                root.applyResinFeedStartResult(String(printerId || ""),
+                                               Number(feedTypeText),
+                                               result)
+                return
+            }
+
+            if (normalizedContext.indexOf("resin_feed_stop:") === 0) {
+                var stopFeedTypeText = normalizedContext.slice(String("resin_feed_stop:").length)
+                root.applyResinFeedStopResult(String(printerId || ""),
+                                              Number(stopFeedTypeText),
+                                              result)
                 return
             }
         }
@@ -2909,6 +3022,9 @@ Item {
         selectedLiveJobData: root.liveProjectData
         selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
         selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
+        feedingOperationActive: root.resinFeedActive
+        feedingOperationType: root.resinFeedType
+        feedingStopInProgress: root.resinFeedStopSubmitting
         loadingPrinterHistory: root.loadingPrinterHistory
         printerHistoryModel: printerHistoryModel
         printersEndpointPath: root.printersEndpointPath
@@ -2947,6 +3063,9 @@ Item {
         }
         onResinFeedRequested: function(printerId, feedType) {
             root.startResinFeedOperation(printerId, feedType)
+        }
+        onResinFeedStopRequested: function(printerId, feedType) {
+            root.stopResinFeedOperation(printerId, feedType)
         }
         onPrinterMqttDetailsRequested: function(printerId) {
             root.openPrinterDetailsDialog(printerId)
