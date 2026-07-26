@@ -18,11 +18,13 @@
 #include <QUuid>
 
 #include <cstdlib>
+#include <string>
 
 namespace accloud {
 namespace {
 
 QMutex g_dbMutex;
+constexpr int kSchemaVersion = 4;
 
 QString resolveDbPath() {
   if (const char* env = std::getenv("ACCLOUD_DB_PATH"); env != nullptr && *env != '\0') {
@@ -99,9 +101,19 @@ QVariantMap mergePrinterDetails(const QVariantMap& existing, const QVariantMap& 
   return merged;
 }
 
+QString nonNullText(const QVariantMap& map,
+                    const QString& key,
+                    const QString& fallback = QStringLiteral("")) {
+  const QVariant value = map.value(key);
+  if (!value.isValid() || value.isNull()) {
+    return fallback;
+  }
+  const QString text = value.toString();
+  return text.isNull() ? fallback : text;
+}
+
 QString detailString(const QVariantMap& details, const QString& key) {
-  const QString value = details.value(key).toString().trimmed();
-  return value.isNull() ? QStringLiteral("") : value;
+  return nonNullText(details, key).trimmed();
 }
 
 int detailInt(const QVariantMap& details, const QString& key) {
@@ -159,6 +171,73 @@ bool ensureColumnExists(QSqlDatabase& db,
   return true;
 }
 
+logging::FieldMap sqlErrorFields(const QSqlError& error,
+                                 logging::FieldMap fields = {}) {
+  fields.insert_or_assign("error", error.text().toStdString());
+  const QString nativeCode = error.nativeErrorCode().trimmed();
+  if (!nativeCode.isEmpty()) {
+    fields.insert_or_assign("nativeCode", nativeCode.toStdString());
+  }
+  return fields;
+}
+
+int readSchemaVersion(QSqlDatabase& db) {
+  QSqlQuery query(db);
+  query.prepare(QStringLiteral("SELECT value FROM meta WHERE key='schema_version'"));
+  if (!query.exec() || !query.next()) {
+    return 0;
+  }
+  bool ok = false;
+  const int version = query.value(0).toString().toInt(&ok);
+  return ok ? version : 0;
+}
+
+bool migrateCloudFilesSchemaV4(QSqlDatabase& db) {
+  const bool hasStatusCode = tableHasColumn(db, QStringLiteral("cloud_files"),
+                                            QStringLiteral("status_code"));
+  const bool hasThumbnailSource = tableHasColumn(db, QStringLiteral("cloud_files"),
+                                                  QStringLiteral("thumbnail_source_url"));
+  if (hasStatusCode && hasThumbnailSource) {
+    return true;
+  }
+
+  if (!db.transaction()) {
+    logging::error("app", "local_cache", "schema_v4_transaction_failed",
+                   "Unable to start cache schema v4 migration",
+                   sqlErrorFields(db.lastError()));
+    return false;
+  }
+
+  const bool altered = ensureColumnExists(
+                           db, QStringLiteral("cloud_files"),
+                           QStringLiteral("status_code"),
+                           QStringLiteral("status_code INTEGER NOT NULL DEFAULT 0"))
+      && ensureColumnExists(
+          db, QStringLiteral("cloud_files"),
+          QStringLiteral("thumbnail_source_url"),
+          QStringLiteral("thumbnail_source_url TEXT NOT NULL DEFAULT ''"));
+  const bool verified = altered
+      && tableHasColumn(db, QStringLiteral("cloud_files"), QStringLiteral("status_code"))
+      && tableHasColumn(db, QStringLiteral("cloud_files"),
+                        QStringLiteral("thumbnail_source_url"));
+
+  if (!verified) {
+    db.rollback();
+    logging::error("app", "local_cache", "schema_v4_verification_failed",
+                   "Cache schema v4 columns are missing after migration");
+    return false;
+  }
+
+  if (!db.commit()) {
+    logging::error("app", "local_cache", "schema_v4_commit_failed",
+                   "Unable to commit cache schema v4 migration",
+                   sqlErrorFields(db.lastError()));
+    db.rollback();
+    return false;
+  }
+  return true;
+}
+
 void enforceMaxRows(QSqlDatabase& db, const QString& table, const QString& idColumn, int maxRows) {
   if (maxRows <= 0) return;
 
@@ -200,35 +279,37 @@ bool migrateLegacyFiles(QSqlDatabase& db) {
   QSqlQuery ins(db);
   ins.prepare(QStringLiteral(
       "INSERT OR REPLACE INTO cloud_files("
-      "file_id, file_name, status, size_bytes, size_text, machine, material, upload_time, print_time, "
-      "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, gcode_id, updated_at"
+      "file_id, file_name, status, status_code, size_bytes, size_text, machine, material, upload_time, print_time, "
+      "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, thumbnail_source_url, gcode_id, updated_at"
       ") VALUES("
-      ":id, :name, :status, :sizeBytes, :sizeText, :machine, :material, :uploadTime, :printTime, "
-      ":layerThickness, :layers, :isPwmb, :resinUsage, :dimensions, :thumbnailUrl, :gcodeId, :updatedAt"
+      ":id, :name, :status, :statusCode, :sizeBytes, :sizeText, :machine, :material, :uploadTime, :printTime, "
+      ":layerThickness, :layers, :isPwmb, :resinUsage, :dimensions, :thumbnailUrl, :thumbnailSourceUrl, :gcodeId, :updatedAt"
       ")"));
 
   while (read.next()) {
     const QVariantMap map = decodePayloadText(read.value(0).toString());
-    const QString id = map.value(QStringLiteral("fileId")).toString().trimmed();
+    const QString id = nonNullText(map, QStringLiteral("fileId")).trimmed();
     if (id.isEmpty()) continue;
 
     const qint64 updatedAt = read.value(1).toLongLong();
     ins.bindValue(QStringLiteral(":id"), id);
-    ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("fileName")).toString());
-    ins.bindValue(QStringLiteral(":status"), map.value(QStringLiteral("status")).toString());
+    ins.bindValue(QStringLiteral(":name"), nonNullText(map, QStringLiteral("fileName")));
+    ins.bindValue(QStringLiteral(":status"), nonNullText(map, QStringLiteral("status"), QStringLiteral("UNKNOWN")));
+    ins.bindValue(QStringLiteral(":statusCode"), map.value(QStringLiteral("statusCode"), 0));
     ins.bindValue(QStringLiteral(":sizeBytes"), map.value(QStringLiteral("sizeBytes"), 0));
-    ins.bindValue(QStringLiteral(":sizeText"), map.value(QStringLiteral("sizeText")).toString());
-    ins.bindValue(QStringLiteral(":machine"), map.value(QStringLiteral("machine")).toString());
-    ins.bindValue(QStringLiteral(":material"), map.value(QStringLiteral("material")).toString());
-    ins.bindValue(QStringLiteral(":uploadTime"), map.value(QStringLiteral("uploadTime")).toString());
-    ins.bindValue(QStringLiteral(":printTime"), map.value(QStringLiteral("printTime")).toString());
-    ins.bindValue(QStringLiteral(":layerThickness"), map.value(QStringLiteral("layerThickness")).toString());
+    ins.bindValue(QStringLiteral(":sizeText"), nonNullText(map, QStringLiteral("sizeText")));
+    ins.bindValue(QStringLiteral(":machine"), nonNullText(map, QStringLiteral("machine")));
+    ins.bindValue(QStringLiteral(":material"), nonNullText(map, QStringLiteral("material")));
+    ins.bindValue(QStringLiteral(":uploadTime"), nonNullText(map, QStringLiteral("uploadTime")));
+    ins.bindValue(QStringLiteral(":printTime"), nonNullText(map, QStringLiteral("printTime")));
+    ins.bindValue(QStringLiteral(":layerThickness"), nonNullText(map, QStringLiteral("layerThickness")));
     ins.bindValue(QStringLiteral(":layers"), map.value(QStringLiteral("layers"), 0));
     ins.bindValue(QStringLiteral(":isPwmb"), map.value(QStringLiteral("isPwmb"), false).toBool() ? 1 : 0);
-    ins.bindValue(QStringLiteral(":resinUsage"), map.value(QStringLiteral("resinUsage")).toString());
-    ins.bindValue(QStringLiteral(":dimensions"), map.value(QStringLiteral("dimensions")).toString());
-    ins.bindValue(QStringLiteral(":thumbnailUrl"), map.value(QStringLiteral("thumbnailUrl")).toString());
-    ins.bindValue(QStringLiteral(":gcodeId"), map.value(QStringLiteral("gcodeId")).toString());
+    ins.bindValue(QStringLiteral(":resinUsage"), nonNullText(map, QStringLiteral("resinUsage")));
+    ins.bindValue(QStringLiteral(":dimensions"), nonNullText(map, QStringLiteral("dimensions")));
+    ins.bindValue(QStringLiteral(":thumbnailUrl"), nonNullText(map, QStringLiteral("thumbnailUrl")));
+    ins.bindValue(QStringLiteral(":thumbnailSourceUrl"), nonNullText(map, QStringLiteral("thumbnailSourceUrl")));
+    ins.bindValue(QStringLiteral(":gcodeId"), nonNullText(map, QStringLiteral("gcodeId")));
     ins.bindValue(QStringLiteral(":updatedAt"), updatedAt > 0 ? updatedAt : readNow());
     if (!ins.exec()) {
       return false;
@@ -258,24 +339,24 @@ bool migrateLegacyPrinters(QSqlDatabase& db) {
 
   while (read.next()) {
     const QVariantMap map = decodePayloadText(read.value(0).toString());
-    const QString id = map.value(QStringLiteral("id")).toString().trimmed();
+    const QString id = nonNullText(map, QStringLiteral("id")).trimmed();
     if (id.isEmpty()) continue;
 
     const qint64 updatedAt = read.value(1).toLongLong();
-    const QString printerKey = map.value(QStringLiteral("printerKey")).toString().trimmed().isEmpty()
-        ? map.value(QStringLiteral("key")).toString().trimmed()
-        : map.value(QStringLiteral("printerKey")).toString().trimmed();
+    const QString printerKey = nonNullText(map, QStringLiteral("printerKey")).trimmed().isEmpty()
+        ? nonNullText(map, QStringLiteral("key")).trimmed()
+        : nonNullText(map, QStringLiteral("printerKey")).trimmed();
     ins.bindValue(QStringLiteral(":id"), id);
     ins.bindValue(QStringLiteral(":printerKey"), printerKey);
-    ins.bindValue(QStringLiteral(":machineType"), map.value(QStringLiteral("machineType")).toString());
-    ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
-    ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
-    ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());
-    ins.bindValue(QStringLiteral(":lastSeen"), map.value(QStringLiteral("lastSeen")).toString());
-    ins.bindValue(QStringLiteral(":state"), map.value(QStringLiteral("state")).toString());
-    ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+    ins.bindValue(QStringLiteral(":machineType"), nonNullText(map, QStringLiteral("machineType")));
+    ins.bindValue(QStringLiteral(":name"), nonNullText(map, QStringLiteral("name")));
+    ins.bindValue(QStringLiteral(":model"), nonNullText(map, QStringLiteral("model")));
+    ins.bindValue(QStringLiteral(":type"), nonNullText(map, QStringLiteral("type")));
+    ins.bindValue(QStringLiteral(":lastSeen"), nonNullText(map, QStringLiteral("lastSeen")));
+    ins.bindValue(QStringLiteral(":state"), nonNullText(map, QStringLiteral("state"), QStringLiteral("UNKNOWN")));
+    ins.bindValue(QStringLiteral(":reason"), nonNullText(map, QStringLiteral("reason")));
     ins.bindValue(QStringLiteral(":available"), map.value(QStringLiteral("available"), -1));
-    ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+    ins.bindValue(QStringLiteral(":currentFile"), nonNullText(map, QStringLiteral("currentFile")));
     ins.bindValue(QStringLiteral(":updatedAt"), updatedAt > 0 ? updatedAt : readNow());
     if (!ins.exec()) {
       return false;
@@ -309,6 +390,7 @@ bool runSchema(QSqlDatabase& db) {
                      "  file_id TEXT PRIMARY KEY,"
                      "  file_name TEXT NOT NULL DEFAULT '',"
                      "  status TEXT NOT NULL DEFAULT 'UNKNOWN',"
+                     "  status_code INTEGER NOT NULL DEFAULT 0,"
                      "  size_bytes INTEGER NOT NULL DEFAULT 0,"
                      "  size_text TEXT NOT NULL DEFAULT '',"
                      "  machine TEXT NOT NULL DEFAULT '',"
@@ -321,6 +403,7 @@ bool runSchema(QSqlDatabase& db) {
                      "  resin_usage TEXT NOT NULL DEFAULT '',"
                      "  dimensions TEXT NOT NULL DEFAULT '',"
                      "  thumbnail_url TEXT NOT NULL DEFAULT '',"
+                     "  thumbnail_source_url TEXT NOT NULL DEFAULT '',"
                      "  gcode_id TEXT NOT NULL DEFAULT '',"
                      "  updated_at INTEGER NOT NULL"
                      ")"),
@@ -390,9 +473,11 @@ bool runSchema(QSqlDatabase& db) {
     }
   }
 
-  if (!ensureColumnExists(db, QStringLiteral("cloud_printers"),
-                          QStringLiteral("printer_key"),
-                          QStringLiteral("printer_key TEXT NOT NULL DEFAULT ''"))
+  const int previousSchemaVersion = readSchemaVersion(db);
+  if (!migrateCloudFilesSchemaV4(db)
+      || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
+                             QStringLiteral("printer_key"),
+                             QStringLiteral("printer_key TEXT NOT NULL DEFAULT ''"))
       || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
                              QStringLiteral("machine_type"),
                              QStringLiteral("machine_type TEXT NOT NULL DEFAULT ''"))
@@ -442,6 +527,9 @@ bool runSchema(QSqlDatabase& db) {
   }
 
   if (!db.transaction()) {
+    logging::error("app", "local_cache", "legacy_migration_transaction_failed",
+                   "Unable to start legacy cache migration",
+                   sqlErrorFields(db.lastError()));
     return false;
   }
 
@@ -450,17 +538,31 @@ bool runSchema(QSqlDatabase& db) {
     db.rollback();
     logging::warn("app", "local_cache", "legacy_migration_failed",
                   "Legacy payload migration failed, keeping typed tables as-is");
-  } else {
-    db.commit();
+  } else if (!db.commit()) {
+    logging::error("app", "local_cache", "legacy_migration_commit_failed",
+                   "Unable to commit legacy cache migration",
+                   sqlErrorFields(db.lastError()));
+    db.rollback();
+    return false;
   }
 
   QSqlQuery setVersion(db);
-  setVersion.prepare(QStringLiteral("INSERT INTO meta(key, value) VALUES('schema_version','3') "
-                                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"));
+  if (!setVersion.prepare(QStringLiteral(
+          "INSERT INTO meta(key, value) VALUES('schema_version', :version) "
+          "ON CONFLICT(key) DO UPDATE SET value=excluded.value"))) {
+    logging::error("app", "local_cache", "schema_version_prepare_failed",
+                   "Unable to prepare cache schema version update",
+                   sqlErrorFields(setVersion.lastError()));
+    return false;
+  }
+  setVersion.bindValue(QStringLiteral(":version"), kSchemaVersion);
   if (!setVersion.exec()) {
-    logging::warn("app", "local_cache", "schema_version_write_failed",
-                  "Unable to write cache schema version",
-                  {{"error", setVersion.lastError().text().toStdString()}});
+    logging::error("app", "local_cache", "schema_version_write_failed",
+                   "Unable to write cache schema version",
+                   sqlErrorFields(setVersion.lastError(),
+                                  {{"targetVersion", std::to_string(kSchemaVersion)},
+                                   {"previousVersion", std::to_string(previousSchemaVersion)}}));
+    return false;
   }
   return true;
 }
@@ -545,8 +647,8 @@ QVariantList LocalCacheStore::loadFiles(int page, int limit) const {
 
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "SELECT file_id, file_name, status, size_bytes, size_text, machine, material, upload_time, print_time, "
-        "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, gcode_id "
+        "SELECT file_id, file_name, status, status_code, size_bytes, size_text, machine, material, upload_time, print_time, "
+        "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, thumbnail_source_url, gcode_id "
         "FROM cloud_files ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"));
     q.bindValue(QStringLiteral(":limit"), limit);
     q.bindValue(QStringLiteral(":offset"), offset);
@@ -556,19 +658,21 @@ QVariantList LocalCacheStore::loadFiles(int page, int limit) const {
         item.insert("fileId", q.value(0).toString());
         item.insert("fileName", q.value(1).toString());
         item.insert("status", q.value(2).toString());
-        item.insert("sizeBytes", q.value(3).toULongLong());
-        item.insert("sizeText", q.value(4).toString());
-        item.insert("machine", q.value(5).toString());
-        item.insert("material", q.value(6).toString());
-        item.insert("uploadTime", q.value(7).toString());
-        item.insert("printTime", q.value(8).toString());
-        item.insert("layerThickness", q.value(9).toString());
-        item.insert("layers", q.value(10).toInt());
-        item.insert("isPwmb", q.value(11).toInt() == 1);
-        item.insert("resinUsage", q.value(12).toString());
-        item.insert("dimensions", q.value(13).toString());
-        item.insert("thumbnailUrl", q.value(14).toString());
-        item.insert("gcodeId", q.value(15).toString());
+        item.insert("statusCode", q.value(3).toInt());
+        item.insert("sizeBytes", q.value(4).toULongLong());
+        item.insert("sizeText", q.value(5).toString());
+        item.insert("machine", q.value(6).toString());
+        item.insert("material", q.value(7).toString());
+        item.insert("uploadTime", q.value(8).toString());
+        item.insert("printTime", q.value(9).toString());
+        item.insert("layerThickness", q.value(10).toString());
+        item.insert("layers", q.value(11).toInt());
+        item.insert("isPwmb", q.value(12).toInt() == 1);
+        item.insert("resinUsage", q.value(13).toString());
+        item.insert("dimensions", q.value(14).toString());
+        item.insert("thumbnailUrl", q.value(15).toString());
+        item.insert("thumbnailSourceUrl", q.value(16).toString());
+        item.insert("gcodeId", q.value(17).toString());
         out.append(item);
       }
     }
@@ -836,63 +940,102 @@ bool LocalCacheStore::replaceFiles(const QVariantList& files) const {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
     db.setDatabaseName(m_dbPath);
     if (!db.open()) {
+      logging::error("app", "local_cache", "file_cache_open_failed",
+                     "Unable to open local cache for file replacement",
+                     sqlErrorFields(db.lastError()));
       closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
     const qint64 now = nowEpochSec();
     if (!db.transaction()) {
+      logging::error("app", "local_cache", "file_cache_transaction_failed",
+                     "Unable to start file cache replacement transaction",
+                     sqlErrorFields(db.lastError()));
       closeAndRemoveDatabase(db, connectionName);
       return false;
     }
 
-    QSqlQuery clear(db);
-    ok = clear.exec(QStringLiteral("DELETE FROM cloud_files"));
+    {
+      QSqlQuery clear(db);
+      if (!clear.exec(QStringLiteral("DELETE FROM cloud_files"))) {
+        logging::error("app", "local_cache", "file_cache_clear_failed",
+                       "Unable to clear cached cloud files",
+                       sqlErrorFields(clear.lastError()));
+        ok = false;
+      } else {
+        clear.finish();
+        ok = true;
+      }
 
-    if (ok) {
-      QSqlQuery ins(db);
-      ins.prepare(QStringLiteral(
-          "INSERT INTO cloud_files("
-          "file_id, file_name, status, size_bytes, size_text, machine, material, upload_time, print_time, "
-          "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, gcode_id, updated_at"
-          ") VALUES("
-          ":id, :name, :status, :sizeBytes, :sizeText, :machine, :material, :uploadTime, :printTime, "
-          ":layerThickness, :layers, :isPwmb, :resinUsage, :dimensions, :thumbnailUrl, :gcodeId, :updatedAt"
-          ")"));
-      for (const QVariant& item : files) {
-        const QVariantMap map = item.toMap();
-        const QString id = map.value(QStringLiteral("fileId")).toString().trimmed();
-        if (id.isEmpty()) continue;
-
-        ins.bindValue(QStringLiteral(":id"), id);
-        ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("fileName")).toString());
-        ins.bindValue(QStringLiteral(":status"), map.value(QStringLiteral("status"), QStringLiteral("UNKNOWN")));
-        ins.bindValue(QStringLiteral(":sizeBytes"), map.value(QStringLiteral("sizeBytes"), 0));
-        ins.bindValue(QStringLiteral(":sizeText"), map.value(QStringLiteral("sizeText")).toString());
-        ins.bindValue(QStringLiteral(":machine"), map.value(QStringLiteral("machine")).toString());
-        ins.bindValue(QStringLiteral(":material"), map.value(QStringLiteral("material")).toString());
-        ins.bindValue(QStringLiteral(":uploadTime"), map.value(QStringLiteral("uploadTime")).toString());
-        ins.bindValue(QStringLiteral(":printTime"), map.value(QStringLiteral("printTime")).toString());
-        ins.bindValue(QStringLiteral(":layerThickness"), map.value(QStringLiteral("layerThickness")).toString());
-        ins.bindValue(QStringLiteral(":layers"), map.value(QStringLiteral("layers"), 0));
-        ins.bindValue(QStringLiteral(":isPwmb"), map.value(QStringLiteral("isPwmb"), false).toBool() ? 1 : 0);
-        ins.bindValue(QStringLiteral(":resinUsage"), map.value(QStringLiteral("resinUsage")).toString());
-        ins.bindValue(QStringLiteral(":dimensions"), map.value(QStringLiteral("dimensions")).toString());
-        ins.bindValue(QStringLiteral(":thumbnailUrl"), map.value(QStringLiteral("thumbnailUrl")).toString());
-        ins.bindValue(QStringLiteral(":gcodeId"), map.value(QStringLiteral("gcodeId")).toString());
-        ins.bindValue(QStringLiteral(":updatedAt"), now);
-        if (!ins.exec()) {
+      if (ok) {
+        QSqlQuery ins(db);
+        const QString insertSql = QStringLiteral(
+            "INSERT INTO cloud_files("
+            "file_id, file_name, status, status_code, size_bytes, size_text, machine, material, upload_time, print_time, "
+            "layer_thickness, layers, is_pwmb, resin_usage, dimensions, thumbnail_url, thumbnail_source_url, gcode_id, updated_at"
+            ") VALUES("
+            ":id, :name, :status, :statusCode, :sizeBytes, :sizeText, :machine, :material, :uploadTime, :printTime, "
+            ":layerThickness, :layers, :isPwmb, :resinUsage, :dimensions, :thumbnailUrl, :thumbnailSourceUrl, :gcodeId, :updatedAt"
+            ")");
+        if (!ins.prepare(insertSql)) {
+          logging::error("app", "local_cache", "file_cache_prepare_failed",
+                         "Unable to prepare cloud file cache insertion",
+                         sqlErrorFields(ins.lastError()));
           ok = false;
-          break;
         }
+
+        if (ok) {
+          for (const QVariant& item : files) {
+            const QVariantMap map = item.toMap();
+            const QString id = nonNullText(map, QStringLiteral("fileId")).trimmed();
+            if (id.isEmpty()) continue;
+
+            ins.bindValue(QStringLiteral(":id"), id);
+            ins.bindValue(QStringLiteral(":name"), nonNullText(map, QStringLiteral("fileName")));
+            ins.bindValue(QStringLiteral(":status"), nonNullText(map, QStringLiteral("status"), QStringLiteral("UNKNOWN")));
+            ins.bindValue(QStringLiteral(":statusCode"), map.value(QStringLiteral("statusCode"), 0));
+            ins.bindValue(QStringLiteral(":sizeBytes"), map.value(QStringLiteral("sizeBytes"), 0));
+            ins.bindValue(QStringLiteral(":sizeText"), nonNullText(map, QStringLiteral("sizeText")));
+            ins.bindValue(QStringLiteral(":machine"), nonNullText(map, QStringLiteral("machine")));
+            ins.bindValue(QStringLiteral(":material"), nonNullText(map, QStringLiteral("material")));
+            ins.bindValue(QStringLiteral(":uploadTime"), nonNullText(map, QStringLiteral("uploadTime")));
+            ins.bindValue(QStringLiteral(":printTime"), nonNullText(map, QStringLiteral("printTime")));
+            ins.bindValue(QStringLiteral(":layerThickness"), nonNullText(map, QStringLiteral("layerThickness")));
+            ins.bindValue(QStringLiteral(":layers"), map.value(QStringLiteral("layers"), 0));
+            ins.bindValue(QStringLiteral(":isPwmb"), map.value(QStringLiteral("isPwmb"), false).toBool() ? 1 : 0);
+            ins.bindValue(QStringLiteral(":resinUsage"), nonNullText(map, QStringLiteral("resinUsage")));
+            ins.bindValue(QStringLiteral(":dimensions"), nonNullText(map, QStringLiteral("dimensions")));
+            ins.bindValue(QStringLiteral(":thumbnailUrl"), nonNullText(map, QStringLiteral("thumbnailUrl")));
+            ins.bindValue(QStringLiteral(":thumbnailSourceUrl"), nonNullText(map, QStringLiteral("thumbnailSourceUrl")));
+            ins.bindValue(QStringLiteral(":gcodeId"), nonNullText(map, QStringLiteral("gcodeId")));
+            ins.bindValue(QStringLiteral(":updatedAt"), now);
+            if (!ins.exec()) {
+              logging::error("app", "local_cache", "file_cache_insert_failed",
+                             "Unable to insert cloud file into local cache",
+                             sqlErrorFields(ins.lastError(), {{"fileId", id.toStdString()}}));
+              ok = false;
+              break;
+            }
+          }
+        }
+        ins.finish();
       }
     }
 
     if (ok) {
       enforceMaxRows(db, QStringLiteral("cloud_files"), QStringLiteral("file_id"), 1500);
-      ok = db.commit();
-    } else {
-      db.rollback();
+      if (!db.commit()) {
+        logging::error("app", "local_cache", "file_cache_commit_failed",
+                       "Unable to commit cloud file cache replacement",
+                       sqlErrorFields(db.lastError()));
+        ok = false;
+        db.rollback();
+      }
+    } else if (!db.rollback()) {
+      logging::warn("app", "local_cache", "file_cache_rollback_failed",
+                    "Unable to rollback cloud file cache replacement",
+                    sqlErrorFields(db.lastError()));
     }
 
     db.close();
@@ -951,27 +1094,27 @@ bool LocalCacheStore::replacePrinters(const QVariantList& printers) const {
           ")"));
       for (const QVariant& item : printers) {
         const QVariantMap map = item.toMap();
-        const QString id = map.value(QStringLiteral("id")).toString().trimmed();
+        const QString id = nonNullText(map, QStringLiteral("id")).trimmed();
         if (id.isEmpty()) continue;
         const QVariantMap incomingDetails = map.value(QStringLiteral("details")).toMap();
         QVariantMap details = existingDetails.contains(id)
             ? mergePrinterDetails(existingDetails.value(id), incomingDetails)
             : incomingDetails;
 
-        const QString printerKey = map.value(QStringLiteral("printerKey")).toString().trimmed().isEmpty()
-            ? map.value(QStringLiteral("key")).toString().trimmed()
-            : map.value(QStringLiteral("printerKey")).toString().trimmed();
+        const QString printerKey = nonNullText(map, QStringLiteral("printerKey")).trimmed().isEmpty()
+            ? nonNullText(map, QStringLiteral("key")).trimmed()
+            : nonNullText(map, QStringLiteral("printerKey")).trimmed();
         ins.bindValue(QStringLiteral(":id"), id);
         ins.bindValue(QStringLiteral(":printerKey"), printerKey);
-        ins.bindValue(QStringLiteral(":machineType"), map.value(QStringLiteral("machineType")).toString());
-        ins.bindValue(QStringLiteral(":name"), map.value(QStringLiteral("name")).toString());
-        ins.bindValue(QStringLiteral(":model"), map.value(QStringLiteral("model")).toString());
-        ins.bindValue(QStringLiteral(":type"), map.value(QStringLiteral("type")).toString());
-        ins.bindValue(QStringLiteral(":lastSeen"), map.value(QStringLiteral("lastSeen")).toString());
-        ins.bindValue(QStringLiteral(":state"), map.value(QStringLiteral("state"), QStringLiteral("UNKNOWN")));
-        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+        ins.bindValue(QStringLiteral(":machineType"), nonNullText(map, QStringLiteral("machineType")));
+        ins.bindValue(QStringLiteral(":name"), nonNullText(map, QStringLiteral("name")));
+        ins.bindValue(QStringLiteral(":model"), nonNullText(map, QStringLiteral("model")));
+        ins.bindValue(QStringLiteral(":type"), nonNullText(map, QStringLiteral("type")));
+        ins.bindValue(QStringLiteral(":lastSeen"), nonNullText(map, QStringLiteral("lastSeen")));
+        ins.bindValue(QStringLiteral(":state"), nonNullText(map, QStringLiteral("state"), QStringLiteral("UNKNOWN")));
+        ins.bindValue(QStringLiteral(":reason"), nonNullText(map, QStringLiteral("reason")));
         ins.bindValue(QStringLiteral(":available"), map.value(QStringLiteral("available"), -1));
-        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
+        ins.bindValue(QStringLiteral(":currentFile"), nonNullText(map, QStringLiteral("currentFile")));
         ins.bindValue(QStringLiteral(":firmwareVersion"), detailString(details, QStringLiteral("firmwareVersion")));
         ins.bindValue(QStringLiteral(":printCount"), detailString(details, QStringLiteral("printCount")));
         ins.bindValue(QStringLiteral(":printTotalTime"), detailString(details, QStringLiteral("printTotalTime")));
@@ -1042,25 +1185,25 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
           ")"));
       for (const QVariant& item : jobs) {
         const QVariantMap map = item.toMap();
-        const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
-        const QString printerId = map.value(QStringLiteral("printerId")).toString().trimmed();
+        const QString taskId = nonNullText(map, QStringLiteral("taskId")).trimmed();
+        const QString printerId = nonNullText(map, QStringLiteral("printerId")).trimmed();
         if (taskId.isEmpty() || printerId.isEmpty()) continue;
 
         ins.bindValue(QStringLiteral(":taskId"), taskId);
         ins.bindValue(QStringLiteral(":printerId"), printerId);
-        ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
-        ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+        ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
+        ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
         ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
         ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
         ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
         ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
         ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
-        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
-        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+        ins.bindValue(QStringLiteral(":currentFile"), nonNullText(map, QStringLiteral("currentFile")));
+        ins.bindValue(QStringLiteral(":reason"), nonNullText(map, QStringLiteral("reason")));
         ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
         ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
-        ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+        ins.bindValue(QStringLiteral(":img"), nonNullText(map, QStringLiteral("img")));
         ins.bindValue(QStringLiteral(":updatedAt"), now);
         if (!ins.exec()) {
           ok = false;
@@ -1126,24 +1269,24 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
           ")"));
       for (const QVariant& item : jobs) {
         const QVariantMap map = item.toMap();
-        const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
+        const QString taskId = nonNullText(map, QStringLiteral("taskId")).trimmed();
         if (taskId.isEmpty()) continue;
 
         ins.bindValue(QStringLiteral(":taskId"), taskId);
         ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
-        ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
-        ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+        ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
+        ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
         ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
         ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
         ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
         ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
         ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
-        ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
-        ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+        ins.bindValue(QStringLiteral(":currentFile"), nonNullText(map, QStringLiteral("currentFile")));
+        ins.bindValue(QStringLiteral(":reason"), nonNullText(map, QStringLiteral("reason")));
         ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
         ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
-        ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+        ins.bindValue(QStringLiteral(":img"), nonNullText(map, QStringLiteral("img")));
         ins.bindValue(QStringLiteral(":updatedAt"), now);
         if (!ins.exec()) {
           ok = false;
@@ -1220,24 +1363,24 @@ bool LocalCacheStore::upsertJobsForPrinter(const QString& printerId, const QVari
     ok = true;
     for (const QVariant& item : jobs) {
       const QVariantMap map = item.toMap();
-      const QString taskId = map.value(QStringLiteral("taskId")).toString().trimmed();
+      const QString taskId = nonNullText(map, QStringLiteral("taskId")).trimmed();
       if (taskId.isEmpty()) continue;
 
       ins.bindValue(QStringLiteral(":taskId"), taskId);
       ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
-      ins.bindValue(QStringLiteral(":printerName"), map.value(QStringLiteral("printerName")).toString());
-      ins.bindValue(QStringLiteral(":gcodeName"), map.value(QStringLiteral("gcodeName")).toString());
+      ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
+      ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
       ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
       ins.bindValue(QStringLiteral(":progress"), map.value(QStringLiteral("progress"), -1));
       ins.bindValue(QStringLiteral(":elapsedSec"), map.value(QStringLiteral("elapsedSec"), -1));
       ins.bindValue(QStringLiteral(":remainingSec"), map.value(QStringLiteral("remainingSec"), -1));
       ins.bindValue(QStringLiteral(":currentLayer"), map.value(QStringLiteral("currentLayer"), -1));
       ins.bindValue(QStringLiteral(":totalLayers"), map.value(QStringLiteral("totalLayers"), -1));
-      ins.bindValue(QStringLiteral(":currentFile"), map.value(QStringLiteral("currentFile")).toString());
-      ins.bindValue(QStringLiteral(":reason"), map.value(QStringLiteral("reason")).toString());
+      ins.bindValue(QStringLiteral(":currentFile"), nonNullText(map, QStringLiteral("currentFile")));
+      ins.bindValue(QStringLiteral(":reason"), nonNullText(map, QStringLiteral("reason")));
       ins.bindValue(QStringLiteral(":createTime"), map.value(QStringLiteral("createTime"), 0));
       ins.bindValue(QStringLiteral(":endTime"), map.value(QStringLiteral("endTime"), 0));
-      ins.bindValue(QStringLiteral(":img"), map.value(QStringLiteral("img")).toString());
+      ins.bindValue(QStringLiteral(":img"), nonNullText(map, QStringLiteral("img")));
       ins.bindValue(QStringLiteral(":updatedAt"), now);
       if (!ins.exec()) {
         ok = false;

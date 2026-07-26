@@ -2,11 +2,29 @@
 
 Status: `IMPLEMENTED`.
 
-The old documentation package contained useful documents, a HAR capture and a PWMB sample. The documentation archive keeps the reusable technical documentation and non-secret MQTT analysis data, but excludes sensitive or binary fixtures.
+The distributable source archive contains code, tests, build configuration, packaging and maintained documentation. Public reference data is limited to small synthetic fixtures that can be reviewed in a normal diff.
 
-Excluded from this package:
+## Excluded material
 
-- `uc.makeronline.com.har` — HAR captures may contain reusable tokens, cookies and signed URLs.
-- `cube.pwmb` — binary fixture/sample, useful for tests but not documentation.
+Never include:
 
-When such files are required, keep them in a private test-fixture location and document only their expected metadata/golden values.
+- HAR captures, sessions, tokens, cookies or signed URLs;
+- TLS private keys or local environment files;
+- raw MQTT broker captures or complete user activity histories;
+- persistent real printer, task, message or filename identifiers;
+- private binary fixtures such as redistributability-unknown PWMB files;
+- build outputs, runtime logs, caches and local databases.
+
+When private evidence is required for investigation, keep it outside the distributable repository and document only the redacted conclusion, aggregate statistics or synthetic reproduction.
+
+## Public fixtures
+
+The files under [`../reference-data/`](../reference-data/README.md) are synthetic. They explain parser and workflow vocabulary but are not evidence of universal broker behaviour.
+
+`tools/check_documentation_contract.py` rejects unexpected reference files, capture-shaped identifiers, oversized fixtures, duplicate TS catalogs, broken documentation links and drift in critical MQTT/SSL contracts.
+
+## Web review source archive
+
+Edit `ARCHIVE_NAME` near the top of `make-a.sh`, then run `./make-a.sh`. The script executes the documentation contract before creating the archive at the repository root. Archive creation stops when the contract fails.
+
+`acm.zip` remains a manually supplied project base. Agents must not regenerate or replace it automatically.

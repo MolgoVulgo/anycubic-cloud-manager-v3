@@ -4,8 +4,10 @@
 #include "infra/cloud/core/SessionProvider.h"
 #include "infra/logging/JsonlLogger.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstddef>
 #include <filesystem>
 #include <thread>
@@ -14,11 +16,26 @@
 namespace accloud::usecases::cloud {
 namespace {
 
-bool isUploadReady(const accloud::cloud::CloudUploadStatusResult& status) {
-    return !status.gcodeId.empty() || status.status == 1;
+std::string trimAscii(std::string value) {
+    const auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
+    const auto first = std::find_if(value.begin(), value.end(), notSpace);
+    if (first == value.end()) {
+        return {};
+    }
+    const auto last = std::find_if(value.rbegin(), value.rend(), notSpace).base();
+    return std::string(first, last);
 }
 
 } // namespace
+
+bool UploadLocalFileUseCase::hasUsableGcodeId(const std::string& gcodeId) {
+    const std::string normalized = trimAscii(gcodeId);
+    return !normalized.empty() && normalized != "0";
+}
+
+bool UploadLocalFileUseCase::isUploadReady(int uploadStatus, const std::string& gcodeId) {
+    return uploadStatus == 1 || hasUsableGcodeId(gcodeId);
+}
 
 UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPath,
                                                       const ProgressCallback& onProgress) const {
@@ -148,51 +165,68 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
                   "newUploadFile completed",
                   {{"lock_id", lockResult.lockId},
                    {"file_id", registerResult.fileId}});
-    reportProgress(0.74, "Verification statut upload");
-
-    accloud::cloud::CloudUploadStatusResult statusResult;
-    bool statusReceived = false;
-    static constexpr std::array<std::chrono::milliseconds, 3> kStatusPollDelays = {
-        std::chrono::milliseconds(0),
-        std::chrono::milliseconds(250),
-        std::chrono::milliseconds(900),
-    };
-    std::size_t statusPollIndex = 0;
-    for (const auto& delay : kStatusPollDelays) {
-        if (delay.count() > 0) {
-            std::this_thread::sleep_for(delay);
-        }
-        reportProgress(0.74 + (0.14 * (statusPollIndex + 1)), "Verification statut upload");
-        statusResult = uploadsApi.getUploadStatus(contextResult.context.accessToken,
-                                                  contextResult.context.xxToken,
-                                                  registerResult.fileId);
-        if (statusResult.ok) {
-            statusReceived = true;
-            if (isUploadReady(statusResult)) {
-                break;
-            }
-        }
-        ++statusPollIndex;
-    }
 
     out.ok = true;
     out.fileId = registerResult.fileId;
+
+    reportProgress(0.72, "Finalisation espace cloud");
+    const auto unlockResult = finalizeUnlock(false);
+    out.unlockOk = unlockResult.ok;
+    if (!unlockResult.ok) {
+        logging::warn("cloud", "upload_local_file", "unlock_after_success_failed",
+                      "unlockStorageSpace failed after successful upload",
+                      {{"lock_id", lockResult.lockId},
+                       {"file_id", out.fileId}});
+    } else {
+        logging::info("cloud", "upload_local_file", "unlock_ok",
+                      "unlockStorageSpace completed before status polling",
+                      {{"lock_id", lockResult.lockId},
+                       {"file_id", out.fileId}});
+    }
+
+    reportProgress(0.78, "Verification statut upload");
+    accloud::cloud::CloudUploadStatusResult statusResult;
+    bool statusReceived = false;
+    static constexpr std::array<std::chrono::milliseconds, 6> kStatusPollDelays = {
+        std::chrono::milliseconds(500),
+        std::chrono::milliseconds(1000),
+        std::chrono::milliseconds(2000),
+        std::chrono::milliseconds(4000),
+        std::chrono::milliseconds(8000),
+        std::chrono::milliseconds(15000),
+    };
+
+    for (std::size_t index = 0; index < kStatusPollDelays.size(); ++index) {
+        std::this_thread::sleep_for(kStatusPollDelays[index]);
+        const double progress = 0.78 + (0.18 * static_cast<double>(index + 1)
+                                        / static_cast<double>(kStatusPollDelays.size()));
+        reportProgress(progress, "Verification statut upload");
+        statusResult = uploadsApi.getUploadStatus(contextResult.context.accessToken,
+                                                  contextResult.context.xxToken,
+                                                  registerResult.fileId);
+        if (!statusResult.ok) {
+            continue;
+        }
+        statusReceived = true;
+        if (isUploadReady(statusResult.status, statusResult.gcodeId)) {
+            break;
+        }
+    }
+
     out.uploadStatus = statusReceived ? statusResult.status : 0;
     out.gcodeId = statusReceived ? statusResult.gcodeId : std::string{};
-    const bool uploadReady = statusReceived && isUploadReady(statusResult);
+    const bool uploadReady = statusReceived && isUploadReady(out.uploadStatus, out.gcodeId);
     if (uploadReady) {
-        out.message = statusResult.message.empty()
-                          ? "Upload terminé."
-                          : statusResult.message;
-        logging::info("cloud", "upload_local_file", "status_ok",
-                      "getUploadStatus completed",
+        out.message = "Upload terminé.";
+        logging::info("cloud", "upload_local_file", "status_ready",
+                      "Cloud processing completed after unlock",
                       {{"file_id", out.fileId},
                        {"status", std::to_string(out.uploadStatus)},
                        {"gcode_id", out.gcodeId.empty() ? "0" : out.gcodeId}});
     } else if (statusReceived) {
         out.message = "Upload transfere (traitement cloud en cours).";
         logging::warn("cloud", "upload_local_file", "status_processing",
-                      "Upload registered and transfered, waiting cloud processing",
+                      "Upload registered and transferred, cloud processing still pending",
                       {{"file_id", out.fileId},
                        {"status", std::to_string(out.uploadStatus)},
                        {"gcode_id", out.gcodeId.empty() ? "0" : out.gcodeId}});
@@ -203,28 +237,18 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
                       {{"file_id", out.fileId}});
     }
 
-    const auto unlockResult = finalizeUnlock(false);
-    out.unlockOk = unlockResult.ok;
-    if (!unlockResult.ok) {
+    if (!out.unlockOk) {
         out.message += " Unlock warning: " + unlockResult.message;
-        logging::warn("cloud", "upload_local_file", "unlock_after_success_failed",
-                      "unlockStorageSpace failed after successful upload",
-                      {{"lock_id", lockResult.lockId},
-                       {"file_id", out.fileId}});
-    } else {
-        logging::info("cloud", "upload_local_file", "unlock_ok",
-                      "unlockStorageSpace completed after upload",
-                      {{"lock_id", lockResult.lockId},
-                       {"file_id", out.fileId}});
     }
 
-    reportProgress(1.0, "Upload termine");
+    reportProgress(1.0, uploadReady ? "Upload termine" : "Traitement cloud en cours");
 
     logging::info("cloud", "upload_local_file", "done",
                   "Upload workflow completed",
                   {{"file_id", out.fileId},
                    {"gcode_id", out.gcodeId.empty() ? "0" : out.gcodeId},
                    {"status", std::to_string(out.uploadStatus)},
+                   {"ready", uploadReady ? "1" : "0"},
                    {"unlock_ok", out.unlockOk ? "1" : "0"}});
 
     return out;

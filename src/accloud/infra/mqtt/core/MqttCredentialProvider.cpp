@@ -1,5 +1,7 @@
 #include "MqttCredentialProvider.h"
 
+#include "MqttTlsPathResolver.h"
+
 #include "infra/logging/JsonlLogger.h"
 
 #if defined(ACCLOUD_WITH_OPENSSL)
@@ -66,33 +68,6 @@ std::string getEnvString(const char* key) {
         return {};
     }
     return trimAscii(std::string(raw));
-}
-
-std::filesystem::path repositoryRootFromSource() {
-    std::filesystem::path p(__FILE__);
-    p = p.parent_path();
-    for (int i = 0; i < 8 && !p.empty(); ++i) {
-        if (std::filesystem::exists(p / "accloud" / "resources" / "mqtt" / "tls")) {
-            return p;
-        }
-        p = p.parent_path();
-    }
-    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
-}
-
-std::filesystem::path defaultCaPathFromRepo() {
-    const std::filesystem::path root = repositoryRootFromSource();
-    const std::filesystem::path preferred =
-        root / "accloud" / "resources" / "mqtt" / "tls" / "anycubic_mqtt_tls_ca.crt";
-    if (std::filesystem::exists(preferred)) {
-        return preferred;
-    }
-    const std::filesystem::path legacy =
-        root / "accloud" / "resources" / "mqtt" / "tls" / "anycubic_mqqt_tls_ca.crt";
-    if (std::filesystem::exists(legacy)) {
-        return legacy;
-    }
-    return preferred;
 }
 
 std::string readTextFile(const std::filesystem::path& path) {
@@ -360,14 +335,9 @@ std::optional<MqttCredentialCandidate> MqttCredentialProvider::buildSlicerCandid
     return std::nullopt;
 #else
     std::filesystem::path caPath(getEnvString(kEnvMqttCaPath));
-    if (caPath.empty()) {
-        const std::filesystem::path repoDefault = defaultCaPathFromRepo();
-        if (std::filesystem::exists(repoDefault)) {
-            caPath = repoDefault;
-        }
-    }
     if (caPath.empty() && parseBoolEnv(kEnvMqttTlsDevFallback, false)) {
-        caPath = defaultCaPathFromRepo();
+        caPath = MqttTlsPathResolver::resolveDevTlsFile(
+            "anycubic_mqtt_tls_ca.crt", "anycubic_mqqt_tls_ca.crt");
     }
     if (caPath.empty()) {
         logging::error("cloud", "mqtt_credentials", "missing_ca_path",

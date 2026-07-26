@@ -45,7 +45,6 @@ std::vector<std::string> MqttTopicBuilder::buildUserReportTopics(const std::stri
     const std::string root = "anycubic/anycubicCloud/v1/server/app/" + uid + "/" + uidMd5;
     return {
         root + "/slice/report",
-        root + "/fdmslice/report",
     };
 }
 
@@ -60,11 +59,14 @@ std::vector<std::string> MqttTopicBuilder::buildPrinterSubscriptionTopics(const 
 
     std::vector<std::string> topics = {
         "anycubic/anycubicCloud/v1/printer/public/" + mt + "/" + did + "/#",
-        "anycubic/anycubicCloud/v1/server/printer/" + mt + "/" + did + "/#",
     };
     if (!includeExtendedTopics) {
         return topics;
     }
+
+    // The server/printer wildcard is rejected by the observed resin account ACLs.
+    // Keep it only in explicit discovery mode for controlled compatibility checks.
+    topics.push_back("anycubic/anycubicCloud/v1/server/printer/" + mt + "/" + did + "/#");
 
     static constexpr std::array<const char*, 14> kCommandEndpoints = {
         "airpure",

@@ -1,9 +1,14 @@
 #include "app/LocalCacheStore.h"
 #include "app/usecases/cloud/OrderResponseTracker.h"
+#include "app/usecases/cloud/UploadLocalFileUseCase.h"
 #include "infra/config/AppPaths.h"
 #include "infra/cloud/core/ResponseEnvelopeParser.h"
 
 #include <QCoreApplication>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -40,6 +45,101 @@ void restoreEnv(const char* key, const std::optional<std::string>& value) {
     } else {
         unsetenv(key);
     }
+}
+
+
+std::filesystem::path uniqueTempDbPath(const std::string& prefix) {
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const auto pid = static_cast<long long>(::getpid());
+    return std::filesystem::temp_directory_path()
+        / (prefix + "_" + std::to_string(pid) + "_" + std::to_string(now) + ".db");
+}
+
+void removeSqliteFiles(const std::filesystem::path& dbPath) {
+    std::error_code ec;
+    std::filesystem::remove(dbPath, ec);
+    std::filesystem::remove(dbPath.string() + "-wal", ec);
+    std::filesystem::remove(dbPath.string() + "-shm", ec);
+}
+
+bool createSchemaV3Database(const std::filesystem::path& dbPath) {
+    const QString connectionName = QStringLiteral("accloud_schema_v3_seed_")
+        + QString::number(static_cast<qlonglong>(::getpid()));
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(QString::fromStdString(dbPath.string()));
+        if (!db.open()) {
+            std::cerr << "FAILED: unable to create schema v3 database: "
+                      << db.lastError().text().toStdString() << '\n';
+        } else {
+            const QStringList statements = {
+                QStringLiteral("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"),
+                QStringLiteral("INSERT INTO meta(key, value) VALUES('schema_version', '3')"),
+                QStringLiteral(
+                    "CREATE TABLE cloud_files ("
+                    "file_id TEXT PRIMARY KEY, file_name TEXT NOT NULL DEFAULT '', "
+                    "status TEXT NOT NULL DEFAULT 'UNKNOWN', size_bytes INTEGER NOT NULL DEFAULT 0, "
+                    "size_text TEXT NOT NULL DEFAULT '', machine TEXT NOT NULL DEFAULT '', "
+                    "material TEXT NOT NULL DEFAULT '', upload_time TEXT NOT NULL DEFAULT '', "
+                    "print_time TEXT NOT NULL DEFAULT '', layer_thickness TEXT NOT NULL DEFAULT '', "
+                    "layers INTEGER NOT NULL DEFAULT 0, is_pwmb INTEGER NOT NULL DEFAULT 0, "
+                    "resin_usage TEXT NOT NULL DEFAULT '', dimensions TEXT NOT NULL DEFAULT '', "
+                    "thumbnail_url TEXT NOT NULL DEFAULT '', gcode_id TEXT NOT NULL DEFAULT '', "
+                    "updated_at INTEGER NOT NULL)"),
+                QStringLiteral(
+                    "INSERT INTO cloud_files(file_id, file_name, status, thumbnail_url, updated_at) "
+                    "VALUES('legacy-file', 'legacy.pwsz', 'READY', '', 1)")};
+            ok = true;
+            QSqlQuery query(db);
+            for (const QString& statement : statements) {
+                if (!query.exec(statement)) {
+                    std::cerr << "FAILED: schema v3 seed statement failed: "
+                              << query.lastError().text().toStdString() << '\n';
+                    ok = false;
+                    break;
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+bool verifySchemaV4Database(const std::filesystem::path& dbPath) {
+    const QString connectionName = QStringLiteral("accloud_schema_v4_verify_")
+        + QString::number(static_cast<qlonglong>(::getpid()));
+    bool versionOk = false;
+    bool hasStatusCode = false;
+    bool hasThumbnailSource = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        db.setDatabaseName(QString::fromStdString(dbPath.string()));
+        if (db.open()) {
+            QSqlQuery version(db);
+            if (version.exec(QStringLiteral(
+                    "SELECT value FROM meta WHERE key='schema_version'"))
+                && version.next()) {
+                versionOk = version.value(0).toInt() == 4;
+            }
+            version.finish();
+
+            QSqlQuery columns(db);
+            if (columns.exec(QStringLiteral("PRAGMA table_info(cloud_files)"))) {
+                while (columns.next()) {
+                    const QString name = columns.value(1).toString();
+                    hasStatusCode = hasStatusCode || name == QStringLiteral("status_code");
+                    hasThumbnailSource = hasThumbnailSource
+                        || name == QStringLiteral("thumbnail_source_url");
+                }
+            }
+            columns.finish();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return versionOk && hasStatusCode && hasThumbnailSource;
 }
 
 bool test_response_envelope_parser_contract() {
@@ -107,12 +207,28 @@ bool test_order_response_tracker_lifecycle() {
     return okAmbiguous;
 }
 
+
+bool test_upload_readiness_rejects_zero_sentinel() {
+    using accloud::usecases::cloud::UploadLocalFileUseCase;
+    return expect(!UploadLocalFileUseCase::hasUsableGcodeId(""),
+                  "empty gcode id should be unusable")
+        && expect(!UploadLocalFileUseCase::hasUsableGcodeId("0"),
+                  "zero gcode id should be a sentinel")
+        && expect(!UploadLocalFileUseCase::hasUsableGcodeId(" 0 "),
+                  "trimmed zero gcode id should be a sentinel")
+        && expect(UploadLocalFileUseCase::hasUsableGcodeId("42"),
+                  "non-zero gcode id should be usable")
+        && expect(!UploadLocalFileUseCase::isUploadReady(2, "0"),
+                  "PROCESSING with gcode id zero must not be READY")
+        && expect(UploadLocalFileUseCase::isUploadReady(1, "0"),
+                  "status 1 should be READY")
+        && expect(UploadLocalFileUseCase::isUploadReady(2, "gcode-42"),
+                  "a usable gcode id should mark the upload ready");
+}
+
 bool test_local_cache_store_roundtrip_and_sync_state() {
     const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
-    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-    const auto pid = static_cast<long long>(::getpid());
-    const std::filesystem::path dbPath = std::filesystem::temp_directory_path()
-        / ("accloud_cache_test_" + std::to_string(pid) + "_" + std::to_string(now) + ".db");
+    const std::filesystem::path dbPath = uniqueTempDbPath("accloud_cache_test");
     setenv("ACCLOUD_DB_PATH", dbPath.string().c_str(), 1);
 
     accloud::LocalCacheStore cache;
@@ -130,6 +246,71 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     const QVariantMap loadedQuota = cache.loadQuota();
     ok = ok
         && expect(loadedQuota.value("usedBytes").toInt() == 100, "loadQuota usedBytes mismatch");
+
+    QVariantMap cloudFile;
+    cloudFile.insert("fileId", "file-processing");
+    cloudFile.insert("fileName", "processing.pwsz");
+    cloudFile.insert("status", "PROCESSING");
+    cloudFile.insert("statusCode", 2);
+    cloudFile.insert("thumbnailUrl", "");
+    cloudFile.insert("thumbnailSourceUrl", "https://example.invalid/preview.jpg");
+    cloudFile.insert("gcodeId", "");
+    QVariantList cloudFiles;
+    cloudFiles.append(cloudFile);
+    ok = ok && expect(cache.replaceFiles(cloudFiles), "replaceFiles should succeed");
+    const QVariantList loadedFiles = cache.loadFiles(1, 10);
+    ok = ok && expect(loadedFiles.size() == 1, "loadFiles should return one file");
+    if (!loadedFiles.isEmpty()) {
+        const QVariantMap loadedFile = loadedFiles.first().toMap();
+        ok = ok && expect(loadedFile.value("statusCode").toInt() == 2,
+                          "cached file statusCode mismatch");
+        ok = ok && expect(loadedFile.value("thumbnailUrl").toString().isEmpty(),
+                          "cached QML thumbnail URL should remain local-or-empty");
+        ok = ok && expect(loadedFile.value("thumbnailSourceUrl").toString()
+                              == "https://example.invalid/preview.jpg",
+                          "cached thumbnail source URL mismatch");
+        ok = ok && expect(loadedFile.value("sizeText").toString().isEmpty(),
+                          "missing optional file text should be cached as an empty string");
+        ok = ok && expect(loadedFile.value("machine").toString().isEmpty(),
+                          "missing file machine should be cached as an empty string");
+        ok = ok && expect(loadedFile.value("material").toString().isEmpty(),
+                          "missing file material should be cached as an empty string");
+    }
+
+
+    QVariantList duplicateFiles;
+    duplicateFiles.append(cloudFile);
+    duplicateFiles.append(cloudFile);
+    ok = ok && expect(!cache.replaceFiles(duplicateFiles),
+                      "duplicate file ids should fail transactionally");
+    const QVariantList filesAfterRollback = cache.loadFiles(1, 10);
+    ok = ok && expect(filesAfterRollback.size() == 1,
+                      "failed replaceFiles should preserve previous snapshot");
+    if (!filesAfterRollback.isEmpty()) {
+        ok = ok && expect(filesAfterRollback.first().toMap().value("fileId").toString()
+                              == "file-processing",
+                          "rollback should preserve the previous file row");
+    }
+
+    QVariantMap defaultedFile;
+    defaultedFile.insert("fileId", "file-defaults");
+    defaultedFile.insert("fileName", "defaults.pwsz");
+    QVariantList defaultedFiles;
+    defaultedFiles.append(defaultedFile);
+    ok = ok && expect(cache.replaceFiles(defaultedFiles),
+                      "replaceFiles should accept missing optional text fields");
+    const QVariantList loadedDefaultedFiles = cache.loadFiles(1, 10);
+    ok = ok && expect(loadedDefaultedFiles.size() == 1,
+                      "defaulted file cache should contain one row");
+    if (!loadedDefaultedFiles.isEmpty()) {
+        const QVariantMap loaded = loadedDefaultedFiles.first().toMap();
+        ok = ok && expect(loaded.value("status").toString() == "UNKNOWN",
+                          "missing file status should default to UNKNOWN");
+        ok = ok && expect(loaded.value("sizeText").toString().isEmpty(),
+                          "missing file sizeText should default to an empty string");
+        ok = ok && expect(loaded.value("gcodeId").toString().isEmpty(),
+                          "missing file gcodeId should default to an empty string");
+    }
 
     QVariantMap printer;
     printer.insert("id", "printer-1");
@@ -196,6 +377,44 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
                           "offline cached printer should keep firmware details");
         ok = ok && expect(details.value("printTotalTime").toString() == "12h 30m",
                           "partial refresh should not erase cached print total time");
+    }
+
+    QVariantMap minimalPrinter;
+    minimalPrinter.insert("id", "printer-minimal");
+    QVariantList minimalPrinters;
+    minimalPrinters.append(minimalPrinter);
+    ok = ok && expect(cache.replacePrinters(minimalPrinters),
+                      "replacePrinters should accept missing optional text fields");
+    const QVariantList loadedMinimalPrinters = cache.loadPrinters();
+    ok = ok && expect(loadedMinimalPrinters.size() == 1,
+                      "minimal printer cache should contain one row");
+    if (!loadedMinimalPrinters.isEmpty()) {
+        const QVariantMap p = loadedMinimalPrinters.first().toMap();
+        ok = ok && expect(p.value("state").toString() == "UNKNOWN",
+                          "missing printer state should default to UNKNOWN");
+        ok = ok && expect(p.value("printerKey").toString().isEmpty(),
+                          "missing printer key should default to an empty string");
+        ok = ok && expect(p.value("currentFile").toString().isEmpty(),
+                          "missing printer current file should default to an empty string");
+    }
+
+    QVariantMap minimalJob;
+    minimalJob.insert("taskId", "task-minimal");
+    QVariantList minimalJobs;
+    minimalJobs.append(minimalJob);
+    ok = ok && expect(cache.replaceJobsForPrinter("printer-1", minimalJobs),
+                      "replaceJobsForPrinter should accept missing optional text fields");
+    const QVariantList loadedMinimalJobs = cache.loadJobsForPrinter("printer-1", 1, 10);
+    ok = ok && expect(loadedMinimalJobs.size() == 1,
+                      "minimal job cache should contain one row");
+    if (!loadedMinimalJobs.isEmpty()) {
+        const QVariantMap job = loadedMinimalJobs.first().toMap();
+        ok = ok && expect(job.value("printerName").toString().isEmpty(),
+                          "missing job printer name should default to an empty string");
+        ok = ok && expect(job.value("gcodeName").toString().isEmpty(),
+                          "missing job gcode name should default to an empty string");
+        ok = ok && expect(job.value("reason").toString().isEmpty(),
+                          "missing job reason should default to an empty string");
     }
 
     QVariantMap oldJob;
@@ -306,10 +525,48 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     ok = ok && expect(sawNew, "new job should be present");
 
     restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
-    std::error_code ec;
-    std::filesystem::remove(dbPath, ec);
-    std::filesystem::remove(dbPath.string() + "-wal", ec);
-    std::filesystem::remove(dbPath.string() + "-shm", ec);
+    removeSqliteFiles(dbPath);
+    return ok;
+}
+
+bool test_local_cache_store_migrates_schema_v3_to_v4() {
+    const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
+    const std::filesystem::path dbPath = uniqueTempDbPath("accloud_cache_schema_v3");
+    bool ok = expect(createSchemaV3Database(dbPath),
+                     "schema v3 cache seed should succeed");
+    setenv("ACCLOUD_DB_PATH", dbPath.string().c_str(), 1);
+
+    accloud::LocalCacheStore cache;
+    ok = ok && expect(cache.isAvailable(), "schema v3 cache should migrate");
+
+    QVariantMap migratedFile;
+    migratedFile.insert("fileId", "migrated-processing");
+    migratedFile.insert("fileName", "migrated.pwsz");
+    migratedFile.insert("status", "PROCESSING");
+    migratedFile.insert("statusCode", 2);
+    migratedFile.insert("thumbnailUrl", "");
+    migratedFile.insert("thumbnailSourceUrl", "https://example.invalid/migrated.jpg");
+    QVariantList migratedFiles;
+    migratedFiles.append(migratedFile);
+    ok = ok && expect(cache.replaceFiles(migratedFiles),
+                      "replaceFiles should succeed after schema v3 migration");
+
+    const QVariantList loadedFiles = cache.loadFiles(1, 10);
+    ok = ok && expect(loadedFiles.size() == 1,
+                      "migrated cache should contain one replacement file");
+    if (!loadedFiles.isEmpty()) {
+        const QVariantMap loaded = loadedFiles.first().toMap();
+        ok = ok && expect(loaded.value("statusCode").toInt() == 2,
+                          "migrated statusCode mismatch");
+        ok = ok && expect(loaded.value("thumbnailSourceUrl").toString()
+                              == "https://example.invalid/migrated.jpg",
+                          "migrated thumbnail source mismatch");
+    }
+    ok = ok && expect(verifySchemaV4Database(dbPath),
+                      "schema version and v4 columns should be persisted");
+
+    restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
+    removeSqliteFiles(dbPath);
     return ok;
 }
 
@@ -330,7 +587,9 @@ int main(int argc, char** argv) {
     bool ok = true;
     ok = test_response_envelope_parser_contract() && ok;
     ok = test_order_response_tracker_lifecycle() && ok;
+    ok = test_upload_readiness_rejects_zero_sentinel() && ok;
     ok = test_local_cache_store_roundtrip_and_sync_state() && ok;
+    ok = test_local_cache_store_migrates_schema_v3_to_v4() && ok;
     ok = test_thumbnail_dir_defaults_to_local_share_accloud() && ok;
     if (!ok) {
         return 1;

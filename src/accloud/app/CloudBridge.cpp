@@ -20,6 +20,7 @@
 #include "infra/config/AppPaths.h"
 #include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/Redactor.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -28,14 +29,19 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocale>
 #include <QSaveFile>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QTimer>
 #include <QVariantList>
 #include <QCryptographicHash>
 
@@ -256,7 +262,9 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("region",        QString::fromStdString(f.region));
     m.insert("bucket",        QString::fromStdString(f.bucket));
     m.insert("path",          QString::fromStdString(f.path));
-    m.insert("thumbnailUrl",  QString::fromStdString(f.thumbnailUrl));
+    const QString thumbnailSource = QString::fromStdString(f.thumbnailUrl);
+    m.insert("thumbnailSourceUrl", thumbnailSource);
+    m.insert("thumbnailUrl", thumbnailSource);
     m.insert("gcodeId",       QString::fromStdString(f.gcodeId));
     return m;
 }
@@ -296,6 +304,27 @@ QString normalizedThumbnailUrl(const QString& raw) {
         return QStringLiteral("https://") + value;
     }
     return {};
+}
+
+QString safeThumbnailUrlForLogs(const QString& value) {
+    return QString::fromStdString(logging::safeUrlForLogs(value.toStdString()));
+}
+
+QString thumbnailSourceForPersistence(const QString& value) {
+    const QString normalized = normalizedThumbnailUrl(value);
+    if (normalized.isEmpty()) {
+        return {};
+    }
+    const QUrl url(normalized);
+    if (url.isLocalFile()) {
+        return normalized;
+    }
+    // Query strings may contain temporary credentials. Keep them in memory only
+    // for the current fetch and never persist them in the SQLite cache.
+    if (!url.userInfo().isEmpty() || !url.query().isEmpty() || !url.fragment().isEmpty()) {
+        return {};
+    }
+    return normalized;
 }
 
 QString thumbnailCacheDirPath() {
@@ -383,44 +412,118 @@ QString findReadableCachedImage(const QString& cacheBasePath) {
     return {};
 }
 
-QString fetchThumbnailToCache(const QString& normalizedUrl, const QString& cacheBasePath) {
+struct ThumbnailFetchResult {
+    QString localUrl;
+    int httpStatus{0};
+    int networkErrorCode{0};
+    QString failureCategory;
+    bool retryable{false};
+};
+
+QMutex g_thumbnailFailureMutex;
+QHash<QString, qint64> g_thumbnailRetryAfter;
+constexpr int kThumbnailTimeoutMs = 12000;
+constexpr qint64 kThumbnailPermanentRetryDelaySec = 300;
+constexpr qint64 kThumbnailTransientRetryDelaySec = 15;
+
+bool thumbnailRetryIsDeferred(const QString& normalizedUrl) {
+    QMutexLocker lock(&g_thumbnailFailureMutex);
+    const qint64 retryAfter = g_thumbnailRetryAfter.value(normalizedUrl, 0);
+    if (retryAfter <= QDateTime::currentSecsSinceEpoch()) {
+        g_thumbnailRetryAfter.remove(normalizedUrl);
+        return false;
+    }
+    return true;
+}
+
+void rememberThumbnailFailure(const QString& normalizedUrl, qint64 delaySec) {
+    QMutexLocker lock(&g_thumbnailFailureMutex);
+    g_thumbnailRetryAfter.insert(normalizedUrl,
+                                 QDateTime::currentSecsSinceEpoch() + delaySec);
+}
+
+void clearThumbnailFailure(const QString& normalizedUrl) {
+    QMutexLocker lock(&g_thumbnailFailureMutex);
+    g_thumbnailRetryAfter.remove(normalizedUrl);
+}
+
+ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
+                                           const QString& cacheBasePath) {
+    ThumbnailFetchResult result;
     QNetworkAccessManager nam;
     QNetworkRequest req{QUrl(normalizedUrl)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QEventLoop loop;
+    QTimer timeout;
+    timeout.setSingleShot(true);
+
+    bool timedOut = false;
     QNetworkReply* reply = nam.get(req);
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) {
                          // Thumbnail preview is non-critical; tolerate SSL chain issues
-                         // and keep the UI image path functional when the endpoint cert
-                         // is not trusted by the local runtime.
+                         // only for this local image-cache request.
                          reply->ignoreSslErrors();
                      });
+    QObject::connect(&timeout, &QTimer::timeout, &loop, [&]() {
+        timedOut = true;
+        reply->abort();
+        loop.quit();
+    });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    timeout.start(kThumbnailTimeoutMs);
     loop.exec();
+    timeout.stop();
+
+    result.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    result.networkErrorCode = static_cast<int>(reply->error());
     const QByteArray bytes = reply->readAll();
-    const bool ok = (reply->error() == QNetworkReply::NoError) && !bytes.isEmpty();
+    const bool networkOk = !timedOut && reply->error() == QNetworkReply::NoError;
     reply->deleteLater();
-    if (!ok) {
-        return {};
+
+    if (!networkOk || bytes.isEmpty()) {
+        if (timedOut) {
+            result.failureCategory = QStringLiteral("timeout");
+            result.retryable = true;
+        } else if (result.httpStatus == 403) {
+            result.failureCategory = QStringLiteral("http_forbidden");
+            result.retryable = true;
+        } else if (result.httpStatus == 404) {
+            result.failureCategory = QStringLiteral("http_not_found");
+            result.retryable = true;
+        } else if (result.httpStatus == 429 || result.httpStatus >= 500) {
+            result.failureCategory = QStringLiteral("http_transient");
+            result.retryable = true;
+        } else if (bytes.isEmpty() && networkOk) {
+            result.failureCategory = QStringLiteral("empty_body");
+        } else {
+            result.failureCategory = QStringLiteral("network_error");
+            result.retryable = true;
+        }
+        return result;
     }
 
     const QString ext = detectImageExtension(bytes, normalizedUrl);
     const QString finalPath = cacheBasePath + ext;
     QSaveFile file(finalPath);
     if (!file.open(QIODevice::WriteOnly)) {
-        return {};
+        result.failureCategory = QStringLiteral("cache_open_failed");
+        return result;
     }
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         file.cancelWriting();
-        return {};
+        result.failureCategory = QStringLiteral("cache_write_failed");
+        return result;
     }
     QImageReader reader(finalPath);
     if (!reader.canRead()) {
-        return {};
+        QFile::remove(finalPath);
+        result.failureCategory = QStringLiteral("invalid_image");
+        return result;
     }
-    return QUrl::fromLocalFile(finalPath).toString();
+    result.localUrl = QUrl::fromLocalFile(finalPath).toString();
+    return result;
 }
 
 QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
@@ -429,7 +532,7 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
         if (!source.trimmed().isEmpty()) {
             logging::warn("app", "thumbnail_cache", "unsupported_source",
                           "Unsupported thumbnail source",
-                          {{"source", source.toStdString()}});
+                          {{"source", safeThumbnailUrlForLogs(source).toStdString()}});
         }
         return {};
     }
@@ -441,49 +544,67 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
         if (reader.canRead()) {
             logging::info("app", "thumbnail_cache", "cache_hit",
                           "Thumbnail served from local source",
-                          {{"url", normalized.toStdString()},
+                          {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                            {"path", localPath.toStdString()},
                            {"mode", "local_source"}});
             return normalized;
         }
         logging::warn("app", "thumbnail_cache", "local_source_unreadable",
                       "Local thumbnail source is not readable",
-                      {{"url", normalized.toStdString()},
+                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                        {"path", localPath.toStdString()},
                        {"error", reader.errorString().toStdString()}});
+        return {};
     }
 
     const QString cacheBasePath = cacheBasePathForThumbnailUrl(normalized);
     if (cacheBasePath.isEmpty()) {
-        return normalized;
+        return {};
     }
     const QString cachedPath = findReadableCachedImage(cacheBasePath);
     if (!cachedPath.isEmpty()) {
+        clearThumbnailFailure(normalized);
         logging::info("app", "thumbnail_cache", "cache_hit",
                       "Thumbnail served from local cache",
-                      {{"url", normalized.toStdString()},
+                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                        {"path", cachedPath.toStdString()}});
         return QUrl::fromLocalFile(cachedPath).toString();
     }
     logging::info("app", "thumbnail_cache", "cache_miss",
                   "Thumbnail not found in local cache",
-                  {{"url", normalized.toStdString()},
+                  {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                    {"path", cacheBasePath.toStdString()}});
     if (!downloadMissing) {
-        return normalized;
+        return {};
     }
-    const QString localUrl = fetchThumbnailToCache(normalized, cacheBasePath);
-    if (localUrl.isEmpty()) {
+    if (thumbnailRetryIsDeferred(normalized)) {
+        logging::info("app", "thumbnail_cache", "negative_cache_hit",
+                      "Thumbnail retry deferred after a recent failure",
+                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()}});
+        return {};
+    }
+
+    const ThumbnailFetchResult fetch = fetchThumbnailToCache(normalized, cacheBasePath);
+    if (fetch.localUrl.isEmpty()) {
+        const qint64 retryDelay = fetch.retryable
+                                      ? kThumbnailTransientRetryDelaySec
+                                      : kThumbnailPermanentRetryDelaySec;
+        rememberThumbnailFailure(normalized, retryDelay);
         logging::warn("app", "thumbnail_cache", "download_failed",
                       "Thumbnail download failed",
-                      {{"url", normalized.toStdString()}});
-        return normalized;
+                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
+                       {"http", std::to_string(fetch.httpStatus)},
+                       {"category", fetch.failureCategory.toStdString()},
+                       {"retryable", fetch.retryable ? "1" : "0"},
+                       {"network_error", std::to_string(fetch.networkErrorCode)}});
+        return {};
     }
+    clearThumbnailFailure(normalized);
     logging::info("app", "thumbnail_cache", "download_ok",
                   "Thumbnail downloaded and cached",
-                  {{"url", normalized.toStdString()},
-                   {"path", QUrl(localUrl).toLocalFile().toStdString()}});
-    return localUrl;
+                  {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
+                   {"path", QUrl(fetch.localUrl).toLocalFile().toStdString()}});
+    return fetch.localUrl;
 }
 
 QString normalizeFileNameForMatch(const QString& value) {
@@ -589,8 +710,28 @@ QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
 }
 
 void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
-    const QString source = map.value(QStringLiteral("thumbnailUrl")).toString();
+    QString source = map.value(QStringLiteral("thumbnailSourceUrl")).toString().trimmed();
+    if (source.isEmpty()) {
+        source = map.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
+    }
+    map.insert(QStringLiteral("thumbnailSourceUrl"), thumbnailSourceForPersistence(source));
+
+    const int statusCode = map.value(QStringLiteral("statusCode"), 0).toInt();
+    const QString status = map.value(QStringLiteral("status")).toString().trimmed().toUpper();
+    if (statusCode == 2 || status == QStringLiteral("PROCESSING")) {
+        map.insert(QStringLiteral("thumbnailUrl"), QString{});
+        map.insert(QStringLiteral("thumbnailState"), QStringLiteral("processing"));
+        logging::info("app", "thumbnail_cache", "processing_deferred",
+                      "Thumbnail download deferred while cloud processing is active",
+                      {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
+                       {"url", safeThumbnailUrlForLogs(source).toStdString()}});
+        return;
+    }
+
     const QString resolved = resolveThumbnailLocalUrl(source, downloadMissing);
+    map.insert(QStringLiteral("thumbnailUrl"), resolved);
+    map.insert(QStringLiteral("thumbnailState"),
+               resolved.isEmpty() ? QStringLiteral("unavailable") : QStringLiteral("ready"));
     if (!resolved.isEmpty()) {
         const QString localPath = QUrl(resolved).toLocalFile();
         if (!localPath.isEmpty()) {
@@ -605,7 +746,6 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
                            {"canRead", canRead ? "1" : "0"},
                            {"error", readError}});
         }
-        map.insert(QStringLiteral("thumbnailUrl"), resolved);
     }
 }
 
@@ -891,7 +1031,7 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
     const QString rawImg = QString::fromStdString(item.img);
     const QString resolvedImg = resolveThumbnailLocalUrl(rawImg, true);
-    m.insert("img", resolvedImg.isEmpty() ? rawImg : resolvedImg);
+    m.insert("img", resolvedImg);
     m.insert("imgRaw", rawImg);
     return m;
 }
@@ -1103,8 +1243,13 @@ QVariantMap CloudBridge::loadCachedFiles(int page, int limit) const {
         return out;
     }
 
-    // Keep startup path fast: avoid eager thumbnail probing for the whole list on UI thread.
+    // Keep startup path fast while ensuring QML only receives validated local images.
     QVariantList files = m_cache->loadFiles(page, limit);
+    for (QVariant& file : files) {
+        QVariantMap map = file.toMap();
+        resolveThumbnailInMap(map, false);
+        file = map;
+    }
     perf.setCount("items", files.size());
     out.insert("ok", true);
     out.insert("message", files.isEmpty()
@@ -1801,6 +1946,23 @@ void CloudBridge::startUploadLocalFile(const QString& localPath) {
                                 QString::fromStdString(result.gcodeId),
                                 result.uploadStatus,
                                 result.unlockOk);
+
+            const bool ready = usecases::cloud::UploadLocalFileUseCase::isUploadReady(
+                result.uploadStatus, result.gcodeId);
+            if (result.ok && !ready && !m_shuttingDown.load()) {
+                // Two bounded follow-up refreshes allow the cloud-generated preview to
+                // appear after PROCESSING without an aggressive global polling loop.
+                QTimer::singleShot(10000, this, [this]() {
+                    if (!m_shuttingDown.load()) {
+                        refreshFilesAsync(1, 20, true);
+                    }
+                });
+                QTimer::singleShot(30000, this, [this]() {
+                    if (!m_shuttingDown.load()) {
+                        refreshFilesAsync(1, 20, true);
+                    }
+                });
+            }
         }, Qt::QueuedConnection);
     });
 }

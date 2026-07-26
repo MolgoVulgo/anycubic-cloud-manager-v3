@@ -20,6 +20,7 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <utility>
 
@@ -64,6 +65,17 @@ std::string jsonToString(const nlohmann::json& value) {
         return std::to_string(value.get<double>());
     }
     return {};
+}
+
+std::string normalizeCloudObjectId(std::string value) {
+    const auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
+    const auto first = std::find_if(value.begin(), value.end(), notSpace);
+    if (first == value.end()) {
+        return {};
+    }
+    const auto last = std::find_if(value.rbegin(), value.rend(), notSpace).base();
+    value = std::string(first, last);
+    return value == "0" ? std::string{} : value;
 }
 
 QByteArray jsonWithId(const char* key, const std::string& id) {
@@ -397,9 +409,11 @@ CloudUploadStatusResult UploadsApi::getUploadStatus(const std::string& accessTok
             }
         }
     }
-    result.gcodeId = jsonToString(envelope.data.value("gcode_id", nlohmann::json{}));
+    result.gcodeId = normalizeCloudObjectId(
+        jsonToString(envelope.data.value("gcode_id", nlohmann::json{})));
     if (result.gcodeId.empty()) {
-        result.gcodeId = jsonToString(envelope.data.value("gcodeId", nlohmann::json{}));
+        result.gcodeId = normalizeCloudObjectId(
+            jsonToString(envelope.data.value("gcodeId", nlohmann::json{})));
     }
     logging::info("cloud", "uploads_api", "upload_status_ok",
                   "getUploadStatus succeeded",

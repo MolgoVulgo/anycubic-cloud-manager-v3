@@ -88,6 +88,35 @@ TestCase {
         page.destroy()
     }
 
+    function test_upload_finished_zero_gcode_stays_processing() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        var emitted = []
+        page.statusBroadcast.connect(function(message, severity, operationId) {
+            emitted.push({
+                "message": String(message),
+                "severity": String(severity)
+            })
+        })
+
+        cloudBridge.uploadFinished(true, "", "file-1", "0", 2, true)
+        wait(0)
+
+        var sawProcessingWarn = false
+        for (var i = 0; i < emitted.length; ++i) {
+            var entry = emitted[i]
+            if (entry.severity === "warn"
+                    && entry.message.toLowerCase().indexOf("processing") >= 0) {
+                sawProcessingWarn = true
+                break
+            }
+        }
+        verify(sawProcessingWarn)
+
+        page.destroy()
+    }
+
     function test_upload_finished_ready_sets_success() {
         createUploadBridgeMock()
         var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})

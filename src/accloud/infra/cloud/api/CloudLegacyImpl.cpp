@@ -207,6 +207,9 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
         f.name     = e.value("filename", std::string{});
     f.sizeBytes    = e.value("size", uint64_t{0});
     f.gcodeId      = jStr(e.value("gcode_id", nlohmann::json{}));
+    if (f.gcodeId == "0") {
+        f.gcodeId.clear();
+    }
     f.thumbnailUrl = jFirst(e, {"printer_image_id", "thumbnail", "img", "image"});
     f.downloadUrl  = jFirst(e, {"url", "download_url", "downloadUrl"});
     f.region       = jFirst(e, {"region"});

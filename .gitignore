@@ -1,4 +1,7 @@
 accloud/build/
+patch/
+acm.zip
+make-a.sh
 
 # CMake / Ninja
 **/CMakeFiles/

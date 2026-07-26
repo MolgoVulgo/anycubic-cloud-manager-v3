@@ -39,6 +39,11 @@ Rectangle {
     signal resinFeedRequested(string printerId, int feedType)
     signal resinFeedStopRequested(string printerId, int feedType)
 
+    onFeedingOperationActiveChanged: {
+        if (!feedingOperationActive && feedingDialog.visible)
+            feedingDialog.close()
+    }
+
     function providerText(provider, arg, fallback) {
         return typeof provider === "function" ? String(provider(arg)) : fallback
     }
@@ -414,22 +419,18 @@ Rectangle {
 
         var candidates = [
             liveJob.img,
-            liveJob.imgRaw,
             liveJob.image,
             liveJob.preview,
             liveJob.thumbnailUrl,
             details.img,
-            details.imgRaw,
             details.image,
             details.preview,
             details.thumbnailUrl,
             printer.img,
-            printer.imgRaw,
             printer.image,
             printer.preview,
             printer.thumbnailUrl,
             historyActive.img,
-            historyActive.imgRaw,
             historyActive.image,
             historyActive.preview,
             historyActive.thumbnailUrl
@@ -448,15 +449,10 @@ Rectangle {
         var lowered = value.toLowerCase()
         if (lowered.indexOf("data:image/") === 0)
             return value
-        if (lowered.indexOf("file://") === 0 || lowered.indexOf("http://") === 0 || lowered.indexOf("https://") === 0)
+        if (lowered.indexOf("file://") === 0 || lowered.indexOf("qrc:/") === 0)
             return value
-        if (value.indexOf("//") === 0)
-            return "https:" + value
-        if (value.indexOf("/") === 0)
-            return "https://cloud-universe.anycubic.com" + value
-        if (lowered.indexOf(".jpg") !== -1 || lowered.indexOf(".jpeg") !== -1 || lowered.indexOf(".png") !== -1 || lowered.indexOf(".webp") !== -1)
-            return "https://" + value
-        return value
+        // Remote image URLs must be resolved and validated by CloudBridge first.
+        return ""
     }
 
     function imageStatusText(statusCode) {

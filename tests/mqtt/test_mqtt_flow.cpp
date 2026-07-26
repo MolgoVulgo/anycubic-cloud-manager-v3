@@ -1,5 +1,6 @@
 #include "app/realtime/PrinterRealtimeStore.h"
 #include "app/usecases/cloud/ApplyRealtimeOverlayUseCase.h"
+#include "infra/mqtt/core/MqttCredentialProvider.h"
 #include "infra/mqtt/core/TlsMaterialProvider.h"
 #include "infra/mqtt/observability/TelemetryObservationStore.h"
 #include "infra/mqtt/routing/MqttMessageRouter.h"
@@ -824,7 +825,7 @@ void restoreEnv(const char* key, const std::optional<std::string>& value) {
     }
 }
 
-bool test_tls_provider_local_fallback_paths() {
+bool test_tls_provider_requires_explicit_local_fallback() {
     const auto prevCa = envValue("ACCLOUD_MQTT_TLS_CA_PATH");
     const auto prevCert = envValue("ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH");
     const auto prevKey = envValue("ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH");
@@ -843,37 +844,114 @@ bool test_tls_provider_local_fallback_paths() {
     restoreEnv("ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH", prevKey);
     restoreEnv("ACCLOUD_MQTT_TLS_DEV_FALLBACK", prevDevFallback);
 
-    if (!expect(result.ok, "TLS provider should resolve local fallback materials")) {
-        return false;
-    }
+    return expect(!result.ok, "TLS provider should reject implicit repository fallback")
+        && expect(result.code == "mqtt_tls_missing_paths",
+                  "Missing explicit TLS paths should report mqtt_tls_missing_paths")
+        && expect(!result.paths.usingDevFallback,
+                  "Dev fallback must remain disabled without the explicit flag");
+}
+
+bool test_tls_provider_local_fallback_paths() {
+    const auto prevCa = envValue("ACCLOUD_MQTT_TLS_CA_PATH");
+    const auto prevCert = envValue("ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH");
+    const auto prevKey = envValue("ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH");
+    const auto prevDevFallback = envValue("ACCLOUD_MQTT_TLS_DEV_FALLBACK");
+
+    unsetenv("ACCLOUD_MQTT_TLS_CA_PATH");
+    unsetenv("ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH");
+    unsetenv("ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH");
+    setenv("ACCLOUD_MQTT_TLS_DEV_FALLBACK", "1", 1);
+
+    accloud::mqtt::core::TlsMaterialProvider provider;
+    const auto result = provider.loadFromEnvironment();
+
+    restoreEnv("ACCLOUD_MQTT_TLS_CA_PATH", prevCa);
+    restoreEnv("ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH", prevCert);
+    restoreEnv("ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH", prevKey);
+    restoreEnv("ACCLOUD_MQTT_TLS_DEV_FALLBACK", prevDevFallback);
+
     const auto ca = result.paths.caCertificatePath;
     const auto cert = result.paths.clientCertificatePath;
     const auto key = result.paths.clientKeyPath;
-    return expect(std::filesystem::exists(ca), "CA fallback file must exist")
-        && expect(std::filesystem::exists(cert), "Client cert fallback file must exist")
-        && expect(std::filesystem::exists(key), "Client key fallback file must exist")
-        && expect(ca.string().find("accloud/resources/mqtt/tls") != std::string::npos,
-                  "Fallback path should target accloud/resources/mqtt/tls");
+    const auto tlsDir = ca.parent_path();
+    const bool pathOk = expect(result.paths.usingDevFallback,
+                               "Explicit flag should mark repository fallback usage")
+        && expect(tlsDir.filename() == "tls", "Fallback directory should end with tls")
+        && expect(tlsDir.parent_path().filename() == "mqtt",
+                  "Fallback directory should be nested under mqtt")
+        && expect(tlsDir.parent_path().parent_path().filename() == "resources",
+                  "Fallback directory should target <repo>/resources/mqtt/tls")
+        && expect(std::filesystem::exists(ca), "CA fallback file must exist")
+        && expect(std::filesystem::exists(cert), "Client cert fallback file must exist");
+
+    if (!pathOk) {
+        return false;
+    }
+    if (std::filesystem::exists(key)) {
+        return expect(result.ok, "TLS provider should validate complete local fallback materials");
+    }
+    return expect(!result.ok, "Missing private key should keep fallback validation explicit")
+        && expect(result.code == "mqtt_tls_client_key_invalid",
+                  "Missing local private key should report mqtt_tls_client_key_invalid");
 }
 
-bool test_printer_subscription_topics_match_spec() {
+bool test_slicer_credentials_use_explicit_local_fallback() {
+    const auto prevCa = envValue("ACCLOUD_MQTT_TLS_CA_PATH");
+    const auto prevDevFallback = envValue("ACCLOUD_MQTT_TLS_DEV_FALLBACK");
+
+    unsetenv("ACCLOUD_MQTT_TLS_CA_PATH");
+    setenv("ACCLOUD_MQTT_TLS_DEV_FALLBACK", "1", 1);
+
+    accloud::mqtt::core::MqttCredentialInput input;
+    input.brokerHost = "mqtt-universe.anycubic.com";
+    input.email = "mqtt-test@example.invalid";
+    input.userId = "mqtt-test-user";
+    input.authToken = "mqtt-test-token";
+    input.authMode = accloud::mqtt::core::MqttAuthMode::Slicer;
+
+    accloud::mqtt::core::MqttCredentialProvider provider;
+    const auto result = provider.buildCandidates(input);
+
+    restoreEnv("ACCLOUD_MQTT_TLS_CA_PATH", prevCa);
+    restoreEnv("ACCLOUD_MQTT_TLS_DEV_FALLBACK", prevDevFallback);
+
+#if defined(ACCLOUD_WITH_OPENSSL)
+    return expect(result.ok, "Explicit local fallback should provide the CA for slicer credentials")
+        && expect(result.candidates.size() == 1,
+                  "Slicer credential generation should return one candidate");
+#else
+    return expect(!result.ok,
+                  "Slicer credential generation should remain unavailable without OpenSSL");
+#endif
+}
+
+bool test_printer_subscription_topics_match_resin_profile() {
     const auto topics = accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
         "m7", "101001");
-    if (!expect(topics.size() == 2, "Printer topics should contain the nominal wildcards")) {
+    if (!expect(topics.size() == 1, "Nominal resin profile should contain one printer wildcard")) {
         return false;
     }
     std::set<std::string> unique(topics.begin(), topics.end());
     return expect(unique.size() == topics.size(), "Printer topics should stay unique")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
                   "Public wildcard topic should be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
-                  "Server printer wildcard topic should be present");
+        && expect(!unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
+                  "Rejected server/printer wildcard must be absent from the nominal profile");
 }
 
-bool test_subscription_profile_has_6_topics_for_two_printers_fixture() {
-    // Baseline contract as of 2026-05-01:
-    // 2 user topics + (2 printer topics x 2 printers) = 6.
-    // If Anycubic changes topic contract, update this assertion in the same commit.
+bool test_extended_printer_topics_keep_server_wildcard_for_diagnostics() {
+    const auto topics = accloud::mqtt::routing::MqttTopicBuilder::buildPrinterSubscriptionTopics(
+        "m7", "101001", true);
+    const std::set<std::string> unique(topics.begin(), topics.end());
+    return expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
+                  "Extended profile must keep the nominal public wildcard")
+        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
+                  "Extended discovery may request server/printer explicitly");
+}
+
+bool test_subscription_profile_has_3_topics_for_two_printers_fixture() {
+    // Resin-only nominal contract as of 2026-07-26:
+    // 1 user slice topic + (1 public printer wildcard x 2 printers) = 3.
     const std::string userId = "u-123";
     const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -887,23 +965,19 @@ bool test_subscription_profile_has_6_topics_for_two_printers_fixture() {
     topics.insert(topics.end(), p2.begin(), p2.end());
 
     std::set<std::string> unique(topics.begin(), topics.end());
-    return expect(topics.size() == 6, "Fixture with 2 printers must produce 6 subscribed topics")
-        && expect(unique.size() == 6, "Subscription topics must stay unique in fixture")
+    return expect(topics.size() == 3, "Fixture with 2 resin printers must produce 3 subscribed topics")
+        && expect(unique.size() == 3, "Subscription topics must stay unique in fixture")
         && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/slice/report"),
-                  "User slice report topic must be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report"),
-                  "User fdm slice report topic must be present")
+                  "User resin slice report topic must be present")
+        && expect(!unique.contains("anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report"),
+                  "FDM slice reports must be absent from the resin profile")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7/101001/#"),
                   "Printer 1 public wildcard topic must be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7/101001/#"),
-                  "Printer 1 server printer wildcard topic must be present")
         && expect(unique.contains("anycubic/anycubicCloud/v1/printer/public/m7pro/101002/#"),
-                  "Printer 2 public wildcard topic must be present")
-        && expect(unique.contains("anycubic/anycubicCloud/v1/server/printer/m7pro/101002/#"),
-                  "Printer 2 server printer wildcard topic must be present");
+                  "Printer 2 public wildcard topic must be present");
 }
 
-bool test_subscription_profile_keeps_expected_topic_families() {
+bool test_subscription_profile_keeps_resin_topic_families_only() {
     const std::string userId = "u-123";
     const std::string userIdMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -935,9 +1009,19 @@ bool test_subscription_profile_keeps_expected_topic_families() {
     }
 
     return expect(hasSliceReport, "User slice/report family must exist")
-        && expect(hasFdmSliceReport, "User fdmslice/report family must exist")
+        && expect(!hasFdmSliceReport, "FDM slice reports must stay outside the resin runtime")
         && expect(hasPublicWildcardFamily, "v1 printer/public wildcard family must exist")
-        && expect(hasServerPrinterWildcardFamily, "v1 server/printer wildcard family must exist");
+        && expect(!hasServerPrinterWildcardFamily,
+                  "Rejected v1 server/printer wildcard must stay outside the nominal profile");
+}
+
+bool test_router_does_not_classify_fdm_slice_as_resin_user_report() {
+    accloud::mqtt::routing::MqttMessageRouter router;
+    const auto routed = router.route(
+        "anycubic/anycubicCloud/v1/server/app/u-123/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fdmslice/report",
+        R"json({"type":"print","action":"report","state":"finished","data":{}})json");
+    return expect(!routed.isUserTopic,
+                  "FDM slice reports must not be classified as resin user reports");
 }
 
 bool test_router_extracts_printer_key_across_topic_families() {
@@ -1023,10 +1107,14 @@ int main() {
     ok = test_store_links_command_sent_to_first_mqtt_taskid() && ok;
     ok = test_nominal_m7_workflow_routes_store_and_replicates_ui_fields() && ok;
     ok = test_overlay_matches_printer_key_fallback() && ok;
+    ok = test_tls_provider_requires_explicit_local_fallback() && ok;
     ok = test_tls_provider_local_fallback_paths() && ok;
-    ok = test_printer_subscription_topics_match_spec() && ok;
-    ok = test_subscription_profile_has_6_topics_for_two_printers_fixture() && ok;
-    ok = test_subscription_profile_keeps_expected_topic_families() && ok;
+    ok = test_slicer_credentials_use_explicit_local_fallback() && ok;
+    ok = test_printer_subscription_topics_match_resin_profile() && ok;
+    ok = test_extended_printer_topics_keep_server_wildcard_for_diagnostics() && ok;
+    ok = test_subscription_profile_has_3_topics_for_two_printers_fixture() && ok;
+    ok = test_subscription_profile_keeps_resin_topic_families_only() && ok;
+    ok = test_router_does_not_classify_fdm_slice_as_resin_user_report() && ok;
     ok = test_router_extracts_printer_key_across_topic_families() && ok;
     ok = test_telemetry_observation_store_tracks_unknown_signatures() && ok;
     if (!ok) {

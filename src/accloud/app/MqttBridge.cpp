@@ -752,6 +752,7 @@ MqttBridge::MqttBridge(QObject* parent)
                         return;
                     }
                     MqttBridge* bridge = self.data();
+                    bridge->m_backgroundAutoConnectStarted = false;
                     if (bridge->m_shuttingDown || bridge->m_manualMode || bridge->connected()) {
                         return;
                     }
@@ -1025,6 +1026,9 @@ QString MqttBridge::messagesForTopic(const QString& topic) const {
 bool MqttBridge::ensureAutoConnected() {
     if (connected()) {
         return true;
+    }
+    if (m_backgroundAutoConnectStarted) {
+        return false;
     }
     m_manualMode = false;
     return attemptAutoConnect();

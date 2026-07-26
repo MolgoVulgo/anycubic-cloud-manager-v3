@@ -489,7 +489,7 @@ bool MqttMessageRouter::topicIsUserReport(const std::string& topic) {
         return false;
     }
     const std::string tail = parts[6] + "/" + parts[7];
-    return tail == "slice/report" || tail == "fdmslice/report";
+    return tail == "slice/report";
 }
 
 std::optional<std::string> MqttMessageRouter::extractPrinterKey(const std::string& topic) {

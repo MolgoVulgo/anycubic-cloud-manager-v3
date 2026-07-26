@@ -124,6 +124,43 @@ std::string redactValueForKey(std::string_view key, std::string_view value) {
   return redactSpan(value);
 }
 
+std::string safeUrlForLogs(std::string_view value) {
+  std::string out(value);
+
+  const auto first = out.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    return {};
+  }
+  const auto last = out.find_last_not_of(" \t\r\n");
+  out = out.substr(first, last - first + 1);
+
+  const std::size_t sensitiveSuffix = out.find_first_of("?#");
+  if (sensitiveSuffix != std::string::npos) {
+    out.resize(sensitiveSuffix);
+  }
+
+  std::size_t authorityStart = std::string::npos;
+  const std::size_t scheme = out.find("://");
+  if (scheme != std::string::npos) {
+    authorityStart = scheme + 3;
+  } else if (out.rfind("//", 0) == 0) {
+    authorityStart = 2;
+  }
+
+  if (authorityStart != std::string::npos) {
+    std::size_t authorityEnd = out.find('/', authorityStart);
+    if (authorityEnd == std::string::npos) {
+      authorityEnd = out.size();
+    }
+    const std::size_t userInfoEnd = out.rfind('@', authorityEnd);
+    if (userInfoEnd != std::string::npos && userInfoEnd >= authorityStart) {
+      out.erase(authorityStart, userInfoEnd - authorityStart + 1);
+    }
+  }
+
+  return out;
+}
+
 std::string redactMessage(std::string_view message) {
   std::string out(message);
   redactBearerTokens(out);

@@ -1,42 +1,40 @@
-# agent.md — anycubic-cloud-manager-v3
+# AGENTS.md — Anycubic Cloud Manager V3
 
-Ce fichier définit les contraintes projet que Codex doit charger en premier.
-Le détail long est dans `docs/codex-agent-project.md`.
+Ce fichier définit les contraintes projet chargées avant toute intervention.
 
-Le dépôt doit être traité en priorité comme un projet :
-- C++20 / Qt6 / QML ;
-- architecture en couches ;
-- build et tests via CMake presets.
+## Cadre
 
-## Cadrage projet
+Le dépôt est un projet C++20 / Qt6 / QML construit avec CMake. Python est réservé au tooling et aux contrôles annexes. Il ne doit pas devenir la référence architecturale de l'application.
 
-- Traiter ce dépôt comme un projet C++ / Qt en priorité.
-- Ne pas utiliser Python comme référence architecturale principale.
-- Python peut exister pour du tooling ou des tests annexes, mais ne doit pas piloter l’architecture applicative.
-- Ne pas plaquer `pytest`, conventions Python ou structure Python sur le code applicatif Qt.
-- Ne pas refondre l’architecture hors périmètre validé.
+## Ordre de lecture
 
-## Sources de vérité
+1. `regles-generales-production-correctifs.md` pour produire et livrer un correctif ;
+2. `codex-patch-mode.md` uniquement lorsqu'un patch ZIP déjà produit doit être appliqué mécaniquement ;
+3. `accloud/CMakeLists.txt` et `accloud/CMakePresets.json` ;
+4. `docs/README.md` ou `docs/FR/README.md` ;
+5. le document fonctionnel correspondant à la zone réellement touchée ;
+6. le code actif et les tests déclarés par CMake.
 
-Lire d’abord :
-1. `accloud/CMakeLists.txt`
-2. `accloud/CMakePresets.json`
-3. `accloud/README.md`
-4. `docs/00_documentation_consolidee_index.md`
-5. `docs/codex-agent-project.md`
-6. la zone fonctionnelle réellement touchée
+Les documents sous `docs/FR/sources-techniques/` sont des matériaux historiques ou d'investigation. Ils ne remplacent jamais la documentation principale ni le runtime actif.
 
-Points d’entrée utiles :
-- `src/accloud/app/main.cpp`
-- `src/accloud/app/MqttBridge.cpp`
-- `src/accloud/app/MqttBridge.h`
+## Points d'entrée actifs
 
-Pour toute intervention UI/QML ou performance perçue, lire aussi :
-- `docs/ui_latency_performance_analysis.md`
-- `docs/ui_latency_correction_plan.md`
-- `docs/ui_optimization_continuity.md`
+- bootstrap : `src/accloud/app/main.cpp` ;
+- ressources QML : `src/accloud/app/resources.qrc` ;
+- ressources debug : `src/accloud/app/resources_debug.qrc` ;
+- fenêtre principale : `src/accloud/ui/qml/MainWindow.qml` ;
+- cloud : `src/accloud/infra/cloud/` ;
+- MQTT : `src/accloud/infra/mqtt/` et `src/accloud/app/MqttBridge.cpp`.
 
----
+## Invariants
+
+- Respecter les couches `app`, `domain`, `infra`, `ui`, `render3d` et `tests`.
+- QML affiche et délègue ; le protocole cloud, MQTT, cache et sécurité reste en C++.
+- La configuration broker Anycubic documentée est un contrat de compatibilité figé.
+- `ignoreSslErrors()` reste limité au téléchargement de miniatures vers le cache local.
+- Ne jamais journaliser tokens, cookies, sessions, clés privées ou URLs signées complètes.
+- Ne jamais inclure build, caches, logs, HAR, `session.json` ou secrets dans un patch.
+- Ne pas refondre une zone hors périmètre demandé.
 
 ## Commandes standard
 
@@ -48,55 +46,10 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
-Commandes ciblées fréquentes :
-
-```bash
-cmake --build --preset default --target accloud_cli
-ctest --preset default -R accloud_mqtt_flow --output-on-failure
-```
-
-Ne pas inventer de commande si le dépôt ne l’expose pas.
-
-## Invariants techniques
-
-- Respecter la séparation des couches : `app`, `domain`, `infra`, `ui`, `render3d`, `tests`.
-- Ne pas injecter de logique métier dans QML si un bridge, un store ou un service C++ existe déjà.
-- Respecter le mode MQTT runtime documenté.
-- Respecter auth slicer et mTLS si le dépôt les impose.
-- Ne jamais logger tokens, credentials, sessions, clés privées ou valeurs sensibles.
-- Ne pas toucher aux artefacts générés ou de build : `accloud/build/`, binaires, caches, outputs CMake.
-- Garder les changements minimaux, localisés et testables.
+Les validations doivent rester ciblées sauf demande explicite de full gate.
 
 ## Politique de modification
 
-- Modifier uniquement les fichiers nécessaires à l’intention du changement.
-- Si un changement impacte le debug MQTT ou le comportement utilisateur, mettre à jour la documentation associée dans `docs/`.
-- En cas de doute architectural, corriger dans le module déjà responsable plutôt que déplacer la responsabilité.
-- Ne jamais générer du code en solo : exposer d’abord le constat technique et ce qui va être modifié.
+Avant de modifier, identifier le runtime réellement chargé et le module propriétaire du comportement. Un échec de validation obligatoire arrête la chaîne de livraison ; il ne doit pas être masqué par une réparation opportuniste.
 
-## Validation attendue
-
-Avant de conclure :
-- build de la cible concernée ;
-- tests ciblés ou preset complet si impact large ;
-- vérification rapide des régressions évidentes UI/QML si la zone est touchée.
-
-Si une validation ne peut pas être exécutée, donner la raison réelle : dépendance manquante, broker live indisponible, session absente, environnement incomplet ou commande non définie.
-
-## Git
-
-Appliquer les règles globales du `~/.codex/config.toml`.
-
-Scopes recommandés pour ce dépôt :
-- `app`
-- `domain`
-- `infra`
-- `ui`
-- `render3d`
-- `mqtt`
-- `docs`
-- `tests`
-- `build`
-- `ci`
-
-Ne jamais commit ni push sans demande explicite.
+Ne jamais commit ni push sans instruction explicite.

@@ -20,6 +20,9 @@ public:
 
     UploadLocalFileResult execute(const std::string& localPath,
                                   const ProgressCallback& onProgress = {}) const;
+
+    [[nodiscard]] static bool hasUsableGcodeId(const std::string& gcodeId);
+    [[nodiscard]] static bool isUploadReady(int uploadStatus, const std::string& gcodeId);
 };
 
 } // namespace accloud::usecases::cloud

@@ -9,6 +9,9 @@ PROD_BUILD_DIR="${APP_DIR}/build/prod"
 PROD_APP_BIN="${PROD_BUILD_DIR}/accloud_cli"
 # Force explicit debug mode for all start.sh workflows.
 export ACCLOUD_DEBUG=ON
+# start.sh is the explicit repository-local launcher: enable the local TLS
+# material lookup unless the caller deliberately disables it.
+export ACCLOUD_MQTT_TLS_DEV_FALLBACK="${ACCLOUD_MQTT_TLS_DEV_FALLBACK:-1}"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +27,8 @@ Modes:
   3 -> Compilation prod puis execution
 Environment:
   ACCLOUD_DEBUG is forced to ON by this script.
+  ACCLOUD_MQTT_TLS_DEV_FALLBACK defaults to 1 for this local launcher.
+  Explicit MQTT TLS paths remain authoritative; set the variable to 0 to disable fallback.
 EOF
 }
 

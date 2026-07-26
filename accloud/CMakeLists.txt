@@ -48,6 +48,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/core/EndpointRegistry.cpp
     infra/cloud/core/ResponseEnvelopeParser.cpp
     infra/cloud/core/SessionProvider.cpp
+    infra/mqtt/core/MqttTlsPathResolver.cpp
     infra/mqtt/core/TlsMaterialProvider.cpp
     infra/mqtt/core/MqttSessionManager.cpp
     infra/mqtt/core/MqttCredentialProvider.cpp
@@ -104,6 +105,7 @@ list(TRANSFORM ACCLOUD_INFRA_SOURCES PREPEND "${ACCLOUD_SRC_ROOT}/")
 
 add_library(accloud_infra OBJECT ${ACCLOUD_INFRA_SOURCES})
 target_include_directories(accloud_infra PRIVATE ${ACCLOUD_SRC_ROOT})
+target_compile_definitions(accloud_infra PRIVATE ACCLOUD_REPO_ROOT_PATH="${ACCLOUD_REPO_ROOT}")
 target_link_libraries(accloud_infra PRIVATE accloud_domain nlohmann_json::nlohmann_json)
 
 add_executable(accloud_cli
@@ -256,8 +258,13 @@ if(Python3_Interpreter_FOUND)
     NAME accloud_ui_migration_check
     COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_ui_migration.py
   )
+  add_test(
+    NAME accloud_documentation_contract
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_documentation_contract.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
 else()
-  message(WARNING "Python3 interpreter not found: skipping UI migration guard test")
+  message(WARNING "Python3 interpreter not found: skipping Python documentation and UI guard tests")
 endif()
 
 add_executable(accloud_har_tests
@@ -323,6 +330,7 @@ add_executable(accloud_mqtt_tests
 target_link_libraries(accloud_mqtt_tests PRIVATE accloud_domain accloud_infra)
 if(OpenSSL_FOUND)
   target_link_libraries(accloud_mqtt_tests PRIVATE OpenSSL::Crypto)
+  target_compile_definitions(accloud_mqtt_tests PRIVATE ACCLOUD_WITH_OPENSSL=1)
 endif()
 if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_mqtt_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
