@@ -2,11 +2,29 @@
 
 Statut : `IMPLEMENTE`.
 
-L’ancien paquet documentaire contenait des documents utiles, une capture HAR et un échantillon PWMB. L’archive documentaire conserve les docs techniques et les données d’analyse MQTT non secrètes, mais exclut les fixtures sensibles ou binaires.
+L’archive source distribuable contient le code, les tests, la configuration de build, le packaging et la documentation maintenue. Les données publiques de référence sont limitées à de petites fixtures synthétiques vérifiables dans un diff normal.
 
-Exclus :
+## Matière exclue
 
-- `uc.makeronline.com.har` — peut contenir tokens, cookies, URLs signées.
-- `cube.pwmb` — fixture binaire utile aux tests, pas une documentation.
+Ne jamais inclure :
 
-Si ces fichiers sont nécessaires, les garder dans un emplacement privé de tests et documenter seulement leurs métadonnées/goldens attendus.
+- captures HAR, sessions, tokens, cookies ou URLs signées ;
+- clés privées TLS ou fichiers d’environnement locaux ;
+- captures brutes du broker MQTT ou historiques complets d’activité utilisateur ;
+- identifiants réels persistants d’imprimante, tâche, message ou nom de fichier ;
+- fixtures binaires privées dont la redistribution n’est pas établie ;
+- outputs de build, logs runtime, caches et bases locales.
+
+Lorsqu’une preuve privée est nécessaire à l’investigation, elle reste hors du dépôt distribuable. La documentation conserve uniquement la conclusion redacted, des statistiques agrégées ou une reproduction synthétique.
+
+## Fixtures publiques
+
+Les fichiers sous [`../../reference-data/`](../../reference-data/README.md) sont synthétiques. Ils expliquent le vocabulaire du parser et du workflow, mais ne prouvent pas un comportement universel du broker.
+
+`tools/check_documentation_contract.py` rejette les fichiers de référence inattendus, les identifiants caractéristiques d’une capture, les fixtures volumineuses, les catalogues TS dupliqués, les liens documentaires cassés et la dérive des contrats MQTT/SSL critiques.
+
+## Archive source pour revue web
+
+Modifier `ARCHIVE_NAME` au début de `make-a.sh`, puis exécuter `./make-a.sh`. Le script lance le contrat documentaire avant de créer l’archive à la racine. La création s’arrête si ce contrôle échoue.
+
+`acm.zip` reste une base projet fournie manuellement. Un agent ne doit pas le régénérer ou le remplacer automatiquement.

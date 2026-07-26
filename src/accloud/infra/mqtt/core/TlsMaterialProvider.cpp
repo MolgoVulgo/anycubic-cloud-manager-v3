@@ -1,5 +1,7 @@
 #include "TlsMaterialProvider.h"
 
+#include "MqttTlsPathResolver.h"
+
 #include "infra/logging/JsonlLogger.h"
 
 #include <algorithm>
@@ -43,35 +45,6 @@ std::filesystem::path getenvPath(const char* key) {
     return std::filesystem::path(value);
 }
 
-std::filesystem::path repositoryRootFromSource() {
-    std::filesystem::path p(__FILE__);
-    p = p.parent_path();
-    for (int i = 0; i < 8 && !p.empty(); ++i) {
-        if (std::filesystem::exists(p / "accloud" / "resources" / "mqtt" / "tls")) {
-            return p;
-        }
-        p = p.parent_path();
-    }
-    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path().parent_path();
-}
-
-std::filesystem::path defaultDevPath(const char* filename) {
-    return repositoryRootFromSource() / "accloud" / "resources" / "mqtt" / "tls" / filename;
-}
-
-std::filesystem::path defaultDevPathCompat(const char* preferredFilename,
-                                           const char* legacyFilename) {
-    const std::filesystem::path preferred = defaultDevPath(preferredFilename);
-    if (std::filesystem::exists(preferred)) {
-        return preferred;
-    }
-    const std::filesystem::path legacy = defaultDevPath(legacyFilename);
-    if (std::filesystem::exists(legacy)) {
-        return legacy;
-    }
-    return preferred;
-}
-
 std::string safePathForLogs(const std::filesystem::path& path) {
     if (path.empty()) {
         return "<empty>";
@@ -113,38 +86,26 @@ TlsMaterialLoadResult TlsMaterialProvider::loadFromEnvironment() const {
     // Compatibility default for Anycubic broker behavior observed with reference scripts.
     paths.allowInsecureTls = parseBoolEnv(kEnvAllowInsecureTls, true);
 
-    // Automatic repository fallback (developer setup) if env is not set.
-    if (paths.caCertificatePath.empty() && paths.clientCertificatePath.empty()
-        && paths.clientKeyPath.empty()) {
-        const std::filesystem::path ca = defaultDevPathCompat("anycubic_mqtt_tls_ca.crt",
-                                                              "anycubic_mqqt_tls_ca.crt");
-        const std::filesystem::path cert = defaultDevPathCompat("anycubic_mqtt_tls_client.crt",
-                                                                "anycubic_mqqt_tls_client.crt");
-        const std::filesystem::path key = defaultDevPathCompat("anycubic_mqtt_tls_client.key",
-                                                               "anycubic_mqqt_tls_client.key");
-        if (std::filesystem::exists(ca) && std::filesystem::exists(cert) && std::filesystem::exists(key)) {
-            paths.caCertificatePath = ca;
-            paths.clientCertificatePath = cert;
-            paths.clientKeyPath = key;
-            paths.usingDevFallback = true;
-        }
-    }
 
     const bool devFallback = parseBoolEnv(kEnvDevFallback, false);
     if (devFallback) {
+        bool usedDevFallback = false;
         if (paths.caCertificatePath.empty()) {
-            paths.caCertificatePath = defaultDevPathCompat("anycubic_mqtt_tls_ca.crt",
-                                                           "anycubic_mqqt_tls_ca.crt");
+            paths.caCertificatePath = MqttTlsPathResolver::resolveDevTlsFile(
+                "anycubic_mqtt_tls_ca.crt", "anycubic_mqqt_tls_ca.crt");
+            usedDevFallback = true;
         }
         if (paths.clientCertificatePath.empty()) {
-            paths.clientCertificatePath = defaultDevPathCompat("anycubic_mqtt_tls_client.crt",
-                                                               "anycubic_mqqt_tls_client.crt");
+            paths.clientCertificatePath = MqttTlsPathResolver::resolveDevTlsFile(
+                "anycubic_mqtt_tls_client.crt", "anycubic_mqqt_tls_client.crt");
+            usedDevFallback = true;
         }
         if (paths.clientKeyPath.empty()) {
-            paths.clientKeyPath = defaultDevPathCompat("anycubic_mqtt_tls_client.key",
-                                                       "anycubic_mqqt_tls_client.key");
+            paths.clientKeyPath = MqttTlsPathResolver::resolveDevTlsFile(
+                "anycubic_mqtt_tls_client.key", "anycubic_mqqt_tls_client.key");
+            usedDevFallback = true;
         }
-        paths.usingDevFallback = true;
+        paths.usingDevFallback = usedDevFallback;
     }
 
     if (paths.allowInsecureTls) {

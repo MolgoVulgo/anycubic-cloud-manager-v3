@@ -1,20 +1,13 @@
-# Reference data
+# Données publiques de référence
 
-This directory contains non-secret analysis artifacts used by the documentation.
+Ce répertoire ne contient plus de capture MQTT réelle. Les exemples techniques communs sont placés dans [`../../reference-data/`](../../reference-data/README.md).
 
-Included:
+Ils sont volontairement synthétiques afin d'expliquer le workflow sans exposer de compte, imprimante, tâche, nom de fichier, horodatage, identifiant de message ou chronologie utilisateur réels.
 
-- MQTT print workflow report;
-- global MQTT analysis JSON;
-- consolidated MQTT JSONL analysis;
-- CSV segments between `start` events with different `taskid` values.
+Règles :
 
-Excluded by policy:
-
-- HAR captures;
-- session files;
-- TLS private keys;
-- binary PWMB fixtures;
-- full signed URLs.
-
-Those excluded files can be useful locally for tests or research, but they are not appropriate for a public documentation archive.
+- uniquement des données synthétiques ou agrégées ;
+- aucun HAR, fichier de session, URL signée, token, cookie ou clé privée TLS ;
+- aucune capture broker brute ni historique utilisateur complet ;
+- identifiants explicitement marqués `demo` ;
+- taille limitée pour rester vérifiable dans un diff normal.

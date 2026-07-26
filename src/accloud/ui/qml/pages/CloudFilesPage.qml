@@ -532,7 +532,9 @@ Item {
     }
 
     function uploadIsReady(uploadStatus, gcodeId) {
-        return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
+        var normalizedGcodeId = String(gcodeId || "").trim()
+        return Number(uploadStatus) === 1
+                || (normalizedGcodeId.length > 0 && normalizedGcodeId !== "0")
     }
 
     function uploadSelectedLocalFile(fileUrl) {

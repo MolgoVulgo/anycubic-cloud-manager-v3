@@ -1,43 +1,42 @@
-# Documentation
+# Documentation française
 
-Ce dossier est le point d’entrée français de la documentation projet. Il décrit le produit, les comportements attendus, les analyses, les décisions et les limites connues.
+La documentation suit une progression unique : objectif visible, fonctionnement général, runtime actif, contraintes techniques puis diagnostic.
 
-## Ordre de lecture
+## Guide principal
 
-1. `01-architecture.md` — rôle du projet, sources de vérité et frontières modules.
-2. `02-client-cloud.md` — comportement Anycubic Cloud, sessions, endpoints, downloads, uploads et sync.
-3. `03-runtime-mqtt.md` — connexion MQTT, topics, parsing/routing et état realtime.
-4. `04-workflow-impression-resine.md` — impression distante et interprétation résine/autoload.
-5. `05-ui-qml.md` — shell UI, pages, dialogs, règles visuelles et décisions écrans.
-6. `06-performance-ui.md` — analyse latence, causes racines et plan de correction.
-7. `07-viewer-photon-formats.md` — cible viewer Photon/PWMB, parsing formats et vérité géométrique.
-8. `08-i18n.md` — architecture traduction, règles et plan de migration.
-9. `09-operations-securite.md` — logs, redaction, cache, chemins runtime et diagnostics.
-10. `10-developpement-codex.md` — règles de travail assisté par Codex.
-11. `11-decisions-points-ouverts.md` — décisions projet et points ouverts.
+1. [Présentation et démarrage](01-presentation-demarrage.md)
+2. [Architecture et runtime actif](02-architecture-runtime.md)
+3. [Cloud Anycubic](03-cloud-anycubic.md)
+4. [MQTT et état temps réel](04-mqtt-temps-reel.md)
+5. [Interface QML et internationalisation](05-interface-qml.md)
+6. [Sécurité, logs, cache et données](06-securite-donnees.md)
+7. [Développement, tests et correctifs](07-developpement-tests-correctifs.md)
 
-Les annexes contiennent le détail des écrans, les structures JSON MQTT, les extensions de fichiers et les analyses issues de captures.
+## Annexes techniques
 
-## Statuts documentaires
+- [Performance UI](annexes/performance-ui.md)
+- [Formats Photon/PWMB et viewer](annexes/viewer-photon-formats.md)
+- [Extensions de fichiers Anycubic](annexes/extensions-fichiers-anycubic.md)
+- [Écrans du client cloud](annexes/ecrans-client-cloud.md)
+- [Structures JSON MQTT](annexes/structures-json-mqtt.md)
+- [Matrice des endpoints cloud actifs](annexes/endpoints-cloud-runtime.md)
+- [Topics MQTT actifs](annexes/topics-mqtt.md)
+- [Variables d'environnement runtime](annexes/variables-environnement.md)
+- [Analyse de captures MQTT d'impression](annexes/analyse-captures-print-mqtt.md)
+- [Politique d'archive](annexes/politique-archive.md)
+- [Décisions techniques](annexes/decisions-techniques.md)
 
-| Statut | Sens |
-| --- | --- |
-| `IMPLEMENTE` | Visible dans le code actuel ou validé par un flux runtime. |
-| `PARTIEL` | Démarré et utile, mais pas encore fermé comme flux produit complet. |
-| `SPEC` | Contrat cible, règle de design ou comportement futur. |
-| `ANALYSE` | Diagnostic ayant servi à prendre des décisions. |
-| `PLAN` | Plan d’exécution ordonné. |
-| `SNAPSHOT` | Matière issue de captures ou historique ; utile mais non normative seule. |
+## Données publiques synthétiques
 
-## Sources de vérité
+- [Politique et fixtures de référence](reference-data/README.md)
+- [Workflow MQTT synthétique](../reference-data/mqtt/mqtt_synthetic_workflow.md)
 
-1. Code courant du dépôt.
-2. Cette documentation.
-3. Annexes et analyses issues de captures.
-4. Traces historiques, HAR, logs MQTT bruts et fixtures binaires.
+## Statuts
 
-Si une documentation contredit le code, le code gagne. Si une trace contredit une hypothèse produit, l’hypothèse doit être revue et documentée.
+- **ACTIF** : utilisé par le runtime courant ;
+- **PARTIEL** : utilisable mais incomplet ou dépendant du cloud/imprimante ;
+- **EXPÉRIMENTAL** : workflow non finalisé ;
+- **RÉFÉRENCE** : matière explicative, pas contrat exécutable ;
+- **HISTORIQUE** : snapshot d'investigation conservé pour traçabilité.
 
-## Politique d’archive publique
-
-L’archive documentaire exclut volontairement les HAR et les échantillons PWMB binaires. Les HAR peuvent contenir des tokens et URLs signées ; les PWMB sont des fixtures, pas de la documentation. Les analyses JSON/CSV MQTT peuvent être incluses lorsqu’elles ne contiennent pas de secrets.
+Le code compilé par CMake reste la source de vérité runtime. Les fichiers sous `sources-techniques/` ne peuvent pas le remplacer.

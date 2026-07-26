@@ -1,0 +1,20 @@
+{
+  "fixture": "synthetic",
+  "purpose": "Document the HTTP-command to MQTT-observation workflow without real account data",
+  "printer": "printer-demo-001",
+  "task": "task-demo-001",
+  "message_count": 7,
+  "states": [
+    "free",
+    "downloading",
+    "preheating",
+    "printing",
+    "finished",
+    "free"
+  ],
+  "authority": {
+    "http": "command acceptance",
+    "mqtt": "live operational transitions",
+    "cache": "explicit fallback only"
+  }
+}

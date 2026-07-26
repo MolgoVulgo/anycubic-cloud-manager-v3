@@ -37,6 +37,7 @@ Item {
     property int localFileDeleteOrderId: 104
     property int localUdiskListOrderId: 101
     property int localFileStartPrintOrderId: 1
+    property int resinFeedOrderId: 1224
     readonly property bool localFilePrintEnabled: true
     property bool optionDeleteAfterPrint: false
     property bool optionLiftCompensation: false
@@ -64,9 +65,16 @@ Item {
     property bool startupJobsRefreshed: false
     property var printerHadActiveJobById: ({})
     property var pendingRemotePrintByPrinterId: ({})
+    property bool pendingPrintDeleteAfterPrint: false
+    property var pendingPostPrintCloudDeleteByFileId: ({})
     property string lastJobsRefreshReason: ""
     property string mqttDetailsTitle: ""
     property string mqttDetailsText: ""
+    property bool resinFeedActive: false
+    property int resinFeedType: 0
+    property bool resinFeedStopSubmitting: false
+    property string resinFeedPrinterId: ""
+    property bool resinFeedObservedRunningState: false
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
     property int mqttRealtimeDebounceMs: 700
@@ -390,7 +398,9 @@ Item {
     }
 
     function uploadIsReady(uploadStatus, gcodeId) {
-        return Number(uploadStatus) === 1 || String(gcodeId || "").trim().length > 0
+        var normalizedGcodeId = String(gcodeId || "").trim()
+        return Number(uploadStatus) === 1
+                || (normalizedGcodeId.length > 0 && normalizedGcodeId !== "0")
     }
 
     function bytesText(sizeBytes) {
@@ -970,11 +980,101 @@ Item {
             "reason": qsTr("Waiting for printer telemetry"),
             "createTime": Math.floor(Date.now() / 1000),
             "endTime": 0,
-            "img": ""
+            "img": "",
+            "deleteAfterPrint": fileData && fileData.deleteAfterPrint === true
         }
         pendingRemotePrintByPrinterId = next
         liveProjectData = next[key]
         refreshSelectedPrinterLiveSnapshot()
+    }
+
+    function requestPostPrintLocalDelete(printerId, pendingPrint) {
+        var targetPrinterId = String(printerId || "").trim()
+        var fileName = String(pendingPrint && pendingPrint.currentFile !== undefined ? pendingPrint.currentFile : "").trim()
+        if (fileName.length <= 0)
+            fileName = String(pendingPrint && pendingPrint.gcodeName !== undefined ? pendingPrint.gcodeName : "").trim()
+        if (targetPrinterId.length === 0 || fileName.length === 0 || !hasPrinterOrderEndpoint())
+            return false
+
+        var payload = {
+            "filename": fileName,
+            "path": "/"
+        }
+        var context = "post_print_local_delete:" + String(pendingPrint.fileId || "") + ":" + fileName
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              localFileDeleteOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+            return true
+        }
+        var localDeleteResult = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                             localFileDeleteOrderId,
+                                                             payload,
+                                                             targetPrinterId)
+        if (localDeleteResult.ok !== true)
+            return false
+        return true
+    }
+
+    function requestPostPrintCloudDelete(printerId, fileId) {
+        var normalizedFileId = String(fileId || "").trim()
+        if (normalizedFileId.length === 0 || !hasCloudBridge() || typeof cloudBridge.deleteFile !== "function")
+            return false
+        var next = {}
+        for (var key in pendingPostPrintCloudDeleteByFileId)
+            next[key] = pendingPostPrintCloudDeleteByFileId[key]
+        next[normalizedFileId] = String(printerId || "")
+        pendingPostPrintCloudDeleteByFileId = next
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(normalizedFileId)
+            return true
+        }
+        var cloudDeleteResult = cloudBridge.deleteFile(normalizedFileId)
+        if (cloudDeleteResult.ok !== true)
+            return false
+        statusMsg = qsTr("Print finished. File deleted locally and in cloud.")
+        statusSev = "success"
+        clearPendingRemotePrint(printerId)
+        var cleaned = {}
+        for (var existing in pendingPostPrintCloudDeleteByFileId) {
+            if (existing !== normalizedFileId)
+                cleaned[existing] = pendingPostPrintCloudDeleteByFileId[existing]
+        }
+        pendingPostPrintCloudDeleteByFileId = cleaned
+        return true
+    }
+
+    function maybeRunPostPrintCleanup(printerId) {
+        var pending = pendingRemotePrintForPrinter(printerId)
+        if (!pending)
+            return
+        if (pending.deleteAfterPrint !== true) {
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        var localDeleteOk = requestPostPrintLocalDelete(printerId, pending)
+        if (!localDeleteOk) {
+            statusMsg = qsTr("Print finished, but local file deletion failed. Cloud deletion skipped.")
+            statusSev = "warn"
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        var fileId = String(pending.fileId || "").trim()
+        if (fileId.length <= 0) {
+            statusMsg = qsTr("Print finished. Local file deleted, but cloud file id is missing.")
+            statusSev = "warn"
+            clearPendingRemotePrint(printerId)
+            return
+        }
+        if (typeof cloudBridge.sendPrinterOrderAsync !== "function") {
+            if (!requestPostPrintCloudDelete(printerId, fileId)) {
+                statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                statusSev = "warn"
+                clearPendingRemotePrint(printerId)
+            }
+        }
     }
 
     function clearPendingRemotePrint(printerId) {
@@ -1027,6 +1127,42 @@ Item {
 
     function refreshSelectedPrinterLiveSnapshot() {
         selectedPrinterLiveSnapshot = selectedPrinterLiveData()
+        updateResinFeedOperationState()
+    }
+
+    function updateResinFeedOperationState() {
+        if (!resinFeedActive)
+            return
+        var targetPrinterId = String(resinFeedPrinterId || "").trim()
+        if (targetPrinterId.length <= 0)
+            return
+        var printer = printerDataById(targetPrinterId)
+        if (!printer)
+            return
+
+        var state = String(printer.state || "").toUpperCase().trim()
+        var reason = String(printer.reason || "").toLowerCase().trim()
+        var mqttPrintState = String(printer.mqttPrintState || "").toLowerCase().trim()
+        var isBusyState = state === "BUSY" || reason === "busy" || mqttPrintState === "busy"
+        var isPrintingState = state === "PRINTING"
+                || mqttPrintState === "printing"
+                || mqttPrintState === "preheating"
+                || mqttPrintState === "monitoring"
+                || mqttPrintState === "downloading"
+        if (isBusyState || isPrintingState) {
+            resinFeedObservedRunningState = true
+            return
+        }
+
+        if (resinFeedObservedRunningState) {
+            resinFeedActive = false
+            resinFeedType = 0
+            resinFeedStopSubmitting = false
+            resinFeedPrinterId = ""
+            resinFeedObservedRunningState = false
+            statusMsg = qsTr("Resin operation finished.")
+            statusSev = "success"
+        }
     }
 
     function hasMeaningfulDetailValue(value) {
@@ -1427,7 +1563,7 @@ Item {
 
     function detectPrintCompletionTransitions() {
         var nextState = {}
-        var finishedSelectedPrinter = false
+        var finishedPrinterIds = []
         for (var i = 0; i < printersModel.count; ++i) {
             var printer = printersModel.get(i)
             var printerId = String(printer.id || "")
@@ -1436,11 +1572,13 @@ Item {
             var active = printerHasActiveJob(printer)
             var hadActive = printerHadActiveJobById[printerId] === true
             nextState[printerId] = active
-            if (hadActive && !active && printerId === selectedPrinterId)
-                finishedSelectedPrinter = true
+            if (hadActive && !active)
+                finishedPrinterIds.push(printerId)
         }
         printerHadActiveJobById = nextState
-        if (finishedSelectedPrinter)
+        for (var j = 0; j < finishedPrinterIds.length; ++j)
+            maybeRunPostPrintCleanup(finishedPrinterIds[j])
+        if (finishedPrinterIds.indexOf(selectedPrinterId) >= 0)
             refreshSelectedPrinterJobs("print_finished", true, false)
     }
 
@@ -2280,6 +2418,132 @@ Item {
         statusSev = "success"
     }
 
+    function startResinFeedOperation(printerId, feedType) {
+        var targetPrinterId = String(printerId || selectedPrinterId).trim()
+        if (targetPrinterId.length === 0) {
+            statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+        var normalizedFeedType = Number(feedType)
+        if (!(normalizedFeedType === 1 || normalizedFeedType === 2)) {
+            statusMsg = qsTr("Invalid resin operation.")
+            statusSev = "warn"
+            return
+        }
+        if (!hasPrinterOrderEndpoint()) {
+            statusMsg = qsTr("Resin operation requires sendOrder backend support.")
+            statusSev = "warn"
+            return
+        }
+
+        var payload = {
+            "feed_type": normalizedFeedType,
+            "type": 1
+        }
+        var label = normalizedFeedType === 1 ? qsTr("resin fill") : qsTr("resin drain")
+        var context = "resin_feed_start:" + String(normalizedFeedType)
+        statusMsg = qsTr("Starting %1 operation...").arg(label)
+        statusSev = "info"
+        resinFeedActive = true
+        resinFeedType = normalizedFeedType
+        resinFeedStopSubmitting = false
+        resinFeedPrinterId = targetPrinterId
+        resinFeedObservedRunningState = false
+
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              resinFeedOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+        } else {
+            var result = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      resinFeedOrderId,
+                                                      payload,
+                                                      targetPrinterId)
+            applyResinFeedStartResult(targetPrinterId, normalizedFeedType, result)
+        }
+    }
+
+    function stopResinFeedOperation(printerId, feedType) {
+        var targetPrinterId = String(printerId || resinFeedPrinterId || selectedPrinterId).trim()
+        var normalizedFeedType = Number(feedType)
+        if (!(normalizedFeedType === 1 || normalizedFeedType === 2))
+            normalizedFeedType = Number(resinFeedType)
+        if (targetPrinterId.length <= 0 || !(normalizedFeedType === 1 || normalizedFeedType === 2))
+            return
+        if (!hasPrinterOrderEndpoint())
+            return
+        resinFeedStopSubmitting = true
+        statusMsg = qsTr("Stopping resin operation...")
+        statusSev = "info"
+        var payload = {
+            "feed_type": normalizedFeedType,
+            "type": 0
+        }
+        var context = "resin_feed_stop:" + String(normalizedFeedType)
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(targetPrinterId,
+                                              resinFeedOrderId,
+                                              payload,
+                                              targetPrinterId,
+                                              context)
+        } else {
+            var result = cloudBridge.sendPrinterOrder(targetPrinterId,
+                                                      resinFeedOrderId,
+                                                      payload,
+                                                      targetPrinterId)
+            applyResinFeedStopResult(targetPrinterId, normalizedFeedType, result)
+        }
+    }
+
+    function applyResinFeedStartResult(targetPrinterId, feedType, result) {
+        if (result.ok !== true) {
+            resinFeedActive = false
+            resinFeedType = 0
+            resinFeedStopSubmitting = false
+            resinFeedPrinterId = ""
+            resinFeedObservedRunningState = false
+            statusMsg = qsTr("Resin operation failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
+            statusSev = "error"
+            return
+        }
+        var msgId = String(result.msgId || "").trim()
+        var label = Number(feedType) === 1 ? qsTr("resin fill") : qsTr("resin drain")
+        statusMsg = qsTr("%1 sent (order_id=%2, msgid=%3).")
+                .arg(label)
+                .arg(String(resinFeedOrderId))
+                .arg(msgId.length > 0 ? msgId : "-")
+        statusSev = "success"
+        loadPrinters()
+        if (String(targetPrinterId || "") === selectedPrinterId)
+            refreshSelectedPrinterJobs("resin_feed_start", true, false)
+    }
+
+    function applyResinFeedStopResult(targetPrinterId, feedType, result) {
+        resinFeedStopSubmitting = false
+        if (result.ok !== true) {
+            statusMsg = qsTr("Resin stop failed: %1")
+                    .arg(backendStatusDetail(result.message, qsTr("Task rejected.")))
+            statusSev = "error"
+            return
+        }
+        resinFeedActive = false
+        resinFeedType = 0
+        resinFeedPrinterId = ""
+        resinFeedObservedRunningState = false
+        var msgId = String(result.msgId || "").trim()
+        statusMsg = qsTr("Resin operation stopped (order_id=%1, msgid=%2).")
+                .arg(String(resinFeedOrderId))
+                .arg(msgId.length > 0 ? msgId : "-")
+        statusSev = "success"
+        loadPrinters()
+        if (String(targetPrinterId || "") === selectedPrinterId)
+            refreshSelectedPrinterJobs("resin_feed_stop", true, false)
+    }
+
     function openRemotePrintConfig() {
         if (!ensureSelectedCloudFile())
             return
@@ -2348,6 +2612,7 @@ Item {
             pendingPrintPrinterId = remotePrinterId
             pendingPrintFileId = fileId
             pendingPrintFileData = fileData
+            pendingPrintDeleteAfterPrint = optionDeleteAfterPrint === true
             statusMsg = qsTr("Sending print order...")
             statusSev = "info"
             cloudBridge.sendPrintOrderAsync(remotePrinterId,
@@ -2361,16 +2626,18 @@ Item {
                                            fileId,
                                            optionDeleteAfterPrint,
                                            false)
-        applyPrintOrderResult(remotePrinterId, fileId, r, fileData)
+        applyPrintOrderResult(remotePrinterId, fileId, r, fileData, optionDeleteAfterPrint === true)
     }
 
-    function applyPrintOrderResult(printerId, fileId, r, fileData) {
+    function applyPrintOrderResult(printerId, fileId, r, fileData, deleteAfterPrint) {
         if (r.ok === true) {
             var taskId = String(r.taskId || "")
             var successMessage = taskId.length > 0
                     ? (qsTr("Print order sent (task_id=%1)").arg(taskId))
                     : qsTr("Print order sent.")
-            markRemotePrintAccepted(printerId, fileData, taskId)
+            var trackedFileData = fileData ? fileData : ({})
+            trackedFileData.deleteAfterPrint = deleteAfterPrint === true
+            markRemotePrintAccepted(printerId, trackedFileData, taskId)
             remotePrintConfigDialog.close()
             if (printerId !== selectedPrinterId)
                 choosePrinter(printerId)
@@ -2468,11 +2735,13 @@ Item {
                 return
             }
             var fileData = root.pendingPrintFileData
+            var deleteAfterPrint = root.pendingPrintDeleteAfterPrint
             root.remotePrintSubmitting = false
             root.pendingPrintPrinterId = ""
             root.pendingPrintFileId = ""
             root.pendingPrintFileData = null
-            root.applyPrintOrderResult(printerId, fileId, result, fileData)
+            root.pendingPrintDeleteAfterPrint = false
+            root.applyPrintOrderResult(printerId, fileId, result, fileData, deleteAfterPrint)
         }
 
         function onPrinterOrderFinished(context, printerId, orderId, result) {
@@ -2505,7 +2774,62 @@ Item {
             if (normalizedContext.indexOf("local_file_delete:") === 0) {
                 var fileName = normalizedContext.slice(String("local_file_delete:").length)
                 root.applyLocalFileDeleteResult(String(printerId || ""), fileName, result)
+                return
             }
+
+            if (normalizedContext.indexOf("post_print_local_delete:") === 0) {
+                var parts = normalizedContext.split(":")
+                var cloudFileId = parts.length > 1 ? String(parts[1] || "") : ""
+                if (result.ok !== true) {
+                    root.statusMsg = qsTr("Print finished, but local file deletion failed. Cloud deletion skipped.")
+                    root.statusSev = "warn"
+                    root.clearPendingRemotePrint(String(printerId || ""))
+                    return
+                }
+                if (!root.requestPostPrintCloudDelete(String(printerId || ""), cloudFileId)) {
+                    root.statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                    root.statusSev = "warn"
+                    root.clearPendingRemotePrint(String(printerId || ""))
+                }
+                return
+            }
+
+            if (normalizedContext.indexOf("resin_feed_start:") === 0) {
+                var feedTypeText = normalizedContext.slice(String("resin_feed_start:").length)
+                root.applyResinFeedStartResult(String(printerId || ""),
+                                               Number(feedTypeText),
+                                               result)
+                return
+            }
+
+            if (normalizedContext.indexOf("resin_feed_stop:") === 0) {
+                var stopFeedTypeText = normalizedContext.slice(String("resin_feed_stop:").length)
+                root.applyResinFeedStopResult(String(printerId || ""),
+                                              Number(stopFeedTypeText),
+                                              result)
+                return
+            }
+        }
+
+        function onDeleteFileFinished(fileId, result) {
+            var normalizedFileId = String(fileId || "").trim()
+            var printerId = String(root.pendingPostPrintCloudDeleteByFileId[normalizedFileId] || "")
+            if (printerId.length <= 0)
+                return
+            var next = {}
+            for (var key in root.pendingPostPrintCloudDeleteByFileId) {
+                if (key !== normalizedFileId)
+                    next[key] = root.pendingPostPrintCloudDeleteByFileId[key]
+            }
+            root.pendingPostPrintCloudDeleteByFileId = next
+            if (result && result.ok === true) {
+                root.statusMsg = qsTr("Print finished. File deleted locally and in cloud.")
+                root.statusSev = "success"
+            } else {
+                root.statusMsg = qsTr("Print finished. Local file deleted, but cloud deletion failed.")
+                root.statusSev = "warn"
+            }
+            root.clearPendingRemotePrint(printerId)
         }
 
         function onReasonCatalogUpdatedFromCloud(reasons, message) {
@@ -2700,6 +3024,9 @@ Item {
         selectedLiveJobData: root.liveProjectData
         selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
         selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
+        feedingOperationActive: root.resinFeedActive
+        feedingOperationType: root.resinFeedType
+        feedingStopInProgress: root.resinFeedStopSubmitting
         loadingPrinterHistory: root.loadingPrinterHistory
         printerHistoryModel: printerHistoryModel
         printersEndpointPath: root.printersEndpointPath
@@ -2735,6 +3062,12 @@ Item {
         }
         onLocalFileRequested: function(printerId) {
             root.openLocalFileDialogForRemotePrint(printerId)
+        }
+        onResinFeedRequested: function(printerId, feedType) {
+            root.startResinFeedOperation(printerId, feedType)
+        }
+        onResinFeedStopRequested: function(printerId, feedType) {
+            root.stopResinFeedOperation(printerId, feedType)
         }
         onPrinterMqttDetailsRequested: function(printerId) {
             root.openPrinterDetailsDialog(printerId)

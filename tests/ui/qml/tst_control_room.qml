@@ -28,6 +28,10 @@ TestCase {
 
     function createQmlObject(path, props) {
         var component = Qt.createComponent(path)
+        if (component.status !== Component.Ready && path.indexOf("../../../ui/qml/") === 0) {
+            var sourcePath = "../../../src/accloud/ui/qml/" + path.slice(String("../../../ui/qml/").length)
+            component = Qt.createComponent(sourcePath)
+        }
         compare(component.status, Component.Ready, "Unable to load " + path + " -> " + component.errorString())
         var object = component.createObject(null, props ? props : {})
         verify(object !== null, "Unable to create object for " + path)
@@ -234,6 +238,66 @@ TestCase {
         compare(String(findObjectByName(panel, "printerLastPrintedFileValue").text), "done.pwmb")
         verify(!visibleTextExists(panel, "Model:"))
         verify(!visibleTextExists(panel, "Printer Type"))
+
+        panel.destroy()
+    }
+
+    function test_printer_functions_card_visibility_and_feeding_modal_ui() {
+        var panel = createQmlObject("../../../ui/qml/pages/PrinterDetailPanel.qml", {
+            "width": 980,
+            "height": 520,
+            "selectedPrinter": {
+                "id": "p1",
+                "name": "Anycubic Photon Mono M7 Pro",
+                "state": "READY",
+                "reason": "free",
+                "available": 1
+            }
+        })
+        wait(0)
+
+        var functionsCard = findObjectByName(panel, "printerFunctionsCard")
+        verify(functionsCard !== null)
+        compare(functionsCard.visible, true)
+        compare(String(findObjectByName(panel, "printerFunctionFeedingButton").text), "Feeding")
+        compare(String(findObjectByName(panel, "printerFunctionB1Button").text), "B1")
+        compare(String(findObjectByName(panel, "printerFunctionB2Button").text), "B2")
+        compare(String(findObjectByName(panel, "printerFunctionB3Button").text), "B3")
+
+        var feedingDialog = findObjectByName(panel, "printerFeedingDialog")
+        verify(feedingDialog !== null)
+        compare(String(findObjectByName(panel, "printerFeedingFillButton").text), "Remplissage")
+        compare(String(findObjectByName(panel, "printerFeedingDrainButton").text), "Vidage")
+        compare(String(findObjectByName(panel, "printerFeedingCancelButton").text), "Cancel")
+
+        panel.selectedPrinter = {
+            "id": "p1",
+            "name": "Anycubic Photon Mono M7 Pro",
+            "state": "FREE",
+            "available": 1
+        }
+        wait(0)
+        compare(functionsCard.visible, true)
+
+        panel.selectedPrinter = {
+            "id": "p1",
+            "name": "Anycubic Photon Mono M7 Pro",
+            "state": "PRINTING",
+            "reason": "printing",
+            "available": 1
+        }
+        wait(0)
+        compare(functionsCard.visible, true)
+
+        panel.selectedPrinter = {
+            "id": "p1",
+            "name": "Anycubic Photon Mono M7 Pro",
+            "state": "OFFLINE",
+            "reason": "offline",
+            "available": 0
+        }
+        wait(0)
+        compare(functionsCard.visible, true)
 
         panel.destroy()
     }

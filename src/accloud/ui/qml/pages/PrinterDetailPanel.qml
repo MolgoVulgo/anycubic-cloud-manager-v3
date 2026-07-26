@@ -9,6 +9,7 @@ Rectangle {
     objectName: "deviceDetailsPanel"
 
     property var selectedPrinter: null
+    property string selectedPrinterId: ""
     property var selectedPrinterDetails: ({})
     property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
@@ -19,6 +20,9 @@ Rectangle {
     property string printersEndpointRawJson: ""
     property string selectedPrinterDetailsRawJson: ""
     property string selectedPrinterProjectsRawJson: ""
+    property bool feedingOperationActive: false
+    property int feedingOperationType: 0 // 1=fill, 2=drain
+    property bool feedingStopInProgress: false
     readonly property string currentPreviewSource: normalizedImageSource(currentFileImageSource())
 
     property var statusChipTextProvider: null
@@ -32,6 +36,13 @@ Rectangle {
 
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
+    signal resinFeedRequested(string printerId, int feedType)
+    signal resinFeedStopRequested(string printerId, int feedType)
+
+    onFeedingOperationActiveChanged: {
+        if (!feedingOperationActive && feedingDialog.visible)
+            feedingDialog.close()
+    }
 
     function providerText(provider, arg, fallback) {
         return typeof provider === "function" ? String(provider(arg)) : fallback
@@ -408,22 +419,18 @@ Rectangle {
 
         var candidates = [
             liveJob.img,
-            liveJob.imgRaw,
             liveJob.image,
             liveJob.preview,
             liveJob.thumbnailUrl,
             details.img,
-            details.imgRaw,
             details.image,
             details.preview,
             details.thumbnailUrl,
             printer.img,
-            printer.imgRaw,
             printer.image,
             printer.preview,
             printer.thumbnailUrl,
             historyActive.img,
-            historyActive.imgRaw,
             historyActive.image,
             historyActive.preview,
             historyActive.thumbnailUrl
@@ -442,15 +449,10 @@ Rectangle {
         var lowered = value.toLowerCase()
         if (lowered.indexOf("data:image/") === 0)
             return value
-        if (lowered.indexOf("file://") === 0 || lowered.indexOf("http://") === 0 || lowered.indexOf("https://") === 0)
+        if (lowered.indexOf("file://") === 0 || lowered.indexOf("qrc:/") === 0)
             return value
-        if (value.indexOf("//") === 0)
-            return "https:" + value
-        if (value.indexOf("/") === 0)
-            return "https://cloud-universe.anycubic.com" + value
-        if (lowered.indexOf(".jpg") !== -1 || lowered.indexOf(".jpeg") !== -1 || lowered.indexOf(".png") !== -1 || lowered.indexOf(".webp") !== -1)
-            return "https://" + value
-        return value
+        // Remote image URLs must be resolved and validated by CloudBridge first.
+        return ""
     }
 
     function imageStatusText(statusCode) {
@@ -532,10 +534,50 @@ Rectangle {
     }
 
     function isPrinterPrinting() {
+        if (root.feedingOperationActive)
+            return false
         var liveStatus = liveJobStatusCode(root.selectedLiveJobData)
         if (liveStatus === 1)
             return true
-        return printerStatusCode(root.selectedPrinter) === 1
+        if (printerStatusCode(root.selectedPrinter) !== 1)
+            return false
+
+        var details = selectedMqttDetails()
+        var stage = String(details.mqttJobStage || selectedMqttField("mqttJobStage", "") || "").trim()
+        var printState = String(details.mqttPrintState || selectedMqttField("mqttPrintState", "") || "").trim()
+        if (stage === "downloading"
+                || stage === "loaded"
+                || stage === "checking"
+                || stage === "preheating"
+                || stage === "printing")
+            return true
+        if (printState === "downloading"
+                || printState === "monitoring"
+                || printState === "preheating"
+                || printState === "printing"
+                || printState === "waiting"
+                || printState === "pausing"
+                || printState === "paused"
+                || printState === "resuming"
+                || printState === "resumed")
+            return true
+
+        var progress = Number(root.selectedPrinter && root.selectedPrinter.progress !== undefined
+                              ? root.selectedPrinter.progress
+                              : -1)
+        var currentLayer = Number(root.selectedPrinter && root.selectedPrinter.currentLayer !== undefined
+                                  ? root.selectedPrinter.currentLayer
+                                  : -1)
+        var totalLayers = Number(root.selectedPrinter && root.selectedPrinter.totalLayers !== undefined
+                                ? root.selectedPrinter.totalLayers
+                                : -1)
+        return (isFinite(progress) && progress >= 0)
+                || (isFinite(currentLayer) && currentLayer >= 0)
+                || (isFinite(totalLayers) && totalLayers > 0)
+    }
+
+    function feedingOperationLabel() {
+        return feedingOperationType === 2 ? qsTr("vidage") : qsTr("remplissage")
     }
 
     function printerInfoMode() {
@@ -1401,6 +1443,69 @@ Rectangle {
                             font.pixelSize: Theme.fontCaptionPx
                         }
 
+                        Rectangle {
+                            objectName: "printerFunctionsCard"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: functionsCardContent.implicitHeight + 16
+                            Layout.maximumHeight: functionsCardContent.implicitHeight + 16
+                            radius: Theme.radiusControl
+                            color: Theme.bgSurface
+                            border.width: Theme.borderWidth
+                            border.color: Theme.borderSubtle
+
+                            ColumnLayout {
+                                id: functionsCardContent
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Functions")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 4
+                                    columnSpacing: 8
+                                    rowSpacing: 8
+
+                                    AppButton {
+                                        objectName: "printerFunctionFeedingButton"
+                                        Layout.fillWidth: true
+                                        text: qsTr("Feeding")
+                                        compact: true
+                                        onClicked: feedingDialog.open()
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB1Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B1")
+                                        compact: true
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB2Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B2")
+                                        compact: true
+                                    }
+
+                                    AppButton {
+                                        objectName: "printerFunctionB3Button"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B3")
+                                        compact: true
+                                    }
+                                }
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -1553,6 +1658,75 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            AppDialogFrame {
+                id: feedingDialog
+                objectName: "printerFeedingDialog"
+                title: qsTr("Feeding")
+                dialogSize: "small"
+                minimumWidth: 420
+                maximumWidth: 560
+                allowScrimClose: !root.feedingOperationActive
+                allowEscapeClose: !root.feedingOperationActive
+                showCloseButton: !root.feedingOperationActive
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.feedingOperationActive
+                          ? qsTr("Operation de %1 en cours.").arg(root.feedingOperationLabel())
+                          : qsTr("remplissage et le recyclage automatiques de la résine")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
+                    wrapMode: Text.WordWrap
+                }
+
+                footerTrailingData: [
+                    AppButton {
+                        objectName: "printerFeedingFillButton"
+                        visible: !root.feedingOperationActive
+                        text: qsTr("Remplissage")
+                        variant: "primary"
+                        onClicked: {
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : root.selectedPrinterId)
+                            if (printerId.length > 0)
+                                root.resinFeedRequested(printerId, 1)
+                        }
+                    },
+                    AppButton {
+                        objectName: "printerFeedingDrainButton"
+                        visible: !root.feedingOperationActive
+                        text: qsTr("Vidage")
+                        onClicked: {
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : root.selectedPrinterId)
+                            if (printerId.length > 0)
+                                root.resinFeedRequested(printerId, 2)
+                        }
+                    },
+                    AppButton {
+                        objectName: "printerFeedingCancelButton"
+                        text: root.feedingOperationActive ? qsTr("Stop") : qsTr("Cancel")
+                        enabled: !root.feedingStopInProgress
+                        onClicked: {
+                            if (!root.feedingOperationActive) {
+                                feedingDialog.close()
+                                return
+                            }
+                            var printerId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                                   ? root.selectedPrinter.id
+                                                   : root.selectedPrinterId)
+                            if (printerId.length > 0)
+                                root.resinFeedStopRequested(printerId,
+                                                            root.feedingOperationType > 0
+                                                            ? root.feedingOperationType
+                                                            : 1)
+                        }
+                    }
+                ]
             }
 
             AppDialogFrame {

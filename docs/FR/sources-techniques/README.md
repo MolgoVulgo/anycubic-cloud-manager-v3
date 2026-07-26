@@ -1,7 +1,14 @@
-# Sources techniques détaillées
+# Sources techniques historiques
 
-Statut : `SNAPSHOT`.
+Ce répertoire conserve des analyses, plans et snapshots utilisés pendant la reconstruction du client.
 
-Ce dossier conserve les documents techniques détaillés qui ont servi à construire les pages officielles. Ils restent utiles pour retrouver le détail d’une analyse, d’un plan ou d’une décision.
+Statut obligatoire : **HISTORIQUE / RÉFÉRENCE**, jamais source normative implicite.
 
-La lecture normale doit commencer par `FR/docs/README.md`. Ces sources servent d’annexes de profondeur.
+Pour toute intervention :
+
+1. lire `docs/FR/README.md` ;
+2. vérifier le code compilé par `accloud/CMakeLists.txt` ;
+3. utiliser ces fichiers uniquement pour comprendre une observation ancienne ;
+4. ne pas réintroduire une architecture, un endpoint ou une configuration depuis un snapshot sans preuve runtime actuelle.
+
+Les documents principaux remplacent les anciennes références directes vers `codex-agent-project.md` et les plans de latence UI.

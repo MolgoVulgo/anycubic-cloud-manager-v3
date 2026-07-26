@@ -45,12 +45,32 @@ bool test_message_redaction() {
                   "signature query param must be redacted");
 }
 
+bool test_safe_url_for_logs() {
+    const std::string signedUrl =
+        "https://user:password@cdn.example.test/thumb/image.png?X-Amz-Signature=secret&token=abc#preview";
+    const std::string safe = accloud::logging::safeUrlForLogs(signedUrl);
+    const std::string plain =
+        accloud::logging::safeUrlForLogs("https://cdn.example.test/thumb/image.png");
+
+    return expect(safe == "https://cdn.example.test/thumb/image.png",
+                  "safe URL should keep scheme, host and path only")
+        && expect(safe.find("password") == std::string::npos,
+                  "URL user info must be removed")
+        && expect(safe.find("Signature") == std::string::npos,
+                  "URL query must be removed")
+        && expect(safe.find("preview") == std::string::npos,
+                  "URL fragment must be removed")
+        && expect(plain == "https://cdn.example.test/thumb/image.png",
+                  "plain URL should remain unchanged");
+}
+
 } // namespace
 
 int main() {
     bool ok = true;
     ok = test_sensitive_key_detection_and_redaction() && ok;
     ok = test_message_redaction() && ok;
+    ok = test_safe_url_for_logs() && ok;
     if (!ok) {
         return 1;
     }
