@@ -30,6 +30,12 @@ Une valeur n'est pas sûre parce que sa clé est générique. Toute URL suscepti
 
 L'URL complète reste utilisée en interne pour la requête et le hash du cache miniature. Seule sa représentation dans les logs est réduite.
 
+## Log brut de trafic en développement
+
+Le preset `dev-debug` (`ACCLOUD_DEBUG=ON`) enregistre en complément des traces orientées protocole HTTP et MQTT dans `logs/log_brut.txt`. Les corps de requête et réponse HTTP restent lisibles lorsqu’ils sont textuels ; les uploads, miniatures et téléchargements binaires sont représentés par leur taille au lieu d’être copiés dans le fichier texte. Les topics et payloads MQTT entrants sont enregistrés avant le parsing applicatif.
+
+Ce fichier n’est jamais produit par les presets `default` ou `prod`. Malgré sa finalité de diagnostic, il ne constitue pas un dump de credentials non protégé : headers d’autorisation, champs JSON de type token, cookies, identifiants persistants de compte et query strings d’URLs signées sont redacted. Le fichier reste une donnée runtime sensible, ne doit entrer dans aucun patch ni archive source et doit être supprimé après diagnostic.
+
 ## Trois cas TLS distincts
 
 ### HTTPS cloud authentifié

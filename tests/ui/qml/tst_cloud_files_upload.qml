@@ -4,12 +4,18 @@ import QtTest 1.3
 TestCase {
     name: "CloudFilesUploadUi"
     property var cloudBridge: undefined
+    property var uiSettingsBridge: undefined
 
     function cleanup() {
         if (cloudBridge !== undefined && cloudBridge !== null && cloudBridge.destroy !== undefined) {
             cloudBridge.destroy()
         }
         cloudBridge = undefined
+        if (uiSettingsBridge !== undefined && uiSettingsBridge !== null
+                && uiSettingsBridge.destroy !== undefined) {
+            uiSettingsBridge.destroy()
+        }
+        uiSettingsBridge = undefined
     }
 
     function createQmlObject(path, props) {
@@ -26,7 +32,7 @@ TestCase {
 
     function createUploadBridgeMock() {
         cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
-                                         'signal uploadFinished(bool ok, string message, string fileId, string gcodeId, int uploadStatus, bool unlockOk);' +
+                                         'signal uploadFinished(bool ok, string message, string fileId, string gcodeId, int uploadStatus, bool unlockOk, bool localFileSynchronized);' +
                                          'signal uploadProgressChanged(real progress, string phase);' +
                                          'signal filesUpdatedFromCloud(var files, string message);' +
                                          'signal quotaUpdatedFromCloud(var quota, string message);' +
@@ -36,11 +42,27 @@ TestCase {
                                          'function loadCachedFiles(page, limit) { return { ok: true, files: [] } }' +
                                          'function loadCachedQuota() { return { ok: true, totalDisplay: "2 GB", usedDisplay: "1 GB", totalBytes: 2000, usedBytes: 1000 } }' +
                                          'function refreshFilesAsync(page, limit, force) { refreshCalls += 1 }' +
-                                         'function startUploadLocalFile(localPath) { uploadCalls += 1; lastUploadArg = localPath }' +
+                                         'function inspectPwszPreview(localPath) { inspectCalls += 1; return { ok: true, isPwsz: true, hasPreview1: true, hasPreview2: !inspectNeedsCompletion, needsCompletion: inspectNeedsCompletion } }' +
+                                         'function startUploadLocalFile(localPath, completePreview) { uploadCalls += 1; lastUploadArg = localPath; lastCompletePreview = completePreview }' +
                                          'property int refreshCalls: 0;' +
-                                         'property int uploadCalls: 0;' +
-                                         'property string lastUploadArg: "";' +
+                                         'property int uploadCalls: 0; property int inspectCalls: 0; property bool inspectNeedsCompletion: true;' +
+                                         'property string lastUploadArg: ""; property bool lastCompletePreview: false;' +
                                          '}', this, "cloudFilesUploadBridgeMock")
+    }
+
+
+    function createSettingsMock(confirmBeforeModification) {
+        var confirmValue = confirmBeforeModification === true ? "true" : "false"
+        uiSettingsBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                              'property string confirmationValue: "' + confirmValue + '";' +
+                                              'function getString(key, fallback) {' +
+                                              '  if (key === "cloud.upload.completePwszPreview2") return "true";' +
+                                              '  if (key === "cloud.upload.confirmPwszPreview2") return confirmationValue;' +
+                                              '  return fallback;' +
+                                              '}' +
+                                              'function setString(key, value) { if (key === "cloud.upload.confirmPwszPreview2") confirmationValue = value }' +
+                                              'function sync() {}' +
+                                              '}', this, "cloudFilesUploadSettingsMock")
     }
 
     function test_upload_selected_local_file_keeps_raw_input_for_backend() {
@@ -59,6 +81,38 @@ TestCase {
         page.destroy()
     }
 
+
+    function test_pwsz_missing_preview_is_completed_when_confirmation_disabled() {
+        createUploadBridgeMock()
+        createSettingsMock(false)
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        var selectedInput = "file:///home/kaj/slices/cube.pwsz"
+        page.uploadSelectedLocalFile(selectedInput)
+        wait(0)
+
+        compare(cloudBridge.inspectCalls, 1)
+        compare(cloudBridge.uploadCalls, 1)
+        compare(String(cloudBridge.lastUploadArg), selectedInput)
+        compare(cloudBridge.lastCompletePreview, true)
+        page.destroy()
+    }
+
+    function test_pwsz_with_preview_uses_original_file() {
+        createUploadBridgeMock()
+        createSettingsMock(false)
+        cloudBridge.inspectNeedsCompletion = false
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        page.uploadSelectedLocalFile("file:///home/kaj/slices/complete.pwsz")
+        wait(0)
+
+        compare(cloudBridge.inspectCalls, 1)
+        compare(cloudBridge.uploadCalls, 1)
+        compare(cloudBridge.lastCompletePreview, false)
+        page.destroy()
+    }
+
     function test_upload_finished_processing_sets_warn() {
         createUploadBridgeMock()
         var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
@@ -71,7 +125,7 @@ TestCase {
             })
         })
 
-        cloudBridge.uploadFinished(true, "", "file-1", "", 2, true)
+        cloudBridge.uploadFinished(true, "", "file-1", "", 2, true, true)
         wait(0)
 
         var sawProcessingWarn = false
@@ -100,7 +154,7 @@ TestCase {
             })
         })
 
-        cloudBridge.uploadFinished(true, "", "file-1", "0", 2, true)
+        cloudBridge.uploadFinished(true, "", "file-1", "0", 2, true, true)
         wait(0)
 
         var sawProcessingWarn = false
@@ -117,6 +171,20 @@ TestCase {
         page.destroy()
     }
 
+
+    function test_upload_finished_local_replacement_failure_sets_warn() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        cloudBridge.uploadFinished(true, "Cloud upload succeeded; local replacement failed.",
+                                   "file-1", "gcode-42", 2, true, false)
+        wait(0)
+
+        compare(String(page.statusSev), "warn")
+        verify(String(page.statusMsg).indexOf("local replacement failed") >= 0)
+        page.destroy()
+    }
+
     function test_upload_finished_ready_sets_success() {
         createUploadBridgeMock()
         var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
@@ -129,7 +197,7 @@ TestCase {
             })
         })
 
-        cloudBridge.uploadFinished(true, "", "file-1", "gcode-42", 2, true)
+        cloudBridge.uploadFinished(true, "", "file-1", "gcode-42", 2, true, true)
         wait(0)
 
         var sawCompletedSuccess = false

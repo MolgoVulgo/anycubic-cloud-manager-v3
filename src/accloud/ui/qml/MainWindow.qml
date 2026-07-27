@@ -35,6 +35,8 @@ ApplicationWindow {
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
     property string persistedMqttAuthMode: "slicer"
+    property bool pwszPreviewCompletionEnabled: true
+    property bool pwszPreviewConfirmationEnabled: true
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -164,6 +166,24 @@ ApplicationWindow {
         root.persistedMqttAuthMode = "slicer"
     }
 
+
+    function loadPwszUploadSettings() {
+        if (!root.hasUiSettingsBridge())
+            return
+        root.pwszPreviewCompletionEnabled = String(uiSettingsBridge.getString(
+                "cloud.upload.completePwszPreview2", "true")).toLowerCase() !== "false"
+        root.pwszPreviewConfirmationEnabled = String(uiSettingsBridge.getString(
+                "cloud.upload.confirmPwszPreview2", "true")).toLowerCase() !== "false"
+    }
+
+    function persistPwszUploadSetting(key, value) {
+        if (!root.hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(key, value === true ? "true" : "false")
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -213,6 +233,7 @@ ApplicationWindow {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
         root.loadMqttAuthModeFromSettings()
+        root.loadPwszUploadSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -312,6 +333,34 @@ ApplicationWindow {
                 onTriggered: {
                     root.statusText = qsTr("Opening default 3D rendering settings.")
                     render3dDefaultsDialog.open()
+                }
+            }
+
+
+            MenuSeparator {}
+
+            MenuItem {
+                objectName: "menuSettingsPwszPreviewCompletion"
+                text: qsTr("Complete PWSZ previews before upload")
+                checkable: true
+                checked: root.pwszPreviewCompletionEnabled
+                onTriggered: {
+                    root.pwszPreviewCompletionEnabled = checked
+                    root.persistPwszUploadSetting("cloud.upload.completePwszPreview2", checked)
+                    root.statusText = checked
+                            ? qsTr("Automatic PWSZ preview completion enabled.")
+                            : qsTr("Automatic PWSZ preview completion disabled.")
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsPwszPreviewConfirmation"
+                text: qsTr("Confirm before modifying PWSZ files")
+                checkable: true
+                checked: root.pwszPreviewConfirmationEnabled
+                onTriggered: {
+                    root.pwszPreviewConfirmationEnabled = checked
+                    root.persistPwszUploadSetting("cloud.upload.confirmPwszPreview2", checked)
                 }
             }
 
@@ -1095,6 +1144,7 @@ ApplicationWindow {
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
+                            onPwszUploadSettingsChanged: root.loadPwszUploadSettings()
                             onPrintIntentRequested: function(fileId, fileName) {
                                 if (typeof printerPage.openRemotePrintFromFile === "function") {
                                     printerPage.openRemotePrintFromFile(fileId, fileName)

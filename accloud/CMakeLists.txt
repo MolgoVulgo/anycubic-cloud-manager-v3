@@ -66,10 +66,13 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/ReasonCatalogApi.cpp
     infra/cloud/api/PrintOrderApi.cpp
     infra/cloud/api/CloudLegacyImpl.cpp
+    infra/cloud/api/ThumbnailCandidateBuilder.cpp
+    infra/cloud/archive/PwszPreviewArchive.cpp
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
     infra/logging/JsonlLogger.cpp
+    infra/logging/RawTrafficLogger.cpp
     infra/logging/Redactor.cpp
     infra/logging/Rotator.cpp
     infra/jobs/JobManager.cpp
@@ -290,6 +293,23 @@ else()
   message(WARNING "Qt6::Sql unavailable: skipping accloud_cloud_core_regressions test")
 endif()
 
+
+add_executable(accloud_thumbnail_candidate_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_thumbnail_candidates.cpp
+    ${ACCLOUD_SRC_ROOT}/infra/cloud/api/ThumbnailCandidateBuilder.cpp
+)
+target_include_directories(accloud_thumbnail_candidate_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+target_link_libraries(accloud_thumbnail_candidate_tests PRIVATE accloud_domain)
+add_test(NAME accloud_thumbnail_candidates COMMAND accloud_thumbnail_candidate_tests)
+
+add_executable(accloud_pwsz_preview_archive_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_pwsz_preview_archive.cpp
+    ${ACCLOUD_SRC_ROOT}/infra/cloud/archive/PwszPreviewArchive.cpp
+)
+target_include_directories(accloud_pwsz_preview_archive_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+target_link_libraries(accloud_pwsz_preview_archive_tests PRIVATE accloud_domain)
+add_test(NAME accloud_pwsz_preview_archive COMMAND accloud_pwsz_preview_archive_tests)
+
 add_executable(accloud_security_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_redactor.cpp
 )
@@ -301,6 +321,14 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_security_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
+
+if(ACCLOUD_DEBUG)
+  add_executable(accloud_raw_traffic_log_tests
+      ${ACCLOUD_TESTS_ROOT}/cloud/test_raw_traffic_logger.cpp
+  )
+  target_link_libraries(accloud_raw_traffic_log_tests PRIVATE accloud_domain accloud_infra)
+  add_test(NAME accloud_dev_raw_traffic_log COMMAND accloud_raw_traffic_log_tests)
+endif()
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
   add_executable(accloud_ui_model_tests

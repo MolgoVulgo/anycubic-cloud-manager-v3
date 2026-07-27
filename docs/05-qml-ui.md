@@ -30,6 +30,8 @@ QML must not issue HTTP requests, parse large payloads, open SQLite transactions
 
 Uploads, downloads, cloud synchronisation, cache work and format decoding must not block the GUI thread. Busy state, progress, cancellation and errors are exposed through bridge properties and signals.
 
+PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
+
 ## Resources and production separation
 
 `resources.qrc` contains normal UI resources. `resources_debug.qrc` contains debug-only pages. Production cannot depend on debug objects or raw payload views.

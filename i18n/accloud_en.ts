@@ -628,6 +628,46 @@
         <source>Compatible printers: %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>PWSZ inspection failed: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Invalid PWSZ archive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Missing PWSZ cloud preview</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>The local file will be modified only after the cloud upload succeeds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>%1 does not contain preview_images/preview_2.png. ACM will copy preview_1.png to preview_2.png without changing its bytes, upload that version, then replace the local PWSZ atomically after a successful cloud upload.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>If preparation or upload fails, the original local file remains unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Do not ask again for future PWSZ files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Modify and upload</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>CloudFilesPaginationBar</name>
@@ -1520,6 +1560,26 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
     <message>
         <location filename="../ui/qml/MainWindow.qml" line="1125"/>
         <source>Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1"/>
+        <source>Complete PWSZ previews before upload</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1"/>
+        <source>Automatic PWSZ preview completion enabled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1"/>
+        <source>Automatic PWSZ preview completion disabled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="1"/>
+        <source>Confirm before modifying PWSZ files</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

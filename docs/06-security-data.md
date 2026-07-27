@@ -30,6 +30,12 @@ A value is not safe merely because its field name is generic. Any URL that can c
 
 The full URL is still used internally for the request and thumbnail cache hash. Only the log representation is reduced.
 
+## Development raw traffic log
+
+The `dev-debug` preset (`ACCLOUD_DEBUG=ON`) additionally records protocol-oriented HTTP and MQTT traces in `logs/log_brut.txt`. HTTP request and response bodies are kept in readable form when textual; binary uploads, thumbnails and downloads are represented by their byte count rather than copied into the text file. Incoming MQTT topics and payloads are recorded before application parsing.
+
+This file is never produced by the `default` or `prod` presets. Despite its diagnostic purpose, it is not an unprotected credential dump: authorization headers, token-like JSON fields, cookies, persistent account identifiers and signed URL query strings are redacted. The file remains sensitive runtime data, must not enter a patch or source archive, and should be deleted after diagnosis.
+
 ## Three distinct TLS cases
 
 ### Authenticated cloud HTTPS

@@ -54,6 +54,8 @@ The complete signed URL must not be logged.
 
 Thumbnail previews use a separate, non-critical cache path. A local `QNetworkAccessManager` may call `ignoreSslErrors()` only for that image fetch, then validates the image and writes it atomically. This exception is not used for authenticated cloud APIs or user-file downloads.
 
+The file listing can expose several preview references. ACM now preserves an ordered candidate list and tries it sequentially: top-level `thumbnail`, top-level `img`/`image`, `slice_param.image_id`, `printer_image_id`, then `slice_param.image0_id`. Relative `slice_param` paths are expanded only when both bucket and region are available. Each candidate attempt, failure and selected source is logged with a redacted URL.
+
 The bridge exposes only a validated local `file://` URL, or an empty value, to QML. A failed backend fetch never falls back to the remote HTTP URL. Files still reported as `PROCESSING` do not trigger preview downloads. Thumbnail requests have a bounded timeout and a short in-memory negative cache for repeated `403`, `404`, timeout or transient failures.
 
 The model separates `thumbnailSourceUrl` from the local `thumbnailUrl`. Source URLs containing user information, query or fragment are kept only in memory for the current request and are not persisted. Logs use `logging::safeUrlForLogs()`, which keeps scheme, host and path while removing user information, query and fragment.
@@ -69,6 +71,10 @@ lockStorageSpace
 ```
 
 Unlock is attempted when required even after partial failure. PUT, registration and unlock errors remain distinct. Polling starts only after unlock. Status `1` means ready; status `2` means cloud processing. `gcode_id` values `null`, empty, numeric `0` or string `"0"` are sentinels and must not mark an upload ready. A processing upload remains successful as a transfer, but the UI reports it as pending and schedules bounded follow-up file refreshes.
+
+For `.pwsz` files, optional preview completion is enabled by default. Before upload, ACM inspects the ZIP central directory. If `preview_images/preview_2.png` is absent while `preview_1.png` exists, the UI requests confirmation unless the user disabled confirmation. The infra layer creates a temporary archive in the same directory and duplicates the compressed `preview_1.png` bytes under the `preview_2.png` name; it does not decode or resize the PNG. The normal upload pipeline reads size and content from that prepared archive while retaining the original file name for the cloud request.
+
+The local source is replaced atomically by the prepared archive only after the cloud upload has been registered successfully. Preparation, session, lock, PUT or registration failure removes the temporary archive and leaves the original unchanged. If cloud upload succeeds but local replacement fails, the prepared file is retained as a recovery copy and the UI reports a synchronization warning.
 
 ### Printer and print orders
 

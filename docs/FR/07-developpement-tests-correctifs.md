@@ -23,6 +23,16 @@ ctest --preset default -R '^accloud_mqtt_flow$' --output-on-failure
 ctest --preset default -R '^accloud_ui_qml' --output-on-failure
 ```
 
+Le logger de trafic brut réservé au mode développement possède son test de régression :
+
+```bash
+cmake --preset dev-debug
+cmake --build --preset dev-debug
+ctest --preset dev-debug -R '^accloud_dev_raw_traffic_log$' --output-on-failure
+```
+
+Le test vérifie la création de `log_brut.txt`, la capture HTTP/MQTT et la redaction obligatoire des credentials et URLs signées.
+
 Garde documentation et archive :
 
 ```bash

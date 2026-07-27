@@ -1,4 +1,5 @@
 #include "CloudLegacyImpl.h"
+#include "infra/cloud/api/ThumbnailCandidateBuilder.h"
 #include "infra/cloud/core/EndpointRegistry.h"
 #include "infra/cloud/core/HttpClient.h"
 #include "infra/cloud/core/ResponseEnvelopeParser.h"
@@ -210,7 +211,22 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
     if (f.gcodeId == "0") {
         f.gcodeId.clear();
     }
-    f.thumbnailUrl = jFirst(e, {"printer_image_id", "thumbnail", "img", "image"});
+    const nlohmann::json sp = parseSliceParam(e);
+    accloud::cloud::api::ThumbnailCandidateInput thumbnailInput;
+    thumbnailInput.thumbnail = jFirst(e, {"thumbnail"});
+    thumbnailInput.image = jFirst(e, {"img", "image"});
+    thumbnailInput.imageId = sp.is_object() ? jFirst(sp, {"image_id"}) : std::string{};
+    thumbnailInput.printerImageId = jFirst(e, {"printer_image_id"});
+    thumbnailInput.image0Id = sp.is_object() ? jFirst(sp, {"image0_id"}) : std::string{};
+    thumbnailInput.bucket = sp.is_object() ? jFirst(sp, {"bucket_id", "bucket"}) : std::string{};
+    if (thumbnailInput.bucket.empty()) {
+        thumbnailInput.bucket = jFirst(e, {"bucket_id", "bucket"});
+    }
+    thumbnailInput.region = jFirst(e, {"region"});
+    f.thumbnailCandidates = accloud::cloud::api::buildThumbnailCandidates(thumbnailInput);
+    if (!f.thumbnailCandidates.empty()) {
+        f.thumbnailUrl = f.thumbnailCandidates.front();
+    }
     f.downloadUrl  = jFirst(e, {"url", "download_url", "downloadUrl"});
     f.region       = jFirst(e, {"region"});
     f.bucket       = jFirst(e, {"bucket", "bucket_id"});
@@ -218,7 +234,6 @@ CloudFileInfo parseFileEntry(const nlohmann::json& e) {
     f.md5          = jFirst(e, {"md5", "origin_file_md5"});
     f.status       = e.value("status", 0);
 
-    const nlohmann::json sp = parseSliceParam(e);
     f.createTime = jFirstLong(e, {"create_time", "createTime", "upload_time", "uploadTime", "time"}, 0);
     if (f.createTime <= 0 && sp.is_object())
         f.createTime = jFirstLong(sp, {"create_time", "createTime", "time", "timestamp"}, 0);

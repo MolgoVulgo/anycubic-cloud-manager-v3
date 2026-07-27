@@ -16,10 +16,12 @@
 #include "app/usecases/cloud/SendPrinterOrderUseCase.h"
 #include "app/usecases/cloud/SendPrintOrderUseCase.h"
 #include "app/usecases/cloud/UploadLocalFileUseCase.h"
+#include "infra/cloud/archive/PwszPreviewArchive.h"
 #include "infra/cloud/HarImporter.h"
 #include "infra/config/AppPaths.h"
 #include "infra/debug/DebugBuild.h"
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/RawTrafficLogger.h"
 #include "infra/logging/Redactor.h"
 
 #include <QDateTime>
@@ -34,6 +36,7 @@
 #include <QJsonObject>
 #include <QLocale>
 #include <QSaveFile>
+#include <QStringList>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QMetaObject>
@@ -55,6 +58,26 @@ namespace accloud {
 namespace {
 
 constexpr bool kDebugBuildEnabled = debug::kEnabled;
+
+logging::raw::HeaderList rawRequestHeaders(const QNetworkRequest& request) {
+    logging::raw::HeaderList headers;
+    const auto names = request.rawHeaderList();
+    headers.reserve(static_cast<std::size_t>(names.size()));
+    for (const QByteArray& name : names) {
+        headers.emplace_back(name.toStdString(), request.rawHeader(name).toStdString());
+    }
+    return headers;
+}
+
+logging::raw::HeaderList rawResponseHeaders(const QNetworkReply& reply) {
+    logging::raw::HeaderList headers;
+    const auto pairs = reply.rawHeaderPairs();
+    headers.reserve(static_cast<std::size_t>(pairs.size()));
+    for (const auto& pair : pairs) {
+        headers.emplace_back(pair.first.toStdString(), pair.second.toStdString());
+    }
+    return headers;
+}
 
 // ── Formatage taille ──────────────────────────────────────────────────────
 
@@ -263,6 +286,18 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("bucket",        QString::fromStdString(f.bucket));
     m.insert("path",          QString::fromStdString(f.path));
     const QString thumbnailSource = QString::fromStdString(f.thumbnailUrl);
+    QStringList thumbnailCandidates;
+    thumbnailCandidates.reserve(static_cast<qsizetype>(f.thumbnailCandidates.size()));
+    for (const std::string& candidate : f.thumbnailCandidates) {
+        const QString value = QString::fromStdString(candidate).trimmed();
+        if (!value.isEmpty() && !thumbnailCandidates.contains(value)) {
+            thumbnailCandidates.append(value);
+        }
+    }
+    if (thumbnailCandidates.isEmpty() && !thumbnailSource.trimmed().isEmpty()) {
+        thumbnailCandidates.append(thumbnailSource.trimmed());
+    }
+    m.insert("thumbnailCandidates", thumbnailCandidates);
     m.insert("thumbnailSourceUrl", thumbnailSource);
     m.insert("thumbnailUrl", thumbnailSource);
     m.insert("gcodeId",       QString::fromStdString(f.gcodeId));
@@ -459,6 +494,12 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
     timeout.setSingleShot(true);
 
     bool timedOut = false;
+    const std::string rawCorrelationId = logging::raw::nextCorrelationId("http");
+    logging::raw::logHttpRequest(rawCorrelationId,
+                                 "GET",
+                                 normalizedUrl.toStdString(),
+                                 rawRequestHeaders(req),
+                                 {});
     QNetworkReply* reply = nam.get(req);
     QObject::connect(reply, &QNetworkReply::sslErrors, reply,
                      [reply](const QList<QSslError>&) {
@@ -480,6 +521,14 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
     result.networkErrorCode = static_cast<int>(reply->error());
     const QByteArray bytes = reply->readAll();
     const bool networkOk = !timedOut && reply->error() == QNetworkReply::NoError;
+    const std::string replyError = reply->errorString().toStdString();
+    logging::raw::logHttpResponse(
+        rawCorrelationId,
+        result.httpStatus,
+        reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString().toStdString(),
+        rawResponseHeaders(*reply),
+        bytes.toStdString(),
+        networkOk ? std::string{} : replyError);
     reply->deleteLater();
 
     if (!networkOk || bytes.isEmpty()) {
@@ -710,11 +759,15 @@ QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
 }
 
 void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
-    QString source = map.value(QStringLiteral("thumbnailSourceUrl")).toString().trimmed();
-    if (source.isEmpty()) {
-        source = map.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
+    QStringList candidates = map.value(QStringLiteral("thumbnailCandidates")).toStringList();
+    const QString persistedSource = map.value(QStringLiteral("thumbnailSourceUrl")).toString().trimmed();
+    const QString displayedSource = map.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
+    if (!persistedSource.isEmpty() && !candidates.contains(persistedSource)) {
+        candidates.prepend(persistedSource);
     }
-    map.insert(QStringLiteral("thumbnailSourceUrl"), thumbnailSourceForPersistence(source));
+    if (!displayedSource.isEmpty() && !candidates.contains(displayedSource)) {
+        candidates.append(displayedSource);
+    }
 
     const int statusCode = map.value(QStringLiteral("statusCode"), 0).toInt();
     const QString status = map.value(QStringLiteral("status")).toString().trimmed().toUpper();
@@ -724,11 +777,49 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
         logging::info("app", "thumbnail_cache", "processing_deferred",
                       "Thumbnail download deferred while cloud processing is active",
                       {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
-                       {"url", safeThumbnailUrlForLogs(source).toStdString()}});
+                       {"candidate_count", std::to_string(candidates.size())}});
         return;
     }
 
-    const QString resolved = resolveThumbnailLocalUrl(source, downloadMissing);
+    QString resolved;
+    QString resolvedSource;
+    for (qsizetype index = 0; index < candidates.size(); ++index) {
+        const QString source = candidates.at(index).trimmed();
+        if (source.isEmpty()) continue;
+
+        logging::info("app", "thumbnail_cache", "candidate_attempt",
+                      "Trying thumbnail candidate",
+                      {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
+                       {"candidate_index", std::to_string(index)},
+                       {"candidate_count", std::to_string(candidates.size())},
+                       {"url", safeThumbnailUrlForLogs(source).toStdString()}});
+
+        resolved = resolveThumbnailLocalUrl(source, downloadMissing);
+        if (!resolved.isEmpty()) {
+            resolvedSource = source;
+            logging::info("app", "thumbnail_cache", "candidate_selected",
+                          "Thumbnail candidate selected",
+                          {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
+                           {"candidate_index", std::to_string(index)},
+                           {"url", safeThumbnailUrlForLogs(source).toStdString()}});
+            break;
+        }
+
+        logging::warn("app", "thumbnail_cache", "candidate_failed",
+                      "Thumbnail candidate did not produce a usable local image",
+                      {{"fileId", map.value(QStringLiteral("fileId")).toString().toStdString()},
+                       {"candidate_index", std::to_string(index)},
+                       {"url", safeThumbnailUrlForLogs(source).toStdString()}});
+    }
+
+    QString persistedCandidate = thumbnailSourceForPersistence(resolvedSource);
+    if (persistedCandidate.isEmpty()) {
+        for (const QString& candidate : candidates) {
+            persistedCandidate = thumbnailSourceForPersistence(candidate);
+            if (!persistedCandidate.isEmpty()) break;
+        }
+    }
+    map.insert(QStringLiteral("thumbnailSourceUrl"), persistedCandidate);
     map.insert(QStringLiteral("thumbnailUrl"), resolved);
     map.insert(QStringLiteral("thumbnailState"),
                resolved.isEmpty() ? QStringLiteral("unavailable") : QStringLiteral("ready"));
@@ -1836,7 +1927,28 @@ void CloudBridge::getDownloadUrlAsync(const QString& fileId) {
     });
 }
 
-QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
+QVariantMap CloudBridge::inspectPwszPreview(const QString& localPath) const {
+    QVariantMap out;
+    const QString normalizedPath = normalizeUploadLocalPath(localPath);
+    const QFileInfo info(normalizedPath);
+    if (info.suffix().compare(QStringLiteral("pwsz"), Qt::CaseInsensitive) != 0) {
+        out.insert("ok", true);
+        out.insert("isPwsz", false);
+        out.insert("needsCompletion", false);
+        return out;
+    }
+    const auto inspection = accloud::cloud::archive::inspectPwszPreviewArchive(
+        std::filesystem::path(normalizedPath.toStdString()));
+    out.insert("ok", inspection.ok);
+    out.insert("isPwsz", true);
+    out.insert("hasPreview1", inspection.hasPreview1);
+    out.insert("hasPreview2", inspection.hasPreview2);
+    out.insert("needsCompletion", inspection.needsCompletion);
+    out.insert("message", QString::fromStdString(inspection.message));
+    return out;
+}
+
+QVariantMap CloudBridge::uploadLocalFile(const QString& localPath, bool completePwszPreview2) const {
     QVariantMap out;
     const QString normalizedPath = normalizeUploadLocalPath(localPath);
     const QFileInfo localFileInfo(normalizedPath);
@@ -1858,7 +1970,7 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     }
 
     const usecases::cloud::UploadLocalFileUseCase useCase;
-    const auto r = useCase.execute(normalizedPath.toStdString());
+    const auto r = useCase.execute(normalizedPath.toStdString(), completePwszPreview2);
     out.insert("ok", r.ok);
     out.insert("message", QString::fromStdString(r.message));
     out.insert("messageKey", r.ok
@@ -1876,6 +1988,9 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     out.insert("gcodeId", QString::fromStdString(r.gcodeId));
     out.insert("uploadStatus", r.uploadStatus);
     out.insert("unlockOk", r.unlockOk);
+    out.insert("previewAdded", r.previewAdded);
+    out.insert("localFileSynchronized", r.localFileSynchronized);
+    out.insert("recoveryPath", QString::fromStdString(r.recoveryPath));
 
     logging::info("app", "cloud_bridge", "upload_local_file_result",
                   "uploadLocalFile finished",
@@ -1895,7 +2010,7 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath) const {
     return out;
 }
 
-void CloudBridge::startUploadLocalFile(const QString& localPath) {
+void CloudBridge::startUploadLocalFile(const QString& localPath, bool completePwszPreview2) {
     const QString normalizedPath = normalizeUploadLocalPath(localPath);
     if (normalizedPath.isEmpty()) {
         emit uploadFinished(false,
@@ -1903,7 +2018,8 @@ void CloudBridge::startUploadLocalFile(const QString& localPath) {
                             QString(),
                             QString(),
                             0,
-                            false);
+                            false,
+                            true);
         return;
     }
 
@@ -1912,10 +2028,11 @@ void CloudBridge::startUploadLocalFile(const QString& localPath) {
                   "startUploadLocalFile called",
                   {{"file_path", normalizedPath.toStdString()}});
 
-    launchBackgroundTask([this, normalizedPath]() {
+    launchBackgroundTask([this, normalizedPath, completePwszPreview2]() {
         const usecases::cloud::UploadLocalFileUseCase useCase;
         const auto result = useCase.execute(
             normalizedPath.toStdString(),
+            completePwszPreview2,
             [this](double progress, const std::string& phase) {
                 double clamped = progress;
                 if (clamped < 0.0)
@@ -1945,7 +2062,8 @@ void CloudBridge::startUploadLocalFile(const QString& localPath) {
                                 QString::fromStdString(result.fileId),
                                 QString::fromStdString(result.gcodeId),
                                 result.uploadStatus,
-                                result.unlockOk);
+                                result.unlockOk,
+                                result.localFileSynchronized);
 
             const bool ready = usecases::cloud::UploadLocalFileUseCase::isUploadReady(
                 result.uploadStatus, result.gcodeId);
@@ -2429,6 +2547,12 @@ void CloudBridge::startDownload(const QString& signedUrl, const QString& savePat
     QNetworkRequest req(dlUrl);
     req.setTransferTimeout(0);  // pas de timeout pour les gros fichiers
 
+    const std::string rawCorrelationId = logging::raw::nextCorrelationId("http");
+    logging::raw::logHttpRequest(rawCorrelationId,
+                                 "GET",
+                                 signedUrl.toStdString(),
+                                 rawRequestHeaders(req),
+                                 {});
     m_dlReply = m_nam->get(req);
 
     connect(m_dlReply, &QNetworkReply::readyRead, this, [this]() {
@@ -2440,10 +2564,19 @@ void CloudBridge::startDownload(const QString& signedUrl, const QString& savePat
                 emit downloadProgress(recv, total);
             });
 
-    connect(m_dlReply, &QNetworkReply::finished, this, [this]() {
+    connect(m_dlReply, &QNetworkReply::finished, this, [this, rawCorrelationId]() {
         const bool netOk = (m_dlReply->error() == QNetworkReply::NoError);
         const QString errStr = m_dlReply->errorString();
         const QString path   = m_dlPath;
+        const int httpStatus = m_dlReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const qint64 streamedBytes = m_dlFile ? m_dlFile->size() : 0;
+        logging::raw::logHttpResponse(
+            rawCorrelationId,
+            httpStatus,
+            m_dlReply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString().toStdString(),
+            rawResponseHeaders(*m_dlReply),
+            "<binary download streamed to disk: " + std::to_string(streamedBytes) + " bytes>",
+            netOk ? std::string{} : errStr.toStdString());
 
         if (m_dlFile) {
             m_dlFile->flush();

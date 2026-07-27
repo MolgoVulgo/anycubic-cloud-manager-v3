@@ -41,9 +41,10 @@ public:
     Q_INVOKABLE QVariantMap getDownloadUrl(const QString& fileId) const;
     Q_INVOKABLE void getDownloadUrlAsync(const QString& fileId);
     // Retourne { ok, message, fileId, gcodeId, uploadStatus }
-    Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath) const;
+    Q_INVOKABLE QVariantMap inspectPwszPreview(const QString& localPath) const;
+    Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath, bool completePwszPreview2 = false) const;
     // Upload asynchrone pour UI avec progression.
-    Q_INVOKABLE void startUploadLocalFile(const QString& localPath);
+    Q_INVOKABLE void startUploadLocalFile(const QString& localPath, bool completePwszPreview2 = false);
 
     // Retourne { ok, message, printers:[...] }
     // Champs debug (uniquement si ACCLOUD_DEBUG=ON): endpoint, rawJson
@@ -120,7 +121,8 @@ Q_SIGNALS:
                         const QString& fileId,
                         const QString& gcodeId,
                         int uploadStatus,
-                        bool unlockOk);
+                        bool unlockOk,
+                        bool localFileSynchronized);
     void filesUpdatedFromCache(const QVariantList& files, const QString& message);
     void cachedFilesLoaded(const QVariantMap& result);
     void cachedQuotaLoaded(const QVariantMap& result);

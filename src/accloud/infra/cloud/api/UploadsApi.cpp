@@ -5,6 +5,7 @@
 #include "infra/cloud/core/ResponseEnvelopeParser.h"
 #include "infra/cloud/core/WorkbenchRequestBuilder.h"
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/RawTrafficLogger.h"
 
 #ifdef ACCLOUD_WITH_QT
 
@@ -40,6 +41,26 @@ constexpr int kPutMinTimeoutMs = 120000;
 constexpr int kPutMaxTimeoutMs = 3600000;
 constexpr double kPutAssumedMinThroughputBps = 256.0 * 1024.0;
 constexpr double kPutSafetyFactor = 4.0;
+
+logging::raw::HeaderList rawRequestHeaders(const QNetworkRequest& request) {
+    logging::raw::HeaderList headers;
+    const auto names = request.rawHeaderList();
+    headers.reserve(static_cast<std::size_t>(names.size()));
+    for (const QByteArray& name : names) {
+        headers.emplace_back(name.toStdString(), request.rawHeader(name).toStdString());
+    }
+    return headers;
+}
+
+logging::raw::HeaderList rawResponseHeaders(const QNetworkReply& reply) {
+    logging::raw::HeaderList headers;
+    const auto pairs = reply.rawHeaderPairs();
+    headers.reserve(static_cast<std::size_t>(pairs.size()));
+    for (const auto& pair : pairs) {
+        headers.emplace_back(pair.first.toStdString(), pair.second.toStdString());
+    }
+    return headers;
+}
 
 int computePutTransferTimeoutMs(qint64 sizeBytes) {
     if (sizeBytes <= 0) {
@@ -242,6 +263,16 @@ CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
     req.setTransferTimeout(transferTimeoutMs);
 
+    const std::string rawCorrelationId = logging::raw::nextCorrelationId("http");
+    logging::raw::HeaderList putHeaders = rawRequestHeaders(req);
+    putHeaders.emplace_back("Content-Length", std::to_string(uploadSizeBytes));
+    logging::raw::logHttpRequest(
+        rawCorrelationId,
+        "PUT",
+        preSignUrl,
+        putHeaders,
+        "<binary upload omitted: " + std::to_string(uploadSizeBytes) + " bytes>");
+
     QEventLoop loop;
     QNetworkReply* reply = nam.put(req, &uploadFile);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
@@ -252,6 +283,14 @@ CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
     const bool httpOk = (httpStatus >= 200 && httpStatus < 300);
     const bool ok = networkOk && httpOk;
     const std::string replyError = reply->errorString().toStdString();
+    const QByteArray replyBody = reply->readAll();
+    logging::raw::logHttpResponse(
+        rawCorrelationId,
+        httpStatus,
+        reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString().toStdString(),
+        rawResponseHeaders(*reply),
+        replyBody.toStdString(),
+        networkOk ? std::string{} : replyError);
     reply->deleteLater();
 
     if (!ok) {

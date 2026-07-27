@@ -32,6 +32,7 @@ struct CloudFileInfo {
     long long   updateTime   = 0;  // epoch sec (best-effort)
     std::string gcodeId;
     std::string thumbnailUrl;
+    std::vector<std::string> thumbnailCandidates;
     std::string downloadUrl;
     std::string region;
     std::string bucket;

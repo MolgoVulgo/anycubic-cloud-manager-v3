@@ -2,6 +2,7 @@
 
 #include "infra/cloud/api/UploadsApi.h"
 #include "infra/cloud/core/SessionProvider.h"
+#include "infra/cloud/archive/PwszPreviewArchive.h"
 #include "infra/logging/JsonlLogger.h"
 
 #include <algorithm>
@@ -26,6 +27,13 @@ std::string trimAscii(std::string value) {
     return std::string(first, last);
 }
 
+bool isPwszPath(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension == ".pwsz";
+}
+
 } // namespace
 
 bool UploadLocalFileUseCase::hasUsableGcodeId(const std::string& gcodeId) {
@@ -38,6 +46,7 @@ bool UploadLocalFileUseCase::isUploadReady(int uploadStatus, const std::string& 
 }
 
 UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPath,
+                                                      bool completePwszPreview2,
                                                       const ProgressCallback& onProgress) const {
     UploadLocalFileResult out;
     const auto reportProgress = [&](double progress, const std::string& phase) {
@@ -56,26 +65,50 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
     }
 
     std::error_code ec;
-    const std::filesystem::path filePath(localPath);
-    if (!std::filesystem::exists(filePath, ec) || ec || !std::filesystem::is_regular_file(filePath, ec)) {
+    const std::filesystem::path originalFilePath(localPath);
+    if (!std::filesystem::exists(originalFilePath, ec) || ec || !std::filesystem::is_regular_file(originalFilePath, ec)) {
         out.ok = false;
         out.message = "Fichier local introuvable.";
         reportProgress(1.0, "Echec: fichier introuvable");
         return out;
     }
 
-    const auto fileSize = static_cast<std::uint64_t>(std::filesystem::file_size(filePath, ec));
+    std::filesystem::path uploadFilePath = originalFilePath;
+    bool preparedPreview = false;
+    if (completePwszPreview2 && isPwszPath(originalFilePath)) {
+        reportProgress(0.04, "Preparation apercu PWSZ");
+        const auto preparation = accloud::cloud::archive::preparePwszPreview2Copy(originalFilePath);
+        if (!preparation.ok) {
+            out.ok = false;
+            out.message = preparation.message;
+            reportProgress(1.0, "Echec: preparation PWSZ");
+            return out;
+        }
+        preparedPreview = preparation.changed;
+        uploadFilePath = preparation.preparedPath;
+        out.previewAdded = preparedPreview;
+    }
+
+    const auto cleanupPrepared = [&]() {
+        if (preparedPreview) {
+            accloud::cloud::archive::discardPreparedFile(uploadFilePath);
+        }
+    };
+
+    const auto fileSize = static_cast<std::uint64_t>(std::filesystem::file_size(uploadFilePath, ec));
     if (ec || fileSize == 0) {
+        cleanupPrepared();
         out.ok = false;
         out.message = "Taille de fichier invalide.";
         reportProgress(1.0, "Echec: taille invalide");
         return out;
     }
 
-    const std::string fileName = filePath.filename().string();
+    const std::string fileName = originalFilePath.filename().string();
     if (fileName.empty()) {
         out.ok = false;
         out.message = "Nom de fichier invalide.";
+        cleanupPrepared();
         reportProgress(1.0, "Echec: nom invalide");
         return out;
     }
@@ -91,6 +124,7 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
     if (!contextResult.ok) {
         out.ok = false;
         out.message = "Session invalide ou introuvable";
+        cleanupPrepared();
         logging::warn("cloud", "upload_local_file", "session_invalid",
                       "Upload aborted: invalid session");
         reportProgress(1.0, "Echec: session invalide");
@@ -107,6 +141,7 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
     if (!lockResult.ok) {
         out.ok = false;
         out.message = lockResult.message;
+        cleanupPrepared();
         logging::warn("cloud", "upload_local_file", "lock_failed",
                       "Upload aborted: lockStorageSpace failed",
                       {{"file_name", fileName}});
@@ -140,12 +175,13 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
                       "Upload workflow failed",
                       {{"lock_id", lockResult.lockId},
                        {"message", failure.message}});
+        cleanupPrepared();
         reportProgress(1.0, "Echec upload");
         return failure;
     };
 
     reportProgress(0.30, "Upload binaire");
-    const auto putResult = uploadsApi.putPresigned(lockResult.preSignUrl, filePath);
+    const auto putResult = uploadsApi.putPresigned(lockResult.preSignUrl, uploadFilePath);
     if (!putResult.ok) {
         return failWithUnlock("Upload binaire échoué: " + putResult.message);
     }
@@ -168,6 +204,25 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
 
     out.ok = true;
     out.fileId = registerResult.fileId;
+
+    if (preparedPreview) {
+        reportProgress(0.68, "Remplacement du fichier PWSZ local");
+        const auto commit = accloud::cloud::archive::replaceOriginalWithPrepared(originalFilePath, uploadFilePath);
+        if (commit.ok) {
+            out.localFileSynchronized = true;
+            preparedPreview = false;
+            logging::info("cloud", "upload_local_file", "pwsz_preview_committed",
+                          "Prepared PWSZ replaced local source after cloud upload",
+                          {{"file_name", fileName}});
+        } else {
+            out.localFileSynchronized = false;
+            out.recoveryPath = uploadFilePath.string();
+            preparedPreview = false;
+            logging::warn("cloud", "upload_local_file", "pwsz_preview_commit_failed",
+                          "Cloud upload succeeded but local PWSZ replacement failed",
+                          {{"file_name", fileName}, {"recovery_file", uploadFilePath.filename().string()}});
+        }
+    }
 
     reportProgress(0.72, "Finalisation espace cloud");
     const auto unlockResult = finalizeUnlock(false);
@@ -239,6 +294,10 @@ UploadLocalFileResult UploadLocalFileUseCase::execute(const std::string& localPa
 
     if (!out.unlockOk) {
         out.message += " Unlock warning: " + unlockResult.message;
+    }
+    if (!out.localFileSynchronized) {
+        out.message += " Upload cloud réussi, mais remplacement local impossible. Copie conservée: "
+                       + out.recoveryPath;
     }
 
     reportProgress(1.0, uploadReady ? "Upload termine" : "Traitement cloud en cours");

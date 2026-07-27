@@ -1,6 +1,7 @@
 #include "MqttSessionManager.h"
 
 #include "infra/logging/JsonlLogger.h"
+#include "infra/logging/RawTrafficLogger.h"
 #include "infra/mqtt/core/OpenSslCompat.h"
 #include "infra/mqtt/observability/MqttTelemetry.h"
 
@@ -420,6 +421,9 @@ struct MqttSessionManager::Impl {
                           "MQTT message received",
                           {{"topic", topic.name().toStdString()},
                            {"payload_bytes", std::to_string(payload.size())}});
+            logging::raw::logMqttMessage("RX",
+                                         topic.name().toStdString(),
+                                         QString::fromUtf8(payload).toStdString());
             if (callbacks.onMessage) {
                 callbacks.onMessage(topic.name().toStdString(),
                                     QString::fromUtf8(payload).toStdString());

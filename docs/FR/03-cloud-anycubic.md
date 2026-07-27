@@ -54,6 +54,8 @@ L'URL signée complète ne doit jamais être loggée.
 
 Les miniatures utilisent un chemin de cache séparé et non critique. Un `QNetworkAccessManager` local peut appeler `ignoreSslErrors()` uniquement pour ce téléchargement d’image, puis valide le contenu et l’écrit atomiquement. Cette exception ne concerne ni les APIs cloud authentifiées ni les téléchargements de fichiers utilisateur.
 
+Le listing peut fournir plusieurs références de preview. ACM conserve désormais une liste ordonnée et les essaie successivement : `thumbnail` au niveau racine, `img`/`image`, `slice_param.image_id`, `printer_image_id`, puis `slice_param.image0_id`. Les chemins relatifs de `slice_param` ne sont développés que si le bucket et la région sont disponibles. Chaque tentative, échec et source retenue est journalisé avec une URL redacted.
+
 Le bridge n’expose à QML qu’une URL locale `file://` validée, ou une valeur vide. Un échec backend ne retombe jamais sur l’URL HTTP distante. Les fichiers encore signalés `PROCESSING` ne déclenchent pas de téléchargement de miniature. Les requêtes de miniature ont un timeout borné et un cache négatif mémoire court pour les échecs répétés `403`, `404`, timeout ou transitoires.
 
 Le modèle sépare `thumbnailSourceUrl` de l’URL locale `thumbnailUrl`. Les URLs source contenant informations utilisateur, query ou fragment restent uniquement en mémoire pour la requête courante et ne sont pas persistées. Les logs utilisent `logging::safeUrlForLogs()`, qui conserve schéma, host et path mais supprime informations utilisateur, query et fragment.
@@ -69,6 +71,10 @@ lockStorageSpace
 ```
 
 Le déverrouillage est tenté lorsque le workflow l'exige, même après une erreur partielle. Les erreurs de PUT, d'enregistrement et d'unlock restent distinctes. Le polling commence uniquement après l’unlock. Le statut `1` signifie prêt ; le statut `2` signifie traitement cloud. Les valeurs `gcode_id` `null`, vide, `0` numérique ou chaîne `"0"` sont des sentinelles et ne doivent jamais rendre l’upload prêt. Un upload en traitement reste un transfert réussi, mais l’UI le signale comme en attente et programme des rafraîchissements bornés du listing.
+
+Pour les fichiers `.pwsz`, la complétion de l’aperçu est activée par défaut. Avant l’upload, ACM inspecte le répertoire central ZIP. Si `preview_images/preview_2.png` est absent alors que `preview_1.png` existe, l’UI demande confirmation sauf si l’utilisateur a désactivé cette confirmation. La couche infra crée une archive temporaire dans le même dossier et duplique les octets compressés de `preview_1.png` sous le nom `preview_2.png`, sans décoder ni redimensionner le PNG. Le pipeline d’upload normal lit la taille et le contenu de cette archive préparée tout en conservant le nom de fichier original pour la requête cloud.
+
+Le fichier local source n’est remplacé atomiquement par l’archive préparée qu’après l’enregistrement réussi de l’upload cloud. Un échec de préparation, de session, de lock, de PUT ou d’enregistrement supprime l’archive temporaire et laisse l’original intact. Si l’upload cloud réussit mais que le remplacement local échoue, le fichier préparé est conservé comme copie de récupération et l’UI signale une désynchronisation.
 
 ### Commandes imprimante et impression
 

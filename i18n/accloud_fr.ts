@@ -787,6 +787,46 @@
             <source>Compatible printers: %1</source>
             <translation>Imprimantes compatibles : %1</translation>
         </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>PWSZ inspection failed: %1</source>
+            <translation>Échec de l’inspection PWSZ : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>Invalid PWSZ archive.</source>
+            <translation>Archive PWSZ invalide.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>Missing PWSZ cloud preview</source>
+            <translation>Aperçu cloud PWSZ manquant</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>The local file will be modified only after the cloud upload succeeds.</source>
+            <translation>Le fichier local sera modifié uniquement après la réussite de l’envoi cloud.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>%1 does not contain preview_images/preview_2.png. ACM will copy preview_1.png to preview_2.png without changing its bytes, upload that version, then replace the local PWSZ atomically after a successful cloud upload.</source>
+            <translation>%1 ne contient pas preview_images/preview_2.png. ACM copiera preview_1.png vers preview_2.png sans modifier ses octets, enverra cette version, puis remplacera atomiquement le PWSZ local après la réussite de l’envoi cloud.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>If preparation or upload fails, the original local file remains unchanged.</source>
+            <translation>Si la préparation ou l’envoi échoue, le fichier local original reste inchangé.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>Do not ask again for future PWSZ files</source>
+            <translation>Ne plus demander pour les prochains fichiers PWSZ</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <source>Modify and upload</source>
+            <translation>Modifier et envoyer</translation>
+        </message>
     </context>
     <context>
         <name>CloudFilesPaginationBar</name>
@@ -1687,6 +1727,26 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/MainWindow.qml" line="1125" />
             <source>Rebuild with ACCLOUD_DEBUG=ON to enable the runtime log viewer.</source>
             <translation>Recompilez avec ACCLOUD_DEBUG=ON pour activer le visualiseur de logs runtime.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <source>Complete PWSZ previews before upload</source>
+            <translation>Compléter les aperçus PWSZ avant l’envoi</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <source>Automatic PWSZ preview completion enabled.</source>
+            <translation>Complétion automatique des aperçus PWSZ activée.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <source>Automatic PWSZ preview completion disabled.</source>
+            <translation>Complétion automatique des aperçus PWSZ désactivée.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <source>Confirm before modifying PWSZ files</source>
+            <translation>Confirmer avant de modifier les fichiers PWSZ</translation>
         </message>
     </context>
     <context>

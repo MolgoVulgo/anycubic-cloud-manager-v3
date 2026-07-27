@@ -18,6 +18,7 @@ Item {
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
     signal printIntentRequested(string fileId, string fileName)
+    signal pwszUploadSettingsChanged()
 
     // UI state
     property bool loading: false
@@ -32,6 +33,8 @@ Item {
     readonly property int visibleFilesCount: cloudFilesModel.visibleCount
     readonly property int pageTotal: cloudFilesModel.totalPages
     readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
+    readonly property string pwszPreviewCompletionSettingsKey: "cloud.upload.completePwszPreview2"
+    readonly property string pwszPreviewConfirmationSettingsKey: "cloud.upload.confirmPwszPreview2"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
@@ -100,6 +103,23 @@ Item {
                 && uiSettingsBridge !== null
                 && typeof uiSettingsBridge.getString === "function"
                 && typeof uiSettingsBridge.setString === "function"
+    }
+
+
+    function booleanSetting(key, defaultValue) {
+        if (!hasUiSettingsBridge())
+            return defaultValue === true
+        var fallback = defaultValue === true ? "true" : "false"
+        return String(uiSettingsBridge.getString(key, fallback)).toLowerCase() !== "false"
+    }
+
+    function persistBooleanSetting(key, value) {
+        if (!hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(key, value === true ? "true" : "false")
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+        root.pwszUploadSettingsChanged()
     }
 
     function sanitizedBackendMessage(rawMessage) {
@@ -537,6 +557,48 @@ Item {
                 || (normalizedGcodeId.length > 0 && normalizedGcodeId !== "0")
     }
 
+    function beginUpload(selectedInput, completePwszPreview2) {
+        var fileName = uploadInputToDisplayName(selectedInput)
+        if (typeof cloudBridge.startUploadLocalFile === "function") {
+            uploadOverlay.fileName = fileName
+            uploadOverlay.phase = qsTr("Starting upload...")
+            uploadOverlay.progress = 0
+            uploadOverlay.visible = true
+            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
+            root.statusSev = "info"
+            cloudBridge.startUploadLocalFile(selectedInput, completePwszPreview2 === true)
+            return
+        }
+
+        if (typeof cloudBridge.uploadLocalFile === "function") {
+            root.loading = true
+            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
+            root.statusSev = "info"
+            var r = cloudBridge.uploadLocalFile(selectedInput, completePwszPreview2 === true)
+            root.loading = false
+
+            if (r.ok === true) {
+                var backendMessage = sanitizedBackendMessage(r.message)
+                var ready = uploadIsReady(r.uploadStatus, r.gcodeId)
+                root.statusMsg = backendMessage.length > 0
+                        ? backendMessage
+                        : (ready ? qsTr("Uploaded: %1").arg(fileName)
+                                 : qsTr("Upload transferred. Cloud processing in progress."))
+                root.statusSev = (!ready || r.unlockOk === false || r.localFileSynchronized === false)
+                        ? "warn" : "success"
+                loadFiles()
+            } else {
+                root.statusMsg = qsTr("Upload failed: %1")
+                        .arg(backendStatusDetail(r.message, qsTr("Transfer failed.")))
+                root.statusSev = "error"
+            }
+            return
+        }
+
+        root.statusMsg = qsTr("Upload unavailable without backend.")
+        root.statusSev = "warn"
+    }
+
     function uploadSelectedLocalFile(fileUrl) {
         var selectedInput = String(fileUrl || "").trim()
         if (selectedInput.length === 0) {
@@ -559,43 +621,33 @@ Item {
             return
         }
 
-        if (typeof cloudBridge.startUploadLocalFile === "function") {
-            uploadOverlay.fileName = fileName
-            uploadOverlay.phase = qsTr("Starting upload...")
-            uploadOverlay.progress = 0
-            uploadOverlay.visible = true
-            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
-            root.statusSev = "info"
-            cloudBridge.startUploadLocalFile(selectedInput)
+        var completionEnabled = booleanSetting(pwszPreviewCompletionSettingsKey, true)
+        if (fileExtension(fileName) !== "pwsz" || completionEnabled !== true
+                || typeof cloudBridge.inspectPwszPreview !== "function") {
+            beginUpload(selectedInput, false)
             return
         }
 
-        if (typeof cloudBridge.uploadLocalFile === "function") {
-            root.loading = true
-            root.statusMsg = qsTr("Uploading %1...").arg(fileName)
-            root.statusSev = "info"
-            var r = cloudBridge.uploadLocalFile(selectedInput)
-            root.loading = false
-
-            if (r.ok === true) {
-                var backendMessage = sanitizedBackendMessage(r.message)
-                var ready = uploadIsReady(r.uploadStatus, r.gcodeId)
-                root.statusMsg = backendMessage.length > 0
-                        ? backendMessage
-                        : (ready ? qsTr("Uploaded: %1").arg(fileName)
-                                 : qsTr("Upload transferred. Cloud processing in progress."))
-                root.statusSev = (!ready || r.unlockOk === false) ? "warn" : "success"
-                loadFiles()
-            } else {
-                root.statusMsg = qsTr("Upload failed: %1")
-                        .arg(backendStatusDetail(r.message, qsTr("Transfer failed.")))
-                root.statusSev = "error"
-            }
+        var inspection = cloudBridge.inspectPwszPreview(selectedInput)
+        if (inspection.ok !== true) {
+            root.statusMsg = qsTr("PWSZ inspection failed: %1")
+                    .arg(backendStatusDetail(inspection.message, qsTr("Invalid PWSZ archive.")))
+            root.statusSev = "error"
+            return
+        }
+        if (inspection.needsCompletion !== true) {
+            beginUpload(selectedInput, false)
             return
         }
 
-        root.statusMsg = qsTr("Upload unavailable without backend.")
-        root.statusSev = "warn"
+        if (booleanSetting(pwszPreviewConfirmationSettingsKey, true)) {
+            pwszPreviewConfirmDialog.pendingPath = selectedInput
+            pwszPreviewConfirmDialog.pendingName = fileName
+            pwszPreviewConfirmDialog.doNotAskAgain = false
+            pwszPreviewConfirmDialog.open()
+            return
+        }
+        beginUpload(selectedInput, true)
     }
 
     function loadMockFiles() {
@@ -772,7 +824,7 @@ Item {
                 root.statusSev = "success"
             } else {
                 root.statusMsg = qsTr("Download error: %1")
-                        .arg(backendStatusDetail(message, qsTr("Download failed.")))
+                        .arg(root.backendStatusDetail(message, qsTr("Download failed.")))
                 root.statusSev = "error"
             }
         }
@@ -793,20 +845,23 @@ Item {
                 uploadOverlay.visible = true
         }
 
-        function onUploadFinished(ok, message, fileId, gcodeId, uploadStatus, unlockOk) {
+        function onUploadFinished(ok, message, fileId, gcodeId, uploadStatus, unlockOk, localFileSynchronized) {
             uploadOverlay.visible = false
-            var backendMessage = sanitizedBackendMessage(message)
+            var backendMessage = root.sanitizedBackendMessage(message)
             if (ok) {
-                var ready = uploadIsReady(uploadStatus, gcodeId)
-                root.statusMsg = backendMessage.length > 0
+                var ready = root.uploadIsReady(uploadStatus, gcodeId)
+                var uploadStatusMessage = backendMessage.length > 0
                         ? backendMessage
                         : (ready ? qsTr("Upload completed.")
                                  : qsTr("Upload transferred. Cloud processing in progress."))
-                root.statusSev = (!ready || unlockOk === false) ? "warn" : "success"
+                var uploadStatusSeverity = (!ready || unlockOk === false || localFileSynchronized === false)
+                        ? "warn" : "success"
                 root.loadFiles()
+                root.statusMsg = uploadStatusMessage
+                root.statusSev = uploadStatusSeverity
             } else {
                 root.statusMsg = qsTr("Upload failed: %1")
-                        .arg(backendStatusDetail(message, qsTr("Transfer failed.")))
+                        .arg(root.backendStatusDetail(message, qsTr("Transfer failed.")))
                 root.statusSev = "error"
             }
         }
@@ -822,7 +877,7 @@ Item {
         function onFilesUpdatedFromCloud(files, message) {
             var list = files !== undefined ? files : []
             cloudFilesModel.replaceFiles(list)
-            refreshTypeFilterOptions()
+            root.refreshTypeFilterOptions()
             root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
         }
@@ -837,9 +892,68 @@ Item {
                 return
             root.statusMsg = qsTr("Background sync failed (%1): %2")
                     .arg(String(scope))
-                    .arg(backendStatusDetail(message, qsTr("Retry later.")))
+                    .arg(root.backendStatusDetail(message, qsTr("Retry later.")))
             root.statusSev = "warn"
         }
+    }
+
+
+    AppDialogFrame {
+        id: pwszPreviewConfirmDialog
+        property string pendingPath: ""
+        property string pendingName: ""
+        property bool doNotAskAgain: false
+        title: qsTr("Missing PWSZ cloud preview")
+        subtitle: qsTr("The local file will be modified only after the cloud upload succeeds.")
+        allowScrimClose: false
+        minimumWidth: 620
+        maximumWidth: 720
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("%1 does not contain preview_images/preview_2.png. ACM will copy preview_1.png to preview_2.png without changing its bytes, upload that version, then replace the local PWSZ atomically after a successful cloud upload.").arg(pwszPreviewConfirmDialog.pendingName)
+                color: Theme.fgPrimary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontBodyPx
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("If preparation or upload fails, the original local file remains unchanged.")
+                color: Theme.fgSecondary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+
+            AppCheckBox {
+                text: qsTr("Do not ask again for future PWSZ files")
+                checked: pwszPreviewConfirmDialog.doNotAskAgain
+                onToggled: pwszPreviewConfirmDialog.doNotAskAgain = checked
+            }
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Cancel")
+                variant: "secondary"
+                onClicked: pwszPreviewConfirmDialog.close()
+            },
+            AppButton {
+                text: qsTr("Modify and upload")
+                variant: "primary"
+                onClicked: {
+                    var path = pwszPreviewConfirmDialog.pendingPath
+                    if (pwszPreviewConfirmDialog.doNotAskAgain)
+                        root.persistBooleanSetting(root.pwszPreviewConfirmationSettingsKey, false)
+                    pwszPreviewConfirmDialog.close()
+                    root.beginUpload(path, true)
+                }
+            }
+        ]
     }
 
     AppDialogFrame {
