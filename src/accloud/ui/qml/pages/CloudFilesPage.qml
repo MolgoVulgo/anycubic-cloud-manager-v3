@@ -36,6 +36,19 @@ Item {
     readonly property string pwszPreviewCompletionSettingsKey: "cloud.upload.completePwszPreview2"
     readonly property string pwszPreviewConfirmationSettingsKey: "cloud.upload.confirmPwszPreview2"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+    property var pwszCloudUpdateCandidates: []
+    property real pwszCloudUpdateBytes: 0
+    property bool pwszCloudUpdateRunning: false
+    property int pwszCloudUpdateCurrent: 0
+    property int pwszCloudUpdateTotal: 0
+    property string pwszCloudUpdateFileName: ""
+    property string pwszCloudUpdatePhase: ""
+    property var pwszCloudUpdateSummary: ({})
+    property bool pwszCloudUpdateProposalPending: false
+    property bool pwszCloudUpdateProposalOpened: false
+    readonly property bool pwszCloudUpdateProposalVisible: pwszCloudUpdateProposalPending
+                                                           || pwszCloudUpdateConfirmDialog.visible
+    readonly property bool pwszCloudUpdateResultVisible: pwszCloudUpdateResultDialog.visible
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
         "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
@@ -758,7 +771,7 @@ Item {
             Qt.callLater(function() {
                 if (hasCloudBridge()
                         && typeof cloudBridge.refreshFilesAsync === "function") {
-                    cloudBridge.refreshFilesAsync(1, 20, true)
+                    cloudBridge.refreshFilesAsync(1, 20, false)
                 }
             })
         }
@@ -804,6 +817,8 @@ Item {
     }
 
     Connections {
+        id: cloudBridgeConnections
+        property Item owner: root
         target: (typeof cloudBridge !== "undefined"
                  && cloudBridge !== null) ? cloudBridge : null
         ignoreUnknownSignals: true
@@ -847,22 +862,25 @@ Item {
 
         function onUploadFinished(ok, message, fileId, gcodeId, uploadStatus, unlockOk, localFileSynchronized) {
             uploadOverlay.visible = false
-            var backendMessage = root.sanitizedBackendMessage(message)
+            var pageRoot = cloudBridgeConnections.owner
+            if (pageRoot === null)
+                return
+            var backendMessage = pageRoot.sanitizedBackendMessage(message)
             if (ok) {
-                var ready = root.uploadIsReady(uploadStatus, gcodeId)
+                var ready = pageRoot.uploadIsReady(uploadStatus, gcodeId)
                 var uploadStatusMessage = backendMessage.length > 0
                         ? backendMessage
                         : (ready ? qsTr("Upload completed.")
                                  : qsTr("Upload transferred. Cloud processing in progress."))
                 var uploadStatusSeverity = (!ready || unlockOk === false || localFileSynchronized === false)
                         ? "warn" : "success"
-                root.loadFiles()
-                root.statusMsg = uploadStatusMessage
-                root.statusSev = uploadStatusSeverity
+                pageRoot.loadFiles()
+                pageRoot.statusMsg = uploadStatusMessage
+                pageRoot.statusSev = uploadStatusSeverity
             } else {
-                root.statusMsg = qsTr("Upload failed: %1")
-                        .arg(root.backendStatusDetail(message, qsTr("Transfer failed.")))
-                root.statusSev = "error"
+                pageRoot.statusMsg = qsTr("Upload failed: %1")
+                        .arg(pageRoot.backendStatusDetail(message, qsTr("Transfer failed.")))
+                pageRoot.statusSev = "error"
             }
         }
 
@@ -880,6 +898,32 @@ Item {
             root.refreshTypeFilterOptions()
             root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
             root.statusSev = "success"
+        }
+
+        function onPwszCloudPreviewUpdateSuggested(files, totalBytes) {
+            if (root.pwszCloudUpdateRunning)
+                return
+            root.pwszCloudUpdateCandidates = files !== undefined ? files : []
+            root.pwszCloudUpdateBytes = Number(totalBytes || 0)
+            root.pwszCloudUpdateProposalPending = root.pwszCloudUpdateCandidates.length > 0
+            if (root.pwszCloudUpdateProposalPending)
+                pwszCloudUpdateConfirmDialog.open()
+        }
+
+        function onPwszCloudPreviewUpdateProgress(current, total, fileName, phase) {
+            root.pwszCloudUpdateRunning = true
+            root.pwszCloudUpdateCurrent = Number(current || 0)
+            root.pwszCloudUpdateTotal = Number(total || 0)
+            root.pwszCloudUpdateFileName = String(fileName || "")
+            root.pwszCloudUpdatePhase = String(phase || "")
+            pwszCloudUpdateProgressDialog.open()
+        }
+
+        function onPwszCloudPreviewUpdateFinished(summary) {
+            root.pwszCloudUpdateRunning = false
+            root.pwszCloudUpdateSummary = summary !== undefined ? summary : ({})
+            pwszCloudUpdateProgressDialog.close()
+            pwszCloudUpdateResultDialog.open()
         }
 
         function onQuotaUpdatedFromCloud(quota, message) {
@@ -952,6 +996,153 @@ Item {
                     pwszPreviewConfirmDialog.close()
                     root.beginUpload(path, true)
                 }
+            }
+        ]
+    }
+
+    AppDialogFrame {
+        id: pwszCloudUpdateConfirmDialog
+        title: qsTr("Missing PWSZ thumbnails")
+        onOpened: {
+            root.pwszCloudUpdateProposalOpened = true
+            root.pwszCloudUpdateProposalPending = false
+        }
+        onClosed: {
+            if (root.pwszCloudUpdateProposalOpened)
+                root.pwszCloudUpdateProposalPending = false
+            root.pwszCloudUpdateProposalOpened = false
+        }
+        subtitle: qsTr("Update the affected cloud files")
+        allowScrimClose: false
+        minimumWidth: 650
+        maximumWidth: 780
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.")
+                        .arg(String(root.pwszCloudUpdateCandidates.length))
+                color: Theme.fgPrimary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontBodyPx
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.")
+                        .arg(root.formatBytes(root.pwszCloudUpdateBytes))
+                color: Theme.fgSecondary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.")
+                color: Theme.warning
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Cancel")
+                variant: "secondary"
+                onClicked: {
+                    root.pwszCloudUpdateProposalPending = false
+                    pwszCloudUpdateConfirmDialog.close()
+                }
+            },
+            AppButton {
+                text: qsTr("Update %1 file(s)").arg(String(root.pwszCloudUpdateCandidates.length))
+                variant: "primary"
+                onClicked: {
+                    var files = root.pwszCloudUpdateCandidates
+                    root.pwszCloudUpdateProposalPending = false
+                    pwszCloudUpdateConfirmDialog.close()
+                    root.pwszCloudUpdateRunning = true
+                    root.pwszCloudUpdateCurrent = 0
+                    root.pwszCloudUpdateTotal = files.length
+                    root.pwszCloudUpdatePhase = qsTr("Starting modification")
+                    pwszCloudUpdateProgressDialog.open()
+                    if (root.hasCloudBridge()
+                            && typeof cloudBridge.startPwszCloudPreviewUpdate === "function") {
+                        cloudBridge.startPwszCloudPreviewUpdate(files)
+                    }
+                }
+            }
+        ]
+    }
+
+    AppDialogFrame {
+        id: pwszCloudUpdateProgressDialog
+        title: qsTr("Modification in progress")
+        subtitle: root.pwszCloudUpdateTotal > 0
+                  ? qsTr("File %1 of %2").arg(String(root.pwszCloudUpdateCurrent)).arg(String(root.pwszCloudUpdateTotal))
+                  : qsTr("Preparing files")
+        allowScrimClose: false
+        minimumWidth: 560
+        maximumWidth: 680
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: root.pwszCloudUpdateRunning
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.pwszCloudUpdateFileName
+                color: Theme.fgPrimary
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideMiddle
+                font.pixelSize: Theme.fontBodyPx
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.pwszCloudUpdatePhase
+                color: Theme.fgSecondary
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+        }
+    }
+
+    AppDialogFrame {
+        id: pwszCloudUpdateResultDialog
+        title: qsTr("Update completed")
+        subtitle: qsTr("PWSZ cloud modification summary")
+        allowScrimClose: true
+        minimumWidth: 560
+        maximumWidth: 680
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Files modified: %1\nAlready compliant: %2\nFailures: %3\nPartial modifications: %4")
+                        .arg(String(root.pwszCloudUpdateSummary.modified || 0))
+                        .arg(String(root.pwszCloudUpdateSummary.skipped || 0))
+                        .arg(String(root.pwszCloudUpdateSummary.failed || 0))
+                        .arg(String(root.pwszCloudUpdateSummary.partial || 0))
+                color: Theme.fgPrimary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontBodyPx
+            }
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Close")
+                variant: "primary"
+                onClicked: pwszCloudUpdateResultDialog.close()
             }
         ]
     }

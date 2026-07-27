@@ -45,6 +45,7 @@ public:
     Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath, bool completePwszPreview2 = false) const;
     // Upload asynchrone pour UI avec progression.
     Q_INVOKABLE void startUploadLocalFile(const QString& localPath, bool completePwszPreview2 = false);
+    Q_INVOKABLE void startPwszCloudPreviewUpdate(const QVariantList& files);
 
     // Retourne { ok, message, printers:[...] }
     // Champs debug (uniquement si ACCLOUD_DEBUG=ON): endpoint, rawJson
@@ -136,6 +137,9 @@ Q_SIGNALS:
                               int orderId,
                               const QVariantMap& result);
     void filesUpdatedFromCloud(const QVariantList& files, const QString& message);
+    void pwszCloudPreviewUpdateSuggested(const QVariantList& files, qulonglong totalBytes);
+    void pwszCloudPreviewUpdateProgress(int current, int total, const QString& fileName, const QString& phase);
+    void pwszCloudPreviewUpdateFinished(const QVariantMap& summary);
     void printersUpdatedFromCache(const QVariantList& printers, const QString& message);
     void printersUpdatedFromCloud(const QVariantList& printers, const QString& message);
     void reasonCatalogUpdatedFromCloud(const QVariantList& reasons, const QString& message);
@@ -151,7 +155,7 @@ Q_SIGNALS:
 
 private:
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
-    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const;
+    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void cleanupDownload();
@@ -165,6 +169,7 @@ private:
     QString                m_dlPath;
     LocalCacheStore*       m_cache{nullptr};
     mutable std::atomic_bool m_refreshFilesRunning{false};
+    mutable std::atomic_bool m_pwszCloudUpdateRunning{false};
     mutable std::atomic_bool m_refreshPrintersRunning{false};
     mutable std::atomic_bool m_refreshReasonCatalogRunning{false};
     std::atomic_bool m_shuttingDown{false};

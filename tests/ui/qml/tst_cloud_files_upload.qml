@@ -37,6 +37,9 @@ TestCase {
                                          'signal filesUpdatedFromCloud(var files, string message);' +
                                          'signal quotaUpdatedFromCloud(var quota, string message);' +
                                          'signal syncFailed(string scope, string message);' +
+                                         'signal pwszCloudPreviewUpdateSuggested(var files, real totalBytes);' +
+                                         'signal pwszCloudPreviewUpdateProgress(int current, int total, string fileName, string phase);' +
+                                         'signal pwszCloudPreviewUpdateFinished(var summary);' +
                                          'function fetchFiles(page, limit) { return { ok: true, files: [] } }' +
                                          'function fetchQuota() { return { ok: true, totalBytes: 0, usedBytes: 0 } }' +
                                          'function loadCachedFiles(page, limit) { return { ok: true, files: [] } }' +
@@ -44,8 +47,10 @@ TestCase {
                                          'function refreshFilesAsync(page, limit, force) { refreshCalls += 1 }' +
                                          'function inspectPwszPreview(localPath) { inspectCalls += 1; return { ok: true, isPwsz: true, hasPreview1: true, hasPreview2: !inspectNeedsCompletion, needsCompletion: inspectNeedsCompletion } }' +
                                          'function startUploadLocalFile(localPath, completePreview) { uploadCalls += 1; lastUploadArg = localPath; lastCompletePreview = completePreview }' +
+                                         'function startPwszCloudPreviewUpdate(files) { cloudUpdateCalls += 1; lastCloudUpdateCount = files.length }' +
                                          'property int refreshCalls: 0;' +
                                          'property int uploadCalls: 0; property int inspectCalls: 0; property bool inspectNeedsCompletion: true;' +
+                                         'property int cloudUpdateCalls: 0; property int lastCloudUpdateCount: 0;' +
                                          'property string lastUploadArg: ""; property bool lastCompletePreview: false;' +
                                          '}', this, "cloudFilesUploadBridgeMock")
     }
@@ -212,4 +217,20 @@ TestCase {
 
         page.destroy()
     }
+    function test_invalid_cloud_thumbnails_offer_batch_update() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        cloudBridge.pwszCloudPreviewUpdateSuggested([
+            {"fileId": "1", "fileName": "a.pwsz", "sizeBytes": 1024},
+            {"fileId": "2", "fileName": "b.pwsz", "sizeBytes": 2048}
+        ], 3072)
+        wait(0)
+
+        compare(page.pwszCloudUpdateCandidates.length, 2)
+        compare(Number(page.pwszCloudUpdateBytes), 3072)
+        verify(page.pwszCloudUpdateProposalVisible)
+        page.destroy()
+    }
+
 }

@@ -16,7 +16,9 @@
 #include "app/usecases/cloud/SendPrinterOrderUseCase.h"
 #include "app/usecases/cloud/SendPrintOrderUseCase.h"
 #include "app/usecases/cloud/UploadLocalFileUseCase.h"
+#include "app/usecases/cloud/UpdateCloudPwszPreviewsUseCase.h"
 #include "infra/cloud/archive/PwszPreviewArchive.h"
+#include "infra/cloud/thumbnail/ThumbnailValidation.h"
 #include "infra/cloud/HarImporter.h"
 #include "infra/config/AppPaths.h"
 #include "infra/debug/DebugBuild.h"
@@ -53,6 +55,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <utility>
 
 namespace accloud {
 namespace {
@@ -269,6 +272,7 @@ QVariantMap fileInfoToMap(const cloud::CloudFileInfo& f) {
     m.insert("printers",      QString::fromStdString(f.printers));
     m.insert("material",      QString::fromStdString(f.material));
     m.insert("createTime",    formatUploadTime(f.createTime));
+    m.insert("createTimeEpoch", static_cast<qlonglong>(f.createTime));
     m.insert("updateTime",    formatUploadTime(f.updateTime));
     m.insert("uploadTime",    formatUploadTime(f.updateTime));
     m.insert("printTime",     QString::fromStdString(f.printTime));
@@ -406,12 +410,12 @@ QString detectImageExtension(const QByteArray& bytes, const QString& fallbackUrl
     return QStringLiteral(".jpg");
 }
 
-QByteArray readHead(const QString& path, qint64 maxBytes = 32) {
+QByteArray readFileBytes(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         return {};
     }
-    return f.read(maxBytes);
+    return f.readAll();
 }
 
 QString findReadableCachedImage(const QString& cacheBasePath) {
@@ -424,10 +428,19 @@ QString findReadableCachedImage(const QString& cacheBasePath) {
     for (const QString& ext : exts) {
         const QString path = cacheBasePath + ext;
         const QFileInfo info(path);
-        if (!info.exists() || !info.isFile() || info.size() <= 0) {
+        if (!info.exists() || !info.isFile()) {
             continue;
         }
-        const QByteArray head = readHead(path);
+        if (info.size() < static_cast<qint64>(cloud::thumbnail::kMinimumValidThumbnailBytes)) {
+            QFile::remove(path);
+            continue;
+        }
+        const QByteArray cachedBytes = readFileBytes(path);
+        if (!cloud::thumbnail::validateThumbnailBytes(cachedBytes).valid) {
+            QFile::remove(path);
+            continue;
+        }
+        const QByteArray head = cachedBytes.left(32);
         const QString detectedExt = detectImageExtension(head, path);
         if (!detectedExt.isEmpty() && detectedExt != ext) {
             const QString migratedPath = cacheBasePath + detectedExt;
@@ -453,6 +466,7 @@ struct ThumbnailFetchResult {
     int networkErrorCode{0};
     QString failureCategory;
     bool retryable{false};
+    bool tooSmall{false};
 };
 
 QMutex g_thumbnailFailureMutex;
@@ -553,6 +567,15 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
         return result;
     }
 
+    const auto validation = cloud::thumbnail::validateThumbnailBytes(bytes);
+    if (!validation.valid) {
+        result.tooSmall = validation.tooSmall;
+        result.failureCategory = validation.tooSmall
+                                     ? QStringLiteral("placeholder_too_small")
+                                     : QStringLiteral("invalid_image");
+        return result;
+    }
+
     const QString ext = detectImageExtension(bytes, normalizedUrl);
     const QString finalPath = cacheBasePath + ext;
     QSaveFile file(finalPath);
@@ -575,7 +598,26 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
     return result;
 }
 
-QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
+struct ThumbnailResolveResult {
+    QString localUrl;
+    bool tooSmall{false};
+    QString failureCategory;
+};
+
+void removeCachedThumbnailFiles(const QString& cacheBasePath) {
+    static const QStringList exts = {
+        QStringLiteral(".png"), QStringLiteral(".jpg"),
+        QStringLiteral(".jpeg"), QStringLiteral(".webp")
+    };
+    for (const QString& ext : exts) {
+        QFile::remove(cacheBasePath + ext);
+    }
+}
+
+ThumbnailResolveResult resolveThumbnailLocalUrl(const QString& source,
+                                                bool downloadMissing,
+                                                bool forceDownload = false) {
+    ThumbnailResolveResult out;
     const QString normalized = normalizedThumbnailUrl(source);
     if (normalized.isEmpty()) {
         if (!source.trimmed().isEmpty()) {
@@ -583,54 +625,53 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
                           "Unsupported thumbnail source",
                           {{"source", safeThumbnailUrlForLogs(source).toStdString()}});
         }
-        return {};
+        out.failureCategory = QStringLiteral("unsupported_source");
+        return out;
     }
 
     const QUrl normalizedUrl(normalized);
     if (normalizedUrl.isLocalFile()) {
         const QString localPath = normalizedUrl.toLocalFile();
-        QImageReader reader(localPath);
-        if (reader.canRead()) {
-            logging::info("app", "thumbnail_cache", "cache_hit",
-                          "Thumbnail served from local source",
-                          {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
-                           {"path", localPath.toStdString()},
-                           {"mode", "local_source"}});
-            return normalized;
+        const auto validation = cloud::thumbnail::validateThumbnailBytes(readFileBytes(localPath));
+        if (validation.valid) {
+            out.localUrl = normalized;
+            return out;
         }
-        logging::warn("app", "thumbnail_cache", "local_source_unreadable",
-                      "Local thumbnail source is not readable",
-                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
-                       {"path", localPath.toStdString()},
-                       {"error", reader.errorString().toStdString()}});
-        return {};
+        out.tooSmall = validation.tooSmall;
+        out.failureCategory = validation.tooSmall
+                                  ? QStringLiteral("placeholder_too_small")
+                                  : QStringLiteral("local_source_unreadable");
+        return out;
     }
 
     const QString cacheBasePath = cacheBasePathForThumbnailUrl(normalized);
     if (cacheBasePath.isEmpty()) {
-        return {};
+        out.failureCategory = QStringLiteral("cache_path_unavailable");
+        return out;
     }
-    const QString cachedPath = findReadableCachedImage(cacheBasePath);
-    if (!cachedPath.isEmpty()) {
+    if (forceDownload) {
+        removeCachedThumbnailFiles(cacheBasePath);
         clearThumbnailFailure(normalized);
-        logging::info("app", "thumbnail_cache", "cache_hit",
-                      "Thumbnail served from local cache",
-                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
-                       {"path", cachedPath.toStdString()}});
-        return QUrl::fromLocalFile(cachedPath).toString();
+    } else {
+        const QString cachedPath = findReadableCachedImage(cacheBasePath);
+        if (!cachedPath.isEmpty()) {
+            clearThumbnailFailure(normalized);
+            out.localUrl = QUrl::fromLocalFile(cachedPath).toString();
+            logging::info("app", "thumbnail_cache", "cache_hit",
+                          "Thumbnail served from local cache",
+                          {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
+                           {"path", cachedPath.toStdString()}});
+            return out;
+        }
     }
-    logging::info("app", "thumbnail_cache", "cache_miss",
-                  "Thumbnail not found in local cache",
-                  {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
-                   {"path", cacheBasePath.toStdString()}});
+
     if (!downloadMissing) {
-        return {};
+        out.failureCategory = QStringLiteral("cache_miss");
+        return out;
     }
-    if (thumbnailRetryIsDeferred(normalized)) {
-        logging::info("app", "thumbnail_cache", "negative_cache_hit",
-                      "Thumbnail retry deferred after a recent failure",
-                      {{"url", safeThumbnailUrlForLogs(normalized).toStdString()}});
-        return {};
+    if (!forceDownload && thumbnailRetryIsDeferred(normalized)) {
+        out.failureCategory = QStringLiteral("retry_deferred");
+        return out;
     }
 
     const ThumbnailFetchResult fetch = fetchThumbnailToCache(normalized, cacheBasePath);
@@ -639,6 +680,8 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
                                       ? kThumbnailTransientRetryDelaySec
                                       : kThumbnailPermanentRetryDelaySec;
         rememberThumbnailFailure(normalized, retryDelay);
+        out.tooSmall = fetch.tooSmall;
+        out.failureCategory = fetch.failureCategory;
         logging::warn("app", "thumbnail_cache", "download_failed",
                       "Thumbnail download failed",
                       {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
@@ -646,14 +689,15 @@ QString resolveThumbnailLocalUrl(const QString& source, bool downloadMissing) {
                        {"category", fetch.failureCategory.toStdString()},
                        {"retryable", fetch.retryable ? "1" : "0"},
                        {"network_error", std::to_string(fetch.networkErrorCode)}});
-        return {};
+        return out;
     }
     clearThumbnailFailure(normalized);
+    out.localUrl = fetch.localUrl;
     logging::info("app", "thumbnail_cache", "download_ok",
                   "Thumbnail downloaded and cached",
                   {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                    {"path", QUrl(fetch.localUrl).toLocalFile().toStdString()}});
-    return fetch.localUrl;
+    return out;
 }
 
 QString normalizeFileNameForMatch(const QString& value) {
@@ -682,7 +726,7 @@ bool localImageIsVisuallyUsable(const QString& sourceUrl) {
     if (!info.exists() || !info.isFile() || info.size() <= 0) {
         return false;
     }
-    if (info.size() <= 128) {
+    if (info.size() < static_cast<qint64>(cloud::thumbnail::kMinimumValidThumbnailBytes)) {
         return false;
     }
 
@@ -746,19 +790,19 @@ QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
         const bool exactNameMatch = (!targetName.isEmpty() && fileKey == targetName)
                                  || (!altName.isEmpty() && fileKey == altName);
         if (exactNameMatch) {
-            return resolveThumbnailLocalUrl(thumb, true);
+            return resolveThumbnailLocalUrl(thumb, true).localUrl;
         }
 
         const bool stemMatch = (!targetStem.isEmpty() && fileStem == targetStem)
                             || (!altStem.isEmpty() && fileStem == altStem);
         if (stemMatch && stemMatchCandidate.isEmpty()) {
-            stemMatchCandidate = resolveThumbnailLocalUrl(thumb, true);
+            stemMatchCandidate = resolveThumbnailLocalUrl(thumb, true).localUrl;
         }
     }
     return stemMatchCandidate;
 }
 
-void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
+void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing, bool forceDownload = false) {
     QStringList candidates = map.value(QStringLiteral("thumbnailCandidates")).toStringList();
     const QString persistedSource = map.value(QStringLiteral("thumbnailSourceUrl")).toString().trimmed();
     const QString displayedSource = map.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
@@ -783,6 +827,7 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
 
     QString resolved;
     QString resolvedSource;
+    bool sawTooSmallCandidate = false;
     for (qsizetype index = 0; index < candidates.size(); ++index) {
         const QString source = candidates.at(index).trimmed();
         if (source.isEmpty()) continue;
@@ -794,7 +839,10 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
                        {"candidate_count", std::to_string(candidates.size())},
                        {"url", safeThumbnailUrlForLogs(source).toStdString()}});
 
-        resolved = resolveThumbnailLocalUrl(source, downloadMissing);
+        const ThumbnailResolveResult candidateResult =
+            resolveThumbnailLocalUrl(source, downloadMissing, forceDownload);
+        resolved = candidateResult.localUrl;
+        sawTooSmallCandidate = sawTooSmallCandidate || candidateResult.tooSmall;
         if (!resolved.isEmpty()) {
             resolvedSource = source;
             logging::info("app", "thumbnail_cache", "candidate_selected",
@@ -823,6 +871,12 @@ void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing) {
     map.insert(QStringLiteral("thumbnailUrl"), resolved);
     map.insert(QStringLiteral("thumbnailState"),
                resolved.isEmpty() ? QStringLiteral("unavailable") : QStringLiteral("ready"));
+    const bool pwszFile = fileExtension(map.value(QStringLiteral("fileName")).toString())
+                              == QStringLiteral("pwsz");
+    const bool updateCandidate = resolved.isEmpty() && sawTooSmallCandidate && pwszFile;
+    map.insert(QStringLiteral("thumbnailUpdateCandidate"), updateCandidate);
+    map.insert(QStringLiteral("thumbnailInvalidReason"),
+               updateCandidate ? QStringLiteral("placeholder_too_small") : QString{});
     if (!resolved.isEmpty()) {
         const QString localPath = QUrl(resolved).toLocalFile();
         if (!localPath.isEmpty()) {
@@ -1121,7 +1175,7 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
     const QString rawImg = QString::fromStdString(item.img);
-    const QString resolvedImg = resolveThumbnailLocalUrl(rawImg, true);
+    const QString resolvedImg = resolveThumbnailLocalUrl(rawImg, true).localUrl;
     m.insert("img", resolvedImg);
     m.insert("imgRaw", rawImg);
     return m;
@@ -1252,7 +1306,7 @@ bool CloudBridge::shouldRefresh(const QString& scope, int ttlSec, bool force) co
     return (now - state->lastSuccessAt) >= ttlSec;
 }
 
-QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails) const {
+QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails) const {
     ok = false;
     QVariantList files;
     const usecases::cloud::LoadCloudFilesUseCase useCase;
@@ -1266,7 +1320,7 @@ QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& mess
     files.reserve(static_cast<qsizetype>(result.files.size()));
     for (const auto& f : result.files) {
         QVariantMap item = fileInfoToMap(f);
-        resolveThumbnailInMap(item, downloadThumbnails);
+        resolveThumbnailInMap(item, downloadThumbnails, forceThumbnails);
         files.append(item);
     }
     return files;
@@ -1561,15 +1615,33 @@ void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
             return;
         }
 
-        const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, true);
+        const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, true, force);
         if (m_cache != nullptr) {
             m_cache->updateSyncState(QStringLiteral("files"), ok, message);
         }
 
         if (ok && m_cache != nullptr) {
             m_cache->replaceFiles(files);
-            QMetaObject::invokeMethod(this, [this, files]() {
+            QVariantList updateCandidates;
+            qulonglong updateBytes = 0;
+            for (const QVariant& file : files) {
+                const QVariantMap map = file.toMap();
+                if (!map.value(QStringLiteral("thumbnailUpdateCandidate"), false).toBool()) {
+                    continue;
+                }
+                QVariantMap candidate;
+                candidate.insert(QStringLiteral("fileId"), map.value(QStringLiteral("fileId")));
+                candidate.insert(QStringLiteral("fileName"), map.value(QStringLiteral("fileName")));
+                candidate.insert(QStringLiteral("sizeBytes"), map.value(QStringLiteral("sizeBytes")));
+                candidate.insert(QStringLiteral("time"), map.value(QStringLiteral("createTimeEpoch")));
+                updateCandidates.append(candidate);
+                updateBytes += map.value(QStringLiteral("sizeBytes")).toULongLong();
+            }
+            QMetaObject::invokeMethod(this, [this, files, updateCandidates, updateBytes]() {
                 emit filesUpdatedFromCloud(files, QStringLiteral("Cloud refresh terminé."));
+                if (!updateCandidates.isEmpty()) {
+                    emit pwszCloudPreviewUpdateSuggested(updateCandidates, updateBytes);
+                }
             }, Qt::QueuedConnection);
 
             QString quotaMessage;
@@ -2080,6 +2152,85 @@ void CloudBridge::startUploadLocalFile(const QString& localPath, bool completePw
                         refreshFilesAsync(1, 20, true);
                     }
                 });
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
+    if (m_shuttingDown.load() || m_pwszCloudUpdateRunning.exchange(true)) {
+        return;
+    }
+
+    std::vector<usecases::cloud::CloudPwszPreviewUpdateItem> items;
+    items.reserve(static_cast<std::size_t>(files.size()));
+    for (const QVariant& value : files) {
+        const QVariantMap map = value.toMap();
+        usecases::cloud::CloudPwszPreviewUpdateItem item;
+        item.fileId = map.value(QStringLiteral("fileId")).toString().trimmed().toStdString();
+        item.fileName = map.value(QStringLiteral("fileName")).toString().trimmed().toStdString();
+        item.sizeBytes = map.value(QStringLiteral("sizeBytes")).toULongLong();
+        item.createTime = map.value(QStringLiteral("time"),
+                                    map.value(QStringLiteral("createTimeEpoch"))).toLongLong();
+        if (!item.fileId.empty() && !item.fileName.empty()) {
+            items.push_back(std::move(item));
+        }
+    }
+
+    if (items.empty()) {
+        m_pwszCloudUpdateRunning.store(false);
+        QVariantMap summary;
+        summary.insert(QStringLiteral("ok"), false);
+        summary.insert(QStringLiteral("modified"), 0);
+        summary.insert(QStringLiteral("skipped"), 0);
+        summary.insert(QStringLiteral("failed"), 0);
+        summary.insert(QStringLiteral("partial"), 0);
+        summary.insert(QStringLiteral("message"), QStringLiteral("Aucun fichier PWSZ sélectionné."));
+        emit pwszCloudPreviewUpdateFinished(summary);
+        return;
+    }
+
+    launchBackgroundTask([this, items = std::move(items)]() {
+        const usecases::cloud::UpdateCloudPwszPreviewsUseCase useCase;
+        const auto result = useCase.execute(
+            items,
+            [this](int current, int total, const std::string& fileName, const std::string& phase) {
+                const QString qFileName = QString::fromStdString(fileName);
+                const QString qPhase = QString::fromStdString(phase);
+                QMetaObject::invokeMethod(this, [this, current, total, qFileName, qPhase]() {
+                    emit pwszCloudPreviewUpdateProgress(current, total, qFileName, qPhase);
+                }, Qt::QueuedConnection);
+            });
+
+        QVariantList itemResults;
+        itemResults.reserve(static_cast<qsizetype>(result.items.size()));
+        for (const auto& item : result.items) {
+            QVariantMap map;
+            map.insert(QStringLiteral("originalFileId"), QString::fromStdString(item.originalFileId));
+            map.insert(QStringLiteral("newFileId"), QString::fromStdString(item.newFileId));
+            map.insert(QStringLiteral("fileName"), QString::fromStdString(item.fileName));
+            map.insert(QStringLiteral("status"), QString::fromStdString(item.status));
+            map.insert(QStringLiteral("message"), QString::fromStdString(item.message));
+            itemResults.append(map);
+        }
+
+        QVariantMap summary;
+        summary.insert(QStringLiteral("ok"), result.ok);
+        summary.insert(QStringLiteral("modified"), result.modified);
+        summary.insert(QStringLiteral("skipped"), result.skipped);
+        summary.insert(QStringLiteral("failed"), result.failed);
+        summary.insert(QStringLiteral("partial"), result.partial);
+        summary.insert(QStringLiteral("items"), itemResults);
+
+        QMetaObject::invokeMethod(this, [this, summary]() {
+            m_pwszCloudUpdateRunning.store(false);
+            if (m_cache != nullptr) {
+                m_cache->invalidateScope(QStringLiteral("files"));
+                m_cache->invalidateScope(QStringLiteral("quota"));
+            }
+            emit pwszCloudPreviewUpdateFinished(summary);
+            if (!m_shuttingDown.load()) {
+                refreshFilesAsync(1, 20, true);
             }
         }, Qt::QueuedConnection);
     });

@@ -827,7 +827,78 @@
             <source>Modify and upload</source>
             <translation>Modifier et envoyer</translation>
         </message>
-    </context>
+        <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Missing PWSZ thumbnails</source>
+        <translation>Miniatures PWSZ manquantes</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update the affected cloud files</source>
+        <translation>Mettre à jour les fichiers cloud concernés</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.</source>
+        <translation>ACM a détecté %1 fichier(s) PWSZ dont la miniature Anycubic est vide.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.</source>
+        <translation>Pour les mettre à jour, ACM téléchargera chaque fichier concerné (%1), ajoutera preview_images/preview_2.png en copiant preview_1.png, enverra une nouvelle version cloud normale, validera sa miniature, puis supprimera l’ancienne version cloud.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.</source>
+        <translation>La nouvelle version est enregistrée directement avec le nom d’affichage original. L’ancienne version n’est supprimée qu’après validation de la nouvelle miniature. Si la suppression échoue, les deux versions sont conservées et la modification est signalée comme partielle.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update %1 file(s)</source>
+        <translation>Mettre à jour %1 fichier(s)</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Starting modification</source>
+        <translation>Démarrage de la modification</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Modification in progress</source>
+        <translation>Modification en cours</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>File %1 of %2</source>
+        <translation>Fichier %1 sur %2</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Preparing files</source>
+        <translation>Préparation des fichiers</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update completed</source>
+        <translation>Mise à jour terminée</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>PWSZ cloud modification summary</source>
+        <translation>Résumé de la modification des PWSZ cloud</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Files modified: %1
+Already compliant: %2
+Failures: %3
+Partial modifications: %4</source>
+        <translation>Fichiers modifiés : %1
+Déjà conformes : %2
+Échecs : %3
+Modifications partielles : %4</translation>
+    </message>
+</context>
     <context>
         <name>CloudFilesPaginationBar</name>
         <message>

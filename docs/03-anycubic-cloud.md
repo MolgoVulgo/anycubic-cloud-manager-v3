@@ -89,3 +89,9 @@ The cache accelerates startup and provides a labelled fallback. It does not rede
 For failures, record the endpoint identifier, HTTP status, API code, redacted message and correlation data. Never record bearer tokens, cookies, session content or signed query values.
 
 The [Cloud endpoint runtime matrix](appendices/cloud-endpoints-runtime.md) is derived from `EndpointRegistry.cpp` and the active API owners. Any registry change requires the appendix to be updated in the same patch.
+
+### Updating cloud PWSZ files with invalid thumbnails
+
+A downloaded thumbnail is cacheable only when its payload is at least 100 bytes and Qt can decode it. Payloads below 100 bytes are classified as empty Anycubic placeholders, are not written to the cache, and mark ready `.pwsz` entries as update candidates. A forced refresh bypasses existing thumbnail cache files and performs the same validation again.
+
+After a completed file refresh, QML may offer one batch modification for the affected entries. The C++ use case sorts candidates by cloud creation time ascending, then by numeric cloud file identifier ascending when timestamps are equal, and processes them sequentially from the oldest file to the newest. It then downloads the original PWSZ, duplicates `preview_images/preview_1.png` as `preview_2.png`, uploads a normal replacement using the original display name, waits for cloud processing, validates the new thumbnail, and only then deletes the old file identifier. No unobserved rename endpoint is introduced. If validation fails, the replacement is deleted when possible and the original remains authoritative. If deletion of the old identifier fails, both versions are kept and the result is reported as a partial modification.

@@ -668,6 +668,77 @@
         <source>Modify and upload</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Missing PWSZ thumbnails</source>
+        <translation>Missing PWSZ thumbnails</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update the affected cloud files</source>
+        <translation>Update the affected cloud files</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.</source>
+        <translation>ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.</source>
+        <translation>To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.</source>
+        <translation>The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update %1 file(s)</source>
+        <translation>Update %1 file(s)</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Starting modification</source>
+        <translation>Starting modification</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Modification in progress</source>
+        <translation>Modification in progress</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>File %1 of %2</source>
+        <translation>File %1 of %2</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Preparing files</source>
+        <translation>Preparing files</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Update completed</source>
+        <translation>Update completed</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>PWSZ cloud modification summary</source>
+        <translation>PWSZ cloud modification summary</translation>
+    </message>
+    <message>
+        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
+        <source>Files modified: %1
+Already compliant: %2
+Failures: %3
+Partial modifications: %4</source>
+        <translation>Files modified: %1
+Already compliant: %2
+Failures: %3
+Partial modifications: %4</translation>
+    </message>
 </context>
 <context>
     <name>CloudFilesPaginationBar</name>

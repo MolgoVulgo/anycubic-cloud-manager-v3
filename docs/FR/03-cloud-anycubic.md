@@ -89,3 +89,9 @@ Le cache accélère le démarrage et fournit un fallback étiqueté. Il ne redé
 En cas d'échec, conserver l'identifiant d'endpoint, le statut HTTP, le code API, le message redacted et la corrélation utile. Ne jamais conserver bearer, cookies, session ou query signée.
 
 La [Matrice runtime des endpoints cloud](annexes/endpoints-cloud-runtime.md) est dérivée de `EndpointRegistry.cpp` et des propriétaires API actifs. Toute évolution du registre impose sa mise à jour dans le même correctif.
+
+### Mise à jour des PWSZ cloud avec miniature invalide
+
+Une miniature téléchargée n’est mise en cache que si son payload fait au moins 100 octets et si Qt peut la décoder. Un payload inférieur à 100 octets est classé comme placeholder Anycubic vide, n’est pas écrit dans le cache et marque le fichier `.pwsz` prêt comme candidat à une mise à jour. Un rafraîchissement forcé ignore les miniatures déjà en cache et applique la même validation.
+
+À la fin du rafraîchissement des fichiers, QML peut proposer une modification groupée des entrées concernées. Le use case C++ trie d’abord les candidats par date de création cloud croissante, puis par identifiant cloud numérique croissant lorsque les dates sont identiques, et les traite séquentiellement du fichier le plus ancien au plus récent. Il télécharge ensuite le PWSZ original, duplique `preview_images/preview_1.png` sous le nom `preview_2.png`, envoie une version cloud normale portant directement le nom d’affichage original, attend le traitement cloud, valide la nouvelle miniature, puis seulement supprime l’ancien identifiant. Aucun endpoint de renommage non observé n’est ajouté. Si la validation échoue, la nouvelle version est supprimée lorsque possible et l’original reste la référence. Si la suppression de l’ancien identifiant échoue, les deux versions sont conservées et le résultat est signalé comme modification partielle.

@@ -58,3 +58,7 @@ User-visible text uses the existing Qt translation mechanism. Source strings and
 - prefer measured corrections over speculative refactors.
 
 Detailed performance notes remain in the UI performance appendix.
+
+## Cloud PWSZ modification proposal
+
+When a completed thumbnail refresh reports invalid PWSZ placeholders, the bridge emits one suggestion containing only file identifiers, display names and sizes. The modal states the number and total volume of affected files and requires explicit confirmation. Progress and the final counts for modified, already-compliant, failed and partial items are delivered by bridge signals; QML does not implement the transfer or deletion sequence.

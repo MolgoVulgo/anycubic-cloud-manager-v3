@@ -58,3 +58,7 @@ Les textes utilisateur utilisent le mécanisme Qt existant. La source et les deu
 - mesurer avant de refondre.
 
 Les détails restent dans l'annexe performance UI.
+
+## Proposition de modification des PWSZ cloud
+
+Lorsqu’un rafraîchissement complet des miniatures détecte des placeholders PWSZ invalides, le bridge émet une proposition unique contenant uniquement identifiants, noms d’affichage et tailles. La modal indique le nombre et le volume total des fichiers concernés et exige une confirmation explicite. La progression puis les totaux de fichiers modifiés, déjà conformes, en échec ou partiellement modifiés sont transmis par des signaux du bridge ; QML n’implémente ni les transferts ni la séquence de suppression.

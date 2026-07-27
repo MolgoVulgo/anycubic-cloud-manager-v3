@@ -67,6 +67,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/PrintOrderApi.cpp
     infra/cloud/api/CloudLegacyImpl.cpp
     infra/cloud/api/ThumbnailCandidateBuilder.cpp
+    infra/cloud/thumbnail/ThumbnailValidation.cpp
     infra/cloud/archive/PwszPreviewArchive.cpp
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
@@ -91,6 +92,7 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
     app/usecases/cloud/GetDownloadUrlUseCase.cpp
     app/usecases/cloud/UploadLocalFileUseCase.cpp
+    app/usecases/cloud/UpdateCloudPwszPreviewsUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
     app/usecases/cloud/FetchPrinterDetailsUseCase.cpp
@@ -138,10 +140,10 @@ if(ACCLOUD_DEBUG)
 endif()
 
 if(ACCLOUD_ENABLE_QT)
-  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network Sql)
+  find_package(Qt6 QUIET COMPONENTS Quick QuickControls2 Network Sql Gui)
   if(Qt6_FOUND)
     target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_QT=1)
-    target_link_libraries(accloud_infra PRIVATE Qt6::Network)
+    target_link_libraries(accloud_infra PRIVATE Qt6::Network Qt6::Gui)
     find_package(Qt6 QUIET COMPONENTS Mqtt)
     if(TARGET Qt6::Mqtt)
       target_link_libraries(accloud_infra PRIVATE Qt6::Mqtt)
@@ -302,6 +304,17 @@ target_include_directories(accloud_thumbnail_candidate_tests PRIVATE ${ACCLOUD_S
 target_link_libraries(accloud_thumbnail_candidate_tests PRIVATE accloud_domain)
 add_test(NAME accloud_thumbnail_candidates COMMAND accloud_thumbnail_candidate_tests)
 
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui)
+  add_executable(accloud_thumbnail_validation_tests
+      ${ACCLOUD_TESTS_ROOT}/cloud/test_thumbnail_validation.cpp
+      ${ACCLOUD_SRC_ROOT}/infra/cloud/thumbnail/ThumbnailValidation.cpp
+  )
+  target_include_directories(accloud_thumbnail_validation_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_compile_definitions(accloud_thumbnail_validation_tests PRIVATE ACCLOUD_WITH_QT=1)
+  target_link_libraries(accloud_thumbnail_validation_tests PRIVATE accloud_domain Qt6::Core Qt6::Gui)
+  add_test(NAME accloud_thumbnail_validation COMMAND accloud_thumbnail_validation_tests)
+endif()
+
 add_executable(accloud_pwsz_preview_archive_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_pwsz_preview_archive.cpp
     ${ACCLOUD_SRC_ROOT}/infra/cloud/archive/PwszPreviewArchive.cpp
@@ -309,6 +322,13 @@ add_executable(accloud_pwsz_preview_archive_tests
 target_include_directories(accloud_pwsz_preview_archive_tests PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_pwsz_preview_archive_tests PRIVATE accloud_domain)
 add_test(NAME accloud_pwsz_preview_archive COMMAND accloud_pwsz_preview_archive_tests)
+
+add_executable(accloud_pwsz_cloud_preview_update_order_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_pwsz_cloud_preview_update_order.cpp
+)
+target_include_directories(accloud_pwsz_cloud_preview_update_order_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+target_link_libraries(accloud_pwsz_cloud_preview_update_order_tests PRIVATE accloud_domain)
+add_test(NAME accloud_pwsz_cloud_preview_update_order COMMAND accloud_pwsz_cloud_preview_update_order_tests)
 
 add_executable(accloud_security_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_redactor.cpp
