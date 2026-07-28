@@ -8,12 +8,13 @@ Le dépôt est un projet C++20 / Qt6 / QML construit avec CMake. Python est rés
 
 ## Ordre de lecture
 
-1. `regles-generales-production-correctifs.md` pour produire et livrer un correctif ;
-2. `codex-patch-mode.md` uniquement lorsqu'un patch ZIP déjà produit doit être appliqué mécaniquement ;
-3. `accloud/CMakeLists.txt` et `accloud/CMakePresets.json` ;
-4. `docs/README.md` ou `docs/FR/README.md` ;
-5. le document fonctionnel correspondant à la zone réellement touchée ;
-6. le code actif et les tests déclarés par CMake.
+Les règles de production et de livraison des correctifs sont fournies par l’environnement GPT Web. Elles ne font pas partie du dépôt et ne doivent pas être recherchées, copiées ou recréées localement.
+
+1. `codex-patch-mode.md` uniquement lorsqu’un patch ZIP déjà produit doit être appliqué mécaniquement ;
+2. `accloud/CMakeLists.txt` et `accloud/CMakePresets.json` ;
+3. `docs/README.md` ou `docs/FR/README.md` ;
+4. le document fonctionnel correspondant à la zone réellement touchée ;
+5. le code actif et les tests déclarés par CMake.
 
 Les documents sous `docs/FR/sources-techniques/` sont des matériaux historiques ou d'investigation. Ils ne remplacent jamais la documentation principale ni le runtime actif.
 

@@ -6,9 +6,10 @@ import re
 import sys
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-QML_ROOT = REPO_ROOT / "accloud" / "ui" / "qml"
-APP_ROOT = REPO_ROOT / "accloud" / "app"
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src" / "accloud"
+QML_ROOT = SRC_ROOT / "ui" / "qml"
+APP_ROOT = SRC_ROOT / "app"
 
 
 def read_text(path: pathlib.Path) -> str:

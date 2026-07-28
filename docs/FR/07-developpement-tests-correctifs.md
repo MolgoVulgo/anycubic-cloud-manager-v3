@@ -42,7 +42,19 @@ ctest --preset default -R '^accloud_documentation_contract$' --output-on-failure
 
 La garde valide les paires bilingues, les liens locaux, les constantes MQTT/SSL figées, l’unique portée miniature de `ignoreSslErrors()`, les ressources QML actives, l’unicité des catalogues TS et le caractère exclusivement synthétique des données publiques de référence.
 
-Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local.
+Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local. L'exécution CTest par défaut classe `accloud_mqtt_live_broker` en **Skipped** tant que l'exécution live n'est pas explicitement activée.
+
+Lancer le contrôle live uniquement avec une session locale valide et des chemins mTLS explicites :
+
+```bash
+ACCLOUD_MQTT_LIVE_TEST=1 \
+ACCLOUD_MQTT_TLS_CA_PATH=/chemin/controle/ca.crt \
+ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH=/chemin/controle/client.crt \
+ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH=/chemin/controle/client.key \
+ctest --preset default -R '^accloud_mqtt_live_broker$' --output-on-failure
+```
+
+Après activation explicite, une session ou un matériel TLS absent/invalide et un échec broker restent des échecs bloquants ; ils ne sont pas convertis en skip.
 
 ## Avant modification
 
@@ -55,7 +67,7 @@ Ne pas inventer de commande absente de CMake. Les tests broker live exigent un e
 
 ## Produire un patch
 
-Les règles complètes sont dans `regles-generales-production-correctifs.md`.
+Les règles complètes de production et de livraison sont fournies par la session GPT Web. Elles ne sont volontairement pas stockées dans ce dépôt. Ne pas créer, copier ni rechercher `regles-generales-production-correctifs.md` localement.
 
 ```text
 analyser

@@ -10,6 +10,9 @@
 #include <QIODevice>
 #include <QTimer>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -25,6 +28,21 @@
 
 namespace {
 
+constexpr int kCtestSkipped = 77;
+constexpr const char* kLiveOptInEnv = "ACCLOUD_MQTT_LIVE_TEST";
+
+bool envFlagEnabled(const char* key) {
+    const char* raw = std::getenv(key);
+    if (raw == nullptr || *raw == '\0') {
+        return false;
+    }
+    std::string value(raw);
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
 std::string md5LowerHex(const std::string& input) {
     return QCryptographicHash::hash(QByteArray::fromStdString(input), QCryptographicHash::Md5)
         .toHex()
@@ -34,6 +52,12 @@ std::string md5LowerHex(const std::string& input) {
 } // namespace
 
 int main(int argc, char** argv) {
+    if (!envFlagEnabled(kLiveOptInEnv)) {
+        std::cout << "[SKIP] Live MQTT broker check disabled. Set "
+                  << kLiveOptInEnv << "=1 in a controlled environment to enable it.\n";
+        return kCtestSkipped;
+    }
+
     const auto opensslCompat = accloud::mqtt::core::ensureOpenSslSecurityLevelCompat(
         accloud::mqtt::core::shouldEnableMqttOpenSslCompatFromEnv());
     if (!opensslCompat.ok) {
@@ -45,7 +69,7 @@ int main(int argc, char** argv) {
 
 #ifndef ACCLOUD_WITH_MQTT
     std::cout << "[SKIP] Qt MQTT unavailable in this build\n";
-    return 0;
+    return kCtestSkipped;
 #else
     accloud::cloud::core::SessionProvider sessionProvider;
     const auto ctx = sessionProvider.loadRequestContext();

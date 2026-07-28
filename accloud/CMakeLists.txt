@@ -406,3 +406,7 @@ if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Mqtt)
   target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_MQTT=1)
 endif()
 add_test(NAME accloud_mqtt_live_broker COMMAND accloud_mqtt_live_check)
+set_tests_properties(accloud_mqtt_live_broker PROPERTIES
+  LABELS "live"
+  SKIP_RETURN_CODE 77
+)

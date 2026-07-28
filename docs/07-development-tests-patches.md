@@ -42,7 +42,19 @@ ctest --preset default -R '^accloud_documentation_contract$' --output-on-failure
 
 The guard validates bilingual file pairs, local links, frozen MQTT/SSL tokens, the single thumbnail `ignoreSslErrors()` scope, active QML resources, unique TS catalogs and synthetic-only public reference data.
 
-Do not invent commands that CMake does not declare. Live broker tests require a controlled environment and are never implied by a local unit test.
+Do not invent commands that CMake does not declare. Live broker tests require a controlled environment and are never implied by a local unit test. The default CTest run reports `accloud_mqtt_live_broker` as **Skipped** unless live execution is explicitly enabled.
+
+Run the live check only with a valid local session and explicit mTLS paths:
+
+```bash
+ACCLOUD_MQTT_LIVE_TEST=1 \
+ACCLOUD_MQTT_TLS_CA_PATH=/controlled/path/ca.crt \
+ACCLOUD_MQTT_TLS_CLIENT_CERT_PATH=/controlled/path/client.crt \
+ACCLOUD_MQTT_TLS_CLIENT_KEY_PATH=/controlled/path/client.key \
+ctest --preset default -R '^accloud_mqtt_live_broker$' --output-on-failure
+```
+
+Once explicitly enabled, missing or invalid session/TLS material and broker failures remain hard failures; they are not converted to skips.
 
 ## Before changing code
 
@@ -55,7 +67,7 @@ Do not invent commands that CMake does not declare. Live broker tests require a 
 
 ## Producing a patch
 
-The complete production rules are in `regles-generales-production-correctifs.md`.
+The complete production and delivery rules are supplied by the GPT Web session. They are intentionally not stored in this repository. Do not create, copy or search for `regles-generales-production-correctifs.md` locally.
 
 ```text
 analyse

@@ -61,6 +61,31 @@ def check_required_pairs(root: Path, errors: list[str]) -> None:
                 errors.append(f"missing documentation pair member: {relative}")
 
 
+def check_repository_control_files(root: Path, errors: list[str]) -> None:
+    required = root / "codex-patch-mode.md"
+    if not required.is_file():
+        errors.append("missing local patch application contract: codex-patch-mode.md")
+
+    forbidden = (
+        root / "codex-patch-mode-acm.md",
+        root / "regles-generales-production-correctifs.md",
+        root / "patch/regles-generales-production-correctifs.md",
+    )
+    for path in forbidden:
+        if path.exists():
+            errors.append(f"forbidden local control document: {path.relative_to(root)}")
+
+
+def check_temporary_documentation(root: Path, errors: list[str]) -> None:
+    for relative in ("docs/tmp", "docs/FR/tmp"):
+        directory = root / relative
+        if not directory.exists():
+            continue
+        files = sorted(path.relative_to(root) for path in directory.rglob("*") if path.is_file())
+        for path in files:
+            errors.append(f"unqualified temporary documentation file: {path}")
+
+
 def iter_markdown_files(root: Path) -> list[Path]:
     result = list((root / "docs").rglob("*.md"))
     for relative in (
@@ -69,7 +94,6 @@ def iter_markdown_files(root: Path) -> list[Path]:
         "readme-FR.md",
         "accloud/README.md",
         "codex-patch-mode.md",
-        "regles-generales-production-correctifs.md",
     ):
         path = root / relative
         if path.is_file():
@@ -210,6 +234,8 @@ def main() -> int:
     errors: list[str] = []
 
     check_required_pairs(root, errors)
+    check_repository_control_files(root, errors)
+    check_temporary_documentation(root, errors)
     check_markdown_links(root, errors)
     check_mqtt_and_ssl_contract(root, errors)
     check_i18n_contract(root, errors)
