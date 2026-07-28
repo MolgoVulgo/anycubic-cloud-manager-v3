@@ -739,6 +739,114 @@ Already compliant: %2
 Failures: %3
 Partial modifications: %4</translation>
     </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Downloading cloud file</source>
+        <translation>Downloading cloud file</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Preparing the PWSZ archive</source>
+        <translation>Preparing the PWSZ archive</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Uploading the modified version</source>
+        <translation>Uploading the modified version</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Waiting for cloud processing</source>
+        <translation>Waiting for cloud processing</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Validating the new thumbnail</source>
+        <translation>Validating the new thumbnail</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Deleting the original version</source>
+        <translation>Deleting the original version</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Failed</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Partial</source>
+        <translation>Partial</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Cancelled</source>
+        <translation>Cancelled</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Modified</source>
+        <translation>Modified</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Already compliant</source>
+        <translation>Already compliant</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Update cancelled</source>
+        <translation>Update cancelled</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Update completed with issues</source>
+        <translation>Update completed with issues</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Unknown file</source>
+        <translation>Unknown file</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>No additional detail.</source>
+        <translation>No additional detail.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>original id: %1</source>
+        <translation>original id: %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>, new id: %1</source>
+        <translation>, new id: %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>%1 — %2 — %3 (%4)</source>
+        <translation>%1 — %2 — %3 (%4)</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Cloud inventory incomplete; the PWSZ batch update proposal was skipped. Retry the refresh.</source>
+        <translation>Cloud inventory incomplete; the PWSZ batch update proposal was skipped. Retry the refresh.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+        <source>Files modified: %1
+Already compliant: %2
+Failures: %3
+Partial modifications: %4
+Cancelled: %5</source>
+        <translation>Files modified: %1
+Already compliant: %2
+Failures: %3
+Partial modifications: %4
+Cancelled: %5</translation>
+    </message>
 </context>
 <context>
     <name>CloudFilesPaginationBar</name>

@@ -39,6 +39,7 @@ Item {
     property var pwszCloudUpdateCandidates: []
     property real pwszCloudUpdateBytes: 0
     property bool pwszCloudUpdateRunning: false
+    property bool pwszCloudUpdateCancelRequested: false
     property int pwszCloudUpdateCurrent: 0
     property int pwszCloudUpdateTotal: 0
     property string pwszCloudUpdateFileName: ""
@@ -116,6 +117,86 @@ Item {
                 && uiSettingsBridge !== null
                 && typeof uiSettingsBridge.getString === "function"
                 && typeof uiSettingsBridge.setString === "function"
+    }
+
+    function requestPwszCloudUpdateCancellation() {
+        if (!root.pwszCloudUpdateRunning || root.pwszCloudUpdateCancelRequested)
+            return false
+        root.pwszCloudUpdateCancelRequested = true
+        if (root.hasCloudBridge()
+                && typeof cloudBridge.cancelPwszCloudPreviewUpdate === "function") {
+            cloudBridge.cancelPwszCloudPreviewUpdate()
+        }
+        return true
+    }
+
+    function pwszCloudUpdatePhaseText(phaseKey) {
+        var key = String(phaseKey || "")
+        switch (key) {
+        case "pwsz.update.download":
+            return qsTr("Downloading cloud file")
+        case "pwsz.update.prepare":
+            return qsTr("Preparing the PWSZ archive")
+        case "pwsz.update.upload":
+            return qsTr("Uploading the modified version")
+        case "pwsz.update.cloud_processing":
+            return qsTr("Waiting for cloud processing")
+        case "pwsz.update.validate_thumbnail":
+            return qsTr("Validating the new thumbnail")
+        case "pwsz.update.delete_original":
+            return qsTr("Deleting the original version")
+        default:
+            return root.sanitizedBackendMessage(key)
+        }
+    }
+
+    function pwszCloudUpdateStatusLabel(status) {
+        switch (String(status || "")) {
+        case "failed":
+            return qsTr("Failed")
+        case "partial":
+            return qsTr("Partial")
+        case "cancelled":
+            return qsTr("Cancelled")
+        case "modified":
+            return qsTr("Modified")
+        case "skipped":
+            return qsTr("Already compliant")
+        default:
+            return qsTr("Unknown")
+        }
+    }
+
+    function pwszCloudUpdateResultTitle(summary) {
+        var value = summary || ({})
+        if (value.cancelled === true)
+            return qsTr("Update cancelled")
+        if (value.ok === true)
+            return qsTr("Update completed")
+        return qsTr("Update completed with issues")
+    }
+
+    function pwszCloudUpdateIssueDetails(summary) {
+        var value = summary || ({})
+        var items = value.items || []
+        var lines = []
+        for (var i = 0; i < items.length; ++i) {
+            var item = items[i] || ({})
+            var status = String(item.status || "")
+            if (status !== "failed" && status !== "partial" && status !== "cancelled")
+                continue
+            var name = String(item.fileName || item.originalFileId || qsTr("Unknown file"))
+            var detail = root.backendStatusDetail(item.message, qsTr("No additional detail."))
+            var ids = qsTr("original id: %1").arg(String(item.originalFileId || "-"))
+            if (String(item.newFileId || "").length > 0)
+                ids += qsTr(", new id: %1").arg(String(item.newFileId))
+            lines.push(qsTr("%1 — %2 — %3 (%4)")
+                       .arg(name)
+                       .arg(root.pwszCloudUpdateStatusLabel(status))
+                       .arg(detail)
+                       .arg(ids))
+        }
+        return lines.join("\n")
     }
 
 
@@ -771,7 +852,7 @@ Item {
             Qt.callLater(function() {
                 if (hasCloudBridge()
                         && typeof cloudBridge.refreshFilesAsync === "function") {
-                    cloudBridge.refreshFilesAsync(1, 20, false)
+                    cloudBridge.refreshFilesAsync(1, 20, true)
                 }
             })
         }
@@ -915,12 +996,13 @@ Item {
             root.pwszCloudUpdateCurrent = Number(current || 0)
             root.pwszCloudUpdateTotal = Number(total || 0)
             root.pwszCloudUpdateFileName = String(fileName || "")
-            root.pwszCloudUpdatePhase = String(phase || "")
+            root.pwszCloudUpdatePhase = root.pwszCloudUpdatePhaseText(phase)
             pwszCloudUpdateProgressDialog.open()
         }
 
         function onPwszCloudPreviewUpdateFinished(summary) {
             root.pwszCloudUpdateRunning = false
+            root.pwszCloudUpdateCancelRequested = false
             root.pwszCloudUpdateSummary = summary !== undefined ? summary : ({})
             pwszCloudUpdateProgressDialog.close()
             pwszCloudUpdateResultDialog.open()
@@ -932,10 +1014,16 @@ Item {
         }
 
         function onSyncFailed(scope, message) {
-            if (String(scope) !== "files" && String(scope) !== "quota")
+            var normalizedScope = String(scope)
+            if (normalizedScope === "pwsz_preview_candidates") {
+                root.statusMsg = qsTr("Cloud inventory incomplete; the PWSZ batch update proposal was skipped. Retry the refresh.")
+                root.statusSev = "warn"
+                return
+            }
+            if (normalizedScope !== "files" && normalizedScope !== "quota")
                 return
             root.statusMsg = qsTr("Background sync failed (%1): %2")
-                    .arg(String(scope))
+                    .arg(normalizedScope)
                     .arg(root.backendStatusDetail(message, qsTr("Retry later.")))
             root.statusSev = "warn"
         }
@@ -1065,6 +1153,7 @@ Item {
                     root.pwszCloudUpdateProposalPending = false
                     pwszCloudUpdateConfirmDialog.close()
                     root.pwszCloudUpdateRunning = true
+                    root.pwszCloudUpdateCancelRequested = false
                     root.pwszCloudUpdateCurrent = 0
                     root.pwszCloudUpdateTotal = files.length
                     root.pwszCloudUpdatePhase = qsTr("Starting modification")
@@ -1112,11 +1201,21 @@ Item {
                 font.pixelSize: Theme.fontCaptionPx
             }
         }
+
+        footerTrailingData: [
+            AppButton {
+                objectName: "pwszCloudUpdateCancelButton"
+                text: qsTr("Cancel")
+                variant: "secondary"
+                enabled: root.pwszCloudUpdateRunning && !root.pwszCloudUpdateCancelRequested
+                onClicked: root.requestPwszCloudUpdateCancellation()
+            }
+        ]
     }
 
     AppDialogFrame {
         id: pwszCloudUpdateResultDialog
-        title: qsTr("Update completed")
+        title: root.pwszCloudUpdateResultTitle(root.pwszCloudUpdateSummary)
         subtitle: qsTr("PWSZ cloud modification summary")
         allowScrimClose: true
         minimumWidth: 560
@@ -1127,14 +1226,27 @@ Item {
             spacing: Theme.gapRow
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Files modified: %1\nAlready compliant: %2\nFailures: %3\nPartial modifications: %4")
+                text: qsTr("Files modified: %1\nAlready compliant: %2\nFailures: %3\nPartial modifications: %4\nCancelled: %5")
                         .arg(String(root.pwszCloudUpdateSummary.modified || 0))
                         .arg(String(root.pwszCloudUpdateSummary.skipped || 0))
                         .arg(String(root.pwszCloudUpdateSummary.failed || 0))
                         .arg(String(root.pwszCloudUpdateSummary.partial || 0))
+                        .arg(String(root.pwszCloudUpdateSummary.cancelledItems || 0))
                 color: Theme.fgPrimary
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontBodyPx
+            }
+            TextArea {
+                id: pwszCloudUpdateResultDetails
+                objectName: "pwszCloudUpdateResultDetails"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(240, Math.max(80, contentHeight + 20))
+                visible: text.length > 0
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextEdit.Wrap
+                text: root.pwszCloudUpdateIssueDetails(root.pwszCloudUpdateSummary)
+                font.pixelSize: Theme.fontCaptionPx
             }
         }
 

@@ -92,6 +92,7 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/LoadPrintersDashboardUseCase.cpp
     app/usecases/cloud/GetDownloadUrlUseCase.cpp
     app/usecases/cloud/UploadLocalFileUseCase.cpp
+    app/usecases/cloud/CloudPwszReplacementWorkflow.cpp
     app/usecases/cloud/UpdateCloudPwszPreviewsUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByExtUseCase.cpp
     app/usecases/cloud/FetchPrinterCompatibilityByFileIdUseCase.cpp
@@ -325,6 +326,7 @@ add_test(NAME accloud_pwsz_preview_archive COMMAND accloud_pwsz_preview_archive_
 
 add_executable(accloud_pwsz_cloud_preview_update_order_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_pwsz_cloud_preview_update_order.cpp
+    ${ACCLOUD_SRC_ROOT}/app/usecases/cloud/CloudPwszReplacementWorkflow.cpp
 )
 target_include_directories(accloud_pwsz_cloud_preview_update_order_tests PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_pwsz_cloud_preview_update_order_tests PRIVATE accloud_domain)

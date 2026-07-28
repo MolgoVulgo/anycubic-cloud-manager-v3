@@ -48,9 +48,10 @@ TestCase {
                                          'function inspectPwszPreview(localPath) { inspectCalls += 1; return { ok: true, isPwsz: true, hasPreview1: true, hasPreview2: !inspectNeedsCompletion, needsCompletion: inspectNeedsCompletion } }' +
                                          'function startUploadLocalFile(localPath, completePreview) { uploadCalls += 1; lastUploadArg = localPath; lastCompletePreview = completePreview }' +
                                          'function startPwszCloudPreviewUpdate(files) { cloudUpdateCalls += 1; lastCloudUpdateCount = files.length }' +
+                                         'function cancelPwszCloudPreviewUpdate() { cloudUpdateCancelCalls += 1 }' +
                                          'property int refreshCalls: 0;' +
                                          'property int uploadCalls: 0; property int inspectCalls: 0; property bool inspectNeedsCompletion: true;' +
-                                         'property int cloudUpdateCalls: 0; property int lastCloudUpdateCount: 0;' +
+                                         'property int cloudUpdateCalls: 0; property int cloudUpdateCancelCalls: 0; property int lastCloudUpdateCount: 0;' +
                                          'property string lastUploadArg: ""; property bool lastCompletePreview: false;' +
                                          '}', this, "cloudFilesUploadBridgeMock")
     }
@@ -230,6 +231,81 @@ TestCase {
         compare(page.pwszCloudUpdateCandidates.length, 2)
         compare(Number(page.pwszCloudUpdateBytes), 3072)
         verify(page.pwszCloudUpdateProposalVisible)
+        page.destroy()
+    }
+
+    function test_batch_update_progress_can_request_cancel() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        page.pwszCloudUpdateRunning = true
+        cloudBridge.pwszCloudPreviewUpdateProgress(1, 2, "a.pwsz", "Traitement")
+        wait(0)
+
+        var cancelButton = findChild(page, "pwszCloudUpdateCancelButton")
+        verify(cancelButton !== null)
+        verify(cancelButton.enabled)
+        verify(page.requestPwszCloudUpdateCancellation())
+        wait(0)
+
+        compare(cloudBridge.cloudUpdateCancelCalls, 1)
+        verify(page.pwszCloudUpdateCancelRequested)
+        verify(!cancelButton.enabled)
+        verify(!page.requestPwszCloudUpdateCancellation())
+        compare(cloudBridge.cloudUpdateCancelCalls, 1)
+        page.destroy()
+    }
+
+    function test_batch_update_phase_keys_are_localized() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        compare(String(page.pwszCloudUpdatePhaseText("pwsz.update.download")),
+                "Downloading cloud file")
+        compare(String(page.pwszCloudUpdatePhaseText("pwsz.update.validate_thumbnail")),
+                "Validating the new thumbnail")
+        compare(String(page.pwszCloudUpdatePhaseText("custom.phase")), "custom.phase")
+        page.destroy()
+    }
+
+    function test_batch_update_result_exposes_issue_details() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        var summary = {
+            "ok": false,
+            "cancelled": false,
+            "modified": 1,
+            "skipped": 0,
+            "failed": 0,
+            "partial": 1,
+            "cancelledItems": 0,
+            "items": [{
+                "fileName": "cube.pwsz",
+                "status": "partial",
+                "message": "Both versions were kept",
+                "originalFileId": "old-1",
+                "newFileId": "new-2"
+            }]
+        }
+
+        compare(String(page.pwszCloudUpdateResultTitle(summary)), "Update completed with issues")
+        var details = String(page.pwszCloudUpdateIssueDetails(summary))
+        verify(details.indexOf("cube.pwsz") >= 0)
+        verify(details.indexOf("old-1") >= 0)
+        verify(details.indexOf("new-2") >= 0)
+        verify(details.indexOf("Both versions were kept") >= 0)
+        page.destroy()
+    }
+
+    function test_incomplete_inventory_is_visible_to_user() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+
+        cloudBridge.syncFailed("pwsz_preview_candidates", "pagination stopped")
+        wait(0)
+
+        compare(String(page.statusSev), "warn")
+        verify(String(page.statusMsg).indexOf("inventory incomplete") >= 0)
         page.destroy()
     }
 

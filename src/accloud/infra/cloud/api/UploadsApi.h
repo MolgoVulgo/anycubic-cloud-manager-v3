@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace accloud::cloud {
@@ -18,6 +19,7 @@ struct CloudUploadPutResult {
     bool ok{false};
     std::string message;
     int httpStatus{0};
+    bool cancelled{false};
 };
 
 struct CloudUploadRegisterResult {
@@ -51,8 +53,10 @@ public:
                                            std::uint64_t sizeBytes,
                                            bool isTempFile = false) const;
 
-    CloudUploadPutResult putPresigned(const std::string& preSignUrl,
-                                      const std::filesystem::path& localFilePath) const;
+    CloudUploadPutResult putPresigned(
+        const std::string& preSignUrl,
+        const std::filesystem::path& localFilePath,
+        const std::function<bool()>& shouldCancel = {}) const;
 
     CloudUploadRegisterResult registerUploadedFile(const std::string& accessToken,
                                                    const std::string& xxToken,

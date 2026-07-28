@@ -39,4 +39,11 @@ LoadCloudFilesResult LoadCloudFilesUseCase::execute(int page, int limit) const {
     return {result.ok, result.message, std::move(result.files)};
 }
 
+LoadAllCloudFilesResult LoadCloudFilesUseCase::executeAll(int pageSize, int maxPages) const {
+    return collectAllCloudFilePages(
+        [this](int page, int limit) { return execute(page, limit); },
+        pageSize,
+        maxPages);
+}
+
 } // namespace accloud::usecases::cloud

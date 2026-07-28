@@ -16,6 +16,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTimer>
 #include <QUrl>
 
 #endif
@@ -228,11 +229,14 @@ CloudUploadLockResult UploadsApi::lockStorageSpace(const std::string& accessToke
 #endif
 }
 
-CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
-                                              const std::filesystem::path& localFilePath) const {
+CloudUploadPutResult UploadsApi::putPresigned(
+    const std::string& preSignUrl,
+    const std::filesystem::path& localFilePath,
+    const std::function<bool()>& shouldCancel) const {
 #ifndef ACCLOUD_WITH_QT
     (void)preSignUrl;
     (void)localFilePath;
+    (void)shouldCancel;
     return {false, "Qt non disponible", 0};
 #else
     if (preSignUrl.empty()) {
@@ -274,12 +278,26 @@ CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
         "<binary upload omitted: " + std::to_string(uploadSizeBytes) + " bytes>");
 
     QEventLoop loop;
+    QTimer cancellationTimer;
+    cancellationTimer.setInterval(100);
+    bool cancelled = false;
     QNetworkReply* reply = nam.put(req, &uploadFile);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    if (shouldCancel) {
+        QObject::connect(&cancellationTimer, &QTimer::timeout, &loop, [&]() {
+            if (!shouldCancel()) {
+                return;
+            }
+            cancelled = true;
+            reply->abort();
+        });
+        cancellationTimer.start();
+    }
     loop.exec();
+    cancellationTimer.stop();
 
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const bool networkOk = (reply->error() == QNetworkReply::NoError);
+    const bool networkOk = !cancelled && (reply->error() == QNetworkReply::NoError);
     const bool httpOk = (httpStatus >= 200 && httpStatus < 300);
     const bool ok = networkOk && httpOk;
     const std::string replyError = reply->errorString().toStdString();
@@ -294,6 +312,12 @@ CloudUploadPutResult UploadsApi::putPresigned(const std::string& preSignUrl,
     reply->deleteLater();
 
     if (!ok) {
+        if (cancelled) {
+            logging::info("cloud", "uploads_api", "put_presigned_cancelled",
+                          "Binary upload cancelled",
+                          {{"http", std::to_string(httpStatus)}});
+            return {false, "Opération annulée", httpStatus, true};
+        }
         if (!networkOk) {
             logging::warn("cloud", "uploads_api", "put_presigned_network_error",
                           "Binary upload failed (network)",

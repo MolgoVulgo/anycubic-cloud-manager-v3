@@ -10,7 +10,6 @@
 
 #ifdef ACCLOUD_WITH_QT
 #include <QEventLoop>
-#include <QFile>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -24,6 +23,7 @@
 #include <chrono>
 #include <filesystem>
 #include <thread>
+#include <utility>
 
 namespace accloud::usecases::cloud {
 namespace {
@@ -32,22 +32,28 @@ namespace {
 
 struct DownloadResult {
     bool ok{false};
-    std::string message;
-};
-
-struct ThumbnailProbeResult {
-    bool valid{false};
-    bool tooSmall{false};
+    bool cancelled{false};
     std::string message;
 };
 
 constexpr int kDownloadTimeoutMs = 300000;
 constexpr int kThumbnailTimeoutMs = 15000;
+constexpr int kCancellationPollMs = 100;
+constexpr qint64 kDownloadChunkBytes = 64 * 1024;
 
 DownloadResult downloadToFile(const std::string& signedUrl,
-                              const std::filesystem::path& destination) {
+                              const std::filesystem::path& destination,
+                              const CancellationCallback& shouldCancel) {
     if (signedUrl.empty() || destination.empty()) {
-        return {false, "URL ou destination vide"};
+        return {false, false, "URL ou destination vide"};
+    }
+    if (detail::cancellationRequested(shouldCancel)) {
+        return {false, true, "Opération annulée"};
+    }
+
+    QSaveFile output(QString::fromStdString(destination.string()));
+    if (!output.open(QIODevice::WriteOnly)) {
+        return {false, false, "Impossible de créer le fichier téléchargé"};
     }
 
     QNetworkAccessManager nam;
@@ -57,35 +63,83 @@ DownloadResult downloadToFile(const std::string& signedUrl,
     request.setTransferTimeout(kDownloadTimeoutMs);
 
     QEventLoop loop;
+    QTimer cancellationTimer;
+    cancellationTimer.setInterval(kCancellationPollMs);
+
+    bool cancelled = false;
+    bool writeFailed = false;
+    qint64 writtenBytes = 0;
+    std::array<char, static_cast<std::size_t>(kDownloadChunkBytes)> buffer{};
+
     QNetworkReply* reply = nam.get(request);
+    const auto drainReply = [&]() {
+        while (!writeFailed && reply->bytesAvailable() > 0) {
+            const qint64 readBytes = reply->read(buffer.data(), kDownloadChunkBytes);
+            if (readBytes < 0) {
+                writeFailed = true;
+                reply->abort();
+                break;
+            }
+            if (readBytes == 0) {
+                break;
+            }
+            if (output.write(buffer.data(), readBytes) != readBytes) {
+                writeFailed = true;
+                reply->abort();
+                break;
+            }
+            writtenBytes += readBytes;
+        }
+    };
+
+    QObject::connect(reply, &QNetworkReply::readyRead, &loop, drainReply);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    if (shouldCancel) {
+        QObject::connect(&cancellationTimer, &QTimer::timeout, &loop, [&]() {
+            if (!detail::cancellationRequested(shouldCancel)) {
+                return;
+            }
+            cancelled = true;
+            reply->abort();
+        });
+        cancellationTimer.start();
+    }
+
     loop.exec();
+    cancellationTimer.stop();
+    drainReply();
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray body = reply->readAll();
-    const bool ok = reply->error() == QNetworkReply::NoError
-                 && status >= 200 && status < 300
-                 && !body.isEmpty();
+    const bool networkOk = reply->error() == QNetworkReply::NoError;
     const std::string error = reply->errorString().toStdString();
     reply->deleteLater();
-    if (!ok) {
-        return {false, error.empty() ? "Téléchargement cloud échoué" : error};
-    }
 
-    QSaveFile output(QString::fromStdString(destination.string()));
-    if (!output.open(QIODevice::WriteOnly)) {
-        return {false, "Impossible de créer le fichier téléchargé"};
-    }
-    if (output.write(body) != body.size() || !output.commit()) {
+    if (cancelled || detail::cancellationRequested(shouldCancel)) {
         output.cancelWriting();
-        return {false, "Écriture du fichier téléchargé échouée"};
+        return {false, true, "Opération annulée"};
     }
-    return {true, "Téléchargement terminé"};
+    if (writeFailed) {
+        output.cancelWriting();
+        return {false, false, "Écriture du fichier téléchargé échouée"};
+    }
+    if (!networkOk || status < 200 || status >= 300 || writtenBytes <= 0) {
+        output.cancelWriting();
+        return {false, false, error.empty() ? "Téléchargement cloud échoué" : error};
+    }
+    if (!output.commit()) {
+        output.cancelWriting();
+        return {false, false, "Écriture du fichier téléchargé échouée"};
+    }
+    return {true, false, "Téléchargement terminé"};
 }
 
-ThumbnailProbeResult probeThumbnail(const std::string& url) {
+CloudPwszThumbnailValidationResult probeThumbnail(const std::string& url,
+                                    const CancellationCallback& shouldCancel) {
     if (url.empty()) {
-        return {false, false, "URL de miniature vide"};
+        return {false, false, false, "URL de miniature vide"};
+    }
+    if (detail::cancellationRequested(shouldCancel)) {
+        return {false, false, true, "Opération annulée"};
     }
 
     QNetworkAccessManager nam;
@@ -96,37 +150,79 @@ ThumbnailProbeResult probeThumbnail(const std::string& url) {
 
     QEventLoop loop;
     QTimer timeout;
+    QTimer cancellationTimer;
     timeout.setSingleShot(true);
+    cancellationTimer.setInterval(kCancellationPollMs);
     bool timedOut = false;
+    bool cancelled = false;
     QNetworkReply* reply = nam.get(request);
     QObject::connect(&timeout, &QTimer::timeout, &loop, [&]() {
         timedOut = true;
         reply->abort();
         loop.quit();
     });
+    if (shouldCancel) {
+        QObject::connect(&cancellationTimer, &QTimer::timeout, &loop, [&]() {
+            if (!detail::cancellationRequested(shouldCancel)) {
+                return;
+            }
+            cancelled = true;
+            reply->abort();
+            loop.quit();
+        });
+        cancellationTimer.start();
+    }
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     timeout.start(kThumbnailTimeoutMs);
     loop.exec();
     timeout.stop();
+    cancellationTimer.stop();
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray body = reply->readAll();
-    const bool networkOk = !timedOut && reply->error() == QNetworkReply::NoError
+    const bool networkOk = !timedOut && !cancelled
+                         && reply->error() == QNetworkReply::NoError
                          && status >= 200 && status < 300;
     const std::string error = reply->errorString().toStdString();
     reply->deleteLater();
+    if (cancelled || detail::cancellationRequested(shouldCancel)) {
+        return {false, false, true, "Opération annulée"};
+    }
     if (!networkOk) {
-        return {false, false, error.empty() ? "Téléchargement miniature échoué" : error};
+        return {false, false, false,
+                error.empty() ? "Téléchargement miniature échoué" : error};
     }
 
     const auto validation = accloud::cloud::thumbnail::validateThumbnailBytes(body);
     return {validation.valid,
             validation.tooSmall,
+            false,
             validation.valid ? "Miniature valide" : validation.error.toStdString()};
 }
 
-bool uploadIsReady(int status, const std::string& gcodeId) {
-    return status == 1 || (!gcodeId.empty() && gcodeId != "0");
+accloud::cloud::CloudUploadUnlockResult unlockStorageWithRetry(
+    const accloud::cloud::api::UploadsApi& uploadsApi,
+    const std::string& accessToken,
+    const std::string& xxToken,
+    const std::string& lockId,
+    bool deleteCos) {
+    static constexpr std::array<std::chrono::milliseconds, 3> retryDelays = {
+        std::chrono::milliseconds(0),
+        std::chrono::milliseconds(250),
+        std::chrono::milliseconds(750),
+    };
+
+    accloud::cloud::CloudUploadUnlockResult result;
+    for (const auto delay : retryDelays) {
+        if (delay > std::chrono::milliseconds::zero()) {
+            std::this_thread::sleep_for(delay);
+        }
+        result = uploadsApi.unlockStorageSpace(accessToken, xxToken, lockId, deleteCos);
+        if (result.ok) {
+            return result;
+        }
+    }
+    return result;
 }
 
 #endif
@@ -135,19 +231,45 @@ bool uploadIsReady(int status, const std::string& gcodeId) {
 
 CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
     const std::vector<CloudPwszPreviewUpdateItem>& items,
-    const ProgressCallback& onProgress) const {
+    const ProgressCallback& onProgress,
+    const CancellationCallback& shouldCancel,
+    const ThumbnailValidationCallback& validateThumbnail) const {
     CloudPwszPreviewUpdateResult summary;
     const auto orderedItems = orderCloudPwszPreviewUpdateItemsOldestFirst(items);
     summary.items.reserve(orderedItems.size());
 
 #ifndef ACCLOUD_WITH_QT
     (void)onProgress;
+    (void)shouldCancel;
+    (void)validateThumbnail;
     for (const auto& item : orderedItems) {
         summary.items.push_back({item.fileId, {}, item.fileName, "failed", "Qt non disponible"});
         ++summary.failed;
     }
     return summary;
 #else
+    const auto appendCancelled = [&](CloudPwszPreviewUpdateItemResult result,
+                                     std::string message) {
+        result.status = "cancelled";
+        result.message = std::move(message);
+        summary.cancelled = true;
+        ++summary.cancelledItems;
+        summary.items.push_back(std::move(result));
+    };
+    const auto appendPartialCancellation = [&](CloudPwszPreviewUpdateItemResult result,
+                                                std::string message) {
+        result.status = "partial";
+        result.message = std::move(message);
+        summary.cancelled = true;
+        ++summary.partial;
+        summary.items.push_back(std::move(result));
+    };
+
+    if (detail::cancellationRequested(shouldCancel)) {
+        summary.cancelled = true;
+        return summary;
+    }
+
     const accloud::cloud::core::SessionProvider sessionProvider;
     const auto contextResult = sessionProvider.loadRequestContext();
     if (!contextResult.ok) {
@@ -166,12 +288,23 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
     const int total = static_cast<int>(orderedItems.size());
 
     for (int index = 0; index < total; ++index) {
+        if (detail::cancellationRequested(shouldCancel)) {
+            summary.cancelled = true;
+            break;
+        }
+
         const auto& item = orderedItems[static_cast<std::size_t>(index)];
         const int current = index + 1;
         const auto report = [&](const std::string& phase) {
-            if (onProgress) {
+            if (onProgress && !detail::cancellationRequested(shouldCancel)) {
                 onProgress(current, total, item.fileName, phase);
             }
+        };
+        const auto validateThumbnailUrl = [&](const std::string& url) {
+            if (validateThumbnail) {
+                return validateThumbnail(url, shouldCancel);
+            }
+            return probeThumbnail(url, shouldCancel);
         };
 
         CloudPwszPreviewUpdateItemResult result;
@@ -179,7 +312,7 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
         result.fileName = item.fileName;
         result.status = "failed";
 
-        report("Téléchargement du fichier cloud");
+        report(std::string(phase::kDownload));
         QTemporaryDir tempDir;
         if (!tempDir.isValid()) {
             result.message = "Impossible de créer le répertoire temporaire";
@@ -191,6 +324,10 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
         const auto signedUrl = downloadsApi.getSignedUrl(context.accessToken,
                                                          context.xxToken,
                                                          item.fileId);
+        if (detail::cancellationRequested(shouldCancel)) {
+            appendCancelled(std::move(result), "Opération annulée avant le téléchargement");
+            break;
+        }
         if (!signedUrl.ok || signedUrl.url.empty()) {
             result.message = signedUrl.message.empty()
                                  ? "URL de téléchargement indisponible"
@@ -203,15 +340,24 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
         std::filesystem::path originalPath =
             std::filesystem::path(tempDir.path().toStdString()) /
             std::filesystem::path(item.fileName).filename();
-        const auto download = downloadToFile(signedUrl.url, originalPath);
+        const auto download = downloadToFile(signedUrl.url, originalPath, shouldCancel);
         if (!download.ok) {
+            if (download.cancelled) {
+                appendCancelled(std::move(result), download.message);
+                break;
+            }
             result.message = download.message;
             ++summary.failed;
             summary.items.push_back(std::move(result));
             continue;
         }
 
-        report("Modification du fichier PWSZ");
+        if (detail::cancellationRequested(shouldCancel)) {
+            appendCancelled(std::move(result), "Opération annulée après le téléchargement");
+            break;
+        }
+
+        report(std::string(phase::kPrepare));
         const auto inspection = accloud::cloud::archive::inspectPwszPreviewArchive(originalPath);
         if (!inspection.ok) {
             result.message = inspection.message;
@@ -253,8 +399,13 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
             summary.items.push_back(std::move(result));
             continue;
         }
+        if (detail::cancellationRequested(shouldCancel)) {
+            accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
+            appendCancelled(std::move(result), "Opération annulée avant l'envoi cloud");
+            break;
+        }
 
-        report("Envoi de la version modifiée");
+        report(std::string(phase::kUpload));
         const auto lock = uploadsApi.lockStorageSpace(context.accessToken,
                                                       context.xxToken,
                                                       item.fileName,
@@ -269,143 +420,150 @@ CloudPwszPreviewUpdateResult UpdateCloudPwszPreviewsUseCase::execute(
         }
 
         const auto unlock = [&](bool deleteCos) {
-            return uploadsApi.unlockStorageSpace(context.accessToken,
-                                                 context.xxToken,
-                                                 lock.lockId,
-                                                 deleteCos);
+            return unlockStorageWithRetry(uploadsApi,
+                                          context.accessToken,
+                                          context.xxToken,
+                                          lock.lockId,
+                                          deleteCos);
+        };
+        const auto cancelBeforeRegistration = [&](std::string message) {
+            const auto unlockResult = unlock(true);
+            accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
+            if (unlockResult.ok) {
+                appendCancelled(std::move(result), std::move(message));
+            } else {
+                appendPartialCancellation(
+                    std::move(result),
+                    std::move(message)
+                        + "; déverrouillage de l'espace cloud non confirmé: "
+                        + unlockResult.message);
+            }
         };
 
-        const auto put = uploadsApi.putPresigned(lock.preSignUrl, prepared.preparedPath);
-        if (!put.ok) {
-            unlock(true);
-            accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
-            result.message = put.message;
-            ++summary.failed;
-            summary.items.push_back(std::move(result));
-            continue;
+        if (detail::cancellationRequested(shouldCancel)) {
+            cancelBeforeRegistration("Opération annulée après la réservation cloud");
+            break;
         }
 
+        const auto put = uploadsApi.putPresigned(lock.preSignUrl, prepared.preparedPath, shouldCancel);
+        if (put.cancelled || detail::cancellationRequested(shouldCancel)) {
+            cancelBeforeRegistration("Opération annulée pendant l'envoi binaire");
+            break;
+        }
+        if (!put.ok) {
+            const auto unlockResult = unlock(true);
+            accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
+            result.message = put.message;
+            if (unlockResult.ok) {
+                ++summary.failed;
+            } else {
+                result.status = "partial";
+                result.message += "; déverrouillage de l'espace cloud non confirmé: "
+                                + unlockResult.message;
+                ++summary.partial;
+            }
+            summary.items.push_back(std::move(result));
+            if (!unlockResult.ok) {
+                break;
+            }
+            continue;
+        }
         const auto registered = uploadsApi.registerUploadedFile(context.accessToken,
                                                                 context.xxToken,
                                                                 lock.lockId);
         if (!registered.ok || registered.fileId.empty()) {
-            unlock(true);
+            const auto unlockResult = unlock(true);
             accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
             result.message = registered.message.empty()
                                  ? "Enregistrement de la version modifiée échoué"
                                  : registered.message;
-            ++summary.failed;
+            if (unlockResult.ok) {
+                ++summary.failed;
+            } else {
+                result.status = "partial";
+                result.message += "; déverrouillage de l'espace cloud non confirmé: "
+                                + unlockResult.message;
+                ++summary.partial;
+            }
             summary.items.push_back(std::move(result));
+            if (!unlockResult.ok) {
+                break;
+            }
             continue;
         }
         result.newFileId = registered.fileId;
-        unlock(false);
-        accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
 
-        report("Traitement cloud de la version modifiée");
-        bool ready = false;
-        static constexpr std::array<std::chrono::milliseconds, 8> delays = {
-            std::chrono::milliseconds(500),
-            std::chrono::milliseconds(1000),
-            std::chrono::milliseconds(2000),
-            std::chrono::milliseconds(4000),
-            std::chrono::milliseconds(8000),
-            std::chrono::milliseconds(12000),
-            std::chrono::milliseconds(15000),
-            std::chrono::milliseconds(20000)
+        bool cloudProcessingReported = false;
+        bool thumbnailValidationReported = false;
+        CloudPwszReplacementOperations operations;
+        operations.unlockRegistered = [&]() {
+            const auto value = unlock(false);
+            accloud::cloud::archive::discardPreparedFile(prepared.preparedPath);
+            return CloudPwszReplacementActionResult{value.ok, value.message};
         };
-        for (const auto delay : delays) {
-            std::this_thread::sleep_for(delay);
-            const auto status = uploadsApi.getUploadStatus(context.accessToken,
-                                                           context.xxToken,
-                                                           registered.fileId);
-            if (status.ok && uploadIsReady(status.status, status.gcodeId)) {
-                ready = true;
-                break;
+        operations.getUploadStatus = [&]() {
+            if (!cloudProcessingReported) {
+                report(std::string(phase::kCloudProcessing));
+                cloudProcessingReported = true;
             }
-        }
-        if (!ready) {
-            const auto cleanup = filesApi.remove(context.accessToken,
-                                                 context.xxToken,
-                                                 registered.fileId);
-            if (cleanup.ok) {
-                result.message = "Traitement cloud de la version modifiée non confirmé";
-                ++summary.failed;
-            } else {
-                result.status = "partial";
-                result.message = "Traitement cloud non confirmé et nouvelle version impossible à supprimer; l'original est conservé";
-                ++summary.partial;
+            const auto value = uploadsApi.getUploadStatus(context.accessToken,
+                                                          context.xxToken,
+                                                          registered.fileId);
+            return CloudPwszReplacementStatusResult{value.ok, value.status, value.gcodeId};
+        };
+        operations.listFiles = [&]() {
+            if (!thumbnailValidationReported) {
+                report(std::string(phase::kValidateThumbnail));
+                thumbnailValidationReported = true;
             }
-            summary.items.push_back(std::move(result));
-            continue;
-        }
+            const auto value = filesApi.list(context.accessToken, context.xxToken, 1, 1500);
+            CloudPwszReplacementListResult mapped;
+            mapped.ok = value.ok;
+            mapped.files.reserve(value.files.size());
+            for (const auto& file : value.files) {
+                mapped.files.push_back({file.id, file.thumbnailUrl, file.thumbnailCandidates});
+            }
+            return mapped;
+        };
+        operations.validateThumbnail = validateThumbnailUrl;
+        operations.removeFile = [&](const std::string& fileId) {
+            if (fileId == item.fileId) {
+                report(std::string(phase::kDeleteOriginal));
+            }
+            const auto value = filesApi.remove(context.accessToken, context.xxToken, fileId);
+            return CloudPwszReplacementActionResult{value.ok, value.message};
+        };
+        operations.wait = [&](std::chrono::milliseconds delay) {
+            return detail::waitInterruptibly(delay, shouldCancel);
+        };
+        operations.shouldCancel = shouldCancel;
 
-        report("Validation de la nouvelle miniature");
-        bool thumbnailValid = false;
-        for (int attempt = 0; attempt < 8 && !thumbnailValid; ++attempt) {
-            const auto list = filesApi.list(context.accessToken, context.xxToken, 1, 1500);
-            if (list.ok) {
-                for (const auto& file : list.files) {
-                    if (file.id != registered.fileId) {
-                        continue;
-                    }
-                    for (const auto& candidate : file.thumbnailCandidates) {
-                        const auto probe = probeThumbnail(candidate);
-                        if (probe.valid) {
-                            thumbnailValid = true;
-                            break;
-                        }
-                    }
-                    if (!thumbnailValid && !file.thumbnailUrl.empty()) {
-                        thumbnailValid = probeThumbnail(file.thumbnailUrl).valid;
-                    }
-                    break;
-                }
-            }
-            if (!thumbnailValid) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(3000));
-            }
-        }
-        if (!thumbnailValid) {
-            const auto cleanup = filesApi.remove(context.accessToken,
-                                                 context.xxToken,
-                                                 registered.fileId);
-            if (cleanup.ok) {
-                result.message = "La nouvelle miniature est toujours invalide";
-                ++summary.failed;
-            } else {
-                result.status = "partial";
-                result.message = "Nouvelle miniature invalide et nouvelle version impossible à supprimer; l'original est conservé";
-                ++summary.partial;
-            }
-            summary.items.push_back(std::move(result));
-            continue;
-        }
+        const auto outcome = finalizeRegisteredCloudPwszReplacement(
+            item.fileId, registered.fileId, operations);
+        result.status = outcome.status;
+        result.message = outcome.message;
+        summary.cancelled = summary.cancelled || outcome.cancelled;
 
-        report("Suppression de l'ancienne version");
-        const auto removal = filesApi.remove(context.accessToken,
-                                             context.xxToken,
-                                             item.fileId);
-        if (!removal.ok) {
-            result.status = "partial";
-            result.message = "Nouvelle version valide, mais suppression de l'ancienne version impossible";
+        if (outcome.status == "modified") {
+            ++summary.modified;
+            logging::info("cloud", "pwsz_cloud_update", "file_modified",
+                          "Cloud PWSZ preview update completed",
+                          {{"old_file_id", item.fileId},
+                           {"new_file_id", registered.fileId},
+                           {"file_name", item.fileName}});
+        } else if (outcome.status == "partial") {
             ++summary.partial;
-            summary.items.push_back(std::move(result));
-            continue;
+        } else {
+            ++summary.failed;
         }
-
-        result.status = "modified";
-        result.message = "Fichier modifié";
-        ++summary.modified;
         summary.items.push_back(std::move(result));
-        logging::info("cloud", "pwsz_cloud_update", "file_modified",
-                      "Cloud PWSZ preview update completed",
-                      {{"old_file_id", item.fileId},
-                       {"new_file_id", registered.fileId},
-                       {"file_name", item.fileName}});
+
+        if (outcome.cancelled) {
+            break;
+        }
     }
 
-    summary.ok = summary.failed == 0 && summary.partial == 0;
+    summary.ok = summary.failed == 0 && summary.partial == 0 && !summary.cancelled;
     return summary;
 #endif
 }

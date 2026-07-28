@@ -50,6 +50,7 @@
 #include <QVariantList>
 #include <QCryptographicHash>
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <filesystem>
@@ -467,6 +468,7 @@ struct ThumbnailFetchResult {
     QString failureCategory;
     bool retryable{false};
     bool tooSmall{false};
+    bool cancelled{false};
 };
 
 QMutex g_thumbnailFailureMutex;
@@ -496,18 +498,28 @@ void clearThumbnailFailure(const QString& normalizedUrl) {
     g_thumbnailRetryAfter.remove(normalizedUrl);
 }
 
-ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
-                                           const QString& cacheBasePath) {
+ThumbnailFetchResult fetchThumbnailToCache(
+    const QString& normalizedUrl,
+    const QString& cacheBasePath,
+    const usecases::cloud::CancellationCallback& shouldCancel = {}) {
     ThumbnailFetchResult result;
+    if (usecases::cloud::detail::cancellationRequested(shouldCancel)) {
+        result.cancelled = true;
+        result.failureCategory = QStringLiteral("cancelled");
+        return result;
+    }
     QNetworkAccessManager nam;
     QNetworkRequest req{QUrl(normalizedUrl)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QEventLoop loop;
     QTimer timeout;
+    QTimer cancellationTimer;
     timeout.setSingleShot(true);
+    cancellationTimer.setInterval(100);
 
     bool timedOut = false;
+    bool cancelled = false;
     const std::string rawCorrelationId = logging::raw::nextCorrelationId("http");
     logging::raw::logHttpRequest(rawCorrelationId,
                                  "GET",
@@ -526,15 +538,28 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
         reply->abort();
         loop.quit();
     });
+    if (shouldCancel) {
+        QObject::connect(&cancellationTimer, &QTimer::timeout, &loop, [&]() {
+            if (!usecases::cloud::detail::cancellationRequested(shouldCancel)) {
+                return;
+            }
+            cancelled = true;
+            reply->abort();
+            loop.quit();
+        });
+        cancellationTimer.start();
+    }
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     timeout.start(kThumbnailTimeoutMs);
     loop.exec();
     timeout.stop();
+    cancellationTimer.stop();
 
     result.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     result.networkErrorCode = static_cast<int>(reply->error());
     const QByteArray bytes = reply->readAll();
-    const bool networkOk = !timedOut && reply->error() == QNetworkReply::NoError;
+    const bool networkOk = !timedOut && !cancelled
+                        && reply->error() == QNetworkReply::NoError;
     const std::string replyError = reply->errorString().toStdString();
     logging::raw::logHttpResponse(
         rawCorrelationId,
@@ -545,6 +570,11 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
         networkOk ? std::string{} : replyError);
     reply->deleteLater();
 
+    if (cancelled || usecases::cloud::detail::cancellationRequested(shouldCancel)) {
+        result.cancelled = true;
+        result.failureCategory = QStringLiteral("cancelled");
+        return result;
+    }
     if (!networkOk || bytes.isEmpty()) {
         if (timedOut) {
             result.failureCategory = QStringLiteral("timeout");
@@ -601,6 +631,7 @@ ThumbnailFetchResult fetchThumbnailToCache(const QString& normalizedUrl,
 struct ThumbnailResolveResult {
     QString localUrl;
     bool tooSmall{false};
+    bool cancelled{false};
     QString failureCategory;
 };
 
@@ -614,10 +645,17 @@ void removeCachedThumbnailFiles(const QString& cacheBasePath) {
     }
 }
 
-ThumbnailResolveResult resolveThumbnailLocalUrl(const QString& source,
-                                                bool downloadMissing,
-                                                bool forceDownload = false) {
+ThumbnailResolveResult resolveThumbnailLocalUrl(
+    const QString& source,
+    bool downloadMissing,
+    bool forceDownload = false,
+    const usecases::cloud::CancellationCallback& shouldCancel = {}) {
     ThumbnailResolveResult out;
+    if (usecases::cloud::detail::cancellationRequested(shouldCancel)) {
+        out.cancelled = true;
+        out.failureCategory = QStringLiteral("cancelled");
+        return out;
+    }
     const QString normalized = normalizedThumbnailUrl(source);
     if (normalized.isEmpty()) {
         if (!source.trimmed().isEmpty()) {
@@ -674,7 +712,12 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(const QString& source,
         return out;
     }
 
-    const ThumbnailFetchResult fetch = fetchThumbnailToCache(normalized, cacheBasePath);
+    const ThumbnailFetchResult fetch = fetchThumbnailToCache(normalized, cacheBasePath, shouldCancel);
+    if (fetch.cancelled) {
+        out.cancelled = true;
+        out.failureCategory = QStringLiteral("cancelled");
+        return out;
+    }
     if (fetch.localUrl.isEmpty()) {
         const qint64 retryDelay = fetch.retryable
                                       ? kThumbnailTransientRetryDelaySec
@@ -1237,6 +1280,7 @@ CloudBridge::CloudBridge(QObject* parent)
 
 CloudBridge::~CloudBridge() {
     m_shuttingDown.store(true);
+    m_pwszCloudUpdateCancelRequested.store(true);
     waitBackgroundTasks();
     cleanupDownload();
     delete m_cache;
@@ -1320,6 +1364,30 @@ QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& mess
     files.reserve(static_cast<qsizetype>(result.files.size()));
     for (const auto& f : result.files) {
         QVariantMap item = fileInfoToMap(f);
+        resolveThumbnailInMap(item, downloadThumbnails, forceThumbnails);
+        files.append(item);
+    }
+    return files;
+}
+
+QVariantList CloudBridge::fetchAllFilesWithRetry(int pageSize,
+                                                   QString& message,
+                                                   bool& ok,
+                                                   bool downloadThumbnails,
+                                                   bool forceThumbnails) const {
+    ok = false;
+    QVariantList files;
+    const usecases::cloud::LoadCloudFilesUseCase useCase;
+    const usecases::cloud::LoadAllCloudFilesResult result = useCase.executeAll(pageSize, 100);
+    message = QString::fromStdString(result.message);
+    ok = result.ok && result.complete;
+    if (!ok) {
+        return files;
+    }
+
+    files.reserve(static_cast<qsizetype>(result.files.size()));
+    for (const auto& file : result.files) {
+        QVariantMap item = fileInfoToMap(file);
         resolveThumbnailInMap(item, downloadThumbnails, forceThumbnails);
         files.append(item);
     }
@@ -1607,42 +1675,68 @@ void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
             m_refreshFilesRunning.store(false);
             return;
         }
-        QString message;
-        bool ok = false;
 
         if (!shouldRefresh(QStringLiteral("files"), 120, force)) {
             m_refreshFilesRunning.store(false);
             return;
         }
 
-        const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, true, force);
+        const int scanPageSize = std::max(100, std::min(limit, 500));
+        QString inventoryMessage;
+        bool inventoryComplete = false;
+        QVariantList files = fetchAllFilesWithRetry(
+            scanPageSize, inventoryMessage, inventoryComplete, true, force);
+
+        QString message = inventoryMessage;
+        bool ok = inventoryComplete;
+        if (!inventoryComplete) {
+            QString fallbackMessage;
+            bool fallbackOk = false;
+            files = fetchFilesWithRetry(page, limit, fallbackMessage, fallbackOk, true, force);
+            message = fallbackMessage;
+            ok = fallbackOk;
+        }
+
         if (m_cache != nullptr) {
             m_cache->updateSyncState(QStringLiteral("files"), ok, message);
         }
 
-        if (ok && m_cache != nullptr) {
-            m_cache->replaceFiles(files);
+        if (ok) {
+            if (m_cache != nullptr) {
+                m_cache->replaceFiles(files);
+            }
+
             QVariantList updateCandidates;
             qulonglong updateBytes = 0;
-            for (const QVariant& file : files) {
-                const QVariantMap map = file.toMap();
-                if (!map.value(QStringLiteral("thumbnailUpdateCandidate"), false).toBool()) {
-                    continue;
+            if (inventoryComplete) {
+                for (const QVariant& file : files) {
+                    const QVariantMap map = file.toMap();
+                    if (!map.value(QStringLiteral("thumbnailUpdateCandidate"), false).toBool()) {
+                        continue;
+                    }
+                    QVariantMap candidate;
+                    candidate.insert(QStringLiteral("fileId"), map.value(QStringLiteral("fileId")));
+                    candidate.insert(QStringLiteral("fileName"), map.value(QStringLiteral("fileName")));
+                    candidate.insert(QStringLiteral("sizeBytes"), map.value(QStringLiteral("sizeBytes")));
+                    candidate.insert(QStringLiteral("time"), map.value(QStringLiteral("createTimeEpoch")));
+                    updateCandidates.append(candidate);
+                    updateBytes += map.value(QStringLiteral("sizeBytes")).toULongLong();
                 }
-                QVariantMap candidate;
-                candidate.insert(QStringLiteral("fileId"), map.value(QStringLiteral("fileId")));
-                candidate.insert(QStringLiteral("fileName"), map.value(QStringLiteral("fileName")));
-                candidate.insert(QStringLiteral("sizeBytes"), map.value(QStringLiteral("sizeBytes")));
-                candidate.insert(QStringLiteral("time"), map.value(QStringLiteral("createTimeEpoch")));
-                updateCandidates.append(candidate);
-                updateBytes += map.value(QStringLiteral("sizeBytes")).toULongLong();
             }
-            QMetaObject::invokeMethod(this, [this, files, updateCandidates, updateBytes]() {
+
+            QMetaObject::invokeMethod(this,
+                                      [this, files, updateCandidates, updateBytes,
+                                       inventoryComplete, inventoryMessage]() {
                 emit filesUpdatedFromCloud(files, QStringLiteral("Cloud refresh terminé."));
-                if (!updateCandidates.isEmpty()) {
+                if (inventoryComplete && !updateCandidates.isEmpty()) {
                     emit pwszCloudPreviewUpdateSuggested(updateCandidates, updateBytes);
                 }
-            }, Qt::QueuedConnection);
+                if (!inventoryComplete) {
+                    emit syncFailed(QStringLiteral("pwsz_preview_candidates"),
+                                    inventoryMessage);
+                }
+            },
+                                      Qt::QueuedConnection);
 
             QString quotaMessage;
             bool quotaOk = false;
@@ -1650,12 +1744,14 @@ void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
             if (m_cache != nullptr) {
                 m_cache->updateSyncState(QStringLiteral("quota"), quotaOk, quotaMessage);
             }
-            if (quotaOk && m_cache != nullptr) {
-                m_cache->saveQuota(quota);
+            if (quotaOk) {
+                if (m_cache != nullptr) {
+                    m_cache->saveQuota(quota);
+                }
                 QMetaObject::invokeMethod(this, [this, quota]() {
                     emit quotaUpdatedFromCloud(quota, QStringLiteral("Quota rafraîchi depuis le cloud."));
                 }, Qt::QueuedConnection);
-            } else if (!quotaOk) {
+            } else {
                 QMetaObject::invokeMethod(this, [this, quotaMessage]() {
                     emit syncFailed(QStringLiteral("quota"), quotaMessage);
                 }, Qt::QueuedConnection);
@@ -2161,6 +2257,7 @@ void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
     if (m_shuttingDown.load() || m_pwszCloudUpdateRunning.exchange(true)) {
         return;
     }
+    m_pwszCloudUpdateCancelRequested.store(false);
 
     std::vector<usecases::cloud::CloudPwszPreviewUpdateItem> items;
     items.reserve(static_cast<std::size_t>(files.size()));
@@ -2181,6 +2278,8 @@ void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
         m_pwszCloudUpdateRunning.store(false);
         QVariantMap summary;
         summary.insert(QStringLiteral("ok"), false);
+        summary.insert(QStringLiteral("cancelled"), false);
+        summary.insert(QStringLiteral("cancelledItems"), 0);
         summary.insert(QStringLiteral("modified"), 0);
         summary.insert(QStringLiteral("skipped"), 0);
         summary.insert(QStringLiteral("failed"), 0);
@@ -2195,11 +2294,30 @@ void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
         const auto result = useCase.execute(
             items,
             [this](int current, int total, const std::string& fileName, const std::string& phase) {
+                if (m_shuttingDown.load()) {
+                    return;
+                }
                 const QString qFileName = QString::fromStdString(fileName);
                 const QString qPhase = QString::fromStdString(phase);
                 QMetaObject::invokeMethod(this, [this, current, total, qFileName, qPhase]() {
-                    emit pwszCloudPreviewUpdateProgress(current, total, qFileName, qPhase);
+                    if (!m_shuttingDown.load()) {
+                        emit pwszCloudPreviewUpdateProgress(current, total, qFileName, qPhase);
+                    }
                 }, Qt::QueuedConnection);
+            },
+            [this]() {
+                return m_shuttingDown.load() || m_pwszCloudUpdateCancelRequested.load();
+            },
+            [](const std::string& url,
+               const usecases::cloud::CancellationCallback& shouldCancel) {
+                const ThumbnailResolveResult resolved = resolveThumbnailLocalUrl(
+                    QString::fromStdString(url), true, true, shouldCancel);
+                usecases::cloud::CloudPwszThumbnailValidationResult validation;
+                validation.valid = !resolved.localUrl.isEmpty();
+                validation.tooSmall = resolved.tooSmall;
+                validation.cancelled = resolved.cancelled;
+                validation.message = resolved.failureCategory.toStdString();
+                return validation;
             });
 
         QVariantList itemResults;
@@ -2216,14 +2334,21 @@ void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
 
         QVariantMap summary;
         summary.insert(QStringLiteral("ok"), result.ok);
+        summary.insert(QStringLiteral("cancelled"), result.cancelled);
+        summary.insert(QStringLiteral("cancelledItems"), result.cancelledItems);
         summary.insert(QStringLiteral("modified"), result.modified);
         summary.insert(QStringLiteral("skipped"), result.skipped);
         summary.insert(QStringLiteral("failed"), result.failed);
         summary.insert(QStringLiteral("partial"), result.partial);
         summary.insert(QStringLiteral("items"), itemResults);
 
+        if (m_shuttingDown.load()) {
+            m_pwszCloudUpdateRunning.store(false);
+            return;
+        }
         QMetaObject::invokeMethod(this, [this, summary]() {
             m_pwszCloudUpdateRunning.store(false);
+            m_pwszCloudUpdateCancelRequested.store(false);
             if (m_cache != nullptr) {
                 m_cache->invalidateScope(QStringLiteral("files"));
                 m_cache->invalidateScope(QStringLiteral("quota"));
@@ -2234,6 +2359,12 @@ void CloudBridge::startPwszCloudPreviewUpdate(const QVariantList& files) {
             }
         }, Qt::QueuedConnection);
     });
+}
+
+void CloudBridge::cancelPwszCloudPreviewUpdate() {
+    if (m_pwszCloudUpdateRunning.load()) {
+        m_pwszCloudUpdateCancelRequested.store(true);
+    }
 }
 
 // ── fetchPrinters ─────────────────────────────────────────────────────────
