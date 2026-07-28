@@ -67,7 +67,7 @@ Après activation explicite, une session ou un matériel TLS absent/invalide et 
 
 ## Produire un patch
 
-Les règles complètes de production et de livraison sont fournies par la session GPT Web. Elles ne sont volontairement pas stockées dans ce dépôt. Ne pas créer, copier ni rechercher `regles-generales-production-correctifs.md` localement.
+Les règles complètes de production et de livraison sont fournies par la session GPT Web. Elles ne sont volontairement pas stockées dans ce dépôt. Ne pas créer, copier ni rechercher `regles-generales-production-correctifs.md` localement. Une copie de travail web-only sous `patch/` est ignorée par Git/l’archive locale et n’entre pas dans la garde documentaire locale.
 
 ```text
 analyser

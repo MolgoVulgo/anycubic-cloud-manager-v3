@@ -266,6 +266,7 @@ ApplicationWindow {
 
     component HeaderActionButton: AppButton {
         variant: "secondary"
+        compact: true
         font.pixelSize: Theme.fontBodyPx
     }
 
@@ -989,8 +990,8 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Theme.paddingPage
-            spacing: Theme.gapSection
+            anchors.margins: 12
+            spacing: 12
 
             property int currentTabIndex: controlTabs.currentIndex
             function setCurrentTabIndex(index) {
@@ -1003,7 +1004,7 @@ ApplicationWindow {
                 id: controlRoomHeader
                 objectName: "controlRoomHeader"
                 Layout.fillWidth: true
-                Layout.preferredHeight: root.debugUi ? 108 : 76
+                Layout.preferredHeight: root.debugUi ? 80 : 64
                 radius: Theme.radiusDialog
                 color: Theme.bgSurface
                 border.width: Theme.borderWidth
@@ -1013,8 +1014,8 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.paddingPage
                     anchors.rightMargin: Theme.paddingPage
-                    anchors.topMargin: 12
-                    anchors.bottomMargin: 12
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
                     spacing: Theme.gapRow
 
                     ColumnLayout {
@@ -1072,11 +1073,12 @@ ApplicationWindow {
             }
 
             Rectangle {
+                id: tabsPanel
                 objectName: "tabsPanel"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Theme.radiusDialog
-                color: Theme.bgSurface
+                color: "transparent"
                 border.width: Theme.borderWidth
                 border.color: Theme.borderDefault
 
@@ -1091,11 +1093,12 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         tabVariant: "navigation"
                         tabLook: "classic"
-                        tabSizingMode: "equal"
-                        minTabWidth: 140
+                        tabSizingMode: "content"
+                        minTabWidth: 120
                         connectActiveToPanel: true
                         panelColor: Theme.bgSurface
-                        stripColor: Theme.bgSurface
+                        inactiveColor: "transparent"
+                        stripColor: "transparent"
                         tabTopCornerRadius: Theme.radiusControl
 
                         AppTabButton {
@@ -1132,9 +1135,13 @@ ApplicationWindow {
                     }
 
                     StackLayout {
+                        id: controlRoomStack
                         objectName: "controlRoomStack"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.leftMargin: Theme.borderWidth
+                        Layout.rightMargin: Theme.borderWidth
+                        Layout.bottomMargin: Theme.borderWidth
                         currentIndex: controlTabs.currentIndex
 
                         Pages.CloudFilesPage {

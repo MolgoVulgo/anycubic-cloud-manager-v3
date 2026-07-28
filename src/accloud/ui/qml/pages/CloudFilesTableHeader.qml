@@ -4,9 +4,12 @@ import "../components/Theme.js" as Theme
 
 Rectangle {
     id: root
+    objectName: "filesTableHeader"
 
     property int tableRowHorizontalMargin: 0
     property int rightExtraMargin: 0
+    property int colXSelect: 0
+    property int colSelectWidth: 0
     property int colXThumb: 0
     property int colThumbWidth: 0
     property int colXName: 0
@@ -21,8 +24,9 @@ Rectangle {
     property int colActionsWidth: 0
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 36
-    color: Theme.bgSurface
+    Layout.preferredHeight: 34
+    radius: Theme.radiusControl
+    color: Theme.bgCardSubtle
     border.width: 0
 
     Item {
@@ -33,6 +37,13 @@ Rectangle {
         anchors.rightMargin: root.tableRowHorizontalMargin + root.rightExtraMargin
         clip: true
 
+        Item {
+            objectName: "fileHeaderSelect"
+            x: root.colXSelect
+            width: root.colSelectWidth
+            height: parent.height
+        }
+
         Text {
             objectName: "fileHeaderThumb"
             x: root.colXThumb
@@ -41,6 +52,7 @@ Rectangle {
             text: qsTr("Thumb")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -52,6 +64,7 @@ Rectangle {
             text: qsTr("File name")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: Text.AlignVCenter
         }
@@ -63,6 +76,7 @@ Rectangle {
             text: qsTr("Type")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -74,6 +88,7 @@ Rectangle {
             text: qsTr("Size")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -85,6 +100,7 @@ Rectangle {
             text: qsTr("Date")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -96,6 +112,7 @@ Rectangle {
             text: qsTr("Actions")
             color: Theme.fgSecondary
             font.pixelSize: Theme.fontCaptionPx
+            font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }

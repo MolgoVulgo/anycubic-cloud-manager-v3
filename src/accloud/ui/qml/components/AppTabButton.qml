@@ -10,6 +10,9 @@ TabButton {
     readonly property string tabLook: (ownerTabBar && ownerTabBar.tabLook) ? String(ownerTabBar.tabLook) : "classic"
     readonly property string tabSizingMode: (ownerTabBar && ownerTabBar.tabSizingMode) ? String(ownerTabBar.tabSizingMode) : "content"
     readonly property int computedEqualWidth: (ownerTabBar && ownerTabBar.equalTabWidth) ? Number(ownerTabBar.equalTabWidth) : 120
+    readonly property int minimumTabWidth: (ownerTabBar && ownerTabBar.minTabWidth)
+                                           ? Number(ownerTabBar.minTabWidth)
+                                           : 92
     readonly property color panelColor: (ownerTabBar && ownerTabBar.panelColor) ? ownerTabBar.panelColor : Theme.bgSurface
     readonly property color inactiveColor: (ownerTabBar && ownerTabBar.inactiveColor) ? ownerTabBar.inactiveColor : Theme.bgWindow
     readonly property color baselineColor: (ownerTabBar && ownerTabBar.baselineColor) ? ownerTabBar.baselineColor : Theme.tabBaselineColor
@@ -18,7 +21,7 @@ TabButton {
                                          ? Math.max(0, Number(ownerTabBar.tabTopCornerRadius))
                                          : Theme.radiusControl
     readonly property int strokeWidth: Theme.tabStrokeWidth
-    readonly property int baseImplicitWidth: Math.max(92, contentItem.implicitWidth + leftPadding + rightPadding)
+    readonly property int baseImplicitWidth: Math.max(minimumTabWidth, contentItem.implicitWidth + leftPadding + rightPadding)
     readonly property bool lastVisibleTab: {
         if (!ownerTabBar)
             return true
@@ -53,7 +56,7 @@ TabButton {
         if (checked)
             return panelColor
         if (hovered)
-            return Qt.lighter(inactiveColor, 1.01)
+            return inactiveColor.a === 0 ? Theme.bgCardSubtle : Qt.lighter(inactiveColor, 1.01)
         return inactiveColor
     }
 

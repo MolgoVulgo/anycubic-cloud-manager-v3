@@ -9,8 +9,13 @@ Rectangle {
     property bool loading: false
     property var filesModel: null
     property string selectedFileId: ""
-    property int tableRowHorizontalMargin: 8
+    property var selectedFiles: []
+    property bool batchDeleteRunning: false
+    property int tableRowHorizontalMargin: 12
+    property int scrollbarReserve: 12
     property int tableViewportWidth: 0
+    property int colXSelect: 0
+    property int colSelectWidth: 0
     property int colXThumb: 0
     property int colThumbWidth: 0
     property int colXName: 0
@@ -33,6 +38,7 @@ Rectangle {
     property int pageSize: 10
 
     signal selectedFileChanged(string fileId)
+    signal fileSelectionToggled(string fileId, string fileName, bool checked)
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
@@ -42,21 +48,27 @@ Rectangle {
     signal previousPageRequested()
     signal nextPageRequested()
 
+    objectName: "filesTablePanel"
     Layout.fillWidth: true
     Layout.fillHeight: true
     radius: Theme.radiusControl
     color: Theme.bgSurface
     border.width: Theme.borderWidth
-    border.color: Theme.borderDefault
+    border.color: Theme.borderSubtle
+    clip: true
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 8
-        spacing: 6
+        anchors.margins: Theme.borderWidth
+        spacing: 0
 
         CloudFilesTableHeader {
-            tableRowHorizontalMargin: root.tableRowHorizontalMargin
-            rightExtraMargin: filesVBar.visible ? filesVBar.width : 0
+            Layout.leftMargin: root.tableRowHorizontalMargin
+            Layout.rightMargin: root.tableRowHorizontalMargin
+            tableRowHorizontalMargin: 0
+            rightExtraMargin: root.scrollbarReserve
+            colXSelect: root.colXSelect
+            colSelectWidth: root.colSelectWidth
             colXThumb: root.colXThumb
             colThumbWidth: root.colThumbWidth
             colXName: root.colXName
@@ -71,15 +83,12 @@ Rectangle {
             colActionsWidth: root.colActionsWidth
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.borderWidth
-            color: Theme.borderSubtle
-        }
-
         ListView {
             id: filesList
+            objectName: "filesList"
             Layout.fillWidth: true
+            Layout.leftMargin: root.tableRowHorizontalMargin
+            Layout.rightMargin: root.tableRowHorizontalMargin
             Layout.fillHeight: true
             clip: true
             spacing: 0
@@ -93,8 +102,12 @@ Rectangle {
 
             delegate: CloudFilesTableRow {
                 rowSelected: root.selectedFileId === String(model.fileId)
-                tableRowHorizontalMargin: root.tableRowHorizontalMargin
+                batchSelected: root.fileIsSelected(String(model.fileId))
+                selectionEnabled: !root.loading && !root.batchDeleteRunning
+                tableRowHorizontalMargin: 0
                 tableViewportWidth: root.tableViewportWidth
+                colXSelect: root.colXSelect
+                colSelectWidth: root.colSelectWidth
                 colXThumb: root.colXThumb
                 colThumbWidth: root.colThumbWidth
                 colXName: root.colXName
@@ -118,6 +131,9 @@ Rectangle {
                 fileTypeText: String(model.fileTypeText || "-")
                 dateText: String(model.dateText || "-")
                 onSelectRequested: function(fileId) { root.selectedFileChanged(fileId) }
+                onSelectionToggled: function(fileId, fileName, checked) {
+                    root.fileSelectionToggled(fileId, fileName, checked)
+                }
                 onDetailsRequested: function(fileId) { root.detailsRequested(fileId) }
                 onDownloadRequested: function(fileId, fileName) { root.downloadRequested(fileId, fileName) }
                 onPrintRequested: function(fileId, fileName) { root.printRequested(fileId, fileName) }
@@ -128,6 +144,8 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
+            Layout.leftMargin: root.tableRowHorizontalMargin
+            Layout.rightMargin: root.tableRowHorizontalMargin
             visible: !root.loading && root.visibleCount === 0
             text: qsTr("No file matches current type filter.")
             color: Theme.fgSecondary
@@ -139,12 +157,15 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
+            Layout.leftMargin: root.tableRowHorizontalMargin
+            Layout.rightMargin: root.tableRowHorizontalMargin
             Layout.preferredHeight: Theme.borderWidth
             color: Theme.borderSubtle
             visible: root.visibleCount > 0
         }
 
         CloudFilesPaginationBar {
+            horizontalMargin: root.tableRowHorizontalMargin
             currentPage: root.currentPage
             totalPages: root.totalPages
             rowsCount: root.visibleCount
@@ -160,5 +181,15 @@ Rectangle {
         anchors.centerIn: parent
         visible: root.loading
         running: visible
+    }
+
+    function fileIsSelected(fileId) {
+        var normalizedId = String(fileId || "")
+        var items = root.selectedFiles || []
+        for (var i = 0; i < items.length; ++i) {
+            if (String(items[i].fileId || "") === normalizedId)
+                return true
+        }
+        return false
     }
 }

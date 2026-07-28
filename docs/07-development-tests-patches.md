@@ -67,7 +67,7 @@ Once explicitly enabled, missing or invalid session/TLS material and broker fail
 
 ## Producing a patch
 
-The complete production and delivery rules are supplied by the GPT Web session. They are intentionally not stored in this repository. Do not create, copy or search for `regles-generales-production-correctifs.md` locally.
+The complete production and delivery rules are supplied by the GPT Web session. They are intentionally not stored in this repository. Do not create, copy or search for `regles-generales-production-correctifs.md` locally. A web-only working copy under `patch/` is ignored by local Git/archive flows and is not part of the local documentation guard.
 
 ```text
 analyse

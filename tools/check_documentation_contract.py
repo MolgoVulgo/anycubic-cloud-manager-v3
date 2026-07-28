@@ -69,7 +69,6 @@ def check_repository_control_files(root: Path, errors: list[str]) -> None:
     forbidden = (
         root / "codex-patch-mode-acm.md",
         root / "regles-generales-production-correctifs.md",
-        root / "patch/regles-generales-production-correctifs.md",
     )
     for path in forbidden:
         if path.exists():

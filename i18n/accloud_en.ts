@@ -847,6 +847,38 @@ Failures: %3
 Partial modifications: %4
 Cancelled: %5</translation>
     </message>
+    <message>
+        <source>Delete selected files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete permanently %1 selected file(s)?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleting file %1 of %2...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleted %1 file(s).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleted %1 of %2 file(s). %3 failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unable to delete %1 selected file(s).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cloud refresh failed: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 Cloud refresh failed: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>CloudFilesPaginationBar</name>
@@ -959,6 +991,10 @@ Cancelled: %5</translation>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Select %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>CloudFilesToolbar</name>
@@ -980,6 +1016,14 @@ Cancelled: %5</translation>
     <message>
         <location filename="../ui/qml/pages/CloudFilesToolbar.qml" line="44"/>
         <source>Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleting %1/%2...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete (%1)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

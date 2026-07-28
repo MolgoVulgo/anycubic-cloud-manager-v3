@@ -10,6 +10,7 @@ Rectangle {
     property string sectionSubtitle: ""
     property bool showSectionHeader: sectionTitle.length > 0 || sectionSubtitle.length > 0
     property bool embeddedInTabsContainer: false
+    property int contentPadding: Theme.paddingPage
     default property alias contentData: contentColumn.data
 
     radius: embeddedInTabsContainer ? 0 : Theme.radiusDialog
@@ -19,7 +20,7 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.paddingPage
+        anchors.margins: root.contentPadding
         spacing: Theme.gapSection
 
         SectionHeader {

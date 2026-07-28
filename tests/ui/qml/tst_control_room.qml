@@ -148,6 +148,43 @@ TestCase {
         window.destroy()
     }
 
+    function test_main_window_uses_compact_primary_shell() {
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        wait(0)
+
+        var header = findObjectByName(window, "controlRoomHeader")
+        var tabsPanel = findObjectByName(window, "tabsPanel")
+        var tabs = findObjectByName(window, "controlRoomTabs")
+        var stack = findObjectByName(window, "controlRoomStack")
+        verify(header !== null)
+        verify(tabsPanel !== null)
+        verify(tabs !== null)
+        verify(stack !== null)
+        compare(Math.round(header.height), 64)
+        compare(tabs.tabSizingMode, "content")
+        compare(tabs.minTabWidth, 120)
+        compare(tabs.stripColor.a, 0)
+        compare(tabs.inactiveColor.a, 0)
+        verify(tabs.itemAt(0).width < tabs.width)
+        compare(Math.round(stack.x), 1)
+        compare(Math.round(stack.width), Math.round(tabsPanel.width - 2))
+
+        window.close()
+        window.destroy()
+
+        var debugWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "buildDebugEnabled": true,
+            "debugUi": true
+        })
+        wait(0)
+        var debugHeader = findObjectByName(debugWindow, "controlRoomHeader")
+        verify(debugHeader !== null)
+        compare(Math.round(debugHeader.height), 80)
+
+        debugWindow.close()
+        debugWindow.destroy()
+    }
+
     function test_main_window_prod_hides_mqtt_and_logs_tabs() {
         accloudProdUi = true
         var window = createQmlObject("../../../ui/qml/MainWindow.qml")
@@ -308,12 +345,14 @@ TestCase {
         wait(160)
 
         var headerThumb = findObjectByName(page, "fileHeaderThumb")
+        var headerSelect = findObjectByName(page, "fileHeaderSelect")
         var headerName = findObjectByName(page, "fileHeaderName")
         var headerType = findObjectByName(page, "fileHeaderType")
         var headerSize = findObjectByName(page, "fileHeaderSize")
         var headerDate = findObjectByName(page, "fileHeaderDate")
         var headerActions = findObjectByName(page, "fileHeaderActions")
 
+        verify(headerSelect !== null)
         verify(headerThumb !== null)
         verify(headerName !== null)
         verify(headerType !== null)
@@ -329,13 +368,133 @@ TestCase {
         compare(headerDate.width, page.colDateWidth)
         compare(headerActions.width, page.colActionsWidth)
 
-        var totalColumns = page.colThumbWidth + page.colNameWidth + page.colTypeWidth
+        compare(headerSelect.width, page.colSelectWidth)
+        var totalColumns = page.colSelectWidth + page.colThumbWidth + page.colNameWidth + page.colTypeWidth
                          + page.colSizeWidth + page.colDateWidth + page.colActionsWidth
-                         + page.tableColumnSpacing * 5
+                         + page.tableColumnSpacing * 6
         compare(totalColumns, page.tableViewportWidth)
 
         compare(headerName.horizontalAlignment, Text.AlignLeft)
         compare(headerType.horizontalAlignment, Text.AlignHCenter)
+
+        page.destroy()
+    }
+
+    function test_cloud_files_table_uses_compact_rows_and_actions() {
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        page.loadMockFiles()
+        wait(160)
+
+        var row = findObjectByName(page, "cloudFilesTableRow")
+        var thumb = findObjectByName(page, "fileRowThumb")
+        var selectionCheckBox = findObjectByName(page, "fileRowSelectionCheckBox")
+        var toolbar = findObjectByName(page, "cloudFilesToolbar")
+        var primaryActionsHost = findObjectByName(page, "filesPrimaryActionsHost")
+        var primaryActions = findObjectByName(page, "filesPrimaryActions")
+        var tablePanel = findObjectByName(page, "filesTablePanel")
+        var tableHeader = findObjectByName(page, "filesTableHeader")
+        var filesList = findObjectByName(page, "filesList")
+        var pagination = findObjectByName(page, "filesPaginationBar")
+        verify(row !== null)
+        verify(thumb !== null)
+        verify(selectionCheckBox !== null)
+        verify(toolbar !== null)
+        verify(primaryActionsHost !== null)
+        verify(primaryActions !== null)
+        verify(tablePanel !== null)
+        verify(tableHeader !== null)
+        verify(filesList !== null)
+        verify(pagination !== null)
+        compare(row.height, 88)
+        compare(thumb.width, 76)
+        compare(thumb.height, 76)
+        compare(page.colSelectWidth, 30)
+        compare(page.colActionsWidth, 326)
+        compare(page.actionDetailsWidth + page.actionDownloadWidth
+                + page.actionPrintWidth + page.actionMenuWidth + 18, 318)
+        compare(page.tableRowHorizontalMargin, 12)
+        compare(tablePanel.border.width, 1)
+        compare(tablePanel.tableRowHorizontalMargin, page.tableRowHorizontalMargin)
+        compare(Math.round(tableHeader.x), page.tableRowHorizontalMargin)
+        compare(Math.round(filesList.x), page.tableRowHorizontalMargin)
+        compare(Math.round(tableHeader.width), Math.round(filesList.width))
+        compare(pagination.horizontalMargin, page.tableRowHorizontalMargin)
+        compare(Math.round(primaryActions.x + primaryActions.width / 2),
+                Math.round(primaryActionsHost.width / 2))
+
+        page.destroy()
+    }
+
+    function test_cloud_files_multi_selection_shows_delete_between_primary_actions() {
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        page.loadMockFiles()
+        wait(120)
+
+        var refreshButton = findObjectByName(page, "refreshFilesButton")
+        var deleteButton = findObjectByName(page, "deleteSelectedFilesButton")
+        var uploadButton = findObjectByName(page, "uploadPwmbButton")
+        var selectionCheckBox = findObjectByName(page, "fileRowSelectionCheckBox")
+        verify(refreshButton !== null)
+        verify(deleteButton !== null)
+        verify(uploadButton !== null)
+        verify(selectionCheckBox !== null)
+        compare(deleteButton.visible, false)
+
+        page.setFileSelected("demo-001", "rook_plate_v12.pwmb", true)
+        wait(0)
+        compare(page.selectedFilesCount, 1)
+        compare(deleteButton.visible, true)
+        compare(String(deleteButton.text), "Delete (1)")
+        compare(selectionCheckBox.checked, true)
+        tryVerify(function() {
+            return refreshButton.x < deleteButton.x
+                    && deleteButton.x < uploadButton.x
+        }, 1000)
+
+        page.setFileSelected("demo-002", "calibration_tower.pws", true)
+        wait(0)
+        compare(page.selectedFilesCount, 2)
+        compare(String(deleteButton.text), "Delete (2)")
+
+        page.clearFileSelection()
+        wait(0)
+        compare(page.selectedFilesCount, 0)
+        compare(deleteButton.visible, false)
+
+        page.destroy()
+    }
+
+    function test_cloud_files_batch_delete_runs_selected_files_sequentially() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                        'signal deleteFileFinished(string fileId, var result);' +
+                                        'property var deletedIds: [];' +
+                                        'function fetchQuota() { return { ok: true, totalBytes: 2000, usedBytes: 1000, totalDisplay: "2 KB", usedDisplay: "1 KB" } }' +
+                                        'function fetchFiles() { return { ok: true, files: [' +
+                                        '{ fileId: "demo-001", fileName: "rook_plate_v12.pwmb", sizeText: "1 MB", uploadTime: "2026-03-05" },' +
+                                        '{ fileId: "demo-002", fileName: "calibration_tower.pws", sizeText: "1 MB", uploadTime: "2026-03-05" }' +
+                                        '] } }' +
+                                        'function deleteFile(fileId) { return { ok: true, message: "ok" } }' +
+                                        'function deleteFileAsync(fileId) {' +
+                                        '  var next = deletedIds.slice(0); next.push(String(fileId)); deletedIds = next;' +
+                                        '  deleteFileFinished(String(fileId), { ok: true, message: "ok" });' +
+                                        '}' +
+                                        '}', this, "cloudFilesBatchDeleteMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml", {"width": 1280, "height": 800})
+        wait(80)
+        page.setFileSelected("demo-001", "rook_plate_v12.pwmb", true)
+        page.setFileSelected("demo-002", "calibration_tower.pws", true)
+        compare(page.selectedFilesCount, 2)
+
+        page.startBatchDelete()
+        tryCompare(page, "batchDeleteRunning", false, 1000)
+        compare(cloudBridge.deletedIds.length, 2)
+        compare(String(cloudBridge.deletedIds[0]), "demo-001")
+        compare(String(cloudBridge.deletedIds[1]), "demo-002")
+        compare(page.batchDeleteCompleted, 2)
+        compare(page.batchDeleteSucceeded, 2)
+        compare(page.selectedFilesCount, 0)
+        compare(String(page.statusMsg), "Deleted 2 file(s).")
 
         page.destroy()
     }

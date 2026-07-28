@@ -30,6 +30,19 @@ Item {
         { "code": "all", "label": qsTr("All") }
     ]
     property string selectedFileId: ""
+    property var selectedFiles: []
+    readonly property int selectedFilesCount: selectedFiles.length
+    property bool batchDeleteRunning: false
+    property var batchDeleteQueue: []
+    property int batchDeleteCompleted: 0
+    property int batchDeleteTotal: 0
+    property int batchDeleteSucceeded: 0
+    property var batchDeleteFailures: []
+    property string batchDeleteCurrentId: ""
+    property string batchDeleteSummaryMessage: ""
+    property string batchDeleteSummarySeverity: "success"
+    property bool batchDeleteSummaryPending: false
+    property bool batchDeleteAwaitingCloudRefresh: false
     readonly property int visibleFilesCount: cloudFilesModel.visibleCount
     readonly property int pageTotal: cloudFilesModel.totalPages
     readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
@@ -67,23 +80,32 @@ Item {
     onStatusSevChanged: root.emitStatusToShell()
 
     // Table column widths
-    property int colThumbWidth: 100
+    property int colSelectWidth: 30
+    property int colThumbWidth: 76
     property int colTypeWidth: 72
     property int colSizeWidth: 86
     property int colDateWidth: 92
-    property int colActionsWidth: 392
-    readonly property int tableRowHorizontalMargin: 8
+    property int colActionsWidth: 326
+    readonly property int tableRowHorizontalMargin: 12
+    readonly property int tableScrollbarReserve: 12
     readonly property int tableColumnSpacing: 8
-    readonly property int actionDetailsWidth: 92
-    readonly property int actionDownloadWidth: 112
-    readonly property int actionPrintWidth: 96
-    readonly property int actionMenuWidth: 42
-    readonly property int tableFixedColumnsWidth: colThumbWidth + colTypeWidth + colSizeWidth + colDateWidth + colActionsWidth + tableColumnSpacing * 5
+    readonly property int actionDetailsWidth: 78
+    readonly property int actionDownloadWidth: 104
+    readonly property int actionPrintWidth: 82
+    readonly property int actionMenuWidth: 36
+    readonly property int tableFixedColumnsWidth: colSelectWidth + colThumbWidth + colTypeWidth + colSizeWidth + colDateWidth + colActionsWidth + tableColumnSpacing * 6
     readonly property int colNameWidth: Math.max(220, tableViewportWidth - tableFixedColumnsWidth)
+    readonly property int pageContentPadding: 12
     property int pageSize: 10
     property int currentPage: 0
-    readonly property int tableViewportWidth: Math.max(0, pageFrame.width - (Theme.paddingPage * 2) - (tableRowHorizontalMargin * 2) - 24)
-    readonly property int colXThumb: 0
+    readonly property int tableViewportWidth: Math.max(0,
+                                                        pageFrame.width
+                                                        - (pageContentPadding * 2)
+                                                        - (Theme.borderWidth * 2)
+                                                        - (tableRowHorizontalMargin * 2)
+                                                        - tableScrollbarReserve)
+    readonly property int colXSelect: 0
+    readonly property int colXThumb: colXSelect + colSelectWidth + tableColumnSpacing
     readonly property int colXName: colXThumb + colThumbWidth + tableColumnSpacing
     readonly property int colXType: colXName + colNameWidth + tableColumnSpacing
     readonly property int colXSize: colXType + colTypeWidth + tableColumnSpacing
@@ -488,6 +510,7 @@ Item {
 
     onTypeFilterValueChanged: {
         currentPage = 0
+        clearFileSelection()
     }
 
     function displayDate(uploadTime) {
@@ -516,6 +539,62 @@ Item {
     function fileDataById(fileId) {
         var entry = cloudFilesModel.fileDataById(String(fileId || ""))
         return entry && Object.keys(entry).length > 0 ? entry : null
+    }
+
+    function selectedFileIndex(fileId) {
+        var normalizedId = String(fileId || "").trim()
+        for (var i = 0; i < selectedFiles.length; ++i) {
+            if (String(selectedFiles[i].fileId || "") === normalizedId)
+                return i
+        }
+        return -1
+    }
+
+    function isFileSelected(fileId) {
+        return selectedFileIndex(fileId) >= 0
+    }
+
+    function setFileSelected(fileId, fileName, checked) {
+        var normalizedId = String(fileId || "").trim()
+        if (normalizedId.length === 0 || batchDeleteRunning)
+            return
+
+        var next = selectedFiles.slice(0)
+        var index = selectedFileIndex(normalizedId)
+        if (checked === true && index < 0) {
+            next.push({
+                "fileId": normalizedId,
+                "fileName": String(fileName || normalizedId)
+            })
+        } else if (checked !== true && index >= 0) {
+            next.splice(index, 1)
+        }
+        selectedFiles = next
+    }
+
+    function removeFileSelection(fileId) {
+        var normalizedId = String(fileId || "").trim()
+        var next = []
+        for (var i = 0; i < selectedFiles.length; ++i) {
+            if (String(selectedFiles[i].fileId || "") !== normalizedId)
+                next.push(selectedFiles[i])
+        }
+        selectedFiles = next
+    }
+
+    function clearFileSelection() {
+        if (!batchDeleteRunning)
+            selectedFiles = []
+    }
+
+    function pruneFileSelection() {
+        var kept = []
+        for (var i = 0; i < selectedFiles.length; ++i) {
+            var item = selectedFiles[i]
+            if (fileDataById(item.fileId) !== null)
+                kept.push(item)
+        }
+        selectedFiles = kept
     }
 
     function openFileDetails(fileId) {
@@ -565,6 +644,133 @@ Item {
         deleteConfirmDialog.open()
     }
 
+    function requestDeleteSelected() {
+        if (selectedFilesCount <= 0 || batchDeleteRunning)
+            return
+        batchDeleteConfirmDialog.open()
+    }
+
+    function usesBackgroundFilesRefresh() {
+        if (!hasCloudBridge())
+            return false
+        var synchronousCacheFlow = typeof cloudBridge.loadCachedFiles === "function"
+                && typeof cloudBridge.loadCachedQuota === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+        var asynchronousCacheFlow = typeof cloudBridge.loadCachedFilesAsync === "function"
+                && typeof cloudBridge.loadCachedQuotaAsync === "function"
+                && typeof cloudBridge.refreshFilesAsync === "function"
+        return synchronousCacheFlow || asynchronousCacheFlow
+    }
+
+    function startBatchDelete() {
+        if (selectedFilesCount <= 0 || batchDeleteRunning)
+            return
+        if (!hasCloudBridge() || typeof cloudBridge.deleteFile !== "function") {
+            root.statusMsg = qsTr("Delete unavailable without backend.")
+            root.statusSev = "warn"
+            return
+        }
+
+        batchDeleteQueue = selectedFiles.slice(0)
+        batchDeleteCompleted = 0
+        batchDeleteTotal = batchDeleteQueue.length
+        batchDeleteSucceeded = 0
+        batchDeleteFailures = []
+        batchDeleteCurrentId = ""
+        batchDeleteSummaryPending = false
+        batchDeleteAwaitingCloudRefresh = false
+        batchDeleteRunning = true
+        root.loading = true
+        runNextBatchDelete()
+    }
+
+    function runNextBatchDelete() {
+        if (!batchDeleteRunning)
+            return
+        if (batchDeleteQueue.length <= 0) {
+            finishBatchDelete()
+            return
+        }
+
+        var nextItem = batchDeleteQueue[0]
+        batchDeleteQueue = batchDeleteQueue.slice(1)
+        batchDeleteCurrentId = String(nextItem.fileId || "")
+        root.statusMsg = qsTr("Deleting file %1 of %2...")
+                .arg(String(batchDeleteCompleted + 1))
+                .arg(String(batchDeleteTotal))
+        root.statusSev = "info"
+
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(batchDeleteCurrentId)
+            return
+        }
+
+        var result = cloudBridge.deleteFile(batchDeleteCurrentId)
+        handleBatchDeleteResult(batchDeleteCurrentId, result)
+    }
+
+    function handleBatchDeleteResult(fileId, result) {
+        if (!batchDeleteRunning || String(fileId) !== batchDeleteCurrentId)
+            return
+
+        batchDeleteCompleted += 1
+        if (result.ok === true) {
+            batchDeleteSucceeded += 1
+            removeFileSelection(fileId)
+        } else {
+            var failures = batchDeleteFailures.slice(0)
+            failures.push({
+                "fileId": String(fileId),
+                "message": backendStatusDetail(result.message, qsTr("Operation rejected by backend."))
+            })
+            batchDeleteFailures = failures
+        }
+        batchDeleteCurrentId = ""
+        Qt.callLater(root.runNextBatchDelete)
+    }
+
+    function finishBatchDelete() {
+        var failedCount = batchDeleteFailures.length
+        batchDeleteRunning = false
+        root.loading = false
+        batchDeleteCurrentId = ""
+
+        if (batchDeleteSucceeded === batchDeleteTotal) {
+            batchDeleteSummaryMessage = qsTr("Deleted %1 file(s).")
+                    .arg(String(batchDeleteSucceeded))
+            batchDeleteSummarySeverity = "success"
+        } else if (batchDeleteSucceeded > 0) {
+            batchDeleteSummaryMessage = qsTr("Deleted %1 of %2 file(s). %3 failed.")
+                    .arg(String(batchDeleteSucceeded))
+                    .arg(String(batchDeleteTotal))
+                    .arg(String(failedCount))
+            batchDeleteSummarySeverity = "warn"
+        } else {
+            batchDeleteSummaryMessage = qsTr("Unable to delete %1 selected file(s).")
+                    .arg(String(batchDeleteTotal))
+            batchDeleteSummarySeverity = "error"
+        }
+
+        if (batchDeleteSucceeded <= 0) {
+            root.statusMsg = batchDeleteSummaryMessage
+            root.statusSev = batchDeleteSummarySeverity
+            return
+        }
+
+        batchDeleteSummaryPending = true
+        batchDeleteAwaitingCloudRefresh = usesBackgroundFilesRefresh()
+        loadFiles()
+    }
+
+    function applyBatchDeleteSummary() {
+        if (!batchDeleteSummaryPending)
+            return
+        root.statusMsg = batchDeleteSummaryMessage
+        root.statusSev = batchDeleteSummarySeverity
+        batchDeleteSummaryPending = false
+        batchDeleteAwaitingCloudRefresh = false
+    }
+
     function runDelete(fileId) {
         if (!hasCloudBridge() || typeof cloudBridge.deleteFile !== "function") {
             root.statusMsg = qsTr("Delete unavailable without backend.")
@@ -587,6 +793,7 @@ Item {
 
     function applyDeleteResult(fileId, r) {
         if (r.ok === true) {
+            removeFileSelection(fileId)
             root.statusMsg = qsTr("File deleted.")
             root.statusSev = "success"
             loadFiles()
@@ -806,6 +1013,7 @@ Item {
             "gcodeId": "demo-gcode-002"
         }
         ])
+        pruneFileSelection()
         root.quotaData = {
             "totalDisplay": "2.0 GB",
             "usedDisplay": "1.1 GB",
@@ -828,6 +1036,7 @@ Item {
 
         var files = r.files !== undefined ? r.files : []
         cloudFilesModel.replaceFiles(files)
+        pruneFileSelection()
         refreshTypeFilterOptions()
 
         if (files.length > 0) {
@@ -855,6 +1064,8 @@ Item {
                     cloudBridge.refreshFilesAsync(1, 20, true)
                 }
             })
+        } else if (batchDeleteSummaryPending && !batchDeleteAwaitingCloudRefresh) {
+            applyBatchDeleteSummary()
         }
     }
 
@@ -930,6 +1141,10 @@ Item {
         }
 
         function onDeleteFileFinished(fileId, result) {
+            if (root.batchDeleteRunning && String(fileId) === root.batchDeleteCurrentId) {
+                root.handleBatchDeleteResult(fileId, result)
+                return
+            }
             root.loading = false
             root.applyDeleteResult(fileId, result)
         }
@@ -976,9 +1191,14 @@ Item {
         function onFilesUpdatedFromCloud(files, message) {
             var list = files !== undefined ? files : []
             cloudFilesModel.replaceFiles(list)
+            root.pruneFileSelection()
             root.refreshTypeFilterOptions()
-            root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
-            root.statusSev = "success"
+            if (root.batchDeleteSummaryPending) {
+                root.applyBatchDeleteSummary()
+            } else {
+                root.statusMsg = qsTr("%1 file(s) refreshed from cloud.").arg(String(list.length))
+                root.statusSev = "success"
+            }
         }
 
         function onPwszCloudPreviewUpdateSuggested(files, totalBytes) {
@@ -1022,6 +1242,15 @@ Item {
             }
             if (normalizedScope !== "files" && normalizedScope !== "quota")
                 return
+            if (normalizedScope === "files" && root.batchDeleteSummaryPending) {
+                root.statusMsg = qsTr("%1 Cloud refresh failed: %2")
+                        .arg(root.batchDeleteSummaryMessage)
+                        .arg(root.backendStatusDetail(message, qsTr("Retry later.")))
+                root.statusSev = "warn"
+                root.batchDeleteSummaryPending = false
+                root.batchDeleteAwaitingCloudRefresh = false
+                return
+            }
             root.statusMsg = qsTr("Background sync failed (%1): %2")
                     .arg(normalizedScope)
                     .arg(root.backendStatusDetail(message, qsTr("Retry later.")))
@@ -1295,6 +1524,42 @@ Item {
         ]
     }
 
+    AppDialogFrame {
+        id: batchDeleteConfirmDialog
+        title: qsTr("Delete selected files")
+        subtitle: qsTr("This action is irreversible.")
+        allowScrimClose: false
+        minimumWidth: 520
+        maximumWidth: 620
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Delete permanently %1 selected file(s)?")
+                    .arg(String(root.selectedFilesCount))
+            color: Theme.fgPrimary
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontBodyPx
+        }
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Cancel")
+                variant: "secondary"
+                onClicked: batchDeleteConfirmDialog.close()
+            },
+            AppButton {
+                objectName: "confirmDeleteSelectedFilesButton"
+                text: qsTr("Delete")
+                variant: "danger"
+                enabled: root.selectedFilesCount > 0 && !root.batchDeleteRunning
+                onClicked: {
+                    batchDeleteConfirmDialog.close()
+                    root.startBatchDelete()
+                }
+            }
+        ]
+    }
+
     CloudFileDetailsDialog {
         id: fileDetailsDialog
         fileData: ({})
@@ -1507,48 +1772,68 @@ Item {
         id: pageFrame
         anchors.fill: parent
         embeddedInTabsContainer: root.embeddedInTabsContainer
+        contentPadding: root.pageContentPadding
 
-        CloudFilesToolbar {
-            loading: root.loading
-            typeFilterOptions: root.typeFilterOptions
-            typeFilterCurrentIndex: root.typeFilterIndex()
-            onRefreshRequested: {
-                if (!root.hasCloudBridge()) {
-                    root.loadFiles()
-                    return
-                }
-                if (typeof cloudBridge.refreshFilesAsync === "function") {
-                    root.statusMsg = qsTr("Force refresh from cloud...")
-                    root.statusSev = "info"
-                    cloudBridge.refreshFilesAsync(1, 20, true)
-                } else {
-                    root.loadFiles()
-                }
-            }
-            onUploadRequested: {
-                root.pickUploadFile()
-            }
-            onTypeFilterSelected: function(index, code) {
-                root.typeFilterValue = code
-                root.currentPage = 0
-            }
-        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
 
-        CloudQuotaCard {
-            usedText: root.quotaUsedText()
-            freeText: root.quotaFreeText()
-            filesCount: root.visibleFileCount()
-            usedRatio: root.quotaRatio()
-            backgroundColor: root.quotaBackgroundColor()
-            barColor: root.quotaBarColor()
+            CloudFilesToolbar {
+                Layout.fillWidth: false
+                Layout.preferredWidth: 520
+                loading: root.loading
+                selectedFilesCount: root.selectedFilesCount
+                batchDeleteRunning: root.batchDeleteRunning
+                batchDeleteCompleted: root.batchDeleteCompleted
+                batchDeleteTotal: root.batchDeleteTotal
+                typeFilterOptions: root.typeFilterOptions
+                typeFilterCurrentIndex: root.typeFilterIndex()
+                onRefreshRequested: {
+                    if (!root.hasCloudBridge()) {
+                        root.loadFiles()
+                        return
+                    }
+                    if (typeof cloudBridge.refreshFilesAsync === "function") {
+                        root.statusMsg = qsTr("Force refresh from cloud...")
+                        root.statusSev = "info"
+                        cloudBridge.refreshFilesAsync(1, 20, true)
+                    } else {
+                        root.loadFiles()
+                    }
+                }
+                onUploadRequested: {
+                    root.pickUploadFile()
+                }
+                onDeleteSelectedRequested: root.requestDeleteSelected()
+                onTypeFilterSelected: function(index, code) {
+                    root.typeFilterValue = code
+                    root.currentPage = 0
+                }
+            }
+
+            CloudQuotaCard {
+                Layout.fillWidth: true
+                usedText: root.quotaUsedText()
+                freeText: root.quotaFreeText()
+                filesCount: root.visibleFileCount()
+                usedRatio: root.quotaRatio()
+                backgroundColor: root.quotaBackgroundColor()
+                barColor: root.quotaBarColor()
+            }
         }
 
         CloudFilesTablePanel {
+            id: filesTablePanel
             loading: root.loading
             filesModel: cloudFilesModel
             selectedFileId: root.selectedFileId
+            selectedFiles: root.selectedFiles
+            batchDeleteRunning: root.batchDeleteRunning
             tableRowHorizontalMargin: root.tableRowHorizontalMargin
+            scrollbarReserve: root.tableScrollbarReserve
             tableViewportWidth: root.tableViewportWidth
+            colXSelect: root.colXSelect
+            colSelectWidth: root.colSelectWidth
             colXThumb: root.colXThumb
             colThumbWidth: root.colThumbWidth
             colXName: root.colXName
@@ -1570,6 +1855,9 @@ Item {
             visibleCount: root.visibleFilesCount
             pageSize: root.pageSize
             onSelectedFileChanged: function(fileId) { root.selectedFileId = fileId }
+            onFileSelectionToggled: function(fileId, fileName, checked) {
+                root.setFileSelected(fileId, fileName, checked)
+            }
             onDetailsRequested: function(fileId) { root.openFileDetails(fileId) }
             onDownloadRequested: function(fileId, fileName) { root.requestDownload(fileId, fileName) }
             onPrintRequested: function(fileId, fileName) { root.requestPrint(fileId, fileName) }

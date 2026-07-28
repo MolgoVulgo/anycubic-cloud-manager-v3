@@ -32,6 +32,12 @@ Uploads, downloads, cloud synchronisation, cache work and format decoding must n
 
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
+## Cloud file multi-selection
+
+Each cloud-file row exposes an independent checkbox. The selected file identifiers and display names are kept as page state, separately from the single row used by the details view. When at least one file is selected, a destructive `Delete (N)` action appears between Refresh and Upload.
+
+The action always requires explicit confirmation. Deletions are then submitted sequentially through the existing asynchronous bridge operation so the GUI thread remains responsive and the current cloud/cache deletion contract is preserved. Successful items are removed from the selection; failed items remain selected. The list is refreshed once after the sequence and the status bar reports complete, partial or failed completion.
+
 ## Resources and production separation
 
 `resources.qrc` contains normal UI resources. `resources_debug.qrc` contains debug-only pages. Production cannot depend on debug objects or raw payload views.

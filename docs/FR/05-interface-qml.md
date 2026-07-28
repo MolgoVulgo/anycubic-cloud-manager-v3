@@ -32,6 +32,12 @@ Uploads, téléchargements, synchronisation cloud, cache et décodage de formats
 
 La complétion des aperçus PWSZ est contrôlée par deux réglages persistés : la complétion elle-même est activée par défaut, et la confirmation avant remplacement permanent du fichier local est activée par défaut. La modal explique que `preview_1.png` est copié vers `preview_2.png`, que la version préparée est envoyée, puis que le fichier local n’est remplacé qu’après succès cloud. « Ne plus demander » désactive uniquement la confirmation ; les deux réglages restent accessibles depuis le menu Paramètres.
 
+## Sélection multiple des fichiers cloud
+
+Chaque ligne de fichier cloud expose une case à cocher indépendante. Les identifiants et noms d’affichage sélectionnés sont conservés dans l’état de la page, séparément de la ligne unique utilisée par la vue de détails. Dès qu’au moins un fichier est sélectionné, une action destructive `Supprimer (N)` apparaît entre Rafraîchir et Envoyer.
+
+L’action exige toujours une confirmation explicite. Les suppressions sont ensuite soumises séquentiellement via l’opération asynchrone existante du bridge afin de ne pas bloquer le thread GUI et de préserver le contrat courant de suppression cloud/cache. Les éléments supprimés avec succès sortent de la sélection ; les éléments en échec restent sélectionnés. La liste est rafraîchie une seule fois à la fin et la barre d’état distingue réussite complète, réussite partielle et échec.
+
 ## Ressources et séparation production
 
 `resources.qrc` contient l'UI normale. `resources_debug.qrc` contient les pages debug. La production ne peut dépendre d'objets debug ou de vues de payload brut.

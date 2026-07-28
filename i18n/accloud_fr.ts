@@ -1006,6 +1006,38 @@ Déjà conformes : %2
 Modifications partielles : %4
 Annulés : %5</translation>
     </message>
+        <message>
+            <source>Delete selected files</source>
+            <translation>Supprimer les fichiers sélectionnés</translation>
+        </message>
+        <message>
+            <source>Delete permanently %1 selected file(s)?</source>
+            <translation>Supprimer définitivement %1 fichier(s) sélectionné(s) ?</translation>
+        </message>
+        <message>
+            <source>Deleting file %1 of %2...</source>
+            <translation>Suppression du fichier %1 sur %2...</translation>
+        </message>
+        <message>
+            <source>Deleted %1 file(s).</source>
+            <translation>%1 fichier(s) supprimé(s).</translation>
+        </message>
+        <message>
+            <source>Deleted %1 of %2 file(s). %3 failed.</source>
+            <translation>%1 fichier(s) supprimé(s) sur %2. %3 échec(s).</translation>
+        </message>
+        <message>
+            <source>Unable to delete %1 selected file(s).</source>
+            <translation>Impossible de supprimer les %1 fichier(s) sélectionné(s).</translation>
+        </message>
+        <message>
+            <source>Cloud refresh failed: %1</source>
+            <translation>Échec du rafraîchissement cloud : %1</translation>
+        </message>
+        <message>
+            <source>%1 Cloud refresh failed: %2</source>
+            <translation>%1 Échec du rafraîchissement cloud : %2</translation>
+        </message>
 </context>
     <context>
         <name>CloudFilesPaginationBar</name>
@@ -1118,7 +1150,11 @@ Annulés : %5</translation>
             <source>Delete</source>
             <translation>Supprimer</translation>
         </message>
-    </context>
+            <message>
+            <source>Select %1</source>
+            <translation>Sélectionner %1</translation>
+        </message>
+</context>
     <context>
         <name>CloudFilesToolbar</name>
         <message>
@@ -1141,7 +1177,15 @@ Annulés : %5</translation>
             <source>Type</source>
             <translation>Type</translation>
         </message>
-    </context>
+            <message>
+            <source>Deleting %1/%2...</source>
+            <translation>Suppression %1/%2...</translation>
+        </message>
+        <message>
+            <source>Delete (%1)</source>
+            <translation>Supprimer (%1)</translation>
+        </message>
+</context>
     <context>
         <name>CloudLoginPage</name>
         <message>

@@ -6,38 +6,75 @@ import "../components"
 
 RowLayout {
     id: root
+    objectName: "cloudFilesToolbar"
 
     property bool loading: false
+    property int selectedFilesCount: 0
+    property bool batchDeleteRunning: false
+    property int batchDeleteCompleted: 0
+    property int batchDeleteTotal: 0
     property var typeFilterOptions: []
     property int typeFilterCurrentIndex: 0
 
     signal refreshRequested()
+    signal deleteSelectedRequested()
     signal uploadRequested()
     signal typeFilterSelected(int index, string code)
 
     Layout.fillWidth: true
     spacing: 8
 
-    AppButton {
-        id: refreshFilesButton
-        objectName: "refreshFilesButton"
-        text: root.loading ? qsTr("Loading...") : qsTr("Refresh")
-        variant: "secondary"
-        enabled: !root.loading
-        onClicked: root.refreshRequested()
-    }
+    Item {
+        id: primaryActionsHost
+        objectName: "filesPrimaryActionsHost"
+        Layout.fillWidth: true
+        implicitHeight: primaryActions.implicitHeight
 
-    AppButton {
-        id: uploadPwmbButton
-        objectName: "uploadPwmbButton"
-        text: qsTr("Upload")
-        variant: "primary"
-        onClicked: root.uploadRequested()
-    }
+        RowLayout {
+            id: primaryActions
+            objectName: "filesPrimaryActions"
+            anchors.centerIn: parent
+            spacing: 8
 
-    Item { Layout.fillWidth: true }
+            AppButton {
+                id: refreshFilesButton
+                objectName: "refreshFilesButton"
+                text: root.loading ? qsTr("Loading...") : qsTr("Refresh")
+                variant: "secondary"
+                compact: true
+                enabled: !root.loading
+                onClicked: root.refreshRequested()
+            }
+
+            AppButton {
+                id: deleteSelectedFilesButton
+                objectName: "deleteSelectedFilesButton"
+                text: root.batchDeleteRunning
+                      ? qsTr("Deleting %1/%2...")
+                            .arg(String(root.batchDeleteCompleted))
+                            .arg(String(root.batchDeleteTotal))
+                      : qsTr("Delete (%1)").arg(String(root.selectedFilesCount))
+                variant: "danger"
+                compact: true
+                visible: root.selectedFilesCount > 0 || root.batchDeleteRunning
+                enabled: !root.loading && !root.batchDeleteRunning
+                onClicked: root.deleteSelectedRequested()
+            }
+
+            AppButton {
+                id: uploadPwmbButton
+                objectName: "uploadPwmbButton"
+                text: qsTr("Upload")
+                variant: "primary"
+                compact: true
+                onClicked: root.uploadRequested()
+            }
+        }
+    }
 
     RowLayout {
+        id: typeFilterGroup
+        objectName: "filesTypeFilterGroup"
         spacing: 8
 
         Text {
@@ -49,7 +86,8 @@ RowLayout {
         AppComboBox {
             id: typeFilterCombo
             objectName: "filesTypeFilter"
-            Layout.preferredWidth: 130
+            Layout.preferredWidth: 118
+            Layout.preferredHeight: 30
             textRole: "label"
             model: root.typeFilterOptions
             currentIndex: root.typeFilterCurrentIndex

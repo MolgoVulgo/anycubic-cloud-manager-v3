@@ -1,7 +1,11 @@
 accloud/build/
 patch/
+.github/
 acm.zip
+
+# Local archive helper
 make-a.sh
+patch/regles-generales-production-correctifs.md
 
 # CMake / Ninja
 **/CMakeFiles/

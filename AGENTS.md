@@ -47,10 +47,10 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
-Les validations doivent rester ciblées sauf demande explicite de full gate.
-
 ## Politique de modification
 
 Avant de modifier, identifier le runtime réellement chargé et le module propriétaire du comportement. Un échec de validation obligatoire arrête la chaîne de livraison ; il ne doit pas être masqué par une réparation opportuniste.
+
+Il est expressément interdit d'exécuter des tests avant un commit sauf si l'utilisateur le demande explicitement. Dans ce cas seulement, les tests pertinents peuvent être lancés.
 
 Ne jamais commit ni push sans instruction explicite.

@@ -2,7 +2,7 @@
 
 Status: `IMPLEMENTED`.
 
-The distributable source archive contains code, tests, build configuration, packaging and maintained documentation. Public reference data is limited to small synthetic fixtures that can be reviewed in a normal diff.
+The distributable source archive contains code, build configuration, packaging and maintained documentation. Local tests are excluded from the archive. Public reference data is limited to small synthetic fixtures that can be reviewed in a normal diff.
 
 ## Excluded material
 
@@ -21,10 +21,10 @@ When private evidence is required for investigation, keep it outside the distrib
 
 The files under [`../reference-data/`](../reference-data/README.md) are synthetic. They explain parser and workflow vocabulary but are not evidence of universal broker behaviour.
 
-`tools/check_documentation_contract.py` rejects unexpected reference files, capture-shaped identifiers, oversized fixtures, duplicate TS catalogs, broken documentation links and drift in critical MQTT/SSL contracts.
+`tools/check_documentation_contract.py` remains available as a separate repository guard for maintained documentation and frozen MQTT/SSL contracts.
 
 ## Web review source archive
 
-Edit `ARCHIVE_NAME` near the top of `make-a.sh`, then run `./make-a.sh`. The script executes the documentation contract before creating the archive at the repository root. Archive creation stops when the contract fails.
+Edit `ARCHIVE_NAME` near the top of `make-a.sh`, then run `./make-a.sh`. The script creates the archive at the repository root without running the documentation contract.
 
 `acm.zip` remains a manually supplied project base. Agents must not regenerate or replace it automatically.

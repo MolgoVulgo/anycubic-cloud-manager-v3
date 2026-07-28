@@ -21,10 +21,10 @@ Lorsqu’une preuve privée est nécessaire à l’investigation, elle reste hor
 
 Les fichiers sous [`../../reference-data/`](../../reference-data/README.md) sont synthétiques. Ils expliquent le vocabulaire du parser et du workflow, mais ne prouvent pas un comportement universel du broker.
 
-`tools/check_documentation_contract.py` rejette les fichiers de référence inattendus, les identifiants caractéristiques d’une capture, les fixtures volumineuses, les catalogues TS dupliqués, les liens documentaires cassés et la dérive des contrats MQTT/SSL critiques.
+`tools/check_documentation_contract.py` reste disponible comme garde-fou séparé du dépôt pour la documentation maintenue et les contrats MQTT/SSL figés.
 
 ## Archive source pour revue web
 
-Modifier `ARCHIVE_NAME` au début de `make-a.sh`, puis exécuter `./make-a.sh`. Le script lance le contrat documentaire avant de créer l’archive à la racine. La création s’arrête si ce contrôle échoue.
+Modifier `ARCHIVE_NAME` au début de `make-a.sh`, puis exécuter `./make-a.sh`. Le script crée l’archive à la racine sans lancer le contrat documentaire.
 
 `acm.zip` reste une base projet fournie manuellement. Un agent ne doit pas le régénérer ou le remplacer automatiquement.

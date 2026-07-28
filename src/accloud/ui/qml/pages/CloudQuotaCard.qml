@@ -13,50 +13,45 @@ Rectangle {
     property color backgroundColor: Theme.bgWindow
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 48
+    Layout.preferredHeight: 36
     radius: Theme.radiusControl
     color: Theme.bgSurface
     border.width: Theme.borderWidth
     border.color: Theme.borderDefault
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
-        anchors.topMargin: 6
-        anchors.bottomMargin: 6
-        spacing: 6
+        anchors.leftMargin: 10
+        anchors.rightMargin: 10
+        spacing: 10
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 14
+        Text {
+            text: root.usedText
+            color: Theme.fgPrimary
+            font.pixelSize: Theme.fontBodyPx
+            font.bold: true
+            elide: Text.ElideRight
+        }
 
-            Text {
-                text: root.usedText
-                color: Theme.fgPrimary
-                font.pixelSize: Theme.fontBodyPx
-                font.bold: true
-            }
+        Text {
+            text: root.freeText
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontCaptionPx
+            elide: Text.ElideRight
+        }
 
-            Text {
-                text: root.freeText
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontCaptionPx
-            }
-
-            Text {
-                text: qsTr("Files ") + root.filesCount
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontCaptionPx
-            }
-
-            Item { Layout.fillWidth: true }
+        Text {
+            text: qsTr("Files ") + root.filesCount
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontCaptionPx
+            elide: Text.ElideRight
         }
 
         Item {
             objectName: "quotaFreeSpaceBar"
             Layout.fillWidth: true
-            Layout.preferredHeight: 12
+            Layout.minimumWidth: 160
+            Layout.preferredHeight: 10
 
             Rectangle {
                 anchors.fill: parent

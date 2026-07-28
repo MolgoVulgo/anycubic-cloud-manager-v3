@@ -27,14 +27,31 @@ def find_raw_dialogs() -> list[pathlib.Path]:
     return offenders
 
 
-def has_tab_setting(path: pathlib.Path, object_id: str, key: str, value: str) -> bool:
+def has_tab_property(path: pathlib.Path, object_id: str, expression: str) -> bool:
     text = read_text(path)
     pattern = (
         r"AppTabBar\s*\{"
         r"(?:(?!AppTabBar\s*\{).)*?"
         + re.escape(f"id: {object_id}")
         + r"(?:(?!\}).)*?"
-        + re.escape(f'{key}: "{value}"')
+        + re.escape(expression)
+    )
+    return re.search(pattern, text, flags=re.DOTALL) is not None
+
+
+def has_tab_setting(path: pathlib.Path, object_id: str, key: str, value: str) -> bool:
+    return has_tab_property(path, object_id, f'{key}: "{value}"')
+
+
+def has_object_property(path: pathlib.Path, object_type: str, object_id: str, expression: str) -> bool:
+    text = read_text(path)
+    pattern = (
+        re.escape(object_type)
+        + r"\s*\{"
+        + r"(?:(?!\}).)*?"
+        + re.escape(f"id: {object_id}")
+        + r"(?:(?!\}).)*?"
+        + re.escape(expression)
     )
     return re.search(pattern, text, flags=re.DOTALL) is not None
 
@@ -45,8 +62,14 @@ def check_tabs_config() -> list[str]:
     main_window = QML_ROOT / "MainWindow.qml"
     if not has_tab_setting(main_window, "controlTabs", "tabVariant", "navigation"):
         issues.append("MainWindow controlTabs missing `tabVariant: \"navigation\"`")
-    if not has_tab_setting(main_window, "controlTabs", "tabSizingMode", "equal"):
-        issues.append("MainWindow controlTabs missing `tabSizingMode: \"equal\"`")
+    if not has_tab_setting(main_window, "controlTabs", "tabSizingMode", "content"):
+        issues.append("MainWindow controlTabs missing `tabSizingMode: \"content\"`")
+    if not has_tab_property(main_window, "controlTabs", "minTabWidth: 120"):
+        issues.append("MainWindow controlTabs missing `minTabWidth: 120`")
+    if not has_tab_property(main_window, "controlTabs", 'inactiveColor: "transparent"'):
+        issues.append("MainWindow controlTabs missing transparent inactive background")
+    if not has_tab_property(main_window, "controlTabs", 'stripColor: "transparent"'):
+        issues.append("MainWindow controlTabs missing transparent strip background")
 
     printers_tabs = QML_ROOT / "pages" / "PrintersTabsBar.qml"
     printers_text = read_text(printers_tabs)
@@ -82,11 +105,22 @@ def check_tabs_geometry_v2() -> list[str]:
         "anchors.margins: 0",
         "spacing: 0",
         "embeddedInTabsContainer: true",
-        "stripColor: Theme.bgSurface",
+        'inactiveColor: "transparent"',
+        'stripColor: "transparent"',
         "tabTopCornerRadius: Theme.radiusControl",
     ):
         if required not in main_text:
             issues.append(f"MainWindow tabsPanel missing `{required}`")
+
+    if not has_object_property(main_window, "Rectangle", "tabsPanel", 'color: "transparent"'):
+        issues.append("MainWindow tabsPanel missing transparent background")
+    for required in (
+        "Layout.leftMargin: Theme.borderWidth",
+        "Layout.rightMargin: Theme.borderWidth",
+        "Layout.bottomMargin: Theme.borderWidth",
+    ):
+        if not has_object_property(main_window, "StackLayout", "controlRoomStack", required):
+            issues.append(f"MainWindow controlRoomStack missing `{required}`")
 
     cloud_files_page = QML_ROOT / "pages" / "CloudFilesPage.qml"
     cloud_text = read_text(cloud_files_page)
@@ -94,6 +128,55 @@ def check_tabs_geometry_v2() -> list[str]:
         issues.append("CloudFilesPage missing `embeddedInTabsContainer` property")
     if "embeddedInTabsContainer: root.embeddedInTabsContainer" not in cloud_text:
         issues.append("CloudFilesPage pageFrame missing embedded propagation")
+    if "readonly property int tableRowHorizontalMargin: 12" not in cloud_text:
+        issues.append("CloudFilesPage missing coherent 12 px table side inset")
+    if "scrollbarReserve: root.tableScrollbarReserve" not in cloud_text:
+        issues.append("CloudFilesPage missing stable scrollbar reserve propagation")
+
+    cloud_toolbar = QML_ROOT / "pages" / "CloudFilesToolbar.qml"
+    toolbar_text = read_text(cloud_toolbar)
+    for required in (
+        'objectName: "filesPrimaryActionsHost"',
+        'objectName: "filesPrimaryActions"',
+        'objectName: "deleteSelectedFilesButton"',
+        "visible: root.selectedFilesCount > 0 || root.batchDeleteRunning",
+        "anchors.centerIn: parent",
+    ):
+        if required not in toolbar_text:
+            issues.append(f"CloudFilesToolbar missing `{required}`")
+
+    cloud_table_panel = QML_ROOT / "pages" / "CloudFilesTablePanel.qml"
+    table_panel_text = read_text(cloud_table_panel)
+    for required in (
+        'objectName: "filesTablePanel"',
+        "border.width: Theme.borderWidth",
+        "Layout.leftMargin: root.tableRowHorizontalMargin",
+        "Layout.rightMargin: root.tableRowHorizontalMargin",
+        "horizontalMargin: root.tableRowHorizontalMargin",
+        "signal fileSelectionToggled(string fileId, string fileName, bool checked)",
+    ):
+        if required not in table_panel_text:
+            issues.append(f"CloudFilesTablePanel missing `{required}`")
+
+    cloud_table_row = QML_ROOT / "pages" / "CloudFilesTableRow.qml"
+    table_row_text = read_text(cloud_table_row)
+    for required in (
+        'objectName: "fileRowSelectionCheckBox"',
+        "property bool batchSelected: false",
+        "signal selectionToggled(string fileId, string fileName, bool checked)",
+    ):
+        if required not in table_row_text:
+            issues.append(f"CloudFilesTableRow missing `{required}`")
+
+    for required in (
+        "property var selectedFiles: []",
+        "readonly property int selectedFilesCount: selectedFiles.length",
+        "function startBatchDelete()",
+        "id: batchDeleteConfirmDialog",
+        "onDeleteSelectedRequested: root.requestDeleteSelected()",
+    ):
+        if required not in cloud_text:
+            issues.append(f"CloudFilesPage missing `{required}`")
 
     printer_page = QML_ROOT / "pages" / "PrinterPage.qml"
     printer_page_text = read_text(printer_page)

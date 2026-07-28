@@ -5,7 +5,9 @@ import "../components"
 
 Rectangle {
     id: root
+    objectName: "filesPaginationBar"
 
+    property int horizontalMargin: 12
     property int currentPage: 0
     property int totalPages: 1
     property int rowsCount: 0
@@ -18,16 +20,15 @@ Rectangle {
 
     visible: visibleWhen
     Layout.fillWidth: true
-    Layout.preferredHeight: 40
-    radius: Theme.radiusControl
-    color: Theme.bgWindow
-    border.width: Theme.borderWidth
-    border.color: Theme.borderSubtle
+    Layout.preferredHeight: 34
+    radius: 0
+    color: "transparent"
+    border.width: 0
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 10
-        anchors.rightMargin: 10
+        anchors.leftMargin: root.horizontalMargin
+        anchors.rightMargin: root.horizontalMargin
         spacing: 8
 
         Text {
@@ -51,7 +52,8 @@ Rectangle {
         AppComboBox {
             id: filesRowsPerPage
             objectName: "filesRowsPerPage"
-            Layout.preferredWidth: 88
+            Layout.preferredWidth: 80
+            Layout.preferredHeight: 30
             textRole: "label"
             model: [
                 { "value": 10, "label": "10" },
@@ -71,6 +73,7 @@ Rectangle {
         AppButton {
             text: qsTr("Previous")
             variant: "secondary"
+            compact: true
             enabled: root.currentPage > 0
             onClicked: root.previousRequested()
         }
@@ -78,6 +81,7 @@ Rectangle {
         AppButton {
             text: qsTr("Next")
             variant: "secondary"
+            compact: true
             enabled: root.currentPage < root.totalPages - 1
             onClicked: root.nextRequested()
         }
