@@ -30,3 +30,4 @@ accloud/.qtcreator/
 accloud/CMakeLists.txt.qtds
 accloud/ui.zip
 .codex
+**/__pycache__/**

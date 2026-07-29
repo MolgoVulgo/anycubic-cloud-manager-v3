@@ -368,6 +368,28 @@ def check_cloud_file_details_contract() -> list[str]:
     if details_text.count("DetailsPanel {") != 4:
         issues.append("CloudFileDetailsDialog must define one DetailsPanel component and use it for four tabs")
 
+    details_card_start = details_text.find("component DetailsCard: Rectangle {")
+    details_panel_start = details_text.find("component DetailsPanel: Flickable {")
+    details_card_text = (
+        details_text[details_card_start:details_panel_start]
+        if 0 <= details_card_start < details_panel_start
+        else ""
+    )
+    for required in (
+        "default property alias contentData: detailsBody.data",
+        "id: detailsBody",
+        'objectName: "cloudFileDetailsCardBody"',
+        "Layout.fillHeight: false",
+        "Layout.maximumHeight: implicitHeight",
+        "Layout.alignment: Qt.AlignTop",
+        "Item {\n                Layout.fillWidth: true\n                Layout.fillHeight: true",
+    ):
+        if required not in details_card_text:
+            issues.append(
+                "CloudFileDetailsDialog DetailsCard must keep its field body compact at the top "
+                f"and absorb remaining height below it with `{required}`"
+            )
+
     for compact_row_token in (
         "Layout.fillHeight: false",
         "Layout.minimumHeight: implicitHeight",

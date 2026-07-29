@@ -249,6 +249,8 @@ TestCase {
         var overviewCompatibilityCard = findObjectByName(dialog, "cloudFileDetailsOverviewCompatibilityCard")
         var summaryFileNameField = findObjectByName(dialog, "cloudFileDetailsSummaryFileNameField")
         var overviewFileNameRow = findObjectByName(dialog, "cloudFileDetailsOverviewFileNameRow")
+        var overviewTypeRow = findObjectByName(dialog, "cloudFileDetailsOverviewTypeRow")
+        var overviewUploadedRow = findObjectByName(dialog, "cloudFileDetailsOverviewUploadedRow")
         var technicalTab = findObjectByName(dialog, "cloudFileDetailsTechnicalTab")
         var cloudMetadataTab = findObjectByName(dialog, "cloudFileDetailsCloudMetadataTab")
         var cloudMetadataPanel = findObjectByName(dialog, "cloudFileDetailsCloudMetadataPanel")
@@ -265,6 +267,8 @@ TestCase {
         verify(overviewCompatibilityCard !== null)
         verify(summaryFileNameField !== null)
         verify(overviewFileNameRow !== null)
+        verify(overviewTypeRow !== null)
+        verify(overviewUploadedRow !== null)
         verify(technicalTab !== null)
         verify(cloudMetadataTab !== null)
         verify(cloudMetadataPanel !== null)
@@ -282,6 +286,13 @@ TestCase {
         tryVerify(function() {
             return Math.abs(summaryFileNameField.height - summaryFileNameField.implicitHeight) <= 1
                     && Math.abs(overviewFileNameRow.height - overviewFileNameRow.implicitHeight) <= 1
+        }, 1000)
+        tryVerify(function() {
+            var firstGap = overviewTypeRow.y
+                    - (overviewFileNameRow.y + overviewFileNameRow.height)
+            return Math.abs(firstGap - 6) <= 1
+                    && overviewUploadedRow.y + overviewUploadedRow.height
+                       < overviewFileCard.height - 20
         }, 1000)
         tryVerify(function() {
             var deleteX = deleteButton.mapToItem(dialog.contentItem, 0, 0).x

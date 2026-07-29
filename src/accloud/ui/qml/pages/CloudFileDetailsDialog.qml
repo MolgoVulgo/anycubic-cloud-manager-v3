@@ -135,7 +135,7 @@ AppDialogFrame {
     component DetailsCard: Rectangle {
         id: detailsCard
         property string heading: ""
-        default property alias contentData: detailsColumn.data
+        default property alias contentData: detailsBody.data
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.preferredWidth: 1
@@ -158,6 +158,23 @@ AppDialogFrame {
                 font.pixelSize: Theme.fontSectionPx
                 font.bold: true
                 wrapMode: Text.WordWrap
+            }
+
+            ColumnLayout {
+                id: detailsBody
+                objectName: "cloudFileDetailsCardBody"
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                Layout.minimumHeight: implicitHeight
+                Layout.preferredHeight: implicitHeight
+                Layout.maximumHeight: implicitHeight
+                Layout.alignment: Qt.AlignTop
+                spacing: 6
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
             }
         }
     }
@@ -384,6 +401,7 @@ AppDialogFrame {
                             valueText: root.valueText(root.fileData.fileName)
                         }
                         DetailRow {
+                            objectName: "cloudFileDetailsOverviewTypeRow"
                             labelText: qsTr("Type")
                             valueText: root.providerText(root.fileTypeLabelProvider,
                                                          root.fileData.fileName,
@@ -394,6 +412,7 @@ AppDialogFrame {
                             valueText: root.valueText(root.fileData.sizeText)
                         }
                         DetailRow {
+                            objectName: "cloudFileDetailsOverviewUploadedRow"
                             labelText: qsTr("Uploaded")
                             valueText: root.providerText(root.displayDateProvider,
                                                          root.fileData.uploadTime,
