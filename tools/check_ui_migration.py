@@ -330,6 +330,111 @@ def check_form_components() -> list[str]:
     return issues
 
 
+def check_cloud_file_details_contract() -> list[str]:
+    issues: list[str] = []
+    details_dialog = QML_ROOT / "pages" / "CloudFileDetailsDialog.qml"
+    cloud_files_page = QML_ROOT / "pages" / "CloudFilesPage.qml"
+    main_window = QML_ROOT / "MainWindow.qml"
+
+    details_text = read_text(details_dialog)
+    for required in (
+        'objectName: "cloudFileDetailsThumbnail"',
+        'source: root.thumbnailSource()',
+        'property bool showAdvancedDetails: false',
+        'objectName: "cloudFileDetailsCompactSummaryCard"',
+        'Layout.maximumHeight: 170',
+        'Layout.minimumHeight: 300',
+        'component DetailsPanel: Flickable {',
+        'default property alias cardData: cardsRow.data',
+        'contentHeight: Math.max(height,',
+        'height: Math.max(implicitHeight,',
+        'Layout.fillHeight: true',
+        'Layout.preferredWidth: 1',
+        'objectName: "cloudFileDetailsOverviewFileCard"',
+        'objectName: "cloudFileDetailsOverviewCompatibilityCard"',
+        'objectName: "cloudFileDetailsTechnicalTab"',
+        'visible: root.showAdvancedDetails',
+        'objectName: "cloudFileDetailsCloudMetadataTab"',
+        'text: qsTr("Cloud Metadata")',
+        'visible: root.buildDebugEnabled',
+        'objectName: "cloudFileDetailsCloudMetadataPanel"',
+        'headerActionsData:',
+        'objectName: "cloudFileDetailsPrintButton"',
+    ):
+        if required not in details_text:
+            issues.append(f"CloudFileDetailsDialog missing `{required}`")
+
+
+    if details_text.count("DetailsPanel {") != 4:
+        issues.append("CloudFileDetailsDialog must define one DetailsPanel component and use it for four tabs")
+
+    for compact_row_token in (
+        "Layout.fillHeight: false",
+        "Layout.minimumHeight: implicitHeight",
+        "Layout.preferredHeight: implicitHeight",
+        "Layout.maximumHeight: implicitHeight",
+        "Layout.alignment: Qt.AlignTop",
+    ):
+        if details_text.count(compact_row_token) < 2:
+            issues.append(
+                "CloudFileDetailsDialog DetailRow and SummaryField must both enforce "
+                f"compact natural-height rows with `{compact_row_token}`"
+            )
+
+    footer_marker = "footerTrailingData: ["
+    footer_index = details_text.find(footer_marker)
+    if footer_index < 0:
+        issues.append("CloudFileDetailsDialog missing footerTrailingData")
+    else:
+        footer_text = details_text[footer_index:]
+        close_index = footer_text.find('objectName: "cloudFileDetailsCloseButton"')
+        download_index = footer_text.find('objectName: "cloudFileDetailsDownloadButton"')
+        print_index = footer_text.find('objectName: "cloudFileDetailsPrintButton"')
+        if not (0 <= close_index < download_index < print_index):
+            issues.append("CloudFileDetailsDialog footer actions must be ordered Close, Download, Print")
+        if footer_text.count("Layout.minimumWidth: 112") < 3:
+            issues.append("CloudFileDetailsDialog footer actions must use a consistent minimum width")
+
+    for forbidden in (
+        'fileData.downloadUrl',
+        'qsTr("Download URL")',
+        'qsTr("Thumbnail URL")',
+        'ID: %1 | status_code:',
+    ):
+        if forbidden in details_text:
+            issues.append(f"CloudFileDetailsDialog exposes forbidden standard detail `{forbidden}`")
+
+    page_text = read_text(cloud_files_page)
+    if 'showAdvancedDetails: root.showAdvancedDetails' not in page_text:
+        issues.append("CloudFilesPage does not forward the advanced-details setting")
+
+    main_text = read_text(main_window)
+    for required in (
+        'ui.cloudFiles.showAdvancedDetails',
+        'objectName: "menuSettingsCloudFileAdvancedDetails"',
+        'showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled',
+    ):
+        if required not in main_text:
+            issues.append(f"MainWindow cloud-file settings contract missing `{required}`")
+
+    menu_marker = 'objectName: "menuSettingsCloudFileAdvancedDetails"'
+    marker_index = main_text.find(menu_marker)
+    if marker_index >= 0:
+        next_item_index = main_text.find('\n            MenuItem {', marker_index + len(menu_marker))
+        menu_block = main_text[marker_index:next_item_index if next_item_index >= 0 else len(main_text)]
+        for required in (
+            'checkable: true',
+            'checked: root.cloudFileAdvancedDetailsEnabled',
+            'root.persistCloudFileDetailsSetting(checked)',
+        ):
+            if required not in menu_block:
+                issues.append(
+                    f"MainWindow advanced-details menu contract missing `{required}`"
+                )
+
+    return issues
+
+
 def find_legacy_alias_usage() -> list[str]:
     legacy = ("textPrimary", "textSecondary", "panel", "card", "panelStroke", "cardAlt")
     files_to_check = [
@@ -486,6 +591,7 @@ def main() -> int:
     errors.extend(f"- {msg}" for msg in check_runtime_status_rules())
     errors.extend(f"- {msg}" for msg in check_backend_message_contract())
     errors.extend(f"- {msg}" for msg in check_incremental_printer_models())
+    errors.extend(f"- {msg}" for msg in check_cloud_file_details_contract())
 
     legacy_usage = find_legacy_alias_usage()
     if legacy_usage:
@@ -506,6 +612,7 @@ def main() -> int:
     print("- Runtime statuses avoid raw text and free concatenation")
     print("- Backend UI message envelope contract is enforced")
     print("- Printer selection lists use incremental C++ models")
+    print("- Cloud file details keep standard and technical data separated")
     print("- No legacy theme aliases in migrated files")
     return 0
 

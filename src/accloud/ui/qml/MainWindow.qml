@@ -37,6 +37,8 @@ ApplicationWindow {
     property string persistedMqttAuthMode: "slicer"
     property bool pwszPreviewCompletionEnabled: true
     property bool pwszPreviewConfirmationEnabled: true
+    property bool cloudFileAdvancedDetailsEnabled: false
+    readonly property string cloudFileAdvancedDetailsSettingsKey: "ui.cloudFiles.showAdvancedDetails"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -184,6 +186,27 @@ ApplicationWindow {
             uiSettingsBridge.sync()
     }
 
+    function loadCloudFileDetailsSettings() {
+        var defaultValue = root.debugUi ? "true" : "false"
+        if (!root.hasUiSettingsBridge()) {
+            root.cloudFileAdvancedDetailsEnabled = root.debugUi
+            return
+        }
+        root.cloudFileAdvancedDetailsEnabled = String(uiSettingsBridge.getString(
+                root.cloudFileAdvancedDetailsSettingsKey,
+                defaultValue)).toLowerCase() === "true"
+    }
+
+    function persistCloudFileDetailsSetting(value) {
+        root.cloudFileAdvancedDetailsEnabled = value === true
+        if (!root.hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(root.cloudFileAdvancedDetailsSettingsKey,
+                                   root.cloudFileAdvancedDetailsEnabled ? "true" : "false")
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
     function openUploadDialog() {
         uploadDialog.open()
     }
@@ -234,6 +257,7 @@ ApplicationWindow {
         root.loadLanguageFromSettings()
         root.loadMqttAuthModeFromSettings()
         root.loadPwszUploadSettings()
+        root.loadCloudFileDetailsSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
                     || sessionImportBridge === null
@@ -362,6 +386,21 @@ ApplicationWindow {
                 onTriggered: {
                     root.pwszPreviewConfirmationEnabled = checked
                     root.persistPwszUploadSetting("cloud.upload.confirmPwszPreview2", checked)
+                }
+            }
+
+            MenuSeparator {}
+
+            MenuItem {
+                objectName: "menuSettingsCloudFileAdvancedDetails"
+                text: qsTr("Show technical file details")
+                checkable: true
+                checked: root.cloudFileAdvancedDetailsEnabled
+                onTriggered: {
+                    root.persistCloudFileDetailsSetting(checked)
+                    root.statusText = checked
+                            ? qsTr("Technical file details enabled.")
+                            : qsTr("Technical file details hidden.")
                 }
             }
 
@@ -1148,6 +1187,7 @@ ApplicationWindow {
                             id: cloudFilesPage
                             objectName: "cloudFilesPage"
                             embeddedInTabsContainer: true
+                            showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }

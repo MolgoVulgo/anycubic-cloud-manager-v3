@@ -42,188 +42,263 @@
         </message>
     </context>
     <context>
-        <name>CloudFileDetailsDialog</name>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="27" />
-            <source>ID: %1 | status_code: %2 | gcode_id: %3</source>
-            <translation>ID : %1 | status_code : %2 | gcode_id : %3</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="72" />
-            <source>Rename</source>
-            <translation>Renommer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="103" />
-            <source>Basic Information</source>
-            <translation>Informations de base</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="104" />
-            <source>Slice Settings</source>
-            <translation>Parametres de tranchage</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="105" />
-            <source>Cloud Metadata</source>
-            <translation>Métadonnées cloud</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="129" />
-            <source>File name</source>
-            <translation>Nom du fichier</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="138" />
-            <source>Type</source>
-            <translation>Type</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="141" />
-            <source>Size</source>
-            <translation>Taille</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="144" />
-            <source>Date</source>
-            <translation>Date</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="147" />
-            <source>status_code</source>
-            <translation>status_code</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="150" />
-            <source>gcode_id</source>
-            <translation>gcode_id</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="172" />
-            <source>Machine</source>
-            <translation>Machine</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="175" />
-            <source>Material</source>
-            <translation>Materiau</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="178" />
-            <source>Print time</source>
-            <translation>Temps d'impression</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="181" />
-            <source>Layer thickness</source>
-            <translation>Epaisseur de couche</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="184" />
-            <source>Layers</source>
-            <translation>Couches</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="187" />
-            <source>Resin usage</source>
-            <translation>Consommation de resine</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="190" />
-            <source>Dimensions</source>
-            <translation>Dimensions</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="193" />
-            <source>Bottom layers</source>
-            <translation>Couches de base</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="196" />
-            <source>Exposure time</source>
-            <translation>Temps d'exposition</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="199" />
-            <source>Off time</source>
-            <translation>Temps d'extinction</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="202" />
-            <source>Printers</source>
-            <translation>Imprimantes</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="211" />
-            <source>Slice md5</source>
-            <translation>MD5 de tranche</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="240" />
-            <source>Uploaded</source>
-            <translation>Téléversé</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="243" />
-            <source>Created</source>
-            <translation>Créé</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="246" />
-            <source>Updated</source>
-            <translation>Mis à jour</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="249" />
-            <source>Thumbnail URL</source>
-            <translation>URL de miniature</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="258" />
-            <source>Download URL</source>
-            <translation>URL de téléchargement</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="267" />
-            <source>Region</source>
-            <translation>Région</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="270" />
-            <source>Bucket</source>
-            <translation>Bac</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="273" />
-            <source>Path</source>
-            <translation>Chemin</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="290" />
-            <source>Delete</source>
-            <translation>Supprimer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="299" />
-            <source>Download</source>
-            <translation>Telecharger</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="305" />
-            <source>Print</source>
-            <translation>Imprimer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="310" />
-            <source>Remote print via Printers workflow</source>
-            <translation>Impression a distance via le flux Imprimantes</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="315" />
-            <source>Close</source>
-            <translation>Fermer</translation>
-        </message>
-    </context>
+    <name>CloudFileDetailsDialog</name>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="39"/>
+        <source>Ready</source>
+        <translation>Prêt</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="41"/>
+        <source>Processing</source>
+        <translation>Traitement en cours</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="43"/>
+        <source>Error</source>
+        <translation>Erreur</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="44"/>
+        <source>Unknown</source>
+        <translation>Inconnu</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="53"/>
+        <source>%1 • %2 • Uploaded on %3 • %4</source>
+        <translation>%1 • %2 • Téléversé le %3 • %4</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="132"/>
+        <source>Rename</source>
+        <translation>Renommer</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186"/>
+        <source>Preview unavailable</source>
+        <translation>Aperçu indisponible</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="199"/>
+        <source>File summary</source>
+        <translation>Résumé du fichier</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="203"/>
+        <source>File name</source>
+        <translation>Nom du fichier</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="207"/>
+        <source>Status</source>
+        <translation>État</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="211"/>
+        <source>Type / size</source>
+        <translation>Type / taille</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="212"/>
+        <source>%1 • %2</source>
+        <translation>%1 • %2</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="219"/>
+        <source>Uploaded</source>
+        <translation>Téléversé</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233"/>
+        <source>Print summary</source>
+        <translation>Résumé d&#x27;impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="237"/>
+        <source>Machine</source>
+        <translation>Machine</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="241"/>
+        <source>Material</source>
+        <translation>Matériau</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="245"/>
+        <source>Print time</source>
+        <translation>Temps d&#x27;impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="249"/>
+        <source>Layers</source>
+        <translation>Couches</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="285"/>
+        <source>Information</source>
+        <translation>Informations</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="289"/>
+        <source>Print Settings</source>
+        <translation>Paramètres d&#x27;impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="293"/>
+        <source>Technical Details</source>
+        <translation>Détails techniques</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="326"/>
+        <source>Cloud Metadata</source>
+        <translation>Métadonnées cloud</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="322"/>
+        <source>File</source>
+        <translation>Fichier</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="330"/>
+        <source>Type</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="336"/>
+        <source>Size</source>
+        <translation>Taille</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="348"/>
+        <source>Compatibility</source>
+        <translation>Compatibilité</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="364"/>
+        <source>Printers</source>
+        <translation>Imprimantes</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="391"/>
+        <source>Layer profile</source>
+        <translation>Profil des couches</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="395"/>
+        <source>Layer thickness</source>
+        <translation>Épaisseur de couche</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="403"/>
+        <source>Bottom layers</source>
+        <translation>Couches de base</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="407"/>
+        <source>Dimensions</source>
+        <translation>Dimensions</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="413"/>
+        <source>Exposure and material</source>
+        <translation>Exposition et matériau</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="417"/>
+        <source>Exposure time</source>
+        <translation>Temps d&#x27;exposition</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="421"/>
+        <source>Off time</source>
+        <translation>Temps d&#x27;extinction</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="425"/>
+        <source>Resin usage</source>
+        <translation>Consommation de résine</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="457"/>
+        <source>Cloud identity</source>
+        <translation>Identité cloud</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="461"/>
+        <source>File ID</source>
+        <translation>ID du fichier</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="465"/>
+        <source>G-code ID</source>
+        <translation>ID G-code</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="469"/>
+        <source>Status code</source>
+        <translation>Code d&#x27;état</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="473"/>
+        <source>Region</source>
+        <translation>Région</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="479"/>
+        <source>Cloud object</source>
+        <translation>Objet cloud</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="483"/>
+        <source>Created</source>
+        <translation>Créé</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="489"/>
+        <source>Updated</source>
+        <translation>Mis à jour</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="495"/>
+        <source>Bucket</source>
+        <translation>Bac</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="499"/>
+        <source>Path</source>
+        <translation>Chemin</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="503"/>
+        <source>Slice MD5</source>
+        <translation>MD5 du tranchage</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="517"/>
+        <source>Delete</source>
+        <translation>Supprimer</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="527"/>
+        <source>Download</source>
+        <translation>Télécharger</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="534"/>
+        <source>Print</source>
+        <translation>Imprimer</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="539"/>
+        <source>Remote print via Printers workflow</source>
+        <translation>Impression à distance via le flux Imprimantes</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="545"/>
+        <source>Close</source>
+        <translation>Fermer</translation>
+    </message>
+</context>
     <context>
         <name>CloudFilesPage</name>
         <message>
@@ -1971,7 +2046,23 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <source>Confirm before modifying PWSZ files</source>
             <translation>Confirmer avant de modifier les fichiers PWSZ</translation>
         </message>
-    </context>
+    
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="396"/>
+        <source>Show technical file details</source>
+        <translation>Afficher les détails techniques des fichiers</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="402"/>
+        <source>Technical file details enabled.</source>
+        <translation>Détails techniques des fichiers activés.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="403"/>
+        <source>Technical file details hidden.</source>
+        <translation>Détails techniques des fichiers masqués.</translation>
+    </message>
+</context>
     <context>
         <name>MqttPage</name>
         <message>

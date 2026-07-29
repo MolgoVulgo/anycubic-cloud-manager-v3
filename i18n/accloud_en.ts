@@ -41,182 +41,257 @@
 <context>
     <name>CloudFileDetailsDialog</name>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="27"/>
-        <source>ID: %1 | status_code: %2 | gcode_id: %3</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="39"/>
+        <source>Ready</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="72"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="41"/>
+        <source>Processing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="43"/>
+        <source>Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="44"/>
+        <source>Unknown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="53"/>
+        <source>%1 • %2 • Uploaded on %3 • %4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="132"/>
         <source>Rename</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="103"/>
-        <source>Basic Information</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="104"/>
-        <source>Slice Settings</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="105"/>
-        <source>Cloud Metadata</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="129"/>
-        <source>File name</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="138"/>
-        <source>Type</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="141"/>
-        <source>Size</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="144"/>
-        <source>Date</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="147"/>
-        <source>status_code</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="150"/>
-        <source>gcode_id</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="172"/>
-        <source>Machine</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="175"/>
-        <source>Material</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="178"/>
-        <source>Print time</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="181"/>
-        <source>Layer thickness</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="184"/>
-        <source>Layers</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="187"/>
-        <source>Resin usage</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="190"/>
-        <source>Dimensions</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="193"/>
-        <source>Bottom layers</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="196"/>
-        <source>Exposure time</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186"/>
+        <source>Preview unavailable</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="199"/>
-        <source>Off time</source>
+        <source>File summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="202"/>
-        <source>Printers</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="203"/>
+        <source>File name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="207"/>
+        <source>Status</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="211"/>
-        <source>Slice md5</source>
+        <source>Type / size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="240"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="212"/>
+        <source>%1 • %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="219"/>
         <source>Uploaded</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="243"/>
-        <source>Created</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233"/>
+        <source>Print summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="246"/>
-        <source>Updated</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="237"/>
+        <source>Machine</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="241"/>
+        <source>Material</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="245"/>
+        <source>Print time</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="249"/>
-        <source>Thumbnail URL</source>
+        <source>Layers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="258"/>
-        <source>Download URL</source>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="285"/>
+        <source>Information</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="267"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="289"/>
+        <source>Print Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="293"/>
+        <source>Technical Details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="326"/>
+        <source>Cloud Metadata</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="322"/>
+        <source>File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="330"/>
+        <source>Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="336"/>
+        <source>Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="348"/>
+        <source>Compatibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="364"/>
+        <source>Printers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="391"/>
+        <source>Layer profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="395"/>
+        <source>Layer thickness</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="403"/>
+        <source>Bottom layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="407"/>
+        <source>Dimensions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="413"/>
+        <source>Exposure and material</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="417"/>
+        <source>Exposure time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="421"/>
+        <source>Off time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="425"/>
+        <source>Resin usage</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="457"/>
+        <source>Cloud identity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="461"/>
+        <source>File ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="465"/>
+        <source>G-code ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="469"/>
+        <source>Status code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="473"/>
         <source>Region</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="270"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="479"/>
+        <source>Cloud object</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="483"/>
+        <source>Created</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="489"/>
+        <source>Updated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="495"/>
         <source>Bucket</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="273"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="499"/>
         <source>Path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="290"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="503"/>
+        <source>Slice MD5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="517"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="299"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="527"/>
         <source>Download</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="305"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="534"/>
         <source>Print</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="310"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="539"/>
         <source>Remote print via Printers workflow</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="315"/>
+        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="545"/>
         <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1803,6 +1878,22 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
     <message>
         <location filename="../ui/qml/MainWindow.qml" line="1"/>
         <source>Confirm before modifying PWSZ files</source>
+        <translation type="unfinished"></translation>
+    </message>
+
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="396"/>
+        <source>Show technical file details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="402"/>
+        <source>Technical file details enabled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/MainWindow.qml" line="403"/>
+        <source>Technical file details hidden.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -6,9 +6,11 @@ import "../components"
 
 AppDialogFrame {
     id: root
+    objectName: "cloudFileDetailsDialog"
 
     property var fileData: ({})
     property bool buildDebugEnabled: false
+    property bool showAdvancedDetails: false
     property var fileTypeLabelProvider: null
     property var fileNameWithoutExtensionProvider: null
     property var displayDateProvider: null
@@ -23,67 +25,309 @@ AppDialogFrame {
         return typeof provider === "function" ? String(provider(arg)) : fallback
     }
 
-    title: providerText(fileNameWithoutExtensionProvider, fileData.fileName, "-")
-    subtitle: qsTr("ID: %1 | status_code: %2 | gcode_id: %3")
-                  .arg(String(fileData.fileId || "-"))
-                  .arg(String(fileData.statusCode || "-"))
-                  .arg(String(fileData.gcodeId || "-"))
-    minimumWidth: 860
-    maximumWidth: 1020
-    minimumHeight: 620
-    maximumHeight: 920
+    function valueText(value) {
+        if (value === undefined || value === null)
+            return "-"
+        var text = String(value).trim()
+        return text.length > 0 ? text : "-"
+    }
 
-    RowLayout {
+    function statusText() {
+        var status = String(fileData.status || "").trim().toUpperCase()
+        var code = Number(fileData.statusCode)
+        if (code === 1 || status === "READY")
+            return qsTr("Ready")
+        if (code === 2 || status === "PROCESSING")
+            return qsTr("Processing")
+        if (status === "FAILED" || status === "ERROR")
+            return qsTr("Error")
+        return qsTr("Unknown")
+    }
+
+    function thumbnailSource() {
+        var source = valueText(fileData.thumbnailUrl)
+        return source === "-" ? "" : source
+    }
+
+    function summaryText() {
+        return qsTr("%1 • %2 • Uploaded on %3 • %4")
+                .arg(providerText(fileTypeLabelProvider, fileData.fileName, "-"))
+                .arg(valueText(fileData.sizeText))
+                .arg(providerText(displayDateProvider, fileData.uploadTime, "-"))
+                .arg(statusText())
+    }
+
+    onShowAdvancedDetailsChanged: {
+        if (!showAdvancedDetails && detailsTabBar.currentIndex === 2)
+            detailsTabBar.currentIndex = 0
+    }
+
+    onBuildDebugEnabledChanged: {
+        if (!buildDebugEnabled && detailsTabBar.currentIndex === 3)
+            detailsTabBar.currentIndex = 0
+    }
+
+    component DetailRow: RowLayout {
+        id: detailRow
+        property string labelText: ""
+        property string valueText: "-"
+        property int labelWidth: 132
         Layout.fillWidth: true
-        spacing: Theme.gapRow
+        Layout.fillHeight: false
+        Layout.minimumHeight: implicitHeight
+        Layout.preferredHeight: implicitHeight
+        Layout.maximumHeight: implicitHeight
+        Layout.alignment: Qt.AlignTop
+        spacing: 8
 
-        Rectangle {
-            Layout.preferredWidth: 64
-            Layout.preferredHeight: 64
-            radius: Theme.radiusControl
-            color: Theme.accentSoft
-            border.width: Theme.borderWidth
-            border.color: Theme.borderDefault
-
-            Text {
-                anchors.centerIn: parent
-                text: root.providerText(root.fileTypeLabelProvider, root.fileData.fileName, "-")
-                color: Theme.fgPrimary
-                font.pixelSize: Theme.fontCaptionPx
-                font.bold: true
-            }
+        Text {
+            Layout.preferredWidth: detailRow.labelWidth
+            Layout.alignment: Qt.AlignTop
+            text: detailRow.labelText
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontBodyPx
+            wrapMode: Text.WordWrap
         }
 
-        ColumnLayout {
+        Text {
             Layout.fillWidth: true
-            spacing: 2
+            Layout.alignment: Qt.AlignTop
+            text: detailRow.valueText
+            color: Theme.fgPrimary
+            font.pixelSize: Theme.fontBodyPx
+            wrapMode: Text.WrapAnywhere
+            textFormat: Text.PlainText
+        }
+    }
+
+    component SummaryField: RowLayout {
+        id: summaryField
+        property string labelText: ""
+        property string valueText: "-"
+        Layout.fillWidth: true
+        Layout.fillHeight: false
+        Layout.minimumHeight: implicitHeight
+        Layout.preferredHeight: implicitHeight
+        Layout.maximumHeight: implicitHeight
+        Layout.alignment: Qt.AlignTop
+        spacing: 8
+
+        Text {
+            Layout.preferredWidth: 108
+            Layout.alignment: Qt.AlignTop
+            text: summaryField.labelText
+            color: Theme.fgSecondary
+            font.pixelSize: Theme.fontBodyPx
+            wrapMode: Text.WordWrap
+        }
+
+        Text {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignTop
+            text: summaryField.valueText
+            color: Theme.fgPrimary
+            font.pixelSize: Theme.fontBodyPx
+            wrapMode: Text.WrapAnywhere
+            textFormat: Text.PlainText
+        }
+    }
+
+    component DetailsCard: Rectangle {
+        id: detailsCard
+        property string heading: ""
+        default property alias contentData: detailsColumn.data
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.preferredWidth: 1
+        implicitHeight: detailsColumn.implicitHeight + 28
+        radius: Theme.radiusControl
+        color: Theme.bgSurface
+        border.width: Theme.borderWidth
+        border.color: Theme.borderSubtle
+
+        ColumnLayout {
+            id: detailsColumn
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 6
 
             Text {
                 Layout.fillWidth: true
-                text: String(root.fileData.fileName || "-")
+                text: detailsCard.heading
                 color: Theme.fgPrimary
-                font.pixelSize: Theme.fontTitlePx
+                font.pixelSize: Theme.fontSectionPx
                 font.bold: true
-                elide: Text.ElideRight
+                wrapMode: Text.WordWrap
             }
         }
+    }
 
+    component DetailsPanel: Flickable {
+        id: panel
+        default property alias cardData: cardsRow.data
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        contentWidth: width
+        contentHeight: Math.max(height,
+                                cardsRow.implicitHeight + Theme.paddingDialog * 2)
+        ScrollBar.vertical: ScrollBar {}
+
+        RowLayout {
+            id: cardsRow
+            x: Theme.paddingDialog
+            y: Theme.paddingDialog
+            width: Math.max(0, panel.width - Theme.paddingDialog * 2)
+            height: Math.max(implicitHeight,
+                             panel.height - Theme.paddingDialog * 2)
+            spacing: Theme.gapRow
+        }
+    }
+
+    title: providerText(fileNameWithoutExtensionProvider, fileData.fileName, "-")
+    subtitle: summaryText()
+    dialogSize: "large"
+    minimumWidth: 940
+    maximumWidth: 1180
+    minimumHeight: 700
+    maximumHeight: 900
+
+    headerActionsData: [
         AppButton {
+            objectName: "cloudFileDetailsRenameButton"
             text: qsTr("Rename")
             variant: "secondary"
             onClicked: root.renameRequested(String(root.fileData.fileId || ""),
                                             String(root.fileData.fileName || ""))
         }
+    ]
+
+    RowLayout {
+        id: summaryLayout
+        objectName: "cloudFileDetailsSummary"
+        Layout.fillWidth: true
+        Layout.minimumHeight: 170
+        Layout.preferredHeight: 170
+        Layout.maximumHeight: 170
+        spacing: Theme.gapSection
+
+        Rectangle {
+            id: thumbnailCard
+            objectName: "cloudFileDetailsThumbnailCard"
+            Layout.preferredWidth: 170
+            Layout.minimumWidth: 170
+            Layout.maximumWidth: 170
+            Layout.preferredHeight: 170
+            Layout.minimumHeight: 170
+            Layout.maximumHeight: 170
+            radius: Theme.radiusControl
+            color: Theme.bgCardSubtle
+            border.width: Theme.borderWidth
+            border.color: Theme.borderDefault
+            clip: true
+
+            Image {
+                id: detailsThumbnail
+                objectName: "cloudFileDetailsThumbnail"
+                anchors.fill: parent
+                anchors.margins: 8
+                source: root.thumbnailSource()
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                cache: true
+            }
+
+            Column {
+                objectName: "cloudFileDetailsThumbnailFallback"
+                anchors.centerIn: parent
+                spacing: 6
+                visible: detailsThumbnail.status !== Image.Ready
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.providerText(root.fileTypeLabelProvider,
+                                            root.fileData.fileName,
+                                            "-")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontTitlePx
+                    font.bold: true
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: qsTr("Preview unavailable")
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                }
+            }
+        }
+
+        DetailsCard {
+            objectName: "cloudFileDetailsCompactSummaryCard"
+            heading: qsTr("Information")
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: 20
+                rowSpacing: 7
+
+                SummaryField {
+                    objectName: "cloudFileDetailsSummaryFileNameField"
+                    labelText: qsTr("File name")
+                    valueText: root.valueText(root.fileData.fileName)
+                }
+                SummaryField {
+                    labelText: qsTr("Machine")
+                    valueText: root.valueText(root.fileData.machine)
+                }
+                SummaryField {
+                    labelText: qsTr("Status")
+                    valueText: root.statusText()
+                }
+                SummaryField {
+                    labelText: qsTr("Material")
+                    valueText: root.valueText(root.fileData.material)
+                }
+                SummaryField {
+                    labelText: qsTr("Type / size")
+                    valueText: qsTr("%1 • %2")
+                            .arg(root.providerText(root.fileTypeLabelProvider,
+                                                   root.fileData.fileName,
+                                                   "-"))
+                            .arg(root.valueText(root.fileData.sizeText))
+                }
+                SummaryField {
+                    labelText: qsTr("Print time")
+                    valueText: root.valueText(root.fileData.printTime)
+                }
+                SummaryField {
+                    labelText: qsTr("Uploaded")
+                    valueText: root.providerText(root.displayDateProvider,
+                                                 root.fileData.uploadTime,
+                                                 "-")
+                }
+                SummaryField {
+                    labelText: qsTr("Layers")
+                    valueText: root.valueText(root.fileData.layers)
+                }
+            }
+        }
     }
 
     Rectangle {
         id: detailsTabsContainer
+        objectName: "cloudFileDetailsTabsContainer"
         Layout.fillWidth: true
         Layout.fillHeight: true
+        Layout.minimumHeight: 300
+        Layout.preferredHeight: 320
         radius: Theme.radiusControl
         color: Theme.bgDialog
         border.width: Theme.borderWidth
         border.color: Theme.borderDefault
+        clip: true
 
         ColumnLayout {
             anchors.fill: parent
@@ -91,6 +335,7 @@ AppDialogFrame {
 
             AppTabBar {
                 id: detailsTabBar
+                objectName: "cloudFileDetailsTabs"
                 Layout.fillWidth: true
                 tabVariant: "local"
                 tabLook: "classic"
@@ -100,9 +345,24 @@ AppDialogFrame {
                 stripColor: Theme.bgDialog
                 tabTopCornerRadius: detailsTabsContainer.radius
 
-                AppTabButton { text: qsTr("Basic Information") }
-                AppTabButton { text: qsTr("Slice Settings") }
-                AppTabButton { text: qsTr("Cloud Metadata"); visible: root.buildDebugEnabled }
+                AppTabButton {
+                    objectName: "cloudFileDetailsOverviewTab"
+                    text: qsTr("Information")
+                }
+                AppTabButton {
+                    objectName: "cloudFileDetailsPrintSettingsTab"
+                    text: qsTr("Print Settings")
+                }
+                AppTabButton {
+                    objectName: "cloudFileDetailsTechnicalTab"
+                    text: qsTr("Technical Details")
+                    visible: root.showAdvancedDetails
+                }
+                AppTabButton {
+                    objectName: "cloudFileDetailsCloudMetadataTab"
+                    text: qsTr("Cloud Metadata")
+                    visible: root.buildDebugEnabled
+                }
             }
 
             StackLayout {
@@ -110,174 +370,219 @@ AppDialogFrame {
                 Layout.fillHeight: true
                 currentIndex: detailsTabBar.currentIndex
 
-                Flickable {
-                    clip: true
-                    contentWidth: width
-                    contentHeight: basicInfoColumn.implicitHeight
+                DetailsPanel {
+                    id: overviewPanel
+                    objectName: "cloudFileDetailsOverviewPanel"
 
-                    ColumnLayout {
-                        id: basicInfoColumn
-                        width: parent.width
-                        spacing: 8
+                    DetailsCard {
+                        objectName: "cloudFileDetailsOverviewFileCard"
+                        heading: qsTr("File")
 
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 20
-                            rowSpacing: 8
+                        DetailRow {
+                            objectName: "cloudFileDetailsOverviewFileNameRow"
+                            labelText: qsTr("File name")
+                            valueText: root.valueText(root.fileData.fileName)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Type")
+                            valueText: root.providerText(root.fileTypeLabelProvider,
+                                                         root.fileData.fileName,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Size")
+                            valueText: root.valueText(root.fileData.sizeText)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Uploaded")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.uploadTime,
+                                                         "-")
+                        }
+                    }
 
-                            Text { text: qsTr("File name"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text {
-                                text: String(root.fileData.fileName || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
+                    DetailsCard {
+                        objectName: "cloudFileDetailsOverviewCompatibilityCard"
+                        heading: qsTr("Compatibility")
 
-                            Text { text: qsTr("Type"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: root.providerText(root.fileTypeLabelProvider, root.fileData.fileName, "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Size"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.sizeText || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Date"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: root.providerText(root.displayDateProvider, root.fileData.uploadTime, "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("status_code"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.statusCode || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("gcode_id"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.gcodeId || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+                        DetailRow {
+                            labelText: qsTr("Status")
+                            valueText: root.statusText()
+                        }
+                        DetailRow {
+                            labelText: qsTr("Machine")
+                            valueText: root.valueText(root.fileData.machine)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Material")
+                            valueText: root.valueText(root.fileData.material)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Printers")
+                            valueText: root.valueText(root.fileData.printers)
                         }
                     }
                 }
 
-                Flickable {
-                    clip: true
-                    contentWidth: width
-                    contentHeight: sliceColumn.implicitHeight
+                DetailsPanel {
+                    id: printSettingsPanel
+                    objectName: "cloudFileDetailsPrintSettingsPanel"
 
-                    ColumnLayout {
-                        id: sliceColumn
-                        width: parent.width
-                        spacing: 8
+                    DetailsCard {
+                        objectName: "cloudFileDetailsLayerProfileCard"
+                        heading: qsTr("Layer profile")
 
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 20
-                            rowSpacing: 8
-
-                            Text { text: qsTr("Machine"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.machine || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Material"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.material || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Print time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.printTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Layer thickness"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.layerThickness || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Layers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.layers || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Resin usage"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.resinUsage || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Dimensions"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.dimensions || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Bottom layers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.bottomLayers || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Exposure time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.exposureTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Off time"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text { text: String(root.fileData.offTime || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                    Text { text: qsTr("Printers"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text {
-                        text: String(root.fileData.printers || "-")
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontBodyPx
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
+                        DetailRow {
+                            labelText: qsTr("Layer thickness")
+                            valueText: root.valueText(root.fileData.layerThickness)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Layers")
+                            valueText: root.valueText(root.fileData.layers)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Bottom layers")
+                            valueText: root.valueText(root.fileData.bottomLayers)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Dimensions")
+                            valueText: root.valueText(root.fileData.dimensions)
+                        }
                     }
 
-                    Text { text: qsTr("Slice md5"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                    Text {
-                        text: String(root.fileData.md5 || "-")
-                        color: Theme.fgPrimary
-                        font.pixelSize: Theme.fontBodyPx
-                        wrapMode: Text.WrapAnywhere
-                        Layout.fillWidth: true
-                    }
+                    DetailsCard {
+                        objectName: "cloudFileDetailsExposureMaterialCard"
+                        heading: qsTr("Exposure and material")
+
+                        DetailRow {
+                            labelText: qsTr("Exposure time")
+                            valueText: root.valueText(root.fileData.exposureTime)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Off time")
+                            valueText: root.valueText(root.fileData.offTime)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Resin usage")
+                            valueText: root.valueText(root.fileData.resinUsage)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Print time")
+                            valueText: root.valueText(root.fileData.printTime)
                         }
                     }
                 }
 
-                Flickable {
+                DetailsPanel {
+                    id: technicalPanel
+                    objectName: "cloudFileDetailsTechnicalPanel"
+                    visible: root.showAdvancedDetails
+
+                    DetailsCard {
+                        objectName: "cloudFileDetailsTechnicalIdentityCard"
+                        heading: qsTr("Cloud identity")
+
+                        DetailRow {
+                            labelText: qsTr("File ID")
+                            valueText: root.valueText(root.fileData.fileId)
+                        }
+                        DetailRow {
+                            labelText: qsTr("G-code ID")
+                            valueText: root.valueText(root.fileData.gcodeId)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Status code")
+                            valueText: root.valueText(root.fileData.statusCode)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Slice MD5")
+                            valueText: root.valueText(root.fileData.md5)
+                        }
+                    }
+
+                    DetailsCard {
+                        objectName: "cloudFileDetailsTechnicalObjectCard"
+                        heading: qsTr("Cloud object")
+
+                        DetailRow {
+                            labelText: qsTr("Created")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.createTime,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Updated")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.updateTime,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Region")
+                            valueText: root.valueText(root.fileData.region)
+                        }
+                    }
+                }
+
+                DetailsPanel {
+                    id: cloudMetadataPanel
+                    objectName: "cloudFileDetailsCloudMetadataPanel"
                     visible: root.buildDebugEnabled
-                    clip: true
-                    contentWidth: width
-                    contentHeight: cloudColumn.implicitHeight
 
-                    ColumnLayout {
-                        id: cloudColumn
-                        width: parent.width
-                        spacing: 8
+                    DetailsCard {
+                        objectName: "cloudFileDetailsCloudIdentityCard"
+                        heading: qsTr("Cloud identity")
 
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 20
-                            rowSpacing: 8
+                        DetailRow {
+                            labelText: qsTr("File ID")
+                            valueText: root.valueText(root.fileData.fileId)
+                        }
+                        DetailRow {
+                            labelText: qsTr("G-code ID")
+                            valueText: root.valueText(root.fileData.gcodeId)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Status code")
+                            valueText: root.valueText(root.fileData.statusCode)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Region")
+                            valueText: root.valueText(root.fileData.region)
+                        }
+                    }
 
-                            Text { text: qsTr("Uploaded"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: root.providerText(root.displayDateProvider, root.fileData.uploadTime, "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
+                    DetailsCard {
+                        objectName: "cloudFileDetailsCloudObjectCard"
+                        heading: qsTr("Cloud object")
 
-                            Text { text: qsTr("Created"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: root.providerText(root.displayDateProvider, root.fileData.createTime, "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Updated"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: root.providerText(root.displayDateProvider, root.fileData.updateTime, "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Thumbnail URL"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text {
-                                text: String(root.fileData.thumbnailUrl || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                wrapMode: Text.WrapAnywhere
-                                Layout.fillWidth: true
-                            }
-
-                            Text { text: qsTr("Download URL"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text {
-                                text: String(root.fileData.downloadUrl || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                wrapMode: Text.WrapAnywhere
-                                Layout.fillWidth: true
-                            }
-
-                            Text { text: qsTr("Region"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.region || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Bucket"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text { text: String(root.fileData.bucket || "-"); color: Theme.fgPrimary; font.pixelSize: Theme.fontBodyPx }
-
-                            Text { text: qsTr("Path"); color: Theme.fgSecondary; font.pixelSize: Theme.fontBodyPx }
-                            Text {
-                                text: String(root.fileData.path || "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontBodyPx
-                                wrapMode: Text.WrapAnywhere
-                                Layout.fillWidth: true
-                            }
+                        DetailRow {
+                            labelText: qsTr("Uploaded")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.uploadTime,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Created")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.createTime,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Updated")
+                            valueText: root.providerText(root.displayDateProvider,
+                                                         root.fileData.updateTime,
+                                                         "-")
+                        }
+                        DetailRow {
+                            labelText: qsTr("Bucket")
+                            valueText: root.valueText(root.fileData.bucket)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Path")
+                            valueText: root.valueText(root.fileData.path)
+                        }
+                        DetailRow {
+                            labelText: qsTr("Slice MD5")
+                            valueText: root.valueText(root.fileData.md5)
                         }
                     }
                 }
@@ -287,8 +592,10 @@ AppDialogFrame {
 
     footerLeadingData: [
         AppButton {
+            objectName: "cloudFileDetailsDeleteButton"
             text: qsTr("Delete")
             variant: "danger"
+            Layout.minimumWidth: 112
             onClicked: root.deleteRequested(String(root.fileData.fileId || ""),
                                             String(root.fileData.fileName || ""))
         }
@@ -296,25 +603,31 @@ AppDialogFrame {
 
     footerTrailingData: [
         AppButton {
+            objectName: "cloudFileDetailsCloseButton"
+            text: qsTr("Close")
+            variant: "secondary"
+            Layout.minimumWidth: 112
+            onClicked: root.closeRequested()
+        },
+        AppButton {
+            objectName: "cloudFileDetailsDownloadButton"
             text: qsTr("Download")
             variant: "secondary"
+            Layout.minimumWidth: 112
             onClicked: root.downloadRequested(String(root.fileData.fileId || ""),
                                               String(root.fileData.fileName || ""))
         },
         AppButton {
+            objectName: "cloudFileDetailsPrintButton"
             text: qsTr("Print")
             variant: "primary"
+            Layout.minimumWidth: 112
             enabled: String(root.fileData.fileId || "").length > 0
             ToolTip.visible: hovered && enabled
             ToolTip.delay: 350
             ToolTip.text: qsTr("Remote print via Printers workflow")
             onClicked: root.printRequested(String(root.fileData.fileId || ""),
                                            String(root.fileData.fileName || ""))
-        },
-        AppButton {
-            text: qsTr("Close")
-            variant: "secondary"
-            onClicked: root.closeRequested()
         }
     ]
 }

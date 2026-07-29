@@ -7,6 +7,7 @@ TestCase {
     property var cloudBridge: undefined
     property var mqttBridge: undefined
     property var sessionImportBridge: undefined
+    property var uiSettingsBridge: undefined
     property bool accloudProdUi: false
 
     function cleanup() {
@@ -23,17 +24,22 @@ TestCase {
             sessionImportBridge.destroy()
         }
         sessionImportBridge = undefined
+        if (uiSettingsBridge !== undefined && uiSettingsBridge !== null
+                && uiSettingsBridge.destroy !== undefined) {
+            uiSettingsBridge.destroy()
+        }
+        uiSettingsBridge = undefined
         accloudProdUi = false
     }
 
-    function createQmlObject(path, props) {
+    function createQmlObject(path, props, parentObject) {
         var component = Qt.createComponent(path)
         if (component.status !== Component.Ready && path.indexOf("../../../ui/qml/") === 0) {
             var sourcePath = "../../../src/accloud/ui/qml/" + path.slice(String("../../../ui/qml/").length)
             component = Qt.createComponent(sourcePath)
         }
         compare(component.status, Component.Ready, "Unable to load " + path + " -> " + component.errorString())
-        var object = component.createObject(null, props ? props : {})
+        var object = component.createObject(parentObject ? parentObject : null, props ? props : {})
         verify(object !== null, "Unable to create object for " + path)
         return object
     }
@@ -56,7 +62,7 @@ TestCase {
             return root
         }
 
-        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem]
+        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem, root.menuBar]
         for (var d = 0; d < direct.length; ++d) {
             var directNode = direct[d]
             if (directNode !== null && directNode !== undefined) {
@@ -181,6 +187,160 @@ TestCase {
         verify(debugHeader !== null)
         compare(Math.round(debugHeader.height), 80)
 
+        debugWindow.close()
+        debugWindow.destroy()
+    }
+
+    function test_cloud_file_details_dialog_prioritizes_user_information() {
+        var hostWindow = Qt.createQmlObject('import QtQuick 2.15; import QtQuick.Controls 2.15; ApplicationWindow {' +
+                                            'width: 1280; height: 860; visible: true' +
+                                            '}', this, "cloudFileDetailsDialogHost")
+        verify(hostWindow !== null)
+        tryCompare(hostWindow, "visible", true)
+
+        var dialog = createQmlObject("../../../ui/qml/pages/CloudFileDetailsDialog.qml", {
+            "fileData": {
+                "fileId": "file-42",
+                "fileName": "demo_part.pwsz",
+                "status": "READY",
+                "statusCode": 1,
+                "gcodeId": "gcode-42",
+                "sizeText": "29.9 MB",
+                "uploadTime": "28/07/2026",
+                "createTime": "27/07/2026",
+                "updateTime": "28/07/2026",
+                "machine": "Anycubic Photon Mono M7 Pro",
+                "material": "Resin",
+                "printTime": "1h 58m",
+                "layerThickness": "0.05 mm",
+                "layers": 1082,
+                "resinUsage": "30 ml",
+                "dimensions": "54 x 54 x 81 mm",
+                "bottomLayers": 5,
+                "exposureTime": "2 s",
+                "offTime": "0.5 s",
+                "printers": "Anycubic Photon Mono M7 Pro",
+                "thumbnailUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+                "downloadUrl": "https://signed.invalid/download?X-Amz-Signature=FAKE_TEST_VALUE",
+                "region": "us-east-2",
+                "bucket": "workbentch",
+                "path": "file/demo_part.pwsz",
+                "md5": "0123456789abcdef"
+            },
+            "fileTypeLabelProvider": function(fileName) { return "PWSZ" },
+            "fileNameWithoutExtensionProvider": function(fileName) { return "demo_part" },
+            "displayDateProvider": function(value) { return String(value || "-") },
+            "buildDebugEnabled": true,
+            "showAdvancedDetails": false
+        }, hostWindow.contentItem)
+
+        dialog.open()
+        tryCompare(dialog, "visible", true)
+
+        compare(String(dialog.title), "demo_part")
+        verify(String(dialog.subtitle).indexOf("29.9 MB") >= 0)
+        verify(String(dialog.subtitle).indexOf("Ready") >= 0)
+
+        var thumbnail = findObjectByName(dialog, "cloudFileDetailsThumbnail")
+        var compactSummary = findObjectByName(dialog, "cloudFileDetailsCompactSummaryCard")
+        var tabsContainer = findObjectByName(dialog, "cloudFileDetailsTabsContainer")
+        var overviewPanel = findObjectByName(dialog, "cloudFileDetailsOverviewPanel")
+        var overviewFileCard = findObjectByName(dialog, "cloudFileDetailsOverviewFileCard")
+        var overviewCompatibilityCard = findObjectByName(dialog, "cloudFileDetailsOverviewCompatibilityCard")
+        var summaryFileNameField = findObjectByName(dialog, "cloudFileDetailsSummaryFileNameField")
+        var overviewFileNameRow = findObjectByName(dialog, "cloudFileDetailsOverviewFileNameRow")
+        var technicalTab = findObjectByName(dialog, "cloudFileDetailsTechnicalTab")
+        var cloudMetadataTab = findObjectByName(dialog, "cloudFileDetailsCloudMetadataTab")
+        var cloudMetadataPanel = findObjectByName(dialog, "cloudFileDetailsCloudMetadataPanel")
+        var renameButton = findObjectByName(dialog, "cloudFileDetailsRenameButton")
+        var deleteButton = findObjectByName(dialog, "cloudFileDetailsDeleteButton")
+        var closeButton = findObjectByName(dialog, "cloudFileDetailsCloseButton")
+        var downloadButton = findObjectByName(dialog, "cloudFileDetailsDownloadButton")
+        var printButton = findObjectByName(dialog, "cloudFileDetailsPrintButton")
+        verify(thumbnail !== null)
+        verify(compactSummary !== null)
+        verify(tabsContainer !== null)
+        verify(overviewPanel !== null)
+        verify(overviewFileCard !== null)
+        verify(overviewCompatibilityCard !== null)
+        verify(summaryFileNameField !== null)
+        verify(overviewFileNameRow !== null)
+        verify(technicalTab !== null)
+        verify(cloudMetadataTab !== null)
+        verify(cloudMetadataPanel !== null)
+        verify(renameButton !== null)
+        verify(deleteButton !== null)
+        verify(closeButton !== null)
+        verify(downloadButton !== null)
+        verify(printButton !== null)
+        verify(String(thumbnail.source).indexOf("data:image/png;base64,") === 0)
+        tryVerify(function() {
+            return overviewFileCard.height > overviewPanel.height * 0.75
+                    && Math.abs(overviewFileCard.height
+                                - overviewCompatibilityCard.height) <= 1
+        }, 1000)
+        tryVerify(function() {
+            return Math.abs(summaryFileNameField.height - summaryFileNameField.implicitHeight) <= 1
+                    && Math.abs(overviewFileNameRow.height - overviewFileNameRow.implicitHeight) <= 1
+        }, 1000)
+        tryVerify(function() {
+            var deleteX = deleteButton.mapToItem(dialog.contentItem, 0, 0).x
+            var closeX = closeButton.mapToItem(dialog.contentItem, 0, 0).x
+            var downloadX = downloadButton.mapToItem(dialog.contentItem, 0, 0).x
+            var printX = printButton.mapToItem(dialog.contentItem, 0, 0).x
+            return deleteX < closeX && closeX < downloadX && downloadX < printX
+        }, 1000)
+        verify(closeButton.width >= 112)
+        verify(downloadButton.width >= 112)
+        verify(printButton.width >= 112)
+        compare(technicalTab.visible, false)
+        tryCompare(cloudMetadataTab, "visible", true)
+        verify(!visibleTextExists(dialog, "Download URL"))
+        verify(!visibleTextExists(dialog, "Thumbnail URL"))
+        verify(!visibleTextExists(dialog, "signed.invalid"))
+
+        dialog.showAdvancedDetails = true
+        tryCompare(technicalTab, "visible", true)
+        dialog.buildDebugEnabled = false
+        tryCompare(cloudMetadataTab, "visible", false)
+        dialog.close()
+        tryCompare(dialog, "visible", false)
+        dialog.destroy()
+        hostWindow.close()
+        hostWindow.destroy()
+    }
+
+    function test_cloud_file_technical_details_setting_is_persisted() {
+        uiSettingsBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                               'property var values: ({});' +
+                                               'function getString(key, fallback) {' +
+                                               '  return values[key] !== undefined ? values[key] : fallback' +
+                                               '}' +
+                                               'function setString(key, value) { values[key] = value }' +
+                                               'function sync() {}' +
+                                               '}', this, "cloudFileDetailsSettingsMock")
+
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        wait(0)
+        compare(window.cloudFileAdvancedDetailsEnabled, false)
+        var filesPage = findObjectByName(window, "cloudFilesPage")
+        verify(filesPage !== null)
+        compare(filesPage.showAdvancedDetails, false)
+
+        window.persistCloudFileDetailsSetting(true)
+        compare(window.cloudFileAdvancedDetailsEnabled, true)
+        compare(String(uiSettingsBridge.values["ui.cloudFiles.showAdvancedDetails"]), "true")
+        compare(filesPage.showAdvancedDetails, true)
+        window.close()
+        window.destroy()
+
+        uiSettingsBridge.values = ({})
+        var debugWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "buildDebugEnabled": true,
+            "debugUi": true
+        })
+        wait(0)
+        compare(debugWindow.cloudFileAdvancedDetailsEnabled, true)
         debugWindow.close()
         debugWindow.destroy()
     }

@@ -22,6 +22,7 @@ Item {
 
     // UI state
     property bool loading: false
+    property bool showAdvancedDetails: false
     property string statusMsg: qsTr("Ready.")
     property string statusSev: "info" // info | success | warn | error
     property var quotaData: null
@@ -1564,6 +1565,7 @@ Item {
         id: fileDetailsDialog
         fileData: ({})
         buildDebugEnabled: root.buildDebugEnabled
+        showAdvancedDetails: root.showAdvancedDetails
         fileTypeLabelProvider: root.fileTypeLabel
         fileNameWithoutExtensionProvider: root.fileNameWithoutExtension
         displayDateProvider: root.displayDate
