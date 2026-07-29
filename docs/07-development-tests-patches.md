@@ -14,6 +14,34 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
+## Split validation gates
+
+The project uses two explicit validation gates so a restricted environment never claims to validate the Qt desktop stack.
+
+Restricted/offline core gate:
+
+```bash
+# Place accloud-build-deps.zip at the repository root, or set
+# ACCLOUD_DEPENDENCY_ARCHIVE to its absolute path.
+cmake --preset protected-core
+cmake --build --preset protected-core --clean-first
+ctest --preset protected-core --output-on-failure
+```
+
+This gate disables Qt, QML and external-service tests. It validates the portable core, cloud/MQTT logic that has no Qt dependency, security regressions and static Python guards. The bundled dependency archive is extracted only below the CMake build directory and no network access is attempted.
+
+Complete local Qt gate:
+
+```bash
+cmake --preset local-full
+cmake --build --preset local-full --clean-first
+ctest --preset local-full --output-on-failure
+```
+
+The `local-full` preset is the complete local Qt gate. Configuration fails if the required Qt desktop, MQTT or QuickTest components are missing, and it keeps QML, SQL, GUI and integration tests enabled. The live MQTT broker test remains opt-in through `ACCLOUD_MQTT_LIVE_TEST=1`.
+
+Tests expose CTest labels such as `core`, `static`, `qt`, `qml`, `sql`, `integration` and `live`, allowing targeted local runs with `ctest --preset local-full -L <label>`.
+
 Targeted examples:
 
 ```bash

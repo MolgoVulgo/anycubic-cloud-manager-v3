@@ -61,8 +61,8 @@ MQTT and logs are streams. They must be throttled, bounded and visibility-aware:
 3. Make tabs lazy and visibility-aware.
 4. Move cache reads to async and group printer job queries.
 5. Convert remaining cloud actions to async.
-6. Bound MQTT/log streams by visibility.
-7. Replace large QML `ListModel` payload rebuilds with C++ models or incremental deltas.
+6. Bound MQTT/log streams by visibility. **Implemented:** the MQTT diagnostic model batches hidden updates and the log poller runs only while active/visible.
+7. Replace large QML `ListModel` payload rebuilds with C++ models or incremental deltas. **Implemented for printer selection workflows:** compatible printers and remote/local file lists now use identity-aware C++ models with row deltas.
 8. Document every new async convention.
 
 ## Validation commands

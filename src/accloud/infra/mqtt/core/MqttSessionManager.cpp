@@ -60,6 +60,7 @@ int computeBackoffDelayMs(int attempt, const MqttSessionConfig& config, std::mt1
     return static_cast<int>(std::min<std::int64_t>(withJitter, std::numeric_limits<int>::max()));
 }
 
+#ifdef ACCLOUD_WITH_MQTT
 const char* reasonCodeToString(QMqtt::ReasonCode code) {
     using Rc = QMqtt::ReasonCode;
     switch (code) {
@@ -101,6 +102,7 @@ std::string subscriptionStateToString(QMqttSubscription::SubscriptionState state
     }
     return "Unknown";
 }
+#endif
 
 std::string topicFamilyOf(std::string_view topic) {
     if (topic.find("/v1/server/app/") != std::string_view::npos) {
@@ -159,6 +161,41 @@ struct MqttSessionManager::Impl {
                       });
     }
 
+    std::size_t mergeSubscriptions(const std::vector<std::string>& topics) {
+        std::size_t added = 0;
+        for (const std::string& topic : topics) {
+            if (topic.empty()) {
+                continue;
+            }
+            if (subscriptionSet.insert(topic).second) {
+                subscriptions.push_back(topic);
+                logging::info("mqtt", "mqtt_flow", "subscription_registered",
+                              "MQTT topic registered for subscription",
+                              {{"topic", topic}});
+                ++added;
+#ifdef ACCLOUD_WITH_MQTT
+                if (client && client->state() == QMqttClient::Connected) {
+                    auto* subscription = client->subscribe(QString::fromStdString(topic), 0);
+                    if (subscription == nullptr) {
+                        logging::warn("cloud", "mqtt_session", "subscribe_failed",
+                                      "MQTT subscribe failed",
+                                      {{"topic", topic}});
+                    } else if (callbacks.onSubscriptionsApplied) {
+                        bindSubscriptionSignals(subscription, topic);
+                        logging::info("mqtt", "mqtt_flow", "subscribe_requested",
+                                      "MQTT topic subscription requested",
+                                      {{"topic", topic},
+                                       {"qos", "0"},
+                                       {"family", topicFamilyOf(topic)}});
+                        callbacks.onSubscriptionsApplied(1);
+                    }
+                }
+#endif
+            }
+        }
+        return added;
+    }
+
 #ifdef ACCLOUD_WITH_MQTT
     void bindSubscriptionSignals(QMqttSubscription* subscription, const std::string& topic) {
         if (subscription == nullptr) {
@@ -211,41 +248,6 @@ struct MqttSessionManager::Impl {
             ++subscribedCount;
         }
         return subscribedCount;
-    }
-
-    std::size_t mergeSubscriptions(const std::vector<std::string>& topics) {
-        std::size_t added = 0;
-        for (const std::string& topic : topics) {
-            if (topic.empty()) {
-                continue;
-            }
-            if (subscriptionSet.insert(topic).second) {
-                subscriptions.push_back(topic);
-                logging::info("mqtt", "mqtt_flow", "subscription_registered",
-                              "MQTT topic registered for subscription",
-                              {{"topic", topic}});
-                ++added;
-#ifdef ACCLOUD_WITH_MQTT
-                if (client && client->state() == QMqttClient::Connected) {
-                    auto* subscription = client->subscribe(QString::fromStdString(topic), 0);
-                    if (subscription == nullptr) {
-                        logging::warn("cloud", "mqtt_session", "subscribe_failed",
-                                      "MQTT subscribe failed",
-                                      {{"topic", topic}});
-                    } else if (callbacks.onSubscriptionsApplied) {
-                        bindSubscriptionSignals(subscription, topic);
-                        logging::info("mqtt", "mqtt_flow", "subscribe_requested",
-                                      "MQTT topic subscription requested",
-                                      {{"topic", topic},
-                                       {"qos", "0"},
-                                       {"family", topicFamilyOf(topic)}});
-                        callbacks.onSubscriptionsApplied(1);
-                    }
-                }
-#endif
-            }
-        }
-        return added;
     }
 
     void connectToBroker() {

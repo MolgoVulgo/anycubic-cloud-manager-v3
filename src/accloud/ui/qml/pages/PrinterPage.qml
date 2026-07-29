@@ -12,6 +12,7 @@ Item {
     Layout.fillHeight: true
     property bool embeddedInTabsContainer: false
     property bool deferStartupInitialization: false
+    property bool pageActive: true
     signal statusBroadcast(string message, string severity, string operationId)
     signal remotePrintAccepted(string printerId, string taskId)
 
@@ -48,6 +49,11 @@ Item {
     property bool remotePrintSubmitting: false
     property string remotePrintPrepareMessage: ""
     property var remotePrintCompatibilityResult: null
+    property int remotePrintCompatibilityRequestSequence: 0
+    property string pendingRemotePrintCompatibilityRequestId: ""
+    property string pendingRemotePrintCompatibilityFileId: ""
+    property string pendingRemotePrintCompatibilityFileName: ""
+    property string pendingRemotePrintCompatibilityPreferredPrinterId: ""
     property string pendingPrintPrinterId: ""
     property string pendingPrintFileId: ""
     property var pendingPrintFileData: null
@@ -78,6 +84,7 @@ Item {
     property int autoRefreshIntervalMs: 30000
     property int autoRefreshPrintingIntervalMs: 5000
     property int mqttRealtimeDebounceMs: 700
+    property bool mqttRealtimeRefreshPending: false
     readonly property var cloudFileKnownExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
         "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
@@ -107,20 +114,32 @@ Item {
         root.updatePrintersAutoRefreshInterval()
         root.refreshSelectedPrinterLiveSnapshot()
     }
+    onPageActiveChanged: {
+        root.updatePrintersAutoRefreshInterval()
+        if (root.pageActive && root.mqttRealtimeRefreshPending) {
+            root.mqttRealtimeRefreshPending = false
+            if (mqttRealtimeDebounceTimer.running)
+                mqttRealtimeDebounceTimer.restart()
+            else
+                mqttRealtimeDebounceTimer.start()
+        }
+    }
 
     PrintersModel {
         id: printersModel
     }
 
-    ListModel {
+    PrintersModel {
         id: remoteCompatiblePrintersModel
+        objectName: "remoteCompatiblePrintersModel"
     }
 
-    ListModel {
+    PrinterFilesModel {
         id: printCloudFilesModel
+        objectName: "printCloudFilesModel"
     }
 
-    ListModel {
+    PrinterFilesModel {
         id: printerLocalFilesModel
         objectName: "printerLocalFilesModel"
     }
@@ -170,6 +189,14 @@ Item {
 
     function hasCompatibilityByFileIdEndpoint() {
         return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByFileId === "function"
+    }
+
+    function hasAsyncCompatibilityEndpoint() {
+        return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByExtAsync === "function"
+    }
+
+    function hasAsyncCompatibilityByFileIdEndpoint() {
+        return hasCloudBridge() && typeof cloudBridge.fetchCompatiblePrintersByFileIdAsync === "function"
     }
 
     function hasPrinterOrderEndpoint() {
@@ -1122,7 +1149,9 @@ Item {
         targetInterval = Math.max(20, Number(targetInterval))
         if (printersAutoRefreshTimer.interval !== targetInterval)
             printersAutoRefreshTimer.interval = targetInterval
-        printersAutoRefreshTimer.running = startupInitialized && printersModel.count > 0
+        printersAutoRefreshTimer.running = root.pageActive
+                && startupInitialized
+                && printersModel.count > 0
     }
 
     function refreshSelectedPrinterLiveSnapshot() {
@@ -1215,7 +1244,7 @@ Item {
     }
 
     function refreshPrintersFromTimer() {
-        if (!startupInitialized)
+        if (!root.pageActive || !startupInitialized)
             return
         if (!hasCloudBridge()) {
             loadPrinters()
@@ -1583,7 +1612,13 @@ Item {
     }
 
     function refreshPrintersFromCacheOnly() {
-        if (!hasCloudBridge() || typeof cloudBridge.loadCachedPrinters !== "function")
+        if (!hasCloudBridge())
+            return
+        if (typeof cloudBridge.loadCachedPrintersAsync === "function") {
+            cloudBridge.loadCachedPrintersAsync()
+            return
+        }
+        if (typeof cloudBridge.loadCachedPrinters !== "function")
             return
         var r = cloudBridge.loadCachedPrinters()
         if (r.ok !== true)
@@ -1628,19 +1663,19 @@ Item {
         return String(printersModel.get(0).id || "")
     }
 
-    function appendRemoteCompatiblePrinter(printer) {
+    function remoteCompatiblePrinterRow(printer) {
         if (!printer)
-            return
+            return null
         var printerId = String(printer.id || "").trim()
         if (printerId.length === 0)
-            return
-        remoteCompatiblePrintersModel.append({
+            return null
+        return {
             "id": printerId,
             "name": String(printer.name || printerId),
             "model": String(printer.model || ""),
             "state": String(printer.state || "READY"),
             "machineType": String(printer.machineType || "")
-        })
+        }
     }
 
     function compatibilityEntryAllows(item) {
@@ -1688,8 +1723,7 @@ Item {
     }
 
     function rebuildRemoteCompatiblePrintersModel() {
-        remoteCompatiblePrintersModel.clear()
-
+        var compatiblePrinters = []
         var fileData = selectedCloudFileData()
         var hasFileData = fileData !== null && fileData !== undefined
         var hasLocalCompatibilityMetadata = fileHasLocalCompatibilityMetadata(fileData)
@@ -1709,24 +1743,6 @@ Item {
                     serverCompatByPrinterId[cachedCompatPrinterId] = true
                 }
                 hasServerCompatibility = true
-            }
-        } else if (hasFileData && hasCompatibilityByFileIdEndpoint()) {
-            var fileId = String(fileData.fileId || "").trim()
-            if (fileId.length > 0) {
-                var compatByFile = cloudBridge.fetchCompatiblePrintersByFileId(fileId)
-                if (compatByFile.ok === true) {
-                    var compatPrinters = compatByFile.printers !== undefined ? compatByFile.printers : []
-                    for (var cp = 0; cp < compatPrinters.length; ++cp) {
-                        var compatEntry = compatPrinters[cp]
-                        var compatPrinterId = String(compatEntry && compatEntry.id !== undefined ? compatEntry.id : "")
-                        if (compatPrinterId.length <= 0)
-                            continue
-                        if (!compatibilityEntryAllows(compatEntry))
-                            continue
-                        serverCompatByPrinterId[compatPrinterId] = true
-                    }
-                    hasServerCompatibility = true
-                }
             }
         }
 
@@ -1748,9 +1764,12 @@ Item {
                         continue
                 }
             }
-            appendRemoteCompatiblePrinter(printer)
+            var compatiblePrinter = remoteCompatiblePrinterRow(printer)
+            if (compatiblePrinter !== null)
+                compatiblePrinters.push(compatiblePrinter)
         }
 
+        remoteCompatiblePrintersModel.replaceOrPatchPrinters(compatiblePrinters)
         if (remoteCompatiblePrintersModel.count <= 0) {
             if (shouldFilterByCompatibility)
                 remotePrinterId = ""
@@ -1789,8 +1808,7 @@ Item {
         entry.printTime = cloudFilePrintTimeText(entry)
         entry.resinUsage = cloudFileResinUsageText(entry)
 
-        printCloudFilesModel.clear()
-        printCloudFilesModel.append(entry)
+        printCloudFilesModel.replaceOrPatchFiles([entry])
         selectedCloudFileId = normalizedFileId
     }
 
@@ -1819,6 +1837,163 @@ Item {
         })
     }
 
+    function clearPendingRemotePrintCompatibility() {
+        pendingRemotePrintCompatibilityRequestId = ""
+        pendingRemotePrintCompatibilityFileId = ""
+        pendingRemotePrintCompatibilityFileName = ""
+        pendingRemotePrintCompatibilityPreferredPrinterId = ""
+    }
+
+    function completeRemotePrintPreparation(fileId, fileName, preferredPrinterId,
+                                            compatResult, compatibilityChecked,
+                                            compatibilityFailed, incompatibleFallback) {
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+        var targetPrinterId = String(preferredPrinterId || "").trim()
+        clearPendingRemotePrintCompatibility()
+
+        if (compatResult !== null && compatResult !== undefined && compatResult.ok === true) {
+            remotePrintCompatibilityResult = compatResult
+            var compatiblePrinterId = preferredCompatiblePrinterId(compatResult, targetPrinterId)
+            if (compatiblePrinterId.length > 0) {
+                targetPrinterId = compatiblePrinterId
+            } else {
+                remotePrintPreparing = false
+                remotePrintAllowed = false
+                remotePrintPrepareMessage = ""
+                remotePrintBlockReason = compatibilityFailureReason(
+                            compatResult,
+                            String(incompatibleFallback || qsTr("No compatible printer available for this file.")))
+                statusMsg = qsTr("Print blocked: %1").arg(remotePrintBlockReason)
+                statusSev = "warn"
+                return
+            }
+        }
+
+        if (targetPrinterId.length === 0)
+            targetPrinterId = firstPrinterId()
+        if (targetPrinterId.length === 0) {
+            remotePrintPreparing = false
+            remotePrintAllowed = false
+            remotePrintPrepareMessage = ""
+            remotePrintBlockReason = qsTr("No printer available for remote print.")
+            statusMsg = remotePrintBlockReason
+            statusSev = "warn"
+            return
+        }
+
+        choosePrinter(targetPrinterId)
+        remotePrinterId = targetPrinterId
+        rebuildRemoteCompatiblePrintersModel()
+        refreshRemotePrintGuard()
+        remotePrintPreparing = false
+        remotePrintPrepareMessage = ""
+
+        if (compatibilityChecked && compatibilityFailed
+                && (compatResult === null || compatResult === undefined)) {
+            statusMsg = qsTr("Compatibility check failed. Continuing with best-effort printer selection.")
+            statusSev = "warn"
+            return
+        }
+
+        statusMsg = qsTr("Remote print prepared for %1")
+                .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
+        statusSev = "info"
+    }
+
+    function requestRemotePrintCompatibilityAsync(fileId, fileName, preferredPrinterId) {
+        var normalizedFileId = String(fileId || "").trim()
+        var normalizedFileName = String(fileName || "").trim()
+        var ext = fileType(normalizedFileName)
+        var canCheckByFile = normalizedFileId.length > 0 && hasAsyncCompatibilityByFileIdEndpoint()
+        var canCheckByExt = ext !== "other" && ext.length > 0 && hasAsyncCompatibilityEndpoint()
+        if (!canCheckByFile && !canCheckByExt)
+            return false
+
+        remotePrintCompatibilityRequestSequence += 1
+        var requestId = "remote-print-compat-" + String(remotePrintCompatibilityRequestSequence)
+        pendingRemotePrintCompatibilityRequestId = requestId
+        pendingRemotePrintCompatibilityFileId = normalizedFileId
+        pendingRemotePrintCompatibilityFileName = normalizedFileName
+        pendingRemotePrintCompatibilityPreferredPrinterId = String(preferredPrinterId || "")
+
+        if (canCheckByFile) {
+            cloudBridge.fetchCompatiblePrintersByFileIdAsync(normalizedFileId, requestId)
+            return true
+        }
+
+        cloudBridge.fetchCompatiblePrintersByExtAsync(ext, requestId)
+        return true
+    }
+
+    function handleCompatiblePrintersByFileIdReady(requestId, fileId, result) {
+        var normalizedRequestId = String(requestId || "")
+        if (normalizedRequestId.length <= 0
+                || normalizedRequestId !== pendingRemotePrintCompatibilityRequestId)
+            return
+        if (String(fileId || "").trim() !== pendingRemotePrintCompatibilityFileId)
+            return
+
+        var fileName = pendingRemotePrintCompatibilityFileName
+        var preferredPrinterId = pendingRemotePrintCompatibilityPreferredPrinterId
+        if (result !== null && result !== undefined && result.ok === true) {
+            completeRemotePrintPreparation(pendingRemotePrintCompatibilityFileId,
+                                           fileName,
+                                           preferredPrinterId,
+                                           result,
+                                           true,
+                                           false,
+                                           qsTr("No compatible printer available for this file."))
+            return
+        }
+
+        var ext = fileType(fileName)
+        if (ext !== "other" && ext.length > 0 && hasAsyncCompatibilityEndpoint()) {
+            cloudBridge.fetchCompatiblePrintersByExtAsync(ext, normalizedRequestId)
+            return
+        }
+
+        completeRemotePrintPreparation(pendingRemotePrintCompatibilityFileId,
+                                       fileName,
+                                       preferredPrinterId,
+                                       null,
+                                       true,
+                                       true,
+                                       "")
+    }
+
+    function handleCompatiblePrintersByExtReady(requestId, fileExt, result) {
+        var normalizedRequestId = String(requestId || "")
+        if (normalizedRequestId.length <= 0
+                || normalizedRequestId !== pendingRemotePrintCompatibilityRequestId)
+            return
+        var expectedExt = fileType(pendingRemotePrintCompatibilityFileName)
+        if (String(fileExt || "").trim().toLowerCase() !== expectedExt)
+            return
+
+        var fileId = pendingRemotePrintCompatibilityFileId
+        var fileName = pendingRemotePrintCompatibilityFileName
+        var preferredPrinterId = pendingRemotePrintCompatibilityPreferredPrinterId
+        if (result !== null && result !== undefined && result.ok === true) {
+            completeRemotePrintPreparation(fileId,
+                                           fileName,
+                                           preferredPrinterId,
+                                           result,
+                                           true,
+                                           false,
+                                           qsTr("No compatible printer available for this file type."))
+            return
+        }
+
+        completeRemotePrintPreparation(fileId,
+                                       fileName,
+                                       preferredPrinterId,
+                                       null,
+                                       true,
+                                       true,
+                                       "")
+    }
+
     function prepareRemotePrintDialog(fileId, fileName) {
         var normalizedFileId = String(fileId || "").trim()
         var normalizedFileName = String(fileName || "").trim()
@@ -1836,6 +2011,12 @@ Item {
         }
 
         var preferredPrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
+        if (requestRemotePrintCompatibilityAsync(normalizedFileId,
+                                                 normalizedFileName,
+                                                 preferredPrinterId)) {
+            return
+        }
+
         var targetPrinterId = preferredPrinterId
         var compatResult = null
         var compatibilityChecked = false
@@ -1957,12 +2138,13 @@ Item {
             return 0
         })
 
-        printCloudFilesModel.clear()
+        var compatibleFiles = []
         for (var rowIndex = 0; rowIndex < compatibleRows.length; ++rowIndex) {
             var row = compatibleRows[rowIndex]
             if (row.file !== undefined)
-                printCloudFilesModel.append(row.file)
+                compatibleFiles.push(row.file)
         }
+        printCloudFilesModel.replaceOrPatchFiles(compatibleFiles)
 
         if (printCloudFilesModel.count > 0) {
             selectedCloudFileId = cloudFileIdValue(printCloudFilesModel.get(0))
@@ -2225,9 +2407,9 @@ Item {
             return
 
         localFilesLoading = false
-        printerLocalFilesModel.clear()
         selectedPrinterLocalFileName = ""
 
+        var localFiles = []
         var list = records !== undefined ? records : []
         for (var i = 0; i < list.length; ++i) {
             var record = list[i]
@@ -2246,7 +2428,7 @@ Item {
             if (!isFinite(timestampValue) || timestampValue < 0)
                 timestampValue = 0
 
-            printerLocalFilesModel.append({
+            localFiles.push({
                 "fileId": fileName,
                 "fileName": fileName,
                 "sizeText": bytesText(sizeValue),
@@ -2254,6 +2436,7 @@ Item {
                 "printTime": timestampValue > 0 ? unixTimeText(timestampValue) : "-"
             })
         }
+        printerLocalFilesModel.replaceOrPatchFiles(localFiles)
 
         if (printerLocalFilesModel.count > 0) {
             selectedPrinterLocalFileName = String(printerLocalFilesModel.get(0).fileId || "")
@@ -2729,6 +2912,14 @@ Item {
             }
         }
 
+        function onCompatiblePrintersByFileIdReady(requestId, fileId, result) {
+            root.handleCompatiblePrintersByFileIdReady(requestId, fileId, result)
+        }
+
+        function onCompatiblePrintersByExtReady(requestId, fileExt, result) {
+            root.handleCompatiblePrintersByExtReady(requestId, fileExt, result)
+        }
+
         function onPrintOrderFinished(printerId, fileId, result) {
             if (String(printerId || "") !== String(root.pendingPrintPrinterId || "")
                     || String(fileId || "") !== String(root.pendingPrintFileId || "")) {
@@ -2903,6 +3094,10 @@ Item {
         ignoreUnknownSignals: true
 
         function onRealtimeEventTickChanged() {
+            if (!root.pageActive) {
+                root.mqttRealtimeRefreshPending = true
+                return
+            }
             if (mqttRealtimeDebounceTimer.running)
                 mqttRealtimeDebounceTimer.restart()
             else

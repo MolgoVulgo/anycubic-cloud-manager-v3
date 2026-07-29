@@ -20,6 +20,7 @@ Item {
     property string renderedLogText: ""
     property bool demoMode: false
     property bool loading: false
+    property bool pageActive: true
 
     function hasLogBackend() {
         return logBackend !== null
@@ -315,9 +316,10 @@ Item {
 
     Timer {
         id: pollTimer
+        objectName: "logPollTimer"
         interval: 1000
         repeat: true
-        running: true
+        running: root.pageActive && root.visible
         onTriggered: root.refreshLogs()
     }
 

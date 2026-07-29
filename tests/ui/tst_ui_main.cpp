@@ -1,5 +1,6 @@
 #include "app/CloudFilesModel.h"
 #include "app/PrintersModel.h"
+#include "app/PrinterFilesModel.h"
 #include "app/RecentJobsModel.h"
 
 #include <QQmlEngine>
@@ -12,6 +13,7 @@ class AccloudUiTestSetup : public QObject {
   void qmlEngineAvailable(QQmlEngine*) {
     qmlRegisterType<accloud::CloudFilesModel>("Accloud.Models", 1, 0, "CloudFilesModel");
     qmlRegisterType<accloud::PrintersModel>("Accloud.Models", 1, 0, "PrintersModel");
+    qmlRegisterType<accloud::PrinterFilesModel>("Accloud.Models", 1, 0, "PrinterFilesModel");
     qmlRegisterType<accloud::RecentJobsModel>("Accloud.Models", 1, 0, "RecentJobsModel");
   }
 };

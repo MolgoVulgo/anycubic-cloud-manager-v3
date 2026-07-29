@@ -1169,6 +1169,7 @@ ApplicationWindow {
                             debugUi: root.debugUi
                             embeddedInTabsContainer: true
                             deferStartupInitialization: true
+                            pageActive: controlTabs.currentIndex === 1
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }

@@ -60,8 +60,12 @@ public:
 
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByExt(const QString& fileExt) const;
+    Q_INVOKABLE void fetchCompatiblePrintersByExtAsync(const QString& fileExt,
+                                                       const QString& requestId = QString());
     // Retourne { ok, message, printers:[{id,available,reason}] }
     Q_INVOKABLE QVariantMap fetchCompatiblePrintersByFileId(const QString& fileId) const;
+    Q_INVOKABLE void fetchCompatiblePrintersByFileIdAsync(const QString& fileId,
+                                                          const QString& requestId = QString());
     // Retourne { ok, score, reason } pour une validation locale file/printer sans appel réseau.
     Q_INVOKABLE QVariantMap evaluateLocalPrinterFileCompatibility(const QVariantMap& printer,
                                                                   const QVariantMap& file) const;
@@ -130,6 +134,12 @@ Q_SIGNALS:
     void cachedQuotaLoaded(const QVariantMap& result);
     void cachedPrintersLoaded(const QVariantMap& result);
     void cachedPrinterProjectsLoaded(const QString& printerId, const QVariantMap& result);
+    void compatiblePrintersByExtReady(const QString& requestId,
+                                      const QString& fileExt,
+                                      const QVariantMap& result);
+    void compatiblePrintersByFileIdReady(const QString& requestId,
+                                         const QString& fileId,
+                                         const QVariantMap& result);
     void deleteFileFinished(const QString& fileId, const QVariantMap& result);
     void downloadUrlReady(const QString& fileId, const QVariantMap& result);
     void printOrderFinished(const QString& printerId, const QString& fileId, const QVariantMap& result);

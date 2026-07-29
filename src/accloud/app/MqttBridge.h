@@ -34,6 +34,8 @@ class MqttBridge : public QObject {
     Q_PROPERTY(quint64 pendingOrders READ pendingOrders NOTIFY telemetryMetricsChanged)
     Q_PROPERTY(QString unknownTopSummary READ unknownTopSummary NOTIFY telemetryMetricsChanged)
     Q_PROPERTY(quint64 realtimeEventTick READ realtimeEventTick NOTIFY realtimeEventTickChanged)
+    Q_PROPERTY(bool uiDiagnosticsActive READ uiDiagnosticsActive WRITE setUiDiagnosticsActive
+               NOTIFY uiDiagnosticsActiveChanged)
 
 public:
     explicit MqttBridge(QObject* parent = nullptr);
@@ -54,6 +56,7 @@ public:
     quint64 pendingOrders() const;
     QString unknownTopSummary() const;
     quint64 realtimeEventTick() const;
+    bool uiDiagnosticsActive() const;
 
     Q_INVOKABLE bool connectRaw(const QString& host,
                                 int port,
@@ -67,6 +70,7 @@ public:
     Q_INVOKABLE QVariantMap suggestedConnection() const;
     Q_INVOKABLE QString messagesForTopic(const QString& topic) const;
     Q_INVOKABLE bool ensureAutoConnected();
+    Q_INVOKABLE void setUiDiagnosticsActive(bool active);
 
 signals:
     void statusChanged();
@@ -79,6 +83,7 @@ signals:
     void telemetrySnapshotChanged();
     void telemetryMetricsChanged();
     void realtimeEventTickChanged();
+    void uiDiagnosticsActiveChanged();
     void printerFileListReceived(const QString& printerId,
                                  const QString& source,
                                  const QVariantList& records,
@@ -114,6 +119,7 @@ private:
     bool m_shuttingDown{false};
     bool m_manualMode{false};
     bool m_backgroundAutoConnectStarted{false};
+    bool m_uiDiagnosticsActive{false};
     std::future<void> m_backgroundAutoConnectTask;
     QTimer* m_subscriptionRefreshTimer{nullptr};
     QTimer* m_telemetryTimer{nullptr};

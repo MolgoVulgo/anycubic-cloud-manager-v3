@@ -244,18 +244,6 @@ AppDialogFrame {
     }
 
     onRejected: cancelled()
-    Keys.onEscapePressed: {
-        root.close()
-        event.accepted = true
-    }
-    Keys.onReturnPressed: {
-        chooseCurrentSelection()
-        event.accepted = true
-    }
-    Keys.onEnterPressed: {
-        chooseCurrentSelection()
-        event.accepted = true
-    }
 
     background: Rectangle {
         radius: Theme.radiusDialog
@@ -268,6 +256,20 @@ AppDialogFrame {
         anchors.fill: parent
         anchors.margins: Theme.paddingDialog
         spacing: Theme.gapSection
+        focus: true
+
+        Keys.onEscapePressed: function(event) {
+            root.close()
+            event.accepted = true
+        }
+        Keys.onReturnPressed: function(event) {
+            root.chooseCurrentSelection()
+            event.accepted = true
+        }
+        Keys.onEnterPressed: function(event) {
+            root.chooseCurrentSelection()
+            event.accepted = true
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -335,7 +337,7 @@ AppDialogFrame {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                radius: Theme.radiusCard
+                radius: Theme.radiusControl
                 color: Theme.bgSurface
                 border.width: Theme.borderWidth
                 border.color: Theme.borderDefault
@@ -410,7 +412,7 @@ AppDialogFrame {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                radius: Theme.radiusCard
+                radius: Theme.radiusControl
                 color: Theme.bgSurface
                 border.width: Theme.borderWidth
                 border.color: Theme.borderDefault

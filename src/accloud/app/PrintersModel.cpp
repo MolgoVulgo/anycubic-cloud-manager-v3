@@ -1,5 +1,7 @@
 #include "PrintersModel.h"
 
+#include <algorithm>
+
 namespace accloud {
 
 namespace {
@@ -81,12 +83,12 @@ bool PrintersModel::replaceOrPatchPrinters(const QVariantList& printers) {
     next.push_back(cleanPrinter(item.toMap()));
   }
 
-  if (next.size() != m_printers.size()) {
-    replaceAll(std::move(next));
-    return true;
+  if (next == m_printers) {
+    return false;
   }
 
-  for (std::size_t i = 0; i < next.size(); ++i) {
+  const std::size_t commonCount = std::min(next.size(), m_printers.size());
+  for (std::size_t i = 0; i < commonCount; ++i) {
     if (idFor(m_printers[i]) != idFor(next[i])) {
       replaceAll(std::move(next));
       return true;
@@ -94,15 +96,38 @@ bool PrintersModel::replaceOrPatchPrinters(const QVariantList& printers) {
   }
 
   bool changed = false;
-  for (std::size_t i = 0; i < next.size(); ++i) {
+  for (std::size_t i = 0; i < commonCount; ++i) {
     if (fingerprint(m_printers[i]) == fingerprint(next[i])) {
       continue;
     }
-    m_printers[i] = std::move(next[i]);
+    m_printers[i] = next[i];
     const QModelIndex changedIndex = index(static_cast<int>(i), 0);
     emit dataChanged(changedIndex, changedIndex, printerRoleNames().keys());
     changed = true;
   }
+
+  if (next.size() > m_printers.size()) {
+    const int first = static_cast<int>(m_printers.size());
+    const int last = static_cast<int>(next.size()) - 1;
+    beginInsertRows(QModelIndex(), first, last);
+    for (std::size_t i = m_printers.size(); i < next.size(); ++i) {
+      m_printers.push_back(std::move(next[i]));
+    }
+    endInsertRows();
+    emit countChanged();
+    return true;
+  }
+
+  if (next.size() < m_printers.size()) {
+    const int first = static_cast<int>(next.size());
+    const int last = static_cast<int>(m_printers.size()) - 1;
+    beginRemoveRows(QModelIndex(), first, last);
+    m_printers.resize(next.size());
+    endRemoveRows();
+    emit countChanged();
+    return true;
+  }
+
   return changed;
 }
 
@@ -110,9 +135,9 @@ void PrintersModel::clear() {
   if (m_printers.empty()) {
     return;
   }
-  beginResetModel();
+  beginRemoveRows(QModelIndex(), 0, rowCount() - 1);
   m_printers.clear();
-  endResetModel();
+  endRemoveRows();
   emit countChanged();
 }
 

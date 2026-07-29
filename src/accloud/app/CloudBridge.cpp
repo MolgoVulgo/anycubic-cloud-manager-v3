@@ -2416,6 +2416,21 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByExt(const QString& fileExt) co
     return out;
 }
 
+void CloudBridge::fetchCompatiblePrintersByExtAsync(const QString& fileExt,
+                                                    const QString& requestId) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedExt = fileExt.trimmed().toLower();
+    const QString normalizedRequestId = requestId.trimmed();
+    launchBackgroundTask([this, normalizedExt, normalizedRequestId]() {
+        const QVariantMap result = fetchCompatiblePrintersByExt(normalizedExt);
+        QMetaObject::invokeMethod(this, [this, normalizedRequestId, normalizedExt, result]() {
+            emit compatiblePrintersByExtReady(normalizedRequestId, normalizedExt, result);
+        }, Qt::QueuedConnection);
+    });
+}
+
 QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) const {
     QVariantMap out;
     const usecases::cloud::FetchPrinterCompatibilityByFileIdUseCase useCase;
@@ -2431,6 +2446,21 @@ QVariantMap CloudBridge::fetchCompatiblePrintersByFileId(const QString& fileId) 
     }
     finalizeUiMessage(out);
     return out;
+}
+
+void CloudBridge::fetchCompatiblePrintersByFileIdAsync(const QString& fileId,
+                                                       const QString& requestId) {
+    if (m_shuttingDown.load()) {
+        return;
+    }
+    const QString normalizedFileId = fileId.trimmed();
+    const QString normalizedRequestId = requestId.trimmed();
+    launchBackgroundTask([this, normalizedFileId, normalizedRequestId]() {
+        const QVariantMap result = fetchCompatiblePrintersByFileId(normalizedFileId);
+        QMetaObject::invokeMethod(this, [this, normalizedRequestId, normalizedFileId, result]() {
+            emit compatiblePrintersByFileIdReady(normalizedRequestId, normalizedFileId, result);
+        }, Qt::QueuedConnection);
+    });
 }
 
 QVariantMap CloudBridge::evaluateLocalPrinterFileCompatibility(const QVariantMap& printer,

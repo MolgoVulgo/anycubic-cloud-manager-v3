@@ -12,6 +12,7 @@
 #include "CloudFilesModel.h"
 #include "MqttBridge.h"
 #include "PrintersModel.h"
+#include "PrinterFilesModel.h"
 #include "RecentJobsModel.h"
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
@@ -273,6 +274,7 @@ ApplicationWindow {
     QQmlApplicationEngine engine;
     qmlRegisterType<accloud::CloudFilesModel>("Accloud.Models", 1, 0, "CloudFilesModel");
     qmlRegisterType<accloud::PrintersModel>("Accloud.Models", 1, 0, "PrintersModel");
+    qmlRegisterType<accloud::PrinterFilesModel>("Accloud.Models", 1, 0, "PrinterFilesModel");
     qmlRegisterType<accloud::RecentJobsModel>("Accloud.Models", 1, 0, "RecentJobsModel");
     accloud::SessionImportBridge sessionImportBridge;
     accloud::CloudBridge cloudBridge;

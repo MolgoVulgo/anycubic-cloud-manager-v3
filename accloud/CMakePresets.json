@@ -38,6 +38,32 @@
         "ACCLOUD_ENABLE_QT": "ON",
         "ACCLOUD_DEBUG": "OFF"
       }
+    },
+    {
+      "name": "protected-core",
+      "displayName": "Protected Core (no Qt, offline)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/protected-core",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ACCLOUD_ENABLE_QT": "OFF",
+        "ACCLOUD_ENABLE_QML_TESTS": "OFF",
+        "ACCLOUD_ENABLE_LIVE_TESTS": "OFF",
+        "ACCLOUD_DEBUG": "OFF",
+        "ACCLOUD_REQUIRE_QT": "OFF"
+      }
+    },
+    {
+      "name": "local-full",
+      "displayName": "Local Full Qt Validation",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/local-full",
+      "cacheVariables": {
+        "ACCLOUD_ENABLE_QT": "ON",
+        "ACCLOUD_ENABLE_QML_TESTS": "ON",
+        "ACCLOUD_ENABLE_LIVE_TESTS": "ON",
+        "ACCLOUD_REQUIRE_QT": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -52,6 +78,14 @@
     {
       "name": "prod",
       "configurePreset": "prod"
+    },
+    {
+      "name": "protected-core",
+      "configurePreset": "protected-core"
+    },
+    {
+      "name": "local-full",
+      "configurePreset": "local-full"
     }
   ],
   "testPresets": [
@@ -66,6 +100,14 @@
     {
       "name": "prod",
       "configurePreset": "prod"
+    },
+    {
+      "name": "protected-core",
+      "configurePreset": "protected-core"
+    },
+    {
+      "name": "local-full",
+      "configurePreset": "local-full"
     }
   ]
 }

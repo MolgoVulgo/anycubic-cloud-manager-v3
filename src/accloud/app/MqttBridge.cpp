@@ -534,6 +534,7 @@ QString formatTelemetrySnapshot() {
 
 MqttBridge::MqttBridge(QObject* parent)
     : QObject(parent), m_tailModel(new MqttTailModel(this)) {
+    m_tailModel->setUpdatesEnabled(false);
     setStatus(QStringLiteral("idle"));
     setConnectionState(QStringLiteral("Disconnected"));
     m_subscriptionRefreshTimer = new QTimer(this);
@@ -596,7 +597,7 @@ MqttBridge::MqttBridge(QObject* parent)
             appendRawLine(messageLine);
 
             const bool topicAdded = m_receivedTopicSet.insert(topic).second;
-            if (topicAdded) {
+            if (topicAdded && m_uiDiagnosticsActive) {
                 emit receivedTopicsChanged();
             }
             m_topicMessageHistory.emplace_back(topicName, messageLine);
@@ -609,7 +610,9 @@ MqttBridge::MqttBridge(QObject* parent)
                                        static_cast<qsizetype>(payload.size()),
                                        messageLine);
             ++m_messageTick;
-            emit messageTickChanged();
+            if (m_uiDiagnosticsActive) {
+                emit messageTickChanged();
+            }
 
             const auto routed = messageRouter().route(topic, payload);
             logging::info("mqtt", "mqtt_flow", "topic_routed",
@@ -878,6 +881,27 @@ QString MqttBridge::unknownTopSummary() const {
 
 quint64 MqttBridge::realtimeEventTick() const {
     return m_realtimeEventTick;
+}
+
+bool MqttBridge::uiDiagnosticsActive() const {
+    return m_uiDiagnosticsActive;
+}
+
+void MqttBridge::setUiDiagnosticsActive(bool active) {
+    if (m_uiDiagnosticsActive == active) {
+        return;
+    }
+    m_uiDiagnosticsActive = active;
+    if (m_tailModel != nullptr) {
+        m_tailModel->setUpdatesEnabled(active);
+    }
+    if (active) {
+        refreshTelemetrySnapshot();
+        emit receivedTopicsChanged();
+        emit messageTickChanged();
+        emit rawBufferChanged();
+    }
+    emit uiDiagnosticsActiveChanged();
 }
 
 bool MqttBridge::connectRaw(const QString& host,
@@ -1198,6 +1222,9 @@ void MqttBridge::setConnectionState(const QString& value) {
 }
 
 void MqttBridge::appendRawLine(const QString& line) {
+    if (!m_uiDiagnosticsActive) {
+        return;
+    }
     static constexpr int kMaxChars = 200000;
     if (!m_rawBuffer.isEmpty()) {
         m_rawBuffer.append('\n');
@@ -1224,6 +1251,11 @@ void MqttBridge::refreshTelemetrySnapshot() {
     if (expired > 0) {
         appendRawLine(QStringLiteral("[TRACKER] expired %1 order(s)").arg(static_cast<qulonglong>(expired)));
     }
+    if (!m_uiDiagnosticsActive) {
+        perf.setField("ui_diagnostics_active", "0");
+        return;
+    }
+    perf.setField("ui_diagnostics_active", "1");
     const auto snapshot = accloud::mqtt::observability::MqttTelemetry::instance().snapshot();
     const QString next = formatTelemetrySnapshot();
 

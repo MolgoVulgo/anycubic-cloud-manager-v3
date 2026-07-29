@@ -5,21 +5,77 @@ project(accloud VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
 
 option(ACCLOUD_ENABLE_QT "Enable Qt6/QML frontend target" ON)
+option(ACCLOUD_REQUIRE_QT "Fail configuration when the requested Qt stack is incomplete" OFF)
 option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
+option(ACCLOUD_ENABLE_LIVE_TESTS "Enable tests requiring controlled external services" ON)
 option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
 
-find_package(nlohmann_json CONFIG REQUIRED)
+if(ACCLOUD_ENABLE_QT)
+  set(CMAKE_AUTOMOC ON)
+  set(CMAKE_AUTORCC ON)
+else()
+  set(CMAKE_AUTOMOC OFF)
+  set(CMAKE_AUTORCC OFF)
+endif()
 
-add_library(accloud_domain INTERFACE)
 set(ACCLOUD_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(ACCLOUD_SRC_ROOT ${ACCLOUD_REPO_ROOT}/src/accloud)
 set(ACCLOUD_TESTS_ROOT ${ACCLOUD_REPO_ROOT}/tests)
 set(ACCLOUD_TOOLS_ROOT ${ACCLOUD_REPO_ROOT}/tools)
 set(ACCLOUD_I18N_ROOT ${ACCLOUD_REPO_ROOT}/i18n)
+set(ACCLOUD_DEPENDENCY_ARCHIVE "" CACHE FILEPATH
+    "Optional offline dependency ZIP containing nlohmann_jsonConfig.cmake")
+
+find_package(nlohmann_json CONFIG QUIET)
+if(NOT nlohmann_json_FOUND)
+  set(_accloud_dependency_archive_candidates)
+  if(ACCLOUD_DEPENDENCY_ARCHIVE)
+    list(APPEND _accloud_dependency_archive_candidates "${ACCLOUD_DEPENDENCY_ARCHIVE}")
+  endif()
+  if(DEFINED ENV{ACCLOUD_DEPENDENCY_ARCHIVE} AND NOT "$ENV{ACCLOUD_DEPENDENCY_ARCHIVE}" STREQUAL "")
+    list(APPEND _accloud_dependency_archive_candidates "$ENV{ACCLOUD_DEPENDENCY_ARCHIVE}")
+  endif()
+  list(APPEND _accloud_dependency_archive_candidates
+      "${ACCLOUD_REPO_ROOT}/accloud-build-deps.zip"
+      "${CMAKE_CURRENT_SOURCE_DIR}/accloud-build-deps.zip")
+
+  set(_accloud_dependency_archive "")
+  foreach(_candidate IN LISTS _accloud_dependency_archive_candidates)
+    get_filename_component(_candidate_abs "${_candidate}" ABSOLUTE BASE_DIR "${ACCLOUD_REPO_ROOT}")
+    if(EXISTS "${_candidate_abs}")
+      set(_accloud_dependency_archive "${_candidate_abs}")
+      break()
+    endif()
+  endforeach()
+
+  if(_accloud_dependency_archive)
+    set(_accloud_dependency_extract_root "${CMAKE_BINARY_DIR}/_deps/accloud-build-deps")
+    file(REMOVE_RECURSE "${_accloud_dependency_extract_root}")
+    file(MAKE_DIRECTORY "${_accloud_dependency_extract_root}")
+    file(ARCHIVE_EXTRACT
+        INPUT "${_accloud_dependency_archive}"
+        DESTINATION "${_accloud_dependency_extract_root}")
+    file(GLOB_RECURSE _accloud_nlohmann_configs
+        LIST_DIRECTORIES FALSE
+        "${_accloud_dependency_extract_root}/nlohmann_jsonConfig.cmake")
+    list(LENGTH _accloud_nlohmann_configs _accloud_nlohmann_config_count)
+    if(_accloud_nlohmann_config_count EQUAL 0)
+      message(FATAL_ERROR
+          "Offline dependency archive does not contain nlohmann_jsonConfig.cmake: ${_accloud_dependency_archive}")
+    endif()
+    list(GET _accloud_nlohmann_configs 0 _accloud_nlohmann_config)
+    get_filename_component(_accloud_nlohmann_dir "${_accloud_nlohmann_config}" DIRECTORY)
+    set(nlohmann_json_DIR "${_accloud_nlohmann_dir}" CACHE PATH
+        "Directory containing nlohmann_jsonConfig.cmake" FORCE)
+    message(STATUS "Using offline dependency archive: ${_accloud_dependency_archive}")
+  endif()
+
+  find_package(nlohmann_json CONFIG REQUIRED)
+endif()
+
+add_library(accloud_domain INTERFACE)
 
 target_include_directories(accloud_domain INTERFACE ${ACCLOUD_SRC_ROOT})
 
@@ -112,7 +168,8 @@ list(TRANSFORM ACCLOUD_INFRA_SOURCES PREPEND "${ACCLOUD_SRC_ROOT}/")
 add_library(accloud_infra OBJECT ${ACCLOUD_INFRA_SOURCES})
 target_include_directories(accloud_infra PRIVATE ${ACCLOUD_SRC_ROOT})
 target_compile_definitions(accloud_infra PRIVATE ACCLOUD_REPO_ROOT_PATH="${ACCLOUD_REPO_ROOT}")
-target_link_libraries(accloud_infra PRIVATE accloud_domain nlohmann_json::nlohmann_json)
+target_link_libraries(accloud_infra PRIVATE accloud_domain)
+target_link_libraries(accloud_infra PUBLIC nlohmann_json::nlohmann_json)
 
 add_executable(accloud_cli
     ${ACCLOUD_SRC_ROOT}/app/main.cpp
@@ -152,6 +209,9 @@ if(ACCLOUD_ENABLE_QT)
       target_compile_definitions(accloud_infra PRIVATE ACCLOUD_WITH_MQTT=1)
       target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_MQTT=1)
     else()
+      if(ACCLOUD_REQUIRE_QT)
+        message(FATAL_ERROR "Qt6::Mqtt is required by the selected validation profile")
+      endif()
       message(WARNING "Qt6::Mqtt not found: MQTT runtime is unavailable on this machine")
     endif()
     target_compile_definitions(accloud_cli PRIVATE ACCLOUD_WITH_QT=1)
@@ -169,6 +229,8 @@ if(ACCLOUD_ENABLE_QT)
         ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.h
         ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
         ${ACCLOUD_SRC_ROOT}/app/PrintersModel.h
+        ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.h
         ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
         ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.h
         ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
@@ -217,6 +279,10 @@ if(ACCLOUD_ENABLE_QT)
       message(WARNING "Qt6 LinguistTools not found: skipping .ts/.qm generation")
     endif()
   else()
+    if(ACCLOUD_REQUIRE_QT)
+      message(FATAL_ERROR
+          "Required Qt6 desktop components are unavailable: Quick, QuickControls2, Network, Sql and Gui")
+    endif()
     message(WARNING "Qt6 not found: accloud_cli will build in headless skeleton mode")
   endif()
 
@@ -233,6 +299,8 @@ if(ACCLOUD_ENABLE_QT)
           ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.h
           ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
           ${ACCLOUD_SRC_ROOT}/app/PrintersModel.h
+          ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.cpp
+          ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.h
           ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
           ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.h
       )
@@ -249,7 +317,13 @@ if(ACCLOUD_ENABLE_QT)
         NAME accloud_ui_qml_upload
         COMMAND accloud_qml_tests -platform offscreen -input ${ACCLOUD_TESTS_ROOT}/ui/qml/tst_cloud_files_upload.qml
       )
+      set_tests_properties(accloud_ui_qml accloud_ui_qml_upload PROPERTIES
+        LABELS "qt;qml;ui"
+      )
     else()
+      if(ACCLOUD_REQUIRE_QT)
+        message(FATAL_ERROR "Qt6::QuickTest is required by the selected validation profile")
+      endif()
       message(WARNING "Qt6 QuickTest not found: skipping QML UI tests")
     endif()
   endif()
@@ -257,6 +331,7 @@ endif()
 
 enable_testing()
 add_test(NAME accloud_smoke COMMAND accloud_cli --smoke)
+set_tests_properties(accloud_smoke PROPERTIES LABELS "core")
 
 find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
@@ -269,6 +344,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_documentation_contract.py
             --repo-root ${ACCLOUD_REPO_ROOT}
   )
+  set_tests_properties(accloud_ui_migration_check PROPERTIES LABELS "static;ui")
+  set_tests_properties(accloud_documentation_contract PROPERTIES LABELS "static;documentation")
 else()
   message(WARNING "Python3 interpreter not found: skipping Python documentation and UI guard tests")
 endif()
@@ -284,16 +361,20 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_har_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)
+set_tests_properties(accloud_har_import PROPERTIES LABELS "core;cloud")
 
-if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Sql)
-  add_executable(accloud_cloud_core_tests
-      ${ACCLOUD_TESTS_ROOT}/cloud/test_cloud_core_regressions.cpp
-      ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
-  )
-  target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
-  add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)
-else()
-  message(WARNING "Qt6::Sql unavailable: skipping accloud_cloud_core_regressions test")
+if(ACCLOUD_ENABLE_QT)
+  if(TARGET Qt6::Sql)
+    add_executable(accloud_cloud_core_tests
+        ${ACCLOUD_TESTS_ROOT}/cloud/test_cloud_core_regressions.cpp
+        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
+    )
+    target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
+    add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)
+    set_tests_properties(accloud_cloud_core_regressions PROPERTIES LABELS "qt;sql;integration")
+  else()
+    message(WARNING "Qt6::Sql unavailable: skipping accloud_cloud_core_regressions test")
+  endif()
 endif()
 
 
@@ -304,6 +385,7 @@ add_executable(accloud_thumbnail_candidate_tests
 target_include_directories(accloud_thumbnail_candidate_tests PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_thumbnail_candidate_tests PRIVATE accloud_domain)
 add_test(NAME accloud_thumbnail_candidates COMMAND accloud_thumbnail_candidate_tests)
+set_tests_properties(accloud_thumbnail_candidates PROPERTIES LABELS "core;cloud")
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui)
   add_executable(accloud_thumbnail_validation_tests
@@ -314,6 +396,7 @@ if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui)
   target_compile_definitions(accloud_thumbnail_validation_tests PRIVATE ACCLOUD_WITH_QT=1)
   target_link_libraries(accloud_thumbnail_validation_tests PRIVATE accloud_domain Qt6::Core Qt6::Gui)
   add_test(NAME accloud_thumbnail_validation COMMAND accloud_thumbnail_validation_tests)
+  set_tests_properties(accloud_thumbnail_validation PROPERTIES LABELS "qt;gui;integration")
 endif()
 
 add_executable(accloud_pwsz_preview_archive_tests
@@ -323,6 +406,7 @@ add_executable(accloud_pwsz_preview_archive_tests
 target_include_directories(accloud_pwsz_preview_archive_tests PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_pwsz_preview_archive_tests PRIVATE accloud_domain)
 add_test(NAME accloud_pwsz_preview_archive COMMAND accloud_pwsz_preview_archive_tests)
+set_tests_properties(accloud_pwsz_preview_archive PROPERTIES LABELS "core;cloud")
 
 add_executable(accloud_pwsz_cloud_preview_update_order_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_pwsz_cloud_preview_update_order.cpp
@@ -331,6 +415,7 @@ add_executable(accloud_pwsz_cloud_preview_update_order_tests
 target_include_directories(accloud_pwsz_cloud_preview_update_order_tests PRIVATE ${ACCLOUD_SRC_ROOT})
 target_link_libraries(accloud_pwsz_cloud_preview_update_order_tests PRIVATE accloud_domain)
 add_test(NAME accloud_pwsz_cloud_preview_update_order COMMAND accloud_pwsz_cloud_preview_update_order_tests)
+set_tests_properties(accloud_pwsz_cloud_preview_update_order PROPERTIES LABELS "core;cloud")
 
 add_executable(accloud_security_tests
     ${ACCLOUD_TESTS_ROOT}/cloud/test_redactor.cpp
@@ -343,6 +428,7 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_security_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
+set_tests_properties(accloud_security_redaction PROPERTIES LABELS "core;security")
 
 if(ACCLOUD_DEBUG)
   add_executable(accloud_raw_traffic_log_tests
@@ -350,28 +436,34 @@ if(ACCLOUD_DEBUG)
   )
   target_link_libraries(accloud_raw_traffic_log_tests PRIVATE accloud_domain accloud_infra)
   add_test(NAME accloud_dev_raw_traffic_log COMMAND accloud_raw_traffic_log_tests)
+  set_tests_properties(accloud_dev_raw_traffic_log PROPERTIES LABELS "core;debug;security")
 endif()
 
-if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
-  add_executable(accloud_ui_model_tests
-      ${ACCLOUD_TESTS_ROOT}/ui/test_models.cpp
-      ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.cpp
-      ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
-      ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
-      ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
-  )
-  target_link_libraries(accloud_ui_model_tests PRIVATE accloud_domain Qt6::Core)
-  add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
+if(ACCLOUD_ENABLE_QT)
+  if(TARGET Qt6::Core)
+    add_executable(accloud_ui_model_tests
+        ${ACCLOUD_TESTS_ROOT}/ui/test_models.cpp
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.cpp
+        ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
+    )
+    target_link_libraries(accloud_ui_model_tests PRIVATE accloud_domain Qt6::Core)
+    add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
+    set_tests_properties(accloud_ui_models PROPERTIES LABELS "qt;ui")
 
-  add_executable(accloud_log_tests
-      ${ACCLOUD_TESTS_ROOT}/cloud/test_log_bridge.cpp
-      ${ACCLOUD_SRC_ROOT}/app/LogBridge.cpp
-      ${ACCLOUD_SRC_ROOT}/app/LogTailModel.cpp
-  )
-  target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
-  add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
-else()
-  message(WARNING "Qt6::Core unavailable: skipping accloud_log_flow regression guard test")
+    add_executable(accloud_log_tests
+        ${ACCLOUD_TESTS_ROOT}/cloud/test_log_bridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/LogBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/LogTailModel.cpp
+    )
+    target_link_libraries(accloud_log_tests PRIVATE accloud_domain accloud_infra Qt6::Core)
+    add_test(NAME accloud_log_flow COMMAND accloud_log_tests)
+    set_tests_properties(accloud_log_flow PROPERTIES LABELS "qt;logging;integration")
+  else()
+    message(WARNING "Qt6::Core unavailable: skipping Qt model and log regression tests")
+  endif()
 endif()
 
 add_executable(accloud_mqtt_tests
@@ -386,27 +478,36 @@ if(ACCLOUD_CRYPT_LIBRARY)
   target_link_libraries(accloud_mqtt_tests PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
 endif()
 add_test(NAME accloud_mqtt_flow COMMAND accloud_mqtt_tests)
+set_tests_properties(accloud_mqtt_flow PROPERTIES LABELS "core;mqtt")
 
-add_executable(accloud_mqtt_live_check
-    ${ACCLOUD_TESTS_ROOT}/mqtt/test_mqtt_live_broker.cpp
-)
-target_link_libraries(accloud_mqtt_live_check PRIVATE accloud_domain accloud_infra)
-if(OpenSSL_FOUND)
-  target_link_libraries(accloud_mqtt_live_check PRIVATE OpenSSL::Crypto)
+if(ACCLOUD_ENABLE_LIVE_TESTS)
+  if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Network AND TARGET Qt6::Mqtt)
+    add_executable(accloud_mqtt_live_check
+        ${ACCLOUD_TESTS_ROOT}/mqtt/test_mqtt_live_broker.cpp
+    )
+    target_link_libraries(accloud_mqtt_live_check PRIVATE
+        accloud_domain
+        accloud_infra
+        Qt6::Network
+        Qt6::Mqtt
+    )
+    target_compile_definitions(accloud_mqtt_live_check PRIVATE
+        ACCLOUD_WITH_QT=1
+        ACCLOUD_WITH_MQTT=1
+    )
+    if(OpenSSL_FOUND)
+      target_link_libraries(accloud_mqtt_live_check PRIVATE OpenSSL::Crypto)
+    endif()
+    if(ACCLOUD_CRYPT_LIBRARY)
+      target_link_libraries(accloud_mqtt_live_check PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
+    endif()
+    add_test(NAME accloud_mqtt_live_broker COMMAND accloud_mqtt_live_check)
+    set_tests_properties(accloud_mqtt_live_broker PROPERTIES
+      LABELS "qt;mqtt;live"
+      SKIP_RETURN_CODE 77
+    )
+  else()
+    message(WARNING
+        "Qt6::Network and Qt6::Mqtt unavailable: skipping accloud_mqtt_live_broker test")
+  endif()
 endif()
-if(ACCLOUD_CRYPT_LIBRARY)
-  target_link_libraries(accloud_mqtt_live_check PRIVATE ${ACCLOUD_CRYPT_LIBRARY})
-endif()
-if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Network)
-  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Network)
-  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_QT=1)
-endif()
-if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Mqtt)
-  target_link_libraries(accloud_mqtt_live_check PRIVATE Qt6::Mqtt)
-  target_compile_definitions(accloud_mqtt_live_check PRIVATE ACCLOUD_WITH_MQTT=1)
-endif()
-add_test(NAME accloud_mqtt_live_broker COMMAND accloud_mqtt_live_check)
-set_tests_properties(accloud_mqtt_live_broker PROPERTIES
-  LABELS "live"
-  SKIP_RETURN_CODE 77
-)

@@ -15,6 +15,14 @@ Item {
     property string selectedTopic: ""
     property var topicSelectorModel: [qsTr("All topics")]
 
+    function syncUiDiagnosticsActivity() {
+        if (typeof mqttBridge !== "undefined"
+                && mqttBridge !== null
+                && typeof mqttBridge.setUiDiagnosticsActive === "function") {
+            mqttBridge.setUiDiagnosticsActive(root.pageActive === true)
+        }
+    }
+
     function rebuildTopicSelectorModel() {
         var previous = String(root.selectedTopic || "")
         var model = [qsTr("All topics")]
@@ -53,6 +61,12 @@ Item {
     onTopicFilterChanged: {
         if (typeof mqttBridge !== "undefined" && mqttBridge !== null && mqttBridge.tailModel)
             mqttBridge.tailModel.topicFilter = root.topicFilter
+    }
+
+    onPageActiveChanged: {
+        root.syncUiDiagnosticsActivity()
+        if (root.pageActive)
+            root.rebuildTopicSelectorModel()
     }
 
     AppPageFrame {
@@ -322,8 +336,17 @@ Item {
     }
 
     Component.onCompleted: {
+        root.syncUiDiagnosticsActivity()
         root.rebuildTopicSelectorModel()
         if (typeof mqttBridge !== "undefined" && mqttBridge !== null && mqttBridge.tailModel)
             mqttBridge.tailModel.topicFilter = root.topicFilter
+    }
+
+    Component.onDestruction: {
+        if (typeof mqttBridge !== "undefined"
+                && mqttBridge !== null
+                && typeof mqttBridge.setUiDiagnosticsActive === "function") {
+            mqttBridge.setUiDiagnosticsActive(false)
+        }
     }
 }

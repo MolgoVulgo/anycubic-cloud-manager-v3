@@ -62,6 +62,29 @@ QString MqttTailModel::topicFilter() const {
   return m_topicFilter;
 }
 
+bool MqttTailModel::updatesEnabled() const {
+  return m_updatesEnabled;
+}
+
+void MqttTailModel::setUpdatesEnabled(bool enabled) {
+  if (m_updatesEnabled == enabled) {
+    return;
+  }
+  m_updatesEnabled = enabled;
+  if (!m_updatesEnabled || !m_pendingReset) {
+    return;
+  }
+
+  const int previousCount = count();
+  beginResetModel();
+  rebuildVisible();
+  endResetModel();
+  m_pendingReset = false;
+  if (previousCount != count()) {
+    emit countChanged();
+  }
+}
+
 void MqttTailModel::setTopicFilter(const QString& value) {
   const QString next = value.trimmed().toLower();
   if (m_topicFilter == next) {
@@ -69,6 +92,10 @@ void MqttTailModel::setTopicFilter(const QString& value) {
   }
   m_topicFilter = next;
   emit topicFilterChanged();
+  if (!m_updatesEnabled) {
+    m_pendingReset = true;
+    return;
+  }
   resetVisible();
 }
 
@@ -79,6 +106,15 @@ void MqttTailModel::appendMessage(const QString& timestamp,
                                   const QString& line) {
   const int previousCount = count();
   Entry entry{timestamp, topic, payload, line, payloadSize};
+  if (!m_updatesEnabled) {
+    m_entries.push_back(std::move(entry));
+    while (static_cast<int>(m_entries.size()) > m_maxEntries) {
+      m_entries.pop_front();
+    }
+    m_pendingReset = true;
+    return;
+  }
+
   const bool willEvict = static_cast<int>(m_entries.size()) >= m_maxEntries;
   if (!willEvict && matchesFilter(entry)) {
     const int insertRow = static_cast<int>(m_visibleRows.size());
@@ -104,6 +140,12 @@ void MqttTailModel::appendMessage(const QString& timestamp,
 
 void MqttTailModel::clear() {
   if (m_entries.empty()) {
+    return;
+  }
+  if (!m_updatesEnabled) {
+    m_entries.clear();
+    m_visibleRows.clear();
+    m_pendingReset = true;
     return;
   }
   beginResetModel();

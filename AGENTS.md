@@ -51,6 +51,6 @@ ctest --preset default --output-on-failure
 
 Avant de modifier, identifier le runtime réellement chargé et le module propriétaire du comportement. Un échec de validation obligatoire arrête la chaîne de livraison ; il ne doit pas être masqué par une réparation opportuniste.
 
-Il est expressément interdit d'exécuter des tests avant un commit sauf si l'utilisateur le demande explicitement. Dans ce cas seulement, les tests pertinents peuvent être lancés.
+Lorsque la demande utilisateur porte sur un commit, il est interdit d'exécuter des tests avant ce commit sauf demande explicite de l'utilisateur. En dehors d'une demande de commit, les validations pertinentes peuvent être lancées normalement.
 
 Ne jamais commit ni push sans instruction explicite.

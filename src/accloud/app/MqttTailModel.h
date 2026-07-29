@@ -28,8 +28,10 @@ class MqttTailModel : public QAbstractListModel {
   [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
   [[nodiscard]] int count() const;
   [[nodiscard]] QString topicFilter() const;
+  [[nodiscard]] bool updatesEnabled() const;
 
   void setTopicFilter(const QString& value);
+  void setUpdatesEnabled(bool enabled);
   void appendMessage(const QString& timestamp,
                      const QString& topic,
                      const QString& payload,
@@ -59,6 +61,8 @@ class MqttTailModel : public QAbstractListModel {
   std::vector<int> m_visibleRows;
   QString m_topicFilter;
   int m_maxEntries{1200};
+  bool m_updatesEnabled{true};
+  bool m_pendingReset{false};
 };
 
 }  // namespace accloud

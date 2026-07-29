@@ -436,6 +436,41 @@ def check_backend_message_contract() -> list[str]:
     return issues
 
 
+
+def check_incremental_printer_models() -> list[str]:
+    issues: list[str] = []
+    printer_page = QML_ROOT / "pages" / "PrinterPage.qml"
+    text = read_text(printer_page)
+
+    forbidden = (
+        "remoteCompatiblePrintersModel",
+        "printCloudFilesModel",
+        "printerLocalFilesModel",
+    )
+    for object_id in forbidden:
+        pattern = rf"ListModel\s*\{{(?:(?!\}}).)*?id:\s*{re.escape(object_id)}\b"
+        if re.search(pattern, text, flags=re.DOTALL):
+            issues.append(
+                f"PrinterPage still rebuilds `{object_id}` as a QML ListModel"
+            )
+
+    required = (
+        "PrinterFilesModel {",
+        "remoteCompatiblePrintersModel.replaceOrPatchPrinters(compatiblePrinters)",
+        "printCloudFilesModel.replaceOrPatchFiles(compatibleFiles)",
+        "printerLocalFilesModel.replaceOrPatchFiles(localFiles)",
+    )
+    for token in required:
+        if token not in text:
+            issues.append(f"PrinterPage incremental model contract missing `{token}`")
+
+    model_header = APP_ROOT / "PrinterFilesModel.h"
+    model_source = APP_ROOT / "PrinterFilesModel.cpp"
+    if not model_header.exists() or not model_source.exists():
+        issues.append("PrinterFilesModel C++ implementation is missing")
+
+    return issues
+
 def main() -> int:
     errors: list[str] = []
 
@@ -450,6 +485,7 @@ def main() -> int:
     errors.extend(f"- {msg}" for msg in check_form_components())
     errors.extend(f"- {msg}" for msg in check_runtime_status_rules())
     errors.extend(f"- {msg}" for msg in check_backend_message_contract())
+    errors.extend(f"- {msg}" for msg in check_incremental_printer_models())
 
     legacy_usage = find_legacy_alias_usage()
     if legacy_usage:
@@ -469,6 +505,7 @@ def main() -> int:
     print("- Form components conform to T3 corrections")
     print("- Runtime statuses avoid raw text and free concatenation")
     print("- Backend UI message envelope contract is enforced")
+    print("- Printer selection lists use incremental C++ models")
     print("- No legacy theme aliases in migrated files")
     return 0
 

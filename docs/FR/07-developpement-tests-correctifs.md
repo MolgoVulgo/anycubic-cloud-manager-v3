@@ -14,6 +14,34 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
+## Gates de validation séparés
+
+Le projet utilise deux gates de validation explicites afin qu'un environnement restreint ne prétende jamais valider la pile desktop Qt.
+
+Gate core restreint et hors ligne :
+
+```bash
+# Placer accloud-build-deps.zip à la racine du dépôt, ou définir
+# ACCLOUD_DEPENDENCY_ARCHIVE avec son chemin absolu.
+cmake --preset protected-core
+cmake --build --preset protected-core --clean-first
+ctest --preset protected-core --output-on-failure
+```
+
+Ce gate désactive Qt, QML et les tests de services externes. Il valide le core portable, la logique cloud/MQTT sans dépendance Qt, les régressions de sécurité et les gardes Python statiques. L'archive de dépendances est extraite uniquement sous le répertoire de build CMake et aucun accès réseau n'est tenté.
+
+Gate Qt local complet :
+
+```bash
+cmake --preset local-full
+cmake --build --preset local-full --clean-first
+ctest --preset local-full --output-on-failure
+```
+
+Le preset `local-full` constitue le gate Qt local complet. La configuration échoue si les composants Qt desktop, MQTT ou QuickTest requis sont absents, et il conserve les tests QML, SQL, GUI et d'intégration. Le test broker MQTT live reste soumis à l'activation explicite `ACCLOUD_MQTT_LIVE_TEST=1`.
+
+Les tests exposent des labels CTest comme `core`, `static`, `qt`, `qml`, `sql`, `integration` et `live`, utilisables localement avec `ctest --preset local-full -L <label>`.
+
 Exemples ciblés :
 
 ```bash

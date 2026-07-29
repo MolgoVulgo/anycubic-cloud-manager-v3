@@ -30,6 +30,12 @@ QML must not issue HTTP requests, parse large payloads, open SQLite transactions
 
 Uploads, downloads, cloud synchronisation, cache work and format decoding must not block the GUI thread. Busy state, progress, cancellation and errors are exposed through bridge properties and signals.
 
+Remote-print compatibility checks by cloud file identifier and file extension run in `CloudBridge` background tasks. Each request carries a correlation identifier; QML consumes only the matching completion signal and ignores stale responses. The synchronous compatibility methods remain available for plain test mocks and legacy adapters, but the production QObject bridge uses the asynchronous path.
+
+MQTT routing, order correlation and the normalized realtime store continue while diagnostic pages are hidden. Diagnostics-only notifications, telemetry text formatting and raw-tail model resets are enabled only while the MQTT page is active; messages received while hidden remain in the bounded C++ history and are published as one synchronized model when the page reopens. The printers page defers MQTT-driven cache projection while hidden, performs one asynchronous catch-up when reopened, and stops its periodic cloud refresh outside the active tab. The log page polls its JSONL snapshot only while the page is active and visible.
+
+Printer selection data is held by C++ list models rather than rebuilt QML `ListModel` payloads. Compatible-printer rows use `PrintersModel`; cloud-print and printer-local file rows use `PrinterFilesModel`. Stable identities are patched with `dataChanged`, tail additions/removals use row deltas, and only identity reordering falls back to a model reset. Raw file metadata remains available through `get()` for remote-print preparation.
+
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
 ## Cloud file multi-selection

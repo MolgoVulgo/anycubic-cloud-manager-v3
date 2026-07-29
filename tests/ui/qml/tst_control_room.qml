@@ -446,10 +446,27 @@ TestCase {
         compare(deleteButton.visible, true)
         compare(String(deleteButton.text), "Delete (1)")
         compare(selectionCheckBox.checked, true)
-        tryVerify(function() {
-            return refreshButton.x < deleteButton.x
-                    && deleteButton.x < uploadButton.x
-        }, 1000)
+        var primaryActions = findObjectByName(page, "filesPrimaryActions")
+        verify(primaryActions !== null)
+        verify(refreshButton.parent === primaryActions)
+        verify(deleteButton.parent === primaryActions)
+        verify(uploadButton.parent === primaryActions)
+
+        var refreshIndex = -1
+        var deleteIndex = -1
+        var uploadIndex = -1
+        for (var actionIndex = 0; actionIndex < primaryActions.children.length; ++actionIndex) {
+            var action = primaryActions.children[actionIndex]
+            if (action === refreshButton)
+                refreshIndex = actionIndex
+            else if (action === deleteButton)
+                deleteIndex = actionIndex
+            else if (action === uploadButton)
+                uploadIndex = actionIndex
+        }
+        verify(refreshIndex >= 0)
+        verify(deleteIndex > refreshIndex)
+        verify(uploadIndex > deleteIndex)
 
         page.setFileSelected("demo-002", "calibration_tower.pws", true)
         wait(0)
@@ -887,7 +904,55 @@ TestCase {
         verify(logsArea.text.indexOf("mqtt_session") !== -1)
         verify(logsArea.text.indexOf("[printer]") === -1)
 
+        var pollTimer = findObjectByName(page, "logPollTimer")
+        verify(pollTimer !== null)
+        compare(pollTimer.running, true)
+        page.pageActive = false
+        compare(pollTimer.running, false)
+        page.pageActive = true
+        compare(pollTimer.running, true)
+        page.visible = false
+        compare(pollTimer.running, false)
+
         page.destroy()
+    }
+
+    function test_mqtt_page_bounds_diagnostics_by_visibility() {
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'property string status: "idle";' +
+                                         'property string subscribedTopics: "";' +
+                                         'property var receivedTopics: [];' +
+                                         'property int messageTick: 0;' +
+                                         'property string telemetrySnapshot: "";' +
+                                         'property var tailModel: null;' +
+                                         'property int diagnosticsCalls: 0;' +
+                                         'property bool diagnosticsActive: false;' +
+                                         'function setUiDiagnosticsActive(active) {' +
+                                         '  diagnosticsCalls += 1;' +
+                                         '  diagnosticsActive = active === true;' +
+                                         '}' +
+                                         'function messagesForTopic(topic) { return ""; }' +
+                                         'function connectRaw() { return true; }' +
+                                         'function disconnectRaw() {}' +
+                                         'function clearRaw() {}' +
+                                         '}', this)
+
+        var page = createQmlObject("../../../ui/qml/pages/MqttPage.qml", {
+                                       "width": 1280,
+                                       "height": 800,
+                                       "pageActive": true
+                                   })
+        compare(mqttBridge.diagnosticsActive, true)
+        verify(mqttBridge.diagnosticsCalls >= 1)
+
+        page.pageActive = false
+        compare(mqttBridge.diagnosticsActive, false)
+        page.pageActive = true
+        compare(mqttBridge.diagnosticsActive, true)
+
+        page.destroy()
+        wait(0)
+        compare(mqttBridge.diagnosticsActive, false)
     }
 
     function test_mqtt_page_shows_only_runtime_connection_fields() {
@@ -1173,6 +1238,99 @@ TestCase {
         cloudBridge = undefined
     }
 
+    function test_printer_page_remote_print_compatibility_uses_async_bridge() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal compatiblePrintersByFileIdReady(string requestId, string fileId, var result);' +
+                                         'signal compatiblePrintersByExtReady(string requestId, string fileExt, var result);' +
+                                         'property int asyncByFileCalls: 0;' +
+                                         'property int asyncByExtCalls: 0;' +
+                                         'property int syncByFileCalls: 0;' +
+                                         'property int syncByExtCalls: 0;' +
+                                         'property string lastRequestId: "";' +
+                                         'property string lastFileId: "";' +
+                                         'property string lastExt: "";' +
+                                         'function fetchPrinters() { return { ok: true, message: "ok", printers: [' +
+                                         '{ id: "p1", name: "Printer One", model: "Mono M7", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now" },' +
+                                         '{ id: "p2", name: "Printer Two", model: "Mono M5s", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now" }' +
+                                         '] } }' +
+                                         'function fetchFiles() { return { ok: true, files: [] } }' +
+                                         'function fetchReasonCatalog() { return { ok: true, reasons: [] } }' +
+                                         'function fetchPrinterDetails() { return { ok: true, details: {} } }' +
+                                         'function fetchPrinterProjects() { return { ok: true, projects: [] } }' +
+                                         'function sendPrintOrder() { return { ok: true, taskId: "123" } }' +
+                                         'function fetchCompatiblePrintersByFileId(fileId) { syncByFileCalls += 1; return { ok: false } }' +
+                                         'function fetchCompatiblePrintersByExt(ext) { syncByExtCalls += 1; return { ok: false } }' +
+                                         'function fetchCompatiblePrintersByFileIdAsync(fileId, requestId) {' +
+                                         'asyncByFileCalls += 1; lastFileId = String(fileId); lastRequestId = String(requestId)' +
+                                         '}' +
+                                         'function fetchCompatiblePrintersByExtAsync(ext, requestId) {' +
+                                         'asyncByExtCalls += 1; lastExt = String(ext); lastRequestId = String(requestId)' +
+                                         '}' +
+                                         '}',
+                                         this,
+                                         "printerAsyncCompatibilityBridgeMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        page.selectedPrinterId = "p1"
+        page.openRemotePrintFromFile("f-stale", "stale_file.pwmb")
+        wait(0)
+        var staleRequestId = String(cloudBridge.lastRequestId)
+        verify(staleRequestId.length > 0)
+
+        page.openRemotePrintFromFile("f-async", "route_file.pwmb")
+        wait(0)
+        var activeRequestId = String(cloudBridge.lastRequestId)
+
+        compare(page.remotePrintPreparing, true)
+        compare(cloudBridge.asyncByFileCalls, 2)
+        compare(cloudBridge.asyncByExtCalls, 0)
+        compare(cloudBridge.syncByFileCalls, 0)
+        compare(cloudBridge.syncByExtCalls, 0)
+        compare(String(cloudBridge.lastFileId), "f-async")
+        verify(activeRequestId.length > 0)
+        verify(activeRequestId !== staleRequestId)
+
+        cloudBridge.compatiblePrintersByFileIdReady(staleRequestId,
+                                                     "f-stale",
+                                                     { ok: true, printers: [ { id: "p2", available: 1, reason: "" } ] })
+        wait(0)
+        compare(page.remotePrintPreparing, true)
+        compare(String(page.selectedCloudFileId), "f-async")
+        compare(String(page.remotePrinterId), "p1")
+
+        cloudBridge.compatiblePrintersByFileIdReady(activeRequestId,
+                                                     "f-async",
+                                                     { ok: false, message: "file endpoint unavailable" })
+        wait(0)
+        compare(page.remotePrintPreparing, true)
+        compare(cloudBridge.asyncByExtCalls, 1)
+        compare(String(cloudBridge.lastExt), "pwmb")
+        compare(cloudBridge.syncByFileCalls, 0)
+        compare(cloudBridge.syncByExtCalls, 0)
+
+        cloudBridge.compatiblePrintersByExtReady(cloudBridge.lastRequestId,
+                                                 "pwmb",
+                                                 {
+                                                     ok: true,
+                                                     printers: [
+                                                         { id: "p1", available: 0, reason: "unavailable reason:file type mismatch" },
+                                                         { id: "p2", available: 1, reason: "" }
+                                                     ]
+                                                 })
+        wait(0)
+
+        compare(page.remotePrintPreparing, false)
+        compare(String(page.remotePrinterId), "p2")
+        compare(String(page.selectedPrinterId), "p2")
+        compare(cloudBridge.syncByFileCalls, 0)
+        compare(cloudBridge.syncByExtCalls, 0)
+        verify(String(page.statusMsg).indexOf("Remote print prepared for") === 0)
+
+        page.destroy()
+        cloudBridge.destroy()
+        cloudBridge = undefined
+    }
+
     function test_printer_local_file_modal_lists_deletes_and_starts() {
         mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject { property bool connected: true }',
                                         this,
@@ -1217,7 +1375,14 @@ TestCase {
         wait(0)
 
         var localModel = findObjectByName(page, "printerLocalFilesModel")
+        var cloudPrintModel = findObjectByName(page, "printCloudFilesModel")
+        var compatiblePrintersModel = findObjectByName(page, "remoteCompatiblePrintersModel")
         verify(localModel !== null)
+        verify(cloudPrintModel !== null)
+        verify(compatiblePrintersModel !== null)
+        verify(typeof localModel.replaceOrPatchFiles === "function")
+        verify(typeof cloudPrintModel.replaceOrPatchFiles === "function")
+        verify(typeof compatiblePrintersModel.replaceOrPatchPrinters === "function")
         compare(localModel.count, 2)
         compare(String(localModel.get(0).fileName), "plate-a.pwmb")
         compare(String(localModel.get(1).fileName), "plate-c.pwmb")
@@ -1482,6 +1647,38 @@ TestCase {
         page.destroy()
     }
 
+    function test_printer_page_defers_hidden_mqtt_cache_refresh() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'property int cachedAsyncCalls: 0;' +
+                                         'function fetchPrinters() { return { ok: true, printers: [] }; }' +
+                                         'function fetchFiles() { return { ok: true, files: [] }; }' +
+                                         'function sendPrintOrder() { return { ok: true }; }' +
+                                         'function loadCachedPrintersAsync() { cachedAsyncCalls += 1; }' +
+                                         '}', this)
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'property bool connected: true;' +
+                                         'signal realtimeEventTickChanged();' +
+                                         'signal printerFileListReceived(string printerId, string source, var records, string state, int code, string message);' +
+                                         '}', this)
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {
+                                       "width": 1280,
+                                       "height": 800,
+                                       "deferStartupInitialization": true,
+                                       "pageActive": false,
+                                       "mqttRealtimeDebounceMs": 10
+                                   })
+        mqttBridge.realtimeEventTickChanged()
+        wait(30)
+        compare(cloudBridge.cachedAsyncCalls, 0)
+        compare(page.mqttRealtimeRefreshPending, true)
+
+        page.pageActive = true
+        tryVerify(function() { return cloudBridge.cachedAsyncCalls === 1 }, 250)
+        compare(page.mqttRealtimeRefreshPending, false)
+        page.destroy()
+    }
+
     function test_printers_cache_flow_forces_refresh_and_applies_cloud_signal() {
         cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
                                          'signal printersUpdatedFromCloud(var printers, string message);' +
@@ -1590,6 +1787,14 @@ TestCase {
         compare(timer.running, true)
         wait(65)
         verify(cloudBridge.refreshCalls >= 2)
+
+        page.pageActive = false
+        compare(timer.running, false)
+        var refreshCallsWhileHidden = cloudBridge.refreshCalls
+        wait(65)
+        compare(cloudBridge.refreshCalls, refreshCallsWhileHidden)
+        page.pageActive = true
+        compare(timer.running, true)
 
         page.destroy()
     }

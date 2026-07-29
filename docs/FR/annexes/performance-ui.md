@@ -36,8 +36,8 @@ Streams throttlés, bornés et dépendants de visibilité. Ne pas repeindre de g
 3. Onglets lazy.
 4. Cache async + requêtes imprimantes groupées.
 5. Actions cloud async.
-6. MQTT/logs bornés par visibilité.
-7. Modèles C++ ou deltas incrémentaux.
+6. MQTT/logs bornés par visibilité. **Implémenté :** le modèle de diagnostic MQTT regroupe les mises à jour masquées et le poller de logs ne tourne que lorsque la page est active/visible.
+7. Modèles C++ ou deltas incrémentaux. **Implémenté pour les sélections imprimantes :** imprimantes compatibles et fichiers cloud/locaux utilisent désormais des modèles C++ à identité stable avec deltas de lignes.
 8. Documentation des conventions async.
 
 ## Définition de terminé
