@@ -60,6 +60,8 @@ Le bridge n’expose à QML qu’une URL locale `file://` validée, ou une valeu
 
 Le modèle sépare `thumbnailSourceUrl` de l’URL locale `thumbnailUrl`. Les URLs source contenant informations utilisateur, query ou fragment restent uniquement en mémoire pour la requête courante et ne sont pas persistées. Les logs utilisent `logging::safeUrlForLogs()`, qui conserve schéma, host et path mais supprime informations utilisateur, query et fragment.
 
+Le rafraîchissement des métadonnées et celui des miniatures suivent désormais deux politiques indépendantes. L’inventaire lancé au démarrage peut ignorer le TTL des fichiers, mais il n’invalide pas les miniatures locales valides. Une miniature locale déjà associée au même identifiant de fichier cloud est validée avant tout candidat distant. La clé du cache distant est calculée depuis une URL canonique limitée au schéma, au host, au port et au path : une rotation de query signée réutilise donc la même image. L’URL signée complète reste uniquement en mémoire et sert exclusivement à la requête GET réelle. Seule l’opération explicite `refreshFilesAndThumbnailsAsync()` contourne cette politique de cache. Pendant un même processus applicatif, une validation locale réussie est mémorisée avec le chemin, la taille et la date de modification du fichier. Le rafraîchissement des métadonnées réutilise ce résultat sans seconde lecture de l’image, nouvelle séquence de logs candidats ni nouveau probe QML ; toute modification du fichier invalide cette mémorisation et relance la validation.
+
 ### Upload
 
 ```text
@@ -92,7 +94,7 @@ La [Matrice runtime des endpoints cloud](annexes/endpoints-cloud-runtime.md) est
 
 ### Mise à jour des PWSZ cloud avec miniature invalide
 
-Une miniature téléchargée n’est mise en cache que si son payload fait au moins 100 octets et si Qt peut la décoder. Un payload inférieur à 100 octets est classé comme placeholder Anycubic vide, n’est pas écrit dans le cache et marque le fichier `.pwsz` prêt comme candidat à une mise à jour. Un rafraîchissement forcé ignore les miniatures déjà en cache et applique la même validation.
+Une miniature téléchargée n’est mise en cache que si son payload fait au moins 100 octets et si Qt peut la décoder. Un payload inférieur à 100 octets est classé comme placeholder Anycubic vide, n’est pas écrit dans le cache et marque le fichier `.pwsz` prêt comme candidat à une mise à jour. Un rafraîchissement explicitement forcé des miniatures ignore les images déjà en cache et applique la même validation.
 
 À la fin du rafraîchissement des fichiers, QML peut proposer une modification groupée des entrées concernées. Le use case C++ trie d’abord les candidats par date de création cloud croissante, puis par identifiant cloud numérique croissant lorsque les dates sont identiques, et les traite séquentiellement du fichier le plus ancien au plus récent. Il télécharge ensuite le PWSZ original, duplique `preview_images/preview_1.png` sous le nom `preview_2.png`, envoie une version cloud normale portant directement le nom d’affichage original, attend le traitement cloud, valide la nouvelle miniature, puis seulement supprime l’ancien identifiant. Aucun endpoint de renommage non observé n’est ajouté. Si la validation échoue, la nouvelle version est supprimée lorsque possible et l’original reste la référence. Si la suppression de l’ancien identifiant échoue, les deux versions sont conservées et le résultat est signalé comme modification partielle.
 

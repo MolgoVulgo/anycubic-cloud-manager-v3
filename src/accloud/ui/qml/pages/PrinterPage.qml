@@ -1788,17 +1788,27 @@ Item {
             remotePrinterId = String(remoteCompatiblePrintersModel.get(0).id || "")
     }
 
-    function setSingleRemotePrintFile(fileId, fileName) {
+    function setSingleRemotePrintFile(fileId, fileName, fileData) {
         var normalizedFileId = String(fileId || "").trim()
         if (normalizedFileId.length === 0)
             return
 
         var normalizedFileName = String(fileName || "").trim()
-        var existing = cloudFileDataById(normalizedFileId)
+        var existing = fileData !== null && fileData !== undefined
+                && Object.keys(fileData).length > 0
+                ? fileData
+                : cloudFileDataById(normalizedFileId)
         if (!existing)
             existing = loadCloudFileDetailsById(normalizedFileId)
 
-        var entry = existing ? existing : ({})
+        var entry = ({})
+        if (existing) {
+            var existingKeys = Object.keys(existing)
+            for (var i = 0; i < existingKeys.length; ++i) {
+                var key = existingKeys[i]
+                entry[key] = existing[key]
+            }
+        }
         entry.fileId = normalizedFileId
         entry.fileName = normalizedFileName.length > 0
                 ? normalizedFileName
@@ -1812,7 +1822,7 @@ Item {
         selectedCloudFileId = normalizedFileId
     }
 
-    function openRemotePrintFromFile(fileId, fileName) {
+    function openRemotePrintFromFile(fileId, fileName, fileData) {
         var normalizedFileId = String(fileId || "").trim()
         var normalizedFileName = String(fileName || "").trim()
         if (normalizedFileId.length === 0) {
@@ -1821,7 +1831,7 @@ Item {
             return
         }
 
-        setSingleRemotePrintFile(normalizedFileId, normalizedFileName)
+        setSingleRemotePrintFile(normalizedFileId, normalizedFileName, fileData)
         remotePrintCompatibilityResult = null
         remoteCompatiblePrintersModel.clear()
         remotePrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
@@ -3197,10 +3207,6 @@ Item {
             root.optionAutoResinCheck = checked
         }
         onRefreshGuardRequested: root.refreshRemotePrintGuard()
-        onChangePrinterRequested: {
-            remotePrintConfigDialog.close()
-            root.openSelectCloudFileDialog(root.remotePrinterId)
-        }
         onCloseRequested: remotePrintConfigDialog.close()
         onStartRequested: root.startRemotePrint()
     }

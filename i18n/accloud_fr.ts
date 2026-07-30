@@ -1113,6 +1113,11 @@ Annulés : %5</translation>
             <source>%1 Cloud refresh failed: %2</source>
             <translation>%1 Échec du rafraîchissement cloud : %2</translation>
         </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1628" />
+            <source>Invalid download destination.</source>
+            <translation>Destination de téléchargement invalide.</translation>
+        </message>
 </context>
     <context>
         <name>CloudFilesPaginationBar</name>
@@ -3273,98 +3278,98 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         </message>
     </context>
     <context>
-        <name>PrinterRemotePrintConfigDialog</name>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="8" />
-            <source>Remote Print Config</source>
-            <translation>Configuration impression a distance</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="9" />
-            <source>Review task, printer and options before start</source>
-            <translation>Verifier la tache, l'imprimante et les options avant demarrage</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="49" />
-            <source>Print Task</source>
-            <translation>Tache d'impression</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="50" />
-            <source>Selected cloud file summary</source>
-            <translation>Resume du fichier cloud selectionne</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="75" />
-            <source>Printer: %1 | Est: %2 | Resin: %3</source>
-            <translation>Imprimante : %1 | Est. : %2 | Resine : %3</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="88" />
-            <source>Select Printer</source>
-            <translation>Selectionner une imprimante</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="89" />
-            <source>Change target printer if needed</source>
-            <translation>Changer l'imprimante cible si necessaire</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="120" />
-            <source>Change</source>
-            <translation>Changer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="128" />
-            <source>Options</source>
-            <translation>Options</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="129" />
-            <source>Fast options before start</source>
-            <translation>Options rapides avant demarrage</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="137" />
-            <source>High priority</source>
-            <translation>Haute priorite</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="143" />
-            <source>Delete file after print</source>
-            <translation>Supprimer le fichier apres impression</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="149" />
-            <source>Dry-run</source>
-            <translation>Simulation</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="157" />
-            <source>More</source>
-            <translation>Plus</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="167" />
-            <source>Start blocked: %1</source>
-            <translation>Demarrage bloque : %1</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="171" />
-            <source>Start blocked by compatibility checks.</source>
-            <translation>Demarrage bloque par les controles de compatibilite.</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="179" />
-            <source>Close</source>
-            <translation>Fermer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" line="184" />
-            <source>Start Printing</source>
-            <translation>Demarrer l'impression</translation>
-        </message>
-    </context>
+    <name>PrinterRemotePrintConfigDialog</name>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Remote Print Config</source>
+        <translation>Configuration de l’impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Review task, printer and options before start</source>
+        <translation>Vérifiez le fichier, l’imprimante et les options avant le démarrage.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Checking printer compatibility...</source>
+        <translation>Vérification de la compatibilité de l’imprimante...</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>No printer available for remote print.</source>
+        <translation>Aucune imprimante disponible pour l’impression à distance.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Print Task</source>
+        <translation>Fichier à imprimer</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Print time</source>
+        <translation>Durée d’impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Resin usage</source>
+        <translation>Consommation de résine</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Select Printer</source>
+        <translation>Imprimante</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Compatible target printer</source>
+        <translation>Imprimante compatible proposée automatiquement</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Options</source>
+        <translation>Options</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Fast options before start</source>
+        <translation>Options appliquées au lancement de l’impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Delete file after print</source>
+        <translation>Supprimer le fichier après impression</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Lift compensation</source>
+        <translation>Compensation de levage</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Auto resin check</source>
+        <translation>Vérification automatique de la résine</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Start blocked: %1</source>
+        <translation>Démarrage bloqué : %1</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Start blocked by compatibility checks.</source>
+        <translation>Démarrage bloqué par les contrôles de compatibilité.</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Close</source>
+        <translation>Fermer</translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
+        <source>Start Printing</source>
+        <translation>Démarrer l’impression</translation>
+    </message>
+</context>
     <context>
         <name>PrinterSelectCloudFileDialog</name>
         <message>
@@ -3911,4 +3916,27 @@ Connexion cloud : </translation>
             <translation>Fermer</translation>
         </message>
     </context>
+    <context>
+        <name>DownloadFileDialog</name>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="26" /><source>%1 files (*.%2)</source><translation>Fichiers %1 (*.%2)</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="29" /><source>All files (*)</source><translation>Tous les fichiers (*)</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="42" /><source>Save As</source><translation>Enregistrer sous</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="43" /><source>Choose the destination folder and file name.</source><translation>Choisissez le dossier de destination et le nom du fichier.</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="263" /><source>Home</source><translation>Dossier personnel</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="271" /><source>Downloads</source><translation>Téléchargements</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="283" /><source>Up</source><translation>Parent</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="318" /><source>Folders</source><translation>Dossiers</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="382" /><source>Files</source><translation>Fichiers</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="441" /><source>File name</source><translation>Nom du fichier</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="468" /><source>Destination: %1</source><translation>Destination : %1</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="469" /><source>Enter a file name.</source><translation>Saisissez un nom de fichier.</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="480" /><source>Cancel</source><translation>Annuler</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="487" /><source>Save</source><translation>Enregistrer</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="520" /><source>Replace existing file?</source><translation>Remplacer le fichier existant ?</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="521" /><source>A file with this name already exists in the selected folder.</source><translation>Un fichier portant ce nom existe déjà dans le dossier sélectionné.</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="531" /><source>Replace %1?</source><translation>Remplacer %1 ?</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="540" /><source>The existing file will be overwritten.</source><translation>Le fichier existant sera écrasé.</translation></message>
+        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="555" /><source>Replace</source><translation>Remplacer</translation></message>
+            <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="357" /><source>Content</source><translation>Contenu</translation></message>
+</context>
 </TS>

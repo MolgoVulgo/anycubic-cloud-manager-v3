@@ -36,6 +36,8 @@ Le routage MQTT, la corrélation des ordres et le store temps réel normalisé c
 
 Les listes de sélection des imprimantes sont portées par des modèles C++ au lieu de reconstruire des payloads `ListModel` en QML. Les imprimantes compatibles utilisent `PrintersModel` ; les fichiers cloud à imprimer et les fichiers locaux de l'imprimante utilisent `PrinterFilesModel`. Les identités stables sont mises à jour par `dataChanged`, les ajouts/suppressions de fin utilisent des deltas de lignes, et seul un réordonnancement d'identités déclenche un reset complet. Les métadonnées brutes restent accessibles par `get()` pour la préparation d'impression distante.
 
+Le dialogue de confirmation d'impression distante reçoit directement la ligne complète déjà présente dans `CloudFilesModel` lorsque l'action **Imprimer** est déclenchée depuis la liste des fichiers. Le nom, la durée estimée et la consommation de résine sont ainsi disponibles dès l'ouverture, sans attendre une nouvelle synchronisation cloud. Pendant le contrôle asynchrone de compatibilité, le sélecteur affiche l'imprimante préférée issue du modèle principal ; il bascule ensuite vers le modèle filtré des imprimantes compatibles tout en resynchronisant l'identifiant sélectionné. Le dialogue ne propose pas de changer de fichier : le fichier est fixé par l'action d'origine.
+
 La complétion des aperçus PWSZ est contrôlée par deux réglages persistés : la complétion elle-même est activée par défaut, et la confirmation avant remplacement permanent du fichier local est activée par défaut. La modal explique que `preview_1.png` est copié vers `preview_2.png`, que la version préparée est envoyée, puis que le fichier local n’est remplacé qu’après succès cloud. « Ne plus demander » désactive uniquement la confirmation ; les deux réglages restent accessibles depuis le menu Paramètres.
 
 ## Sélection multiple des fichiers cloud
@@ -43,6 +45,12 @@ La complétion des aperçus PWSZ est contrôlée par deux réglages persistés :
 Chaque ligne de fichier cloud expose une case à cocher indépendante. Les identifiants et noms d’affichage sélectionnés sont conservés dans l’état de la page, séparément de la ligne unique utilisée par la vue de détails. Dès qu’au moins un fichier est sélectionné, une action destructive `Supprimer (N)` apparaît entre Rafraîchir et Envoyer.
 
 L’action exige toujours une confirmation explicite. Les suppressions sont ensuite soumises séquentiellement via l’opération asynchrone existante du bridge afin de ne pas bloquer le thread GUI et de préserver le contrat courant de suppression cloud/cache. Les éléments supprimés avec succès sortent de la sélection ; les éléments en échec restent sélectionnés. La liste est rafraîchie une seule fois à la fin et la barre d’état distingue réussite complète, réussite partielle et échec.
+
+## Destination de téléchargement d’un fichier cloud
+
+L’action de téléchargement utilise le composant interne `DownloadFileDialog.qml` au lieu du sélecteur natif du bureau. Le dialogue suit ainsi la palette et les contrôles ACM actifs quel que soit l’environnement desktop. Il s’ouvre dans le dossier Téléchargements standard lorsqu’il existe. La carte de gauche fournit une arborescence de dossiers dépliable et chargée à la demande ; la vue **Contenu** regroupe les sous-dossiers du répertoire courant puis uniquement les fichiers portant l’extension du fichier cloud. Les raccourcis Dossier personnel et Téléchargements restent disponibles, sans bouton Parent ni rappel textuel redondant de la destination.
+
+Le nom cloud complet, extension d’origine incluse, est prérempli avant la demande d’URL signée. Si l’utilisateur retire l’extension, le suffixe d’origine est restauré lors de la construction de la destination. Le champ éditable n’accepte qu’un nom de base : les séparateurs de chemin sont retirés avant l’envoi du chemin local final à `CloudBridge::startDownload()`. Un double-clic sur un dossier ouvre ce dossier ; un double-clic sur un fichier compatible reprend son nom et déclenche la confirmation de remplacement lorsque nécessaire.
 
 ## Ressources et séparation production
 

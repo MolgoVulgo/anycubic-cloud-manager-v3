@@ -1,6 +1,5 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Dialogs
 import QtQuick.Layouts 1.15
 import QtCore
 import Accloud.Models 1.0
@@ -17,7 +16,7 @@ Item {
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
-    signal printIntentRequested(string fileId, string fileName)
+    signal printIntentRequested(string fileId, string fileName, var fileData)
     signal pwszUploadSettingsChanged()
 
     // UI state
@@ -614,8 +613,8 @@ Item {
             return
         }
 
-        saveDialog.suggestName = String(fileName || qsTr("file"))
-        saveDialog.defaultSuffix = String(fileExtension(fileName) || "file")
+        saveDialog.suggestedFileName = String(fileName || qsTr("file"))
+        saveDialog.defaultSuffix = String(fileExtension(fileName))
         if (typeof cloudBridge.getDownloadUrlAsync === "function") {
             root.statusMsg = qsTr("Preparing download...")
             root.statusSev = "info"
@@ -820,10 +819,12 @@ Item {
             return
         }
 
+        var selectedFileData = fileDataById(normalizedFileId)
         root.statusMsg = qsTr("Preparing print setup for %1...")
                 .arg(normalizedFileName.length > 0 ? normalizedFileName : normalizedFileId)
         root.statusSev = "info"
-        root.printIntentRequested(normalizedFileId, normalizedFileName)
+        root.printIntentRequested(normalizedFileId, normalizedFileName,
+                                  selectedFileData !== null ? selectedFileData : ({}))
     }
 
     function pickUploadFile() {
@@ -1611,25 +1612,22 @@ Item {
         }
     }
 
-    FileDialog {
+    DownloadFileDialog {
         id: saveDialog
         property string pendingUrl: ""
-        property string suggestName: "file"
-        readonly property var downloadFolders: StandardPaths.standardLocations(StandardPaths.DownloadLocation)
-        title: qsTr("Save As")
-        fileMode: FileDialog.SaveFile
-        nameFilters: [qsTr("All files (*)")]
-        currentFolder: downloadFolders.length > 0
-                     ? downloadFolders[0]
-                     : StandardPaths.writableLocation(StandardPaths.HomeLocation)
 
-        onAccepted: {
+        onFileChosen: function(file) {
             if (!hasCloudBridge() || typeof cloudBridge.startDownload !== "function") {
                 root.statusMsg = qsTr("Download unavailable without backend.")
                 root.statusSev = "warn"
                 return
             }
-            var dest = String(selectedFile).replace(/^file:\/\//, "")
+            var dest = root.localPathFromInput(file)
+            if (dest.length <= 0) {
+                root.statusMsg = qsTr("Invalid download destination.")
+                root.statusSev = "error"
+                return
+            }
             downloadOverlay.visible = true
             downloadOverlay.progress = 0
             downloadOverlay.received = 0

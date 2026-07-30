@@ -46,6 +46,8 @@
     <file alias="qml/components/ErrorBanner.qml">../ui/qml/components/ErrorBanner.qml</file>
     <file alias="qml/components/ProgressCard.qml">../ui/qml/components/ProgressCard.qml</file>
     <file alias="qml/components/UploadFileDialog.qml">../ui/qml/components/UploadFileDialog.qml</file>
+    <file alias="qml/components/DownloadFileDialog.qml">../ui/qml/components/DownloadFileDialog.qml</file>
+    <file alias="qml/components/FolderTreeNode.qml">../ui/qml/components/FolderTreeNode.qml</file>
     <file alias="qml/panes/PreviewPane.qml">../ui/qml/panes/PreviewPane.qml</file>
     <file alias="qml/panes/LayerInspectorPane.qml">../ui/qml/panes/LayerInspectorPane.qml</file>
     <file alias="qml/panes/Viewer3DPane.qml">../ui/qml/panes/Viewer3DPane.qml</file>

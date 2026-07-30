@@ -223,6 +223,8 @@ if(ACCLOUD_ENABLE_QT)
         ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.h
         ${ACCLOUD_SRC_ROOT}/app/CloudBridge.cpp
         ${ACCLOUD_SRC_ROOT}/app/CloudBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/ThumbnailCachePolicy.cpp
+        ${ACCLOUD_SRC_ROOT}/app/ThumbnailCachePolicy.h
         ${ACCLOUD_SRC_ROOT}/app/MqttBridge.cpp
         ${ACCLOUD_SRC_ROOT}/app/MqttBridge.h
         ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
@@ -386,6 +388,17 @@ target_include_directories(accloud_thumbnail_candidate_tests PRIVATE ${ACCLOUD_S
 target_link_libraries(accloud_thumbnail_candidate_tests PRIVATE accloud_domain)
 add_test(NAME accloud_thumbnail_candidates COMMAND accloud_thumbnail_candidate_tests)
 set_tests_properties(accloud_thumbnail_candidates PROPERTIES LABELS "core;cloud")
+
+if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Core)
+  add_executable(accloud_thumbnail_cache_policy_tests
+      ${ACCLOUD_TESTS_ROOT}/cloud/test_thumbnail_cache_policy.cpp
+      ${ACCLOUD_SRC_ROOT}/app/ThumbnailCachePolicy.cpp
+  )
+  target_include_directories(accloud_thumbnail_cache_policy_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_thumbnail_cache_policy_tests PRIVATE accloud_domain Qt6::Core)
+  add_test(NAME accloud_thumbnail_cache_policy COMMAND accloud_thumbnail_cache_policy_tests)
+  set_tests_properties(accloud_thumbnail_cache_policy PROPERTIES LABELS "qt;cloud")
+endif()
 
 if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui)
   add_executable(accloud_thumbnail_validation_tests

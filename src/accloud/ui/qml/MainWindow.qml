@@ -1192,9 +1192,9 @@ ApplicationWindow {
                                 root.pushGlobalStatus(message, severity, operationId)
                             }
                             onPwszUploadSettingsChanged: root.loadPwszUploadSettings()
-                            onPrintIntentRequested: function(fileId, fileName) {
+                            onPrintIntentRequested: function(fileId, fileName, fileData) {
                                 if (typeof printerPage.openRemotePrintFromFile === "function") {
-                                    printerPage.openRemotePrintFromFile(fileId, fileName)
+                                    printerPage.openRemotePrintFromFile(fileId, fileName, fileData)
                                 } else {
                                     root.pushGlobalStatus(qsTr("Remote print entrypoint is unavailable."),
                                                           "warn",

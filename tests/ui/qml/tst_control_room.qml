@@ -1391,18 +1391,45 @@ TestCase {
 
         var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
         page.selectedPrinterId = "p1"
-        page.openRemotePrintFromFile("f-route-1", "route_file.pwmb")
+        page.openRemotePrintFromFile("f-route-1", "route_file.pwmb", {
+                                         fileId: "f-route-1",
+                                         fileName: "route_file.pwmb",
+                                         printTime: "01h 10m",
+                                         resinUsage: "24 ml"
+                                     })
 
         compare(page.remotePrintPreparing, true)
         compare(String(page.remotePrinterId), "p1")
+        var dialog = findObjectByName(page, "remotePrintConfigDialog")
+        var printerCombo = findObjectByName(dialog, "remotePrinterCombo")
+        verify(dialog !== null)
+        verify(printerCombo !== null)
+        compare(String(dialog.selectedPrintTime), "01h 10m")
+        compare(String(dialog.selectedResinUsage), "24 ml")
+        compare(String(printerCombo.displayText), "Printer One")
         wait(0)
 
         compare(page.remotePrintPreparing, false)
         compare(String(page.remotePrinterId), "p2")
+        compare(String(printerCombo.displayText), "Printer Two")
+
+        printerCombo.popup.open()
+        wait(120)
+        var printerPopupList = printerCombo.popup.contentItem
+        verify(printerPopupList !== null)
+        compare(printerPopupList.count, 1)
+        var compatiblePrinterItem = printerPopupList.itemAtIndex(0)
+        verify(compatiblePrinterItem !== null)
+        verify(compatiblePrinterItem.contentItem !== null)
+        compare(String(compatiblePrinterItem.contentItem.text), "Printer Two")
+        printerCombo.popup.close()
+
         compare(String(page.selectedCloudFileId), "f-route-1")
         var selectedFile = page.selectedCloudFileData()
         verify(selectedFile !== null)
         compare(String(selectedFile.fileId), "f-route-1")
+        compare(String(selectedFile.printTime), "01h 10m")
+        compare(String(selectedFile.resinUsage), "24 ml")
         verify(String(page.statusMsg).indexOf("Remote print prepared for") === 0)
 
         page.destroy()
@@ -1681,7 +1708,7 @@ TestCase {
                                          'property string lastPrintPrinterId: "";' +
                                          'property string lastPrintFileId: "";' +
                                          'function fetchQuota() { return { ok: true, totalBytes: 0, usedBytes: 0 } }' +
-                                         'function fetchFiles(page, limit) { return { ok: true, files: [ { fileId: "route-file-1", fileName: "route_file.pwmb", status: "READY", sizeText: "1 MB" } ] } }' +
+                                         'function fetchFiles(page, limit) { return { ok: true, files: [ { fileId: "route-file-1", fileName: "route_file.pwmb", status: "READY", sizeText: "1 MB", printTime: "02h 05m", resinUsage: "51 ml" } ] } }' +
                                          'function fetchPrinters() { return { ok: true, endpoint: "/mock/printers", rawJson: "{}", printers: [ { id: "route-p1", name: "Route Printer", model: "Mono", type: "LCD", state: "READY", reason: "free", available: 1, progress: -1, elapsedSec: -1, remainingSec: -1, currentFile: "", lastSeen: "now" } ] } }' +
                                          'function fetchCompatiblePrintersByExt(ext) { return { ok: true, printers: [ { id: "route-p1", available: 1, reason: "" } ] } }' +
                                          'function fetchCompatiblePrintersByFileId(fileId) { return { ok: true, printers: [ { id: "route-p1", available: 1, reason: "" } ] } }' +
@@ -1709,6 +1736,8 @@ TestCase {
         verify(printConfigDialog !== null)
         compare(printConfigDialog.visible, true)
         compare(printerPage.remotePrintPreparing, true)
+        compare(String(printConfigDialog.selectedPrintTime), "02h 05m")
+        compare(String(printConfigDialog.selectedResinUsage), "51 ml")
         var startButton = findObjectByName(printConfigDialog, "remotePrintStartButton")
         verify(startButton !== null)
         compare(startButton.enabled, false)

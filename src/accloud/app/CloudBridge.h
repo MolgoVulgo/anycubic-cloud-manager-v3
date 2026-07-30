@@ -32,6 +32,9 @@ public:
     Q_INVOKABLE QVariantMap fetchQuota() const;
     Q_INVOKABLE QVariantMap loadCachedQuota() const;
     Q_INVOKABLE void refreshFilesAsync(int page = 1, int limit = 20, bool force = false);
+    Q_INVOKABLE void refreshFilesAndThumbnailsAsync(int page = 1,
+                                                    int limit = 20,
+                                                    bool force = true);
 
     // Retourne { ok, message }
     Q_INVOKABLE QVariantMap deleteFile(const QString& fileId) const;
@@ -165,6 +168,10 @@ Q_SIGNALS:
     void syncFailed(const QString& scope, const QString& message);
 
 private:
+    void refreshFilesAsyncWithPolicy(int page,
+                                     int limit,
+                                     bool force,
+                                     bool forceThumbnails);
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
     QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;
     QVariantList fetchAllFilesWithRetry(int pageSize, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;

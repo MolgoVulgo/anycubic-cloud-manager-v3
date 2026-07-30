@@ -60,6 +60,8 @@ The bridge exposes only a validated local `file://` URL, or an empty value, to Q
 
 The model separates `thumbnailSourceUrl` from the local `thumbnailUrl`. Source URLs containing user information, query or fragment are kept only in memory for the current request and are not persisted. Logs use `logging::safeUrlForLogs()`, which keeps scheme, host and path while removing user information, query and fragment.
 
+Metadata refresh and thumbnail refresh are independent policies. The startup inventory refresh may bypass the files TTL, but it does not invalidate valid thumbnail files. A cached local thumbnail associated with the same cloud file identifier is validated before any remote candidate. Remote cache keys are derived from a canonical URL containing only scheme, host, port and path, so rotating signed query values reuse the same image. The complete signed URL remains memory-only and is used solely for the actual GET request. Only the explicit `refreshFilesAndThumbnailsAsync()` operation bypasses this cache policy. Within one application process, a successful local validation is memoized with the file path, size and modification timestamp. The metadata refresh reuses that result without a second image read, candidate log sequence or QML probe; any file change invalidates the memoized result and triggers validation again.
+
 ### Upload
 
 ```text
@@ -92,7 +94,7 @@ The [Cloud endpoint runtime matrix](appendices/cloud-endpoints-runtime.md) is de
 
 ### Updating cloud PWSZ files with invalid thumbnails
 
-A downloaded thumbnail is cacheable only when its payload is at least 100 bytes and Qt can decode it. Payloads below 100 bytes are classified as empty Anycubic placeholders, are not written to the cache, and mark ready `.pwsz` entries as update candidates. A forced refresh bypasses existing thumbnail cache files and performs the same validation again.
+A downloaded thumbnail is cacheable only when its payload is at least 100 bytes and Qt can decode it. Payloads below 100 bytes are classified as empty Anycubic placeholders, are not written to the cache, and mark ready `.pwsz` entries as update candidates. An explicit forced thumbnail refresh bypasses existing thumbnail cache files and performs the same validation again.
 
 After a completed file refresh, QML may offer one batch modification for the affected entries. The C++ use case sorts candidates by cloud creation time ascending, then by numeric cloud file identifier ascending when timestamps are equal, and processes them sequentially from the oldest file to the newest. It then downloads the original PWSZ, duplicates `preview_images/preview_1.png` as `preview_2.png`, uploads a normal replacement using the original display name, waits for cloud processing, validates the new thumbnail, and only then deletes the old file identifier. No unobserved rename endpoint is introduced. If validation fails, the replacement is deleted when possible and the original remains authoritative. If deletion of the old identifier fails, both versions are kept and the result is reported as a partial modification.
 

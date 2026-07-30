@@ -36,6 +36,8 @@ MQTT routing, order correlation and the normalized realtime store continue while
 
 Printer selection data is held by C++ list models rather than rebuilt QML `ListModel` payloads. Compatible-printer rows use `PrintersModel`; cloud-print and printer-local file rows use `PrinterFilesModel`. Stable identities are patched with `dataChanged`, tail additions/removals use row deltas, and only identity reordering falls back to a model reset. Raw file metadata remains available through `get()` for remote-print preparation.
 
+The remote-print confirmation dialog receives the complete row already held by `CloudFilesModel` when **Print** is invoked from the cloud-file list. The file name, estimated print time and resin usage are therefore available as soon as the dialog opens, without waiting for another cloud synchronization. While the asynchronous compatibility check runs, the selector displays the preferred printer from the main printer model; it then switches to the filtered compatible-printer model and resynchronizes the selected identifier. The dialog does not offer file replacement because the originating action fixes the file.
+
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
 ## Cloud file multi-selection
@@ -43,6 +45,12 @@ PWSZ preview completion is controlled by two persisted settings: completion itse
 Each cloud-file row exposes an independent checkbox. The selected file identifiers and display names are kept as page state, separately from the single row used by the details view. When at least one file is selected, a destructive `Delete (N)` action appears between Refresh and Upload.
 
 The action always requires explicit confirmation. Deletions are then submitted sequentially through the existing asynchronous bridge operation so the GUI thread remains responsive and the current cloud/cache deletion contract is preserved. Successful items are removed from the selection; failed items remain selected. The list is refreshed once after the sequence and the status bar reports complete, partial or failed completion.
+
+## Cloud file download destination
+
+The cloud-file download action uses the application-owned `DownloadFileDialog.qml` instead of the desktop native save picker. The dialog therefore follows the active ACM palette and control styling on every supported desktop environment. It opens in the standard Downloads folder when available. The left card provides a lazily loaded expandable folder tree; the **Content** view groups subfolders of the current directory first, followed only by files matching the cloud file extension. Home and Downloads shortcuts remain available, without an Up button or a redundant destination summary line.
+
+The complete cloud file name, including its original extension, is prefilled before the signed URL is requested. If the user removes the extension, the original suffix is restored when the destination is built. Only a base file name is accepted from the editable field; path separators are discarded before the final local path is sent to `CloudBridge::startDownload()`. Double-clicking a folder opens it; double-clicking a matching file reuses its name and triggers replacement confirmation when required.
 
 ## Resources and production separation
 

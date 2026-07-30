@@ -64,19 +64,24 @@ ComboBox {
         }
 
         function delegateText() {
+            var resolved = root.textAt(index)
+            if (resolved !== null && resolved !== undefined
+                    && String(resolved).length > 0) {
+                return String(resolved)
+            }
             if (typeof model !== "undefined" && model !== null) {
                 if (root.textRole.length > 0 && model[root.textRole] !== undefined)
-                    return model[root.textRole]
+                    return String(model[root.textRole])
                 if (model.text !== undefined)
-                    return model.text
+                    return String(model.text)
             }
             if (typeof modelData === "string")
                 return modelData
             if (modelData !== null && modelData !== undefined) {
                 if (root.textRole.length > 0 && modelData[root.textRole] !== undefined)
-                    return modelData[root.textRole]
+                    return String(modelData[root.textRole])
                 if (modelData.text !== undefined)
-                    return modelData.text
+                    return String(modelData.text)
                 return String(modelData)
             }
             return ""

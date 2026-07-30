@@ -1,10 +1,12 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import QtTest 1.3
 
 TestCase {
     name: "CloudFilesUploadUi"
     property var cloudBridge: undefined
     property var uiSettingsBridge: undefined
+    property var dialogHostWindow: undefined
 
     function cleanup() {
         if (cloudBridge !== undefined && cloudBridge !== null && cloudBridge.destroy !== undefined) {
@@ -16,18 +18,62 @@ TestCase {
             uiSettingsBridge.destroy()
         }
         uiSettingsBridge = undefined
+        if (dialogHostWindow !== undefined && dialogHostWindow !== null
+                && dialogHostWindow.destroy !== undefined) {
+            dialogHostWindow.destroy()
+        }
+        dialogHostWindow = undefined
     }
 
-    function createQmlObject(path, props) {
+    function createQmlObject(path, props, parentObject) {
         var component = Qt.createComponent(path)
         if (component.status !== Component.Ready && path.indexOf("../../../ui/qml/") === 0) {
             var sourcePath = "../../../src/accloud/ui/qml/" + path.slice(String("../../../ui/qml/").length)
             component = Qt.createComponent(sourcePath)
         }
         compare(component.status, Component.Ready, "Unable to load " + path + " -> " + component.errorString())
-        var object = component.createObject(null, props ? props : {})
+        var owner = (parentObject !== undefined && parentObject !== null) ? parentObject : null
+        var object = component.createObject(owner, props ? props : {})
         verify(object !== null, "Unable to create object for " + path)
         return object
+    }
+
+    function findObjectByName(root, name, visited) {
+        if (root === null || root === undefined)
+            return null
+        if (visited === null || visited === undefined)
+            visited = []
+        for (var v = 0; v < visited.length; ++v) {
+            if (visited[v] === root)
+                return null
+        }
+        visited.push(root)
+
+        if (root.objectName === name)
+            return root
+
+        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem]
+        for (var d = 0; d < direct.length; ++d) {
+            var directNode = direct[d]
+            if (directNode !== null && directNode !== undefined) {
+                var directFound = findObjectByName(directNode, name, visited)
+                if (directFound !== null)
+                    return directFound
+            }
+        }
+
+        var collections = [root.children, root.contentChildren, root.data]
+        for (var c = 0; c < collections.length; ++c) {
+            var kids = collections[c]
+            if (kids === null || kids === undefined)
+                continue
+            for (var i = 0; i < kids.length; ++i) {
+                var found = findObjectByName(kids[i], name, visited)
+                if (found !== null)
+                    return found
+            }
+        }
+        return null
     }
 
     function createUploadBridgeMock() {
@@ -37,6 +83,8 @@ TestCase {
                                          'signal filesUpdatedFromCloud(var files, string message);' +
                                          'signal quotaUpdatedFromCloud(var quota, string message);' +
                                          'signal syncFailed(string scope, string message);' +
+                                         'signal downloadProgress(int received, int total);' +
+                                         'signal downloadFinished(bool ok, string message, string savedPath);' +
                                          'signal pwszCloudPreviewUpdateSuggested(var files, real totalBytes);' +
                                          'signal pwszCloudPreviewUpdateProgress(int current, int total, string fileName, string phase);' +
                                          'signal pwszCloudPreviewUpdateFinished(var summary);' +
@@ -45,14 +93,17 @@ TestCase {
                                          'function loadCachedFiles(page, limit) { return { ok: true, files: [] } }' +
                                          'function loadCachedQuota() { return { ok: true, totalDisplay: "2 GB", usedDisplay: "1 GB", totalBytes: 2000, usedBytes: 1000 } }' +
                                          'function refreshFilesAsync(page, limit, force) { refreshCalls += 1 }' +
+                                         'function getDownloadUrl(fileId) { downloadUrlCalls += 1; return { ok: true, url: "https://signed.invalid/file?signature=redacted" } }' +
+                                         'function startDownload(url, savePath) { downloadCalls += 1; lastDownloadUrl = url; lastDownloadPath = savePath }' +
                                          'function inspectPwszPreview(localPath) { inspectCalls += 1; return { ok: true, isPwsz: true, hasPreview1: true, hasPreview2: !inspectNeedsCompletion, needsCompletion: inspectNeedsCompletion } }' +
                                          'function startUploadLocalFile(localPath, completePreview) { uploadCalls += 1; lastUploadArg = localPath; lastCompletePreview = completePreview }' +
                                          'function startPwszCloudPreviewUpdate(files) { cloudUpdateCalls += 1; lastCloudUpdateCount = files.length }' +
                                          'function cancelPwszCloudPreviewUpdate() { cloudUpdateCancelCalls += 1 }' +
-                                         'property int refreshCalls: 0;' +
+                                         'property int refreshCalls: 0; property int downloadUrlCalls: 0; property int downloadCalls: 0;' +
                                          'property int uploadCalls: 0; property int inspectCalls: 0; property bool inspectNeedsCompletion: true;' +
                                          'property int cloudUpdateCalls: 0; property int cloudUpdateCancelCalls: 0; property int lastCloudUpdateCount: 0;' +
                                          'property string lastUploadArg: ""; property bool lastCompletePreview: false;' +
+                                         'property string lastDownloadUrl: ""; property string lastDownloadPath: "";' +
                                          '}', this, "cloudFilesUploadBridgeMock")
     }
 
@@ -69,6 +120,55 @@ TestCase {
                                               'function setString(key, value) { if (key === "cloud.upload.confirmPwszPreview2") confirmationValue = value }' +
                                               'function sync() {}' +
                                               '}', this, "cloudFilesUploadSettingsMock")
+    }
+
+    function test_download_dialog_uses_app_ui_and_prefills_cloud_file_name() {
+        createUploadBridgeMock()
+        dialogHostWindow = Qt.createQmlObject(
+                    'import QtQuick 2.15; import QtQuick.Controls 2.15; '
+                    + 'ApplicationWindow { width: 1280; height: 800; visible: true }',
+                    this,
+                    "downloadDialogHostWindow")
+        verify(dialogHostWindow !== null)
+        tryCompare(dialogHostWindow, "visible", true, 1000)
+
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml",
+                                   {"width": 1280, "height": 800},
+                                   dialogHostWindow.contentItem)
+
+        page.requestDownload("file-1", "B1-B2-B5(1).pwsz")
+
+        var dialog = findObjectByName(page, "cloudDownloadFileDialog")
+        var fileNameField = findObjectByName(page, "downloadFileNameField")
+        var saveButton = findObjectByName(page, "downloadDialogSaveButton")
+        var folderTree = findObjectByName(page, "downloadDialogFolderTree")
+        var contentList = findObjectByName(page, "downloadDialogContentList")
+        var upButton = findObjectByName(page, "downloadDialogUpButton")
+        verify(dialog !== null)
+        verify(fileNameField !== null)
+        verify(saveButton !== null)
+        verify(folderTree !== null)
+        verify(contentList !== null)
+        compare(upButton, null)
+        compare(dialog.effectiveNameFilters.length, 1)
+        tryCompare(dialog, "visible", true, 1000)
+        compare(String(fileNameField.text), "B1-B2-B5(1).pwsz")
+        compare(String(dialog.defaultSuffix), "pwsz")
+        compare(String(dialog.finalName), "B1-B2-B5(1).pwsz")
+
+        fileNameField.text = "renamed-part"
+        compare(String(dialog.finalName), "renamed-part.pwsz")
+        fileNameField.text = "../outside"
+        compare(String(dialog.finalName), "outside.pwsz")
+
+        dialog.commitSave("/tmp/B1-B2-B5(1).pwsz")
+        wait(0)
+        compare(cloudBridge.downloadUrlCalls, 1)
+        compare(cloudBridge.downloadCalls, 1)
+        compare(String(cloudBridge.lastDownloadPath), "/tmp/B1-B2-B5(1).pwsz")
+        verify(String(cloudBridge.lastDownloadUrl).indexOf("https://signed.invalid/file") === 0)
+
+        page.destroy()
     }
 
     function test_upload_selected_local_file_keeps_raw_input_for_backend() {
