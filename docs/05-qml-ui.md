@@ -38,6 +38,8 @@ Printer selection data is held by C++ list models rather than rebuilt QML `ListM
 
 The remote-print confirmation dialog receives the complete row already held by `CloudFilesModel` when **Print** is invoked from the cloud-file list. The file name, estimated print time and resin usage are therefore available as soon as the dialog opens, without waiting for another cloud synchronization. While the asynchronous compatibility check runs, the selector displays the preferred printer from the main printer model; it then switches to the filtered compatible-printer model and resynchronizes the selected identifier. The dialog does not offer file replacement because the originating action fixes the file.
 
+When this entry point is used before the Printers page has been initialized, it bootstraps only the printer list required for compatibility and selection. It does not trigger the startup printer-insights or recent-jobs refresh. Full details and job history remain owned by the Printers page when that page is explicitly activated, preventing remote-print preparation from causing unrelated project-thumbnail traffic.
+
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
 ## Cloud file multi-selection

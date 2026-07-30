@@ -54,6 +54,9 @@ Item {
     property string pendingRemotePrintCompatibilityFileId: ""
     property string pendingRemotePrintCompatibilityFileName: ""
     property string pendingRemotePrintCompatibilityPreferredPrinterId: ""
+    property bool remotePrintPrinterBootstrapPending: false
+    property string pendingRemotePrintBootstrapFileId: ""
+    property string pendingRemotePrintBootstrapFileName: ""
     property string pendingPrintPrinterId: ""
     property string pendingPrintFileId: ""
     property var pendingPrintFileData: null
@@ -1493,7 +1496,7 @@ Item {
 
         var printers = r.printers !== undefined ? r.printers : []
         replacePrintersModel(printers, false)
-        if (!startupJobsRefreshed) {
+        if (!startupJobsRefreshed && !remotePrintPrinterBootstrapPending) {
             startupJobsRefreshed = true
             refreshSelectedPrinterJobs("startup", true, true)
         }
@@ -2004,20 +2007,35 @@ Item {
                                        "")
     }
 
+    function resumeRemotePrintPreparationAfterPrinterLoad() {
+        if (!remotePrintPrinterBootstrapPending || !remotePrintPreparing
+                || printersModel.count <= 0) {
+            return
+        }
+
+        var fileId = pendingRemotePrintBootstrapFileId
+        var fileName = pendingRemotePrintBootstrapFileName
+        remotePrintPrinterBootstrapPending = false
+        Qt.callLater(function() {
+            root.prepareRemotePrintDialog(fileId, fileName)
+        })
+    }
+
     function prepareRemotePrintDialog(fileId, fileName) {
         var normalizedFileId = String(fileId || "").trim()
         var normalizedFileName = String(fileName || "").trim()
 
-        if (printersModel.count <= 0)
-            loadPrinters()
         if (printersModel.count <= 0) {
-            remotePrintPreparing = false
-            remotePrintAllowed = false
-            remotePrintPrepareMessage = ""
-            remotePrintBlockReason = qsTr("No printer available for remote print.")
-            statusMsg = remotePrintBlockReason
-            statusSev = "warn"
-            return
+            pendingRemotePrintBootstrapFileId = normalizedFileId
+            pendingRemotePrintBootstrapFileName = normalizedFileName
+            if (!remotePrintPrinterBootstrapPending) {
+                remotePrintPrinterBootstrapPending = true
+                remotePrintPrepareMessage = qsTr("Loading available printers...")
+                loadPrinters()
+            }
+            if (printersModel.count <= 0)
+                return
+            remotePrintPrinterBootstrapPending = false
         }
 
         var preferredPrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
@@ -2878,6 +2896,7 @@ Item {
         function onPrintersUpdatedFromCloud(printers, message) {
             var list = printers !== undefined ? printers : []
             var changed = replacePrintersModel(list, false)
+            root.resumeRemotePrintPreparationAfterPrinterLoad()
             if (!changed)
                 return
             statusMsg = qsTr("%1 printer(s) refreshed from cloud.").arg(String(list.length))
@@ -2886,6 +2905,7 @@ Item {
 
         function onCachedPrintersLoaded(result) {
             root.applyPrintersLoadResult(result, true)
+            root.resumeRemotePrintPreparationAfterPrinterLoad()
         }
 
         function onCachedFilesLoaded(result) {
@@ -3069,6 +3089,13 @@ Item {
         function onSyncFailed(scope, message) {
             var normalizedScope = String(scope || "")
             if (normalizedScope === "printers") {
+                if (root.remotePrintPrinterBootstrapPending) {
+                    root.remotePrintPrinterBootstrapPending = false
+                    root.remotePrintPreparing = false
+                    root.remotePrintAllowed = false
+                    root.remotePrintPrepareMessage = ""
+                    root.remotePrintBlockReason = qsTr("No printer available for remote print.")
+                }
                 statusMsg = qsTr("Background sync failed (printers): %1")
                         .arg(backendStatusDetail(message, qsTr("Retry later.")))
                 statusSev = "warn"
@@ -3207,7 +3234,11 @@ Item {
             root.optionAutoResinCheck = checked
         }
         onRefreshGuardRequested: root.refreshRemotePrintGuard()
-        onCloseRequested: remotePrintConfigDialog.close()
+        onCloseRequested: {
+            root.remotePrintPrinterBootstrapPending = false
+            root.clearPendingRemotePrintCompatibility()
+            remotePrintConfigDialog.close()
+        }
         onStartRequested: root.startRemotePrint()
     }
 

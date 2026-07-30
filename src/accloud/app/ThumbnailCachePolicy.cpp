@@ -98,4 +98,10 @@ bool shouldReuseValidatedLocalCandidate(const QString& source,
     return validationKnownValid && !forceDownload && isLocalSource(source);
 }
 
+bool isPermanentContentFailure(const QString& category) {
+    const QString normalized = category.trimmed().toLower();
+    return normalized == QStringLiteral("placeholder_too_small")
+        || normalized == QStringLiteral("invalid_image");
+}
+
 } // namespace accloud::thumbnail_cache

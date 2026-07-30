@@ -62,6 +62,8 @@ The model separates `thumbnailSourceUrl` from the local `thumbnailUrl`. Source U
 
 Metadata refresh and thumbnail refresh are independent policies. The startup inventory refresh may bypass the files TTL, but it does not invalidate valid thumbnail files. A cached local thumbnail associated with the same cloud file identifier is validated before any remote candidate. Remote cache keys are derived from a canonical URL containing only scheme, host, port and path, so rotating signed query values reuse the same image. The complete signed URL remains memory-only and is used solely for the actual GET request. Only the explicit `refreshFilesAndThumbnailsAsync()` operation bypasses this cache policy. Within one application process, a successful local validation is memoized with the file path, size and modification timestamp. The metadata refresh reuses that result without a second image read, candidate log sequence or QML probe; any file change invalidates the memoized result and triggers validation again.
 
+Remote failures are keyed by the same canonical source identity, not by the rotating signed query. Transient failures retain a bounded retry delay. Content failures classified as `placeholder_too_small` or `invalid_image` are suppressed for the rest of the process and are retried only by an explicit forced thumbnail refresh. This keeps repeated printer-history or metadata refreshes from downloading the same unusable placeholder again.
+
 ### Upload
 
 ```text

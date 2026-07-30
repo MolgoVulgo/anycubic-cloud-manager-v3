@@ -84,6 +84,21 @@ bool test_explicit_thumbnail_force_keeps_remote_first() {
                   "explicit thumbnail refresh must preserve the remote-first order");
 }
 
+bool test_invalid_remote_content_is_suppressed_until_explicit_refresh() {
+    return expect(accloud::thumbnail_cache::isPermanentContentFailure(
+                      QStringLiteral("placeholder_too_small")),
+                  "placeholder thumbnails must not be retried automatically")
+        && expect(accloud::thumbnail_cache::isPermanentContentFailure(
+                      QStringLiteral("INVALID_IMAGE")),
+                  "invalid image bytes must not be retried automatically")
+        && expect(!accloud::thumbnail_cache::isPermanentContentFailure(
+                      QStringLiteral("cache_write_failed")),
+                  "local cache write failures must remain retryable later")
+        && expect(!accloud::thumbnail_cache::isPermanentContentFailure(
+                      QStringLiteral("http_transient")),
+                  "transient HTTP failures must remain retryable");
+}
+
 } // namespace
 
 int main() {
@@ -91,7 +106,8 @@ int main() {
         || !test_different_remote_paths_keep_distinct_keys()
         || !test_cached_local_candidate_precedes_remote_download()
         || !test_validated_local_candidate_skips_second_validation()
-        || !test_explicit_thumbnail_force_keeps_remote_first()) {
+        || !test_explicit_thumbnail_force_keeps_remote_first()
+        || !test_invalid_remote_content_is_suppressed_until_explicit_refresh()) {
         return 1;
     }
     std::cout << "thumbnail cache policy tests passed\n";

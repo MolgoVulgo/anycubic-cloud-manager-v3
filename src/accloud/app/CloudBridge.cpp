@@ -546,31 +546,76 @@ struct ThumbnailFetchResult {
     bool cancelled{false};
 };
 
-QMutex g_thumbnailFailureMutex;
-QHash<QString, qint64> g_thumbnailRetryAfter;
-constexpr int kThumbnailTimeoutMs = 12000;
-constexpr qint64 kThumbnailPermanentRetryDelaySec = 300;
-constexpr qint64 kThumbnailTransientRetryDelaySec = 15;
+struct ThumbnailFailureMemo {
+    qint64 retryAfter{0};
+    bool permanent{false};
+    bool tooSmall{false};
+    QString category;
+};
 
-bool thumbnailRetryIsDeferred(const QString& normalizedUrl) {
-    QMutexLocker lock(&g_thumbnailFailureMutex);
-    const qint64 retryAfter = g_thumbnailRetryAfter.value(normalizedUrl, 0);
-    if (retryAfter <= QDateTime::currentSecsSinceEpoch()) {
-        g_thumbnailRetryAfter.remove(normalizedUrl);
+QMutex g_thumbnailFailureMutex;
+QHash<QByteArray, ThumbnailFailureMemo> g_thumbnailFailures;
+constexpr int kThumbnailTimeoutMs = 12000;
+constexpr qint64 kThumbnailTransientRetryDelaySec = 15;
+constexpr qint64 kThumbnailNonPermanentRetryDelaySec = 300;
+
+QByteArray thumbnailFailureKey(const QString& source) {
+    return thumbnail_cache::stableCacheKey(source);
+}
+
+bool thumbnailRetryIsDeferred(const QByteArray& failureKey,
+                              ThumbnailFailureMemo* deferredFailure = nullptr) {
+    if (failureKey.isEmpty()) {
         return false;
+    }
+
+    QMutexLocker lock(&g_thumbnailFailureMutex);
+    const auto existing = g_thumbnailFailures.constFind(failureKey);
+    if (existing == g_thumbnailFailures.cend()) {
+        return false;
+    }
+    if (!existing->permanent
+        && existing->retryAfter <= QDateTime::currentSecsSinceEpoch()) {
+        g_thumbnailFailures.remove(failureKey);
+        return false;
+    }
+    if (deferredFailure != nullptr) {
+        *deferredFailure = *existing;
     }
     return true;
 }
 
-void rememberThumbnailFailure(const QString& normalizedUrl, qint64 delaySec) {
+void rememberThumbnailFailure(const QByteArray& failureKey,
+                              bool retryable,
+                              bool tooSmall,
+                              const QString& category) {
+    if (failureKey.isEmpty()) {
+        return;
+    }
+
+    ThumbnailFailureMemo memo;
+    memo.permanent = thumbnail_cache::isPermanentContentFailure(category);
+    if (memo.permanent) {
+        memo.retryAfter = 0;
+    } else {
+        const qint64 delay = retryable
+            ? kThumbnailTransientRetryDelaySec
+            : kThumbnailNonPermanentRetryDelaySec;
+        memo.retryAfter = QDateTime::currentSecsSinceEpoch() + delay;
+    }
+    memo.tooSmall = tooSmall;
+    memo.category = category;
+
     QMutexLocker lock(&g_thumbnailFailureMutex);
-    g_thumbnailRetryAfter.insert(normalizedUrl,
-                                 QDateTime::currentSecsSinceEpoch() + delaySec);
+    g_thumbnailFailures.insert(failureKey, memo);
 }
 
-void clearThumbnailFailure(const QString& normalizedUrl) {
+void clearThumbnailFailure(const QByteArray& failureKey) {
+    if (failureKey.isEmpty()) {
+        return;
+    }
     QMutexLocker lock(&g_thumbnailFailureMutex);
-    g_thumbnailRetryAfter.remove(normalizedUrl);
+    g_thumbnailFailures.remove(failureKey);
 }
 
 ThumbnailFetchResult fetchThumbnailToCache(
@@ -766,13 +811,14 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(
         out.failureCategory = QStringLiteral("cache_path_unavailable");
         return out;
     }
+    const QByteArray failureKey = thumbnailFailureKey(normalized);
     if (forceDownload) {
         removeCachedThumbnailFiles(cacheBasePath);
-        clearThumbnailFailure(normalized);
+        clearThumbnailFailure(failureKey);
     } else {
         const QString cachedPath = findReadableCachedImage(cacheBasePath);
         if (!cachedPath.isEmpty()) {
-            clearThumbnailFailure(normalized);
+            clearThumbnailFailure(failureKey);
             out.localUrl = QUrl::fromLocalFile(cachedPath).toString();
             logging::info("app", "thumbnail_cache", "cache_hit",
                           "Thumbnail served from local cache",
@@ -786,8 +832,12 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(
         out.failureCategory = QStringLiteral("cache_miss");
         return out;
     }
-    if (!forceDownload && thumbnailRetryIsDeferred(normalized)) {
-        out.failureCategory = QStringLiteral("retry_deferred");
+    ThumbnailFailureMemo deferredFailure;
+    if (!forceDownload && thumbnailRetryIsDeferred(failureKey, &deferredFailure)) {
+        out.tooSmall = deferredFailure.tooSmall;
+        out.failureCategory = deferredFailure.category.isEmpty()
+            ? QStringLiteral("retry_deferred")
+            : deferredFailure.category;
         return out;
     }
 
@@ -798,10 +848,10 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(
         return out;
     }
     if (fetch.localUrl.isEmpty()) {
-        const qint64 retryDelay = fetch.retryable
-                                      ? kThumbnailTransientRetryDelaySec
-                                      : kThumbnailPermanentRetryDelaySec;
-        rememberThumbnailFailure(normalized, retryDelay);
+        rememberThumbnailFailure(failureKey,
+                                 fetch.retryable,
+                                 fetch.tooSmall,
+                                 fetch.failureCategory);
         out.tooSmall = fetch.tooSmall;
         out.failureCategory = fetch.failureCategory;
         logging::warn("app", "thumbnail_cache", "download_failed",
@@ -813,7 +863,7 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(
                        {"network_error", std::to_string(fetch.networkErrorCode)}});
         return out;
     }
-    clearThumbnailFailure(normalized);
+    clearThumbnailFailure(failureKey);
     out.localUrl = fetch.localUrl;
     logging::info("app", "thumbnail_cache", "download_ok",
                   "Thumbnail downloaded and cached",

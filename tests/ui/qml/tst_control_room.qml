@@ -1315,6 +1315,7 @@ TestCase {
     }
 
     function test_printer_page_open_remote_print_from_file_prefers_compatible_printer() {
+        var printerProjectsCalls = 0
         cloudBridge = {
             fetchPrinters: function() {
                 return {
@@ -1382,6 +1383,7 @@ TestCase {
                 return { ok: true, details: {} }
             },
             fetchPrinterProjects: function() {
+                printerProjectsCalls += 1
                 return { ok: true, projects: [] }
             },
             sendPrintOrder: function() {
@@ -1389,7 +1391,9 @@ TestCase {
             }
         }
 
-        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml", {"width": 1280, "height": 800})
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml",
+                                   {"width": 1280, "height": 800,
+                                    "deferStartupInitialization": true})
         page.selectedPrinterId = "p1"
         page.openRemotePrintFromFile("f-route-1", "route_file.pwmb", {
                                          fileId: "f-route-1",
@@ -1424,6 +1428,7 @@ TestCase {
         compare(String(compatiblePrinterItem.contentItem.text), "Printer Two")
         printerCombo.popup.close()
 
+        compare(printerProjectsCalls, 0)
         compare(String(page.selectedCloudFileId), "f-route-1")
         var selectedFile = page.selectedCloudFileData()
         verify(selectedFile !== null)

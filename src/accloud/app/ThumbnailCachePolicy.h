@@ -15,5 +15,6 @@ QStringList orderedCandidates(const QStringList& candidates,
 bool shouldReuseValidatedLocalCandidate(const QString& source,
                                         bool validationKnownValid,
                                         bool forceDownload);
+bool isPermanentContentFailure(const QString& category);
 
 } // namespace accloud::thumbnail_cache

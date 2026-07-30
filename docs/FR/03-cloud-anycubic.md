@@ -62,6 +62,8 @@ Le modèle sépare `thumbnailSourceUrl` de l’URL locale `thumbnailUrl`. Les UR
 
 Le rafraîchissement des métadonnées et celui des miniatures suivent désormais deux politiques indépendantes. L’inventaire lancé au démarrage peut ignorer le TTL des fichiers, mais il n’invalide pas les miniatures locales valides. Une miniature locale déjà associée au même identifiant de fichier cloud est validée avant tout candidat distant. La clé du cache distant est calculée depuis une URL canonique limitée au schéma, au host, au port et au path : une rotation de query signée réutilise donc la même image. L’URL signée complète reste uniquement en mémoire et sert exclusivement à la requête GET réelle. Seule l’opération explicite `refreshFilesAndThumbnailsAsync()` contourne cette politique de cache. Pendant un même processus applicatif, une validation locale réussie est mémorisée avec le chemin, la taille et la date de modification du fichier. Le rafraîchissement des métadonnées réutilise ce résultat sans seconde lecture de l’image, nouvelle séquence de logs candidats ni nouveau probe QML ; toute modification du fichier invalide cette mémorisation et relance la validation.
 
+Les échecs distants utilisent la même identité source canonique, et non la query signée tournante. Les erreurs transitoires conservent un délai de nouvelle tentative borné. Les contenus classés `placeholder_too_small` ou `invalid_image` sont neutralisés pour le reste du processus et ne sont retentés que par un rafraîchissement forcé explicite des miniatures. Les rafraîchissements de l’historique imprimante ou des métadonnées ne retéléchargent donc plus le même placeholder inutilisable.
+
 ### Upload
 
 ```text
