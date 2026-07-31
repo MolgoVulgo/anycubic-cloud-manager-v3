@@ -24,7 +24,7 @@ namespace accloud {
 namespace {
 
 QMutex g_dbMutex;
-constexpr int kSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 QString resolveDbPath() {
   if (const char* env = std::getenv("ACCLOUD_DB_PATH"); env != nullptr && *env != '\0') {
@@ -432,6 +432,8 @@ bool runSchema(QSqlDatabase& db) {
       QStringLiteral("CREATE TABLE IF NOT EXISTS jobs ("
                      "  task_id TEXT PRIMARY KEY,"
                      "  printer_id TEXT NOT NULL DEFAULT '',"
+                     "  cloud_file_id TEXT NOT NULL DEFAULT '',"
+                     "  gcode_id TEXT NOT NULL DEFAULT '',"
                      "  printer_name TEXT NOT NULL DEFAULT '',"
                      "  gcode_name TEXT NOT NULL DEFAULT '',"
                      "  print_status INTEGER NOT NULL DEFAULT 0,"
@@ -446,6 +448,23 @@ bool runSchema(QSqlDatabase& db) {
                      "  end_time INTEGER NOT NULL DEFAULT 0,"
                      "  img TEXT NOT NULL DEFAULT '',"
                      "  updated_at INTEGER NOT NULL"
+                     ")"),
+      QStringLiteral("CREATE TABLE IF NOT EXISTS pending_direct_prints ("
+                     "  printer_id TEXT PRIMARY KEY,"
+                     "  cloud_file_id TEXT NOT NULL DEFAULT '',"
+                     "  cloud_gcode_id TEXT NOT NULL DEFAULT '',"
+                     "  cloud_file_name TEXT NOT NULL DEFAULT '',"
+                     "  cloud_file_size INTEGER NOT NULL DEFAULT 0,"
+                     "  print_task_id TEXT NOT NULL DEFAULT '',"
+                     "  print_msg_id TEXT NOT NULL DEFAULT '',"
+                     "  printer_local_filename TEXT NOT NULL DEFAULT '',"
+                     "  printer_local_path TEXT NOT NULL DEFAULT '/',"
+                     "  delete_after_success INTEGER NOT NULL DEFAULT 0,"
+                     "  delete_local_on_failure INTEGER NOT NULL DEFAULT 0,"
+                     "  observed_active INTEGER NOT NULL DEFAULT 0,"
+                     "  state TEXT NOT NULL DEFAULT 'UPLOADED',"
+                     "  created_at INTEGER NOT NULL DEFAULT 0,"
+                     "  updated_at INTEGER NOT NULL DEFAULT 0"
                      ")"),
       QStringLiteral("CREATE TABLE IF NOT EXISTS quota ("
                      "  id INTEGER PRIMARY KEY CHECK(id = 1),"
@@ -505,6 +524,12 @@ bool runSchema(QSqlDatabase& db) {
       || !ensureColumnExists(db, QStringLiteral("cloud_printers"),
                              QStringLiteral("release_film_status_code"),
                              QStringLiteral("release_film_status_code INTEGER NOT NULL DEFAULT -1"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("cloud_file_id"),
+                             QStringLiteral("cloud_file_id TEXT NOT NULL DEFAULT ''"))
+      || !ensureColumnExists(db, QStringLiteral("jobs"),
+                             QStringLiteral("gcode_id"),
+                             QStringLiteral("gcode_id TEXT NOT NULL DEFAULT ''"))
       || !ensureColumnExists(db, QStringLiteral("jobs"),
                              QStringLiteral("progress"),
                              QStringLiteral("progress INTEGER NOT NULL DEFAULT -1"))
@@ -781,7 +806,7 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
 
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "SELECT task_id, gcode_name, printer_id, printer_name, print_status, progress, elapsed_sec, remaining_sec, "
+        "SELECT task_id, cloud_file_id, gcode_id, gcode_name, printer_id, printer_name, print_status, progress, elapsed_sec, remaining_sec, "
         "current_layer, total_layers, current_file, reason, create_time, end_time, img "
         "FROM jobs WHERE printer_id = :printerId ORDER BY create_time DESC, updated_at DESC LIMIT :limit OFFSET :offset"));
     q.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
@@ -791,20 +816,22 @@ QVariantList LocalCacheStore::loadJobsForPrinter(const QString& printerId, int p
       while (q.next()) {
         QVariantMap item;
         item.insert("taskId", q.value(0).toString());
-        item.insert("gcodeName", q.value(1).toString());
-        item.insert("printerId", q.value(2).toString());
-        item.insert("printerName", q.value(3).toString());
-        item.insert("printStatus", q.value(4).toInt());
-        item.insert("progress", q.value(5).toInt());
-        item.insert("elapsedSec", q.value(6).toInt());
-        item.insert("remainingSec", q.value(7).toInt());
-        item.insert("currentLayer", q.value(8).toInt());
-        item.insert("totalLayers", q.value(9).toInt());
-        item.insert("currentFile", q.value(10).toString());
-        item.insert("reason", q.value(11).toString());
-        item.insert("createTime", q.value(12).toLongLong());
-        item.insert("endTime", q.value(13).toLongLong());
-        item.insert("img", q.value(14).toString());
+        item.insert("cloudFileId", q.value(1).toString());
+        item.insert("gcodeId", q.value(2).toString());
+        item.insert("gcodeName", q.value(3).toString());
+        item.insert("printerId", q.value(4).toString());
+        item.insert("printerName", q.value(5).toString());
+        item.insert("printStatus", q.value(6).toInt());
+        item.insert("progress", q.value(7).toInt());
+        item.insert("elapsedSec", q.value(8).toInt());
+        item.insert("remainingSec", q.value(9).toInt());
+        item.insert("currentLayer", q.value(10).toInt());
+        item.insert("totalLayers", q.value(11).toInt());
+        item.insert("currentFile", q.value(12).toString());
+        item.insert("reason", q.value(13).toString());
+        item.insert("createTime", q.value(14).toLongLong());
+        item.insert("endTime", q.value(15).toLongLong());
+        item.insert("img", q.value(16).toString());
         out.append(item);
       }
     }
@@ -1177,10 +1204,10 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO jobs("
-          "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+          "task_id, printer_id, cloud_file_id, gcode_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
           "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
           ") VALUES("
-          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+          ":taskId, :printerId, :cloudFileId, :gcodeId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
           ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
           ")"));
       for (const QVariant& item : jobs) {
@@ -1191,6 +1218,8 @@ bool LocalCacheStore::replaceJobs(const QVariantList& jobs) const {
 
         ins.bindValue(QStringLiteral(":taskId"), taskId);
         ins.bindValue(QStringLiteral(":printerId"), printerId);
+        ins.bindValue(QStringLiteral(":cloudFileId"), nonNullText(map, QStringLiteral("cloudFileId")));
+        ins.bindValue(QStringLiteral(":gcodeId"), nonNullText(map, QStringLiteral("gcodeId")));
         ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
         ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
@@ -1261,10 +1290,10 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
       QSqlQuery ins(db);
       ins.prepare(QStringLiteral(
           "INSERT INTO jobs("
-          "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+          "task_id, printer_id, cloud_file_id, gcode_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
           "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
           ") VALUES("
-          ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+          ":taskId, :printerId, :cloudFileId, :gcodeId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
           ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
           ")"));
       for (const QVariant& item : jobs) {
@@ -1274,6 +1303,8 @@ bool LocalCacheStore::replaceJobsForPrinter(const QString& printerId, const QVar
 
         ins.bindValue(QStringLiteral(":taskId"), taskId);
         ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+        ins.bindValue(QStringLiteral(":cloudFileId"), nonNullText(map, QStringLiteral("cloudFileId")));
+        ins.bindValue(QStringLiteral(":gcodeId"), nonNullText(map, QStringLiteral("gcodeId")));
         ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
         ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
         ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
@@ -1338,13 +1369,15 @@ bool LocalCacheStore::upsertJobsForPrinter(const QString& printerId, const QVari
     QSqlQuery ins(db);
     ins.prepare(QStringLiteral(
         "INSERT INTO jobs("
-        "task_id, printer_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
+        "task_id, printer_id, cloud_file_id, gcode_id, printer_name, gcode_name, print_status, progress, elapsed_sec, remaining_sec, "
         "current_layer, total_layers, current_file, reason, create_time, end_time, img, updated_at"
         ") VALUES("
-        ":taskId, :printerId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
+        ":taskId, :printerId, :cloudFileId, :gcodeId, :printerName, :gcodeName, :printStatus, :progress, :elapsedSec, :remainingSec, "
         ":currentLayer, :totalLayers, :currentFile, :reason, :createTime, :endTime, :img, :updatedAt"
         ") ON CONFLICT(task_id) DO UPDATE SET "
         "  printer_id = excluded.printer_id,"
+        "  cloud_file_id = excluded.cloud_file_id,"
+        "  gcode_id = excluded.gcode_id,"
         "  printer_name = excluded.printer_name,"
         "  gcode_name = excluded.gcode_name,"
         "  print_status = excluded.print_status,"
@@ -1368,6 +1401,8 @@ bool LocalCacheStore::upsertJobsForPrinter(const QString& printerId, const QVari
 
       ins.bindValue(QStringLiteral(":taskId"), taskId);
       ins.bindValue(QStringLiteral(":printerId"), normalizedPrinterId);
+      ins.bindValue(QStringLiteral(":cloudFileId"), nonNullText(map, QStringLiteral("cloudFileId")));
+      ins.bindValue(QStringLiteral(":gcodeId"), nonNullText(map, QStringLiteral("gcodeId")));
       ins.bindValue(QStringLiteral(":printerName"), nonNullText(map, QStringLiteral("printerName")));
       ins.bindValue(QStringLiteral(":gcodeName"), nonNullText(map, QStringLiteral("gcodeName")));
       ins.bindValue(QStringLiteral(":printStatus"), map.value(QStringLiteral("printStatus"), 0));
@@ -1492,6 +1527,117 @@ bool LocalCacheStore::saveQuota(const QVariantMap& quota) const {
     q.bindValue(QStringLiteral(":updatedAt"), nowEpochSec());
     ok = q.exec();
 
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return ok;
+}
+
+
+QVariantList LocalCacheStore::loadPendingDirectPrints() const {
+  QVariantList out;
+  if (!ensureReady()) return out;
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) { closeAndRemoveDatabase(db, connectionName); return out; }
+    QSqlQuery q(db);
+    if (q.exec(QStringLiteral(
+        "SELECT printer_id, cloud_file_id, cloud_gcode_id, cloud_file_name, cloud_file_size, "
+        "print_task_id, print_msg_id, printer_local_filename, printer_local_path, "
+        "delete_after_success, delete_local_on_failure, observed_active, state, created_at, updated_at "
+        "FROM pending_direct_prints ORDER BY updated_at DESC"))) {
+      while (q.next()) {
+        QVariantMap m;
+        m.insert(QStringLiteral("printerId"), q.value(0).toString());
+        m.insert(QStringLiteral("cloudFileId"), q.value(1).toString());
+        m.insert(QStringLiteral("cloudGcodeId"), q.value(2).toString());
+        m.insert(QStringLiteral("cloudFileName"), q.value(3).toString());
+        m.insert(QStringLiteral("cloudFileSize"), q.value(4).toLongLong());
+        m.insert(QStringLiteral("printTaskId"), q.value(5).toString());
+        m.insert(QStringLiteral("printMsgId"), q.value(6).toString());
+        m.insert(QStringLiteral("printerLocalFilename"), q.value(7).toString());
+        m.insert(QStringLiteral("printerLocalPath"), q.value(8).toString());
+        m.insert(QStringLiteral("deleteAfterSuccess"), q.value(9).toInt() == 1);
+        m.insert(QStringLiteral("deleteLocalOnFailure"), q.value(10).toInt() == 1);
+        m.insert(QStringLiteral("observedActive"), q.value(11).toInt() == 1);
+        m.insert(QStringLiteral("state"), q.value(12).toString());
+        m.insert(QStringLiteral("createdAt"), q.value(13).toLongLong());
+        m.insert(QStringLiteral("updatedAt"), q.value(14).toLongLong());
+        out.append(m);
+      }
+    }
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return out;
+}
+
+bool LocalCacheStore::savePendingDirectPrint(const QVariantMap& operation) const {
+  if (!ensureReady()) return false;
+  const QString printerId = nonNullText(operation, QStringLiteral("printerId")).trimmed();
+  if (printerId.isEmpty()) return false;
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  bool ok = false;
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) { closeAndRemoveDatabase(db, connectionName); return false; }
+    const qint64 now = nowEpochSec();
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+      "INSERT INTO pending_direct_prints(printer_id, cloud_file_id, cloud_gcode_id, cloud_file_name, cloud_file_size, "
+      "print_task_id, print_msg_id, printer_local_filename, printer_local_path, delete_after_success, "
+      "delete_local_on_failure, observed_active, state, created_at, updated_at) VALUES("
+      ":printerId,:cloudFileId,:cloudGcodeId,:cloudFileName,:cloudFileSize,:printTaskId,:printMsgId,"
+      ":localFilename,:localPath,:deleteAfter,:deleteOnFailure,:observedActive,:state,:createdAt,:updatedAt) "
+      "ON CONFLICT(printer_id) DO UPDATE SET cloud_file_id=excluded.cloud_file_id, cloud_gcode_id=excluded.cloud_gcode_id, "
+      "cloud_file_name=excluded.cloud_file_name, cloud_file_size=excluded.cloud_file_size, print_task_id=excluded.print_task_id, "
+      "print_msg_id=excluded.print_msg_id, printer_local_filename=excluded.printer_local_filename, "
+      "printer_local_path=excluded.printer_local_path, delete_after_success=excluded.delete_after_success, "
+      "delete_local_on_failure=excluded.delete_local_on_failure, observed_active=excluded.observed_active, "
+      "state=excluded.state, updated_at=excluded.updated_at"));
+    q.bindValue(QStringLiteral(":printerId"), printerId);
+    q.bindValue(QStringLiteral(":cloudFileId"), nonNullText(operation, QStringLiteral("cloudFileId")));
+    q.bindValue(QStringLiteral(":cloudGcodeId"), nonNullText(operation, QStringLiteral("cloudGcodeId")));
+    q.bindValue(QStringLiteral(":cloudFileName"), nonNullText(operation, QStringLiteral("cloudFileName")));
+    q.bindValue(QStringLiteral(":cloudFileSize"), operation.value(QStringLiteral("cloudFileSize"), 0));
+    q.bindValue(QStringLiteral(":printTaskId"), nonNullText(operation, QStringLiteral("printTaskId")));
+    q.bindValue(QStringLiteral(":printMsgId"), nonNullText(operation, QStringLiteral("printMsgId")));
+    q.bindValue(QStringLiteral(":localFilename"), nonNullText(operation, QStringLiteral("printerLocalFilename")));
+    q.bindValue(QStringLiteral(":localPath"), nonNullText(operation, QStringLiteral("printerLocalPath"), QStringLiteral("/")));
+    q.bindValue(QStringLiteral(":deleteAfter"), operation.value(QStringLiteral("deleteAfterSuccess")).toBool() ? 1 : 0);
+    q.bindValue(QStringLiteral(":deleteOnFailure"), operation.value(QStringLiteral("deleteLocalOnFailure")).toBool() ? 1 : 0);
+    q.bindValue(QStringLiteral(":observedActive"), operation.value(QStringLiteral("observedActive")).toBool() ? 1 : 0);
+    q.bindValue(QStringLiteral(":state"), nonNullText(operation, QStringLiteral("state"), QStringLiteral("UPLOADED")));
+    const qint64 createdAt = operation.value(QStringLiteral("createdAt"), now).toLongLong();
+    q.bindValue(QStringLiteral(":createdAt"), createdAt > 0 ? createdAt : now);
+    q.bindValue(QStringLiteral(":updatedAt"), now);
+    ok = q.exec();
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connectionName);
+  return ok;
+}
+
+bool LocalCacheStore::removePendingDirectPrint(const QString& printerId) const {
+  if (!ensureReady()) return false;
+  const QString normalized = printerId.trimmed();
+  if (normalized.isEmpty()) return false;
+  QMutexLocker lock(&g_dbMutex);
+  const QString connectionName = newConnectionName();
+  bool ok = false;
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    db.setDatabaseName(m_dbPath);
+    if (!db.open()) { closeAndRemoveDatabase(db, connectionName); return false; }
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("DELETE FROM pending_direct_prints WHERE printer_id=:printerId"));
+    q.bindValue(QStringLiteral(":printerId"), normalized);
+    ok = q.exec();
     db.close();
   }
   QSqlDatabase::removeDatabase(connectionName);

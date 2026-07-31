@@ -25,8 +25,11 @@ TabButton {
     readonly property bool lastVisibleTab: {
         if (!ownerTabBar)
             return true
-        for (var i = ownerTabBar.contentChildren.length - 1; i >= 0; --i) {
-            var child = ownerTabBar.contentChildren[i]
+        var tabChildren = ownerTabBar.contentChildren
+        if (!tabChildren || tabChildren.length === undefined)
+            return true
+        for (var i = tabChildren.length - 1; i >= 0; --i) {
+            var child = tabChildren[i]
             if (!child || child.visible === false || child.checked === undefined)
                 continue
             return child === root

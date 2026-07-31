@@ -6,8 +6,10 @@ import "../components"
 AppDialogFrame {
     id: root
     objectName: "remotePrintConfigDialog"
-    title: qsTr("Remote Print Config")
-    subtitle: qsTr("Review task, printer and options before start")
+    title: root.directPrintMode ? qsTr("Direct Print") : qsTr("Cloud Print")
+    subtitle: root.directPrintMode
+              ? qsTr("Upload the local file, then start printing")
+              : qsTr("Review task and printer before start")
     dialogSize: "large"
     minimumWidth: 720
     maximumWidth: 900
@@ -21,6 +23,7 @@ AppDialogFrame {
     property string selectedPrintTime: "-"
     property string selectedResinUsage: "-"
     property bool optionDeleteAfterPrint: false
+    property bool directPrintMode: false
     property bool optionLiftCompensation: false
     property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
@@ -315,7 +318,9 @@ AppDialogFrame {
             spacing: 6
 
             AppCheckBox {
-                text: qsTr("Delete file after print")
+                objectName: "directPrintDeleteAfterSuccess"
+                visible: root.directPrintMode
+                text: qsTr("Delete printer-local and cloud files after a successful print")
                 checked: root.optionDeleteAfterPrint
                 onToggled: root.optionDeleteAfterPrintToggled(checked)
             }
@@ -383,7 +388,7 @@ AppDialogFrame {
         },
         AppButton {
             objectName: "remotePrintStartButton"
-            text: qsTr("Start Printing")
+            text: root.directPrintMode ? qsTr("Upload and print") : qsTr("Start Printing")
             variant: "primary"
             enabled: !root.remotePrintPreparing
                      && root.selectedCloudFileId.length > 0

@@ -47,7 +47,9 @@ public:
     Q_INVOKABLE QVariantMap inspectPwszPreview(const QString& localPath) const;
     Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath, bool completePwszPreview2 = false) const;
     // Upload asynchrone pour UI avec progression.
-    Q_INVOKABLE void startUploadLocalFile(const QString& localPath, bool completePwszPreview2 = false);
+    Q_INVOKABLE void startUploadLocalFile(const QString& localPath,
+                                            bool completePwszPreview2 = false,
+                                            const QString& requestContext = QString());
     Q_INVOKABLE void startPwszCloudPreviewUpdate(const QVariantList& files);
     Q_INVOKABLE void cancelPwszCloudPreviewUpdate();
 
@@ -94,6 +96,9 @@ public:
     Q_INVOKABLE void loadCachedPrinterProjectsAsync(const QString& printerId,
                                                     int page = 1,
                                                     int limit = 20);
+    Q_INVOKABLE QVariantList loadPendingDirectPrints() const;
+    Q_INVOKABLE bool savePendingDirectPrint(const QVariantMap& operation) const;
+    Q_INVOKABLE bool removePendingDirectPrint(const QString& printerId) const;
 
     // Retourne { ok, message, taskId, msgId, correlationTicket, correlationStatus }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
@@ -132,6 +137,11 @@ Q_SIGNALS:
                         int uploadStatus,
                         bool unlockOk,
                         bool localFileSynchronized);
+    void uploadContextProgressChanged(const QString& requestContext,
+                                      double progress,
+                                      const QString& phase);
+    void uploadContextFinished(const QString& requestContext,
+                               const QVariantMap& result);
     void filesUpdatedFromCache(const QVariantList& files, const QString& message);
     void cachedFilesLoaded(const QVariantMap& result);
     void cachedQuotaLoaded(const QVariantMap& result);

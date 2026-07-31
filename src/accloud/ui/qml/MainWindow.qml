@@ -38,6 +38,8 @@ ApplicationWindow {
     property bool pwszPreviewCompletionEnabled: true
     property bool pwszPreviewConfirmationEnabled: true
     property bool cloudFileAdvancedDetailsEnabled: false
+    property bool directDeleteLocalOnFailureEnabled: false
+    readonly property string directDeleteLocalOnFailureSettingsKey: "printing.directDeleteLocalOnFailure"
     readonly property string cloudFileAdvancedDetailsSettingsKey: "ui.cloudFiles.showAdvancedDetails"
 
     function hasUiSettingsBridge() {
@@ -186,6 +188,25 @@ ApplicationWindow {
             uiSettingsBridge.sync()
     }
 
+    function loadDirectPrintSettings() {
+        if (!root.hasUiSettingsBridge()) {
+            root.directDeleteLocalOnFailureEnabled = false
+            return
+        }
+        root.directDeleteLocalOnFailureEnabled = String(uiSettingsBridge.getString(
+                root.directDeleteLocalOnFailureSettingsKey, "false")).toLowerCase() === "true"
+    }
+
+    function persistDirectPrintFailureCleanup(value) {
+        root.directDeleteLocalOnFailureEnabled = value === true
+        if (!root.hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(root.directDeleteLocalOnFailureSettingsKey,
+                                   root.directDeleteLocalOnFailureEnabled ? "true" : "false")
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
     function loadCloudFileDetailsSettings() {
         var defaultValue = root.debugUi ? "true" : "false"
         if (!root.hasUiSettingsBridge()) {
@@ -257,6 +278,7 @@ ApplicationWindow {
         root.loadLanguageFromSettings()
         root.loadMqttAuthModeFromSettings()
         root.loadPwszUploadSettings()
+        root.loadDirectPrintSettings()
         root.loadCloudFileDetailsSettings()
         Qt.callLater(function() {
             if (typeof sessionImportBridge === "undefined"
@@ -386,6 +408,19 @@ ApplicationWindow {
                 onTriggered: {
                     root.pwszPreviewConfirmationEnabled = checked
                     root.persistPwszUploadSetting("cloud.upload.confirmPwszPreview2", checked)
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsDirectDeleteLocalOnFailure"
+                text: qsTr("Delete printer-local copy when a direct print fails")
+                checkable: true
+                checked: root.directDeleteLocalOnFailureEnabled
+                onTriggered: {
+                    root.persistDirectPrintFailureCleanup(checked)
+                    root.statusText = checked
+                            ? qsTr("Failed direct prints will remove the printer-local copy when cleanup was requested.")
+                            : qsTr("Failed direct prints will keep the printer-local copy.")
                 }
             }
 
@@ -1201,6 +1236,18 @@ ApplicationWindow {
                                                           "op_files_print_entry")
                                 }
                             }
+                            onDirectPrintIntentRequested: function(localPath, fileName, completePreview) {
+                                if (typeof printerPage.openDirectPrintFromLocalFile === "function") {
+                                    printerPage.openDirectPrintFromLocalFile(localPath,
+                                                                            fileName,
+                                                                            completePreview,
+                                                                            root.directDeleteLocalOnFailureEnabled)
+                                } else {
+                                    root.pushGlobalStatus(qsTr("Direct print entrypoint is unavailable."),
+                                                          "warn",
+                                                          "op_direct_print_entry")
+                                }
+                            }
                         }
 
                         Pages.PrinterPage {
@@ -1209,6 +1256,7 @@ ApplicationWindow {
                             debugUi: root.debugUi
                             embeddedInTabsContainer: true
                             deferStartupInitialization: true
+                            directDeleteLocalOnFailurePreference: root.directDeleteLocalOnFailureEnabled
                             pageActive: controlTabs.currentIndex === 1
                             onStatusBroadcast: function(message, severity, operationId) {
                                 root.pushGlobalStatus(message, severity, operationId)

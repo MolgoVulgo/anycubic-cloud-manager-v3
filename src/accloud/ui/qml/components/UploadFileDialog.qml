@@ -11,6 +11,8 @@ AppDialogFrame {
     property url currentFolder: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     property var nameFilters: [qsTr("All files (*)")]
     property url selectedFile: ""
+    property string dialogTitle: qsTr("Select file to upload")
+    property string confirmButtonText: qsTr("Select")
 
     signal fileChosen(url file)
     signal cancelled()
@@ -31,7 +33,7 @@ AppDialogFrame {
     x: Math.round(((parent ? parent.width : width) - width) / 2)
     y: Math.round(((parent ? parent.height : height) - height) / 2)
     padding: 0
-    title: qsTr("Select file to upload")
+    title: root.dialogTitle
 
     function localPathFromInput(pathInput) {
         var raw = String(pathInput || "").trim()
@@ -499,7 +501,7 @@ AppDialogFrame {
 
             AppButton { text: qsTr("Cancel"); variant: "secondary"; onClicked: root.close() }
             AppButton {
-                text: qsTr("Select")
+                text: root.confirmButtonText
                 variant: "primary"
                 enabled: root.canConfirm
                 onClicked: root.chooseCurrentSelection()

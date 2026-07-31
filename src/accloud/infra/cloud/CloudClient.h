@@ -185,6 +185,8 @@ struct CloudReasonCatalogResult {
 
 struct CloudPrinterProjectItem {
     std::string taskId;
+    std::string cloudFileId;
+    std::string gcodeId;
     std::string gcodeName;
     std::string printerId;
     std::string printerName;

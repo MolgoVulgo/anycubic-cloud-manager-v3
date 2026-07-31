@@ -19,6 +19,7 @@ RowLayout {
     signal refreshRequested()
     signal deleteSelectedRequested()
     signal uploadRequested()
+    signal directPrintRequested()
     signal typeFilterSelected(int index, string code)
 
     Layout.fillWidth: true
@@ -64,10 +65,19 @@ RowLayout {
             AppButton {
                 id: uploadPwmbButton
                 objectName: "uploadPwmbButton"
-                text: qsTr("Upload")
-                variant: "primary"
+                text: qsTr("Add to cloud")
+                variant: "secondary"
                 compact: true
                 onClicked: root.uploadRequested()
+            }
+
+            AppButton {
+                id: directPrintButton
+                objectName: "directPrintButton"
+                text: qsTr("Direct print")
+                variant: "primary"
+                compact: true
+                onClicked: root.directPrintRequested()
             }
         }
     }

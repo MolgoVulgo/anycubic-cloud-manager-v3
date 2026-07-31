@@ -1365,6 +1365,8 @@ QVariantMap reasonCatalogItemToMap(const cloud::CloudReasonCatalogItem& item) {
 QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     QVariantMap m;
     m.insert("taskId", QString::fromStdString(item.taskId));
+    m.insert("cloudFileId", QString::fromStdString(item.cloudFileId));
+    m.insert("gcodeId", QString::fromStdString(item.gcodeId));
     m.insert("gcodeName", QString::fromStdString(item.gcodeName));
     m.insert("printerId", QString::fromStdString(item.printerId));
     m.insert("printerName", QString::fromStdString(item.printerName));
@@ -2400,42 +2402,54 @@ QVariantMap CloudBridge::uploadLocalFile(const QString& localPath, bool complete
     return out;
 }
 
-void CloudBridge::startUploadLocalFile(const QString& localPath, bool completePwszPreview2) {
+void CloudBridge::startUploadLocalFile(const QString& localPath,
+                                           bool completePwszPreview2,
+                                           const QString& requestContext) {
+    const QString normalizedContext = requestContext.trimmed();
     const QString normalizedPath = normalizeUploadLocalPath(localPath);
     if (normalizedPath.isEmpty()) {
-        emit uploadFinished(false,
-                            QStringLiteral("Chemin fichier vide."),
-                            QString(),
-                            QString(),
-                            0,
-                            false,
-                            true);
+        if (normalizedContext.isEmpty()) {
+            emit uploadFinished(false,
+                                QStringLiteral("Chemin fichier vide."),
+                                QString(), QString(), 0, false, true);
+        } else {
+            QVariantMap failure;
+            failure.insert(QStringLiteral("ok"), false);
+            failure.insert(QStringLiteral("message"), QStringLiteral("Chemin fichier vide."));
+            emit uploadContextFinished(normalizedContext, failure);
+        }
         return;
     }
 
-    emit uploadProgressChanged(0.0, QStringLiteral("Demarrage upload"));
+    if (normalizedContext.isEmpty())
+        emit uploadProgressChanged(0.0, QStringLiteral("Demarrage upload"));
+    else
+        emit uploadContextProgressChanged(normalizedContext, 0.0, QStringLiteral("Demarrage upload"));
     logging::info("app", "cloud_bridge", "upload_async_start",
                   "startUploadLocalFile called",
                   {{"file_path", normalizedPath.toStdString()}});
 
-    launchBackgroundTask([this, normalizedPath, completePwszPreview2]() {
+    launchBackgroundTask([this, normalizedPath, completePwszPreview2, normalizedContext]() {
         const usecases::cloud::UploadLocalFileUseCase useCase;
         const auto result = useCase.execute(
             normalizedPath.toStdString(),
             completePwszPreview2,
-            [this](double progress, const std::string& phase) {
+            [this, normalizedContext](double progress, const std::string& phase) {
                 double clamped = progress;
                 if (clamped < 0.0)
                     clamped = 0.0;
                 if (clamped > 1.0)
                     clamped = 1.0;
                 const QString phaseText = QString::fromStdString(phase);
-                QMetaObject::invokeMethod(this, [this, clamped, phaseText]() {
-                    emit uploadProgressChanged(clamped, phaseText);
+                QMetaObject::invokeMethod(this, [this, normalizedContext, clamped, phaseText]() {
+                    if (normalizedContext.isEmpty())
+                        emit uploadProgressChanged(clamped, phaseText);
+                    else
+                        emit uploadContextProgressChanged(normalizedContext, clamped, phaseText);
                 }, Qt::QueuedConnection);
             });
 
-        QMetaObject::invokeMethod(this, [this, result]() {
+        QMetaObject::invokeMethod(this, [this, normalizedContext, result]() {
             if (result.ok && m_cache != nullptr) {
                 m_cache->invalidateScope(QStringLiteral("files"));
                 m_cache->invalidateScope(QStringLiteral("quota"));
@@ -2447,13 +2461,26 @@ void CloudBridge::startUploadLocalFile(const QString& localPath, bool completePw
                            {"gcode_id", result.gcodeId.empty() ? "0" : result.gcodeId},
                            {"status", std::to_string(result.uploadStatus)},
                            {"unlock_ok", result.unlockOk ? "1" : "0"}});
-            emit uploadFinished(result.ok,
-                                QString::fromStdString(result.message),
-                                QString::fromStdString(result.fileId),
-                                QString::fromStdString(result.gcodeId),
-                                result.uploadStatus,
-                                result.unlockOk,
-                                result.localFileSynchronized);
+            const QVariantMap contextResult{
+                {QStringLiteral("ok"), result.ok},
+                {QStringLiteral("message"), QString::fromStdString(result.message)},
+                {QStringLiteral("fileId"), QString::fromStdString(result.fileId)},
+                {QStringLiteral("gcodeId"), QString::fromStdString(result.gcodeId)},
+                {QStringLiteral("uploadStatus"), result.uploadStatus},
+                {QStringLiteral("unlockOk"), result.unlockOk},
+                {QStringLiteral("localFileSynchronized"), result.localFileSynchronized}
+            };
+            if (normalizedContext.isEmpty()) {
+                emit uploadFinished(result.ok,
+                                    QString::fromStdString(result.message),
+                                    QString::fromStdString(result.fileId),
+                                    QString::fromStdString(result.gcodeId),
+                                    result.uploadStatus,
+                                    result.unlockOk,
+                                    result.localFileSynchronized);
+            } else {
+                emit uploadContextFinished(normalizedContext, contextResult);
+            }
 
             const bool ready = usecases::cloud::UploadLocalFileUseCase::isUploadReady(
                 result.uploadStatus, result.gcodeId);
@@ -2905,6 +2932,19 @@ void CloudBridge::loadCachedPrinterProjectsAsync(const QString& printerId, int p
             emit cachedPrinterProjectsLoaded(normalizedPrinterId, result);
         }, Qt::QueuedConnection);
     });
+}
+
+
+QVariantList CloudBridge::loadPendingDirectPrints() const {
+    return m_cache != nullptr ? m_cache->loadPendingDirectPrints() : QVariantList{};
+}
+
+bool CloudBridge::savePendingDirectPrint(const QVariantMap& operation) const {
+    return m_cache != nullptr && m_cache->savePendingDirectPrint(operation);
+}
+
+bool CloudBridge::removePendingDirectPrint(const QString& printerId) const {
+    return m_cache != nullptr && m_cache->removePendingDirectPrint(printerId);
 }
 
 // ── sendPrintOrder ────────────────────────────────────────────────────────

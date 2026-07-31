@@ -13,6 +13,7 @@ Item {
     property bool embeddedInTabsContainer: false
     property bool deferStartupInitialization: false
     property bool pageActive: true
+    property bool directDeleteLocalOnFailurePreference: false
     signal statusBroadcast(string message, string severity, string operationId)
     signal remotePrintAccepted(string printerId, string taskId)
 
@@ -41,6 +42,16 @@ Item {
     property int resinFeedOrderId: 1224
     readonly property bool localFilePrintEnabled: true
     property bool optionDeleteAfterPrint: false
+    property string remotePrintMode: "cloud"
+    property string directPrintLocalPath: ""
+    property string directPrintLocalName: ""
+    property bool directPrintCompletePreview: false
+    property bool directPrintDeleteLocalOnFailureSnapshot: false
+    property string pendingDirectUploadContext: ""
+    property var pendingDirectPrintByPrinterId: ({})
+    property var pendingDirectCloudDeleteByFileId: ({})
+    property var pendingDirectLocalDeleteByMsgId: ({})
+    property var pendingDirectLocalDeleteInFlightByPrinterId: ({})
     property bool optionLiftCompensation: false
     property bool optionAutoResinCheck: true
     property bool remotePrintAllowed: true
@@ -818,9 +829,10 @@ Item {
     }
 
     function setLiveProjectFromList(projectsList) {
-        var active = firstActiveProject(projectsList)
+        var list = projectsList !== undefined && projectsList !== null ? projectsList : []
+        reconcilePendingDirectPrints(list)
+        var active = firstActiveProject(list)
         if (active) {
-            clearPendingRemotePrint(String(active.printerId || selectedPrinterId || ""))
             liveProjectData = active
         } else {
             var pending = pendingRemotePrintForPrinter(selectedPrinterId)
@@ -978,6 +990,221 @@ Item {
         return merged
     }
 
+    function cloneMap(value) {
+        var out = {}
+        var source = value || ({})
+        for (var key in source)
+            out[key] = source[key]
+        return out
+    }
+
+    function setDirectLocalDeleteInFlight(printerId, active) {
+        var key = String(printerId || "").trim()
+        if (key.length === 0)
+            return
+        var next = {}
+        for (var existing in pendingDirectLocalDeleteInFlightByPrinterId) {
+            if (existing !== key)
+                next[existing] = pendingDirectLocalDeleteInFlightByPrinterId[existing]
+        }
+        if (active === true)
+            next[key] = true
+        pendingDirectLocalDeleteInFlightByPrinterId = next
+    }
+
+    function directLocalDeleteInFlight(printerId) {
+        return pendingDirectLocalDeleteInFlightByPrinterId[String(printerId || "").trim()] === true
+    }
+
+    function savePendingDirectPrint(operation) {
+        if (!operation)
+            return
+        var printerId = String(operation.printerId || "").trim()
+        if (printerId.length === 0)
+            return
+        var next = cloneMap(pendingDirectPrintByPrinterId)
+        next[printerId] = operation
+        pendingDirectPrintByPrinterId = next
+        if (hasCloudBridge() && typeof cloudBridge.savePendingDirectPrint === "function")
+            cloudBridge.savePendingDirectPrint(operation)
+    }
+
+    function removePendingDirectPrint(printerId) {
+        var key = String(printerId || "").trim()
+        if (key.length === 0)
+            return
+        var next = {}
+        for (var existing in pendingDirectPrintByPrinterId) {
+            if (existing !== key)
+                next[existing] = pendingDirectPrintByPrinterId[existing]
+        }
+        pendingDirectPrintByPrinterId = next
+        setDirectLocalDeleteInFlight(key, false)
+        if (hasCloudBridge() && typeof cloudBridge.removePendingDirectPrint === "function")
+            cloudBridge.removePendingDirectPrint(key)
+        clearPendingRemotePrint(key)
+    }
+
+    function restorePendingDirectPrints() {
+        if (!hasCloudBridge() || typeof cloudBridge.loadPendingDirectPrints !== "function")
+            return
+        var rows = cloudBridge.loadPendingDirectPrints()
+        var next = {}
+        for (var i = 0; i < rows.length; ++i) {
+            var operation = rows[i] || ({})
+            var printerId = String(operation.printerId || "").trim()
+            if (printerId.length > 0)
+                next[printerId] = operation
+        }
+        pendingDirectPrintByPrinterId = next
+    }
+
+    function matchingProjectForDirectOperation(operation, projectsList) {
+        var taskId = String(operation.printTaskId || "").trim()
+        var cloudFileId = String(operation.cloudFileId || "").trim()
+        var printerId = String(operation.printerId || "").trim()
+        var fallback = null
+        for (var i = 0; i < projectsList.length; ++i) {
+            var project = projectsList[i] || ({})
+            if (String(project.printerId || printerId) !== printerId)
+                continue
+            if (taskId.length > 0 && String(project.taskId || "") === taskId)
+                return project
+            if (cloudFileId.length > 0 && String(project.cloudFileId || "") === cloudFileId)
+                fallback = project
+        }
+        return fallback
+    }
+
+    function requestDirectLocalDelete(operation, completionKind) {
+        if (!operation || !hasPrinterOrderEndpoint())
+            return false
+        var printerId = String(operation.printerId || "").trim()
+        var fileName = String(operation.printerLocalFilename || "").trim()
+        var filePath = String(operation.printerLocalPath || "/").trim()
+        if (printerId.length === 0 || fileName.length === 0)
+            return false
+        if (directLocalDeleteInFlight(printerId))
+            return true
+        setDirectLocalDeleteInFlight(printerId, true)
+        operation.state = completionKind === "success"
+                ? "SUCCESS_LOCAL_DELETE_PENDING" : "FAILURE_LOCAL_DELETE_PENDING"
+        savePendingDirectPrint(operation)
+        var context = "direct_cleanup:" + completionKind + ":" + String(operation.cloudFileId || "")
+        var payload = { "filename": fileName, "path": filePath.length > 0 ? filePath : "/" }
+        if (typeof cloudBridge.sendPrinterOrderAsync === "function") {
+            cloudBridge.sendPrinterOrderAsync(printerId, localFileDeleteOrderId,
+                                              payload, printerId, context)
+            return true
+        }
+        var result = cloudBridge.sendPrinterOrder(printerId, localFileDeleteOrderId,
+                                                  payload, printerId)
+        if (!result || result.ok !== true) {
+            setDirectLocalDeleteInFlight(printerId, false)
+            return false
+        }
+        setDirectLocalDeleteInFlight(printerId, false)
+        if (completionKind === "success")
+            return requestDirectCloudDelete(operation)
+        statusMsg = qsTr("Direct print failed. The printer-local copy was deleted; the cloud file was kept.")
+        statusSev = "warn"
+        removePendingDirectPrint(operation.printerId)
+        return true
+    }
+
+    function requestDirectCloudDelete(operation) {
+        var fileId = String(operation && operation.cloudFileId || "").trim()
+        if (fileId.length === 0 || !hasCloudBridge())
+            return false
+        if (pendingDirectCloudDeleteByFileId[fileId])
+            return true
+        var next = cloneMap(pendingDirectCloudDeleteByFileId)
+        next[fileId] = operation
+        pendingDirectCloudDeleteByFileId = next
+        operation.state = "CLOUD_DELETE_PENDING"
+        savePendingDirectPrint(operation)
+        if (typeof cloudBridge.deleteFileAsync === "function") {
+            cloudBridge.deleteFileAsync(fileId)
+            return true
+        }
+        var result = cloudBridge.deleteFile(fileId)
+        var remaining = {}
+        for (var existingFileId in pendingDirectCloudDeleteByFileId) {
+            if (existingFileId !== fileId)
+                remaining[existingFileId] = pendingDirectCloudDeleteByFileId[existingFileId]
+        }
+        pendingDirectCloudDeleteByFileId = remaining
+        if (result && result.ok === true) {
+            removePendingDirectPrint(operation.printerId)
+            return true
+        }
+        operation.state = "CLOUD_DELETE_ERROR"
+        savePendingDirectPrint(operation)
+        return false
+    }
+
+    function finalizeFailedDirectPrint(operation) {
+        var canDeleteLocal = operation.deleteAfterSuccess === true
+                && operation.deleteLocalOnFailure === true
+                && operation.observedActive === true
+                && String(operation.printerLocalFilename || "").trim().length > 0
+        if (canDeleteLocal) {
+            if (!requestDirectLocalDelete(operation, "failure")) {
+                operation.state = "FAILED_LOCAL_CLEANUP_ERROR"
+                savePendingDirectPrint(operation)
+                statusMsg = qsTr("Direct print failed. The cloud file was kept and local cleanup could not start.")
+                statusSev = "warn"
+            }
+            return
+        }
+        statusMsg = qsTr("Direct print failed. Cloud and printer-local files were kept.")
+        statusSev = "warn"
+        removePendingDirectPrint(operation.printerId)
+    }
+
+    function reconcilePendingDirectPrints(projectsList) {
+        var list = projectsList || []
+        for (var printerId in pendingDirectPrintByPrinterId) {
+            var operation = cloneMap(pendingDirectPrintByPrinterId[printerId])
+            var project = matchingProjectForDirectOperation(operation, list)
+            if (!project)
+                continue
+            var currentFile = String(project.currentFile || project.gcodeName || "").trim()
+            if (currentFile.length > 0) {
+                operation.printerLocalFilename = currentFile
+                operation.printerLocalPath = "/"
+            }
+            var operationState = String(operation.state || "")
+            if (operationState === "CLOUD_DELETE_PENDING"
+                    || operationState === "CLOUD_DELETE_ERROR") {
+                requestDirectCloudDelete(operation)
+                continue
+            }
+            if (operationState.indexOf("CLEANUP_ERROR") >= 0)
+                continue
+            var status = Number(project.printStatus)
+            if (status === 1) {
+                operation.observedActive = true
+                operation.state = "PRINTING"
+                savePendingDirectPrint(operation)
+                continue
+            }
+            if (status === 2 && operation.observedActive === true) {
+                if (operation.deleteAfterSuccess === true) {
+                    if (!requestDirectLocalDelete(operation, "success")) {
+                        operation.state = "SUCCESS_LOCAL_CLEANUP_ERROR"
+                        savePendingDirectPrint(operation)
+                    }
+                } else {
+                    removePendingDirectPrint(printerId)
+                }
+                continue
+            }
+            if ((status === 3 || status === 4) && operation.observedActive === true)
+                finalizeFailedDirectPrint(operation)
+        }
+    }
+
     function pendingRemotePrintForPrinter(printerId) {
         var key = String(printerId || "").trim()
         if (key.length === 0)
@@ -1011,10 +1238,30 @@ Item {
             "createTime": Math.floor(Date.now() / 1000),
             "endTime": 0,
             "img": "",
-            "deleteAfterPrint": fileData && fileData.deleteAfterPrint === true
+            "deleteAfterPrint": fileData && fileData.deleteAfterPrint === true,
+            "directMode": fileData && fileData.directMode === true
         }
         pendingRemotePrintByPrinterId = next
         liveProjectData = next[key]
+        if (fileData && fileData.directMode === true) {
+            var operation = {
+                "printerId": key,
+                "cloudFileId": fileId,
+                "cloudGcodeId": String(fileData.gcodeId || ""),
+                "cloudFileName": fileName,
+                "cloudFileSize": Number(fileData.sizeBytes || 0),
+                "printTaskId": String(taskId || ""),
+                "printMsgId": String(fileData.printMsgId || ""),
+                "printerLocalFilename": "",
+                "printerLocalPath": "/",
+                "deleteAfterSuccess": fileData.deleteAfterPrint === true,
+                "deleteLocalOnFailure": fileData.deleteLocalOnFailure === true,
+                "observedActive": false,
+                "state": "PRINT_COMMAND_SENT",
+                "createdAt": Math.floor(Date.now() / 1000)
+            }
+            savePendingDirectPrint(operation)
+        }
         refreshSelectedPrinterLiveSnapshot()
     }
 
@@ -1079,6 +1326,8 @@ Item {
     function maybeRunPostPrintCleanup(printerId) {
         var pending = pendingRemotePrintForPrinter(printerId)
         if (!pending)
+            return
+        if (pending.directMode === true)
             return
         if (pending.deleteAfterPrint !== true) {
             clearPendingRemotePrint(printerId)
@@ -1834,6 +2083,9 @@ Item {
             return
         }
 
+        remotePrintMode = "cloud"
+        directPrintLocalPath = ""
+        directPrintLocalName = ""
         setSingleRemotePrintFile(normalizedFileId, normalizedFileName, fileData)
         remotePrintCompatibilityResult = null
         remoteCompatiblePrintersModel.clear()
@@ -1847,6 +2099,42 @@ Item {
 
         Qt.callLater(function() {
             root.prepareRemotePrintDialog(normalizedFileId, normalizedFileName)
+        })
+    }
+
+    function openDirectPrintFromLocalFile(localPath, fileName, completePreview,
+                                                deleteLocalOnFailurePreference) {
+        var normalizedPath = String(localPath || "").trim()
+        var normalizedName = String(fileName || "").trim()
+        if (normalizedPath.length === 0 || normalizedName.length === 0) {
+            statusMsg = qsTr("Cannot start direct print: missing local file.")
+            statusSev = "warn"
+            return
+        }
+        remotePrintMode = "direct"
+        directPrintLocalPath = normalizedPath
+        directPrintLocalName = normalizedName
+        directPrintCompletePreview = completePreview === true
+        directPrintDeleteLocalOnFailureSnapshot = deleteLocalOnFailurePreference === true
+        setSingleRemotePrintFile("direct-local-pending", normalizedName, {
+            "fileId": "direct-local-pending",
+            "fileName": normalizedName,
+            "status": "LOCAL",
+            "printTime": "-",
+            "resinUsage": "-",
+            "directMode": true
+        })
+        remotePrintCompatibilityResult = null
+        remoteCompatiblePrintersModel.clear()
+        remotePrinterId = selectedPrinterId.length > 0 ? selectedPrinterId : firstPrinterId()
+        remotePrintPreparing = true
+        remotePrintPrepareMessage = qsTr("Checking printer compatibility...")
+        remotePrintAllowed = false
+        remotePrintBlockReason = ""
+        optionDeleteAfterPrint = false
+        remotePrintConfigDialog.open()
+        Qt.callLater(function() {
+            root.prepareRemotePrintDialog("", normalizedName)
         })
     }
 
@@ -1918,7 +2206,8 @@ Item {
         var normalizedFileId = String(fileId || "").trim()
         var normalizedFileName = String(fileName || "").trim()
         var ext = fileType(normalizedFileName)
-        var canCheckByFile = normalizedFileId.length > 0 && hasAsyncCompatibilityByFileIdEndpoint()
+        var canCheckByFile = remotePrintMode !== "direct"
+                && normalizedFileId.length > 0 && hasAsyncCompatibilityByFileIdEndpoint()
         var canCheckByExt = ext !== "other" && ext.length > 0 && hasAsyncCompatibilityEndpoint()
         if (!canCheckByFile && !canCheckByExt)
             return false
@@ -2050,7 +2339,7 @@ Item {
         var compatibilityChecked = false
         var compatibilityFailed = false
 
-        if (hasCompatibilityByFileIdEndpoint()) {
+        if (remotePrintMode !== "direct" && hasCompatibilityByFileIdEndpoint()) {
             compatibilityChecked = true
             var fileCompat = cloudBridge.fetchCompatiblePrintersByFileId(normalizedFileId)
             if (fileCompat.ok === true) {
@@ -2769,21 +3058,66 @@ Item {
         remotePrintConfigDialog.open()
     }
 
+    function submitPrintOrder(fileData) {
+        var fileId = cloudFileIdValue(fileData)
+        remotePrintSubmitting = true
+        pendingPrintPrinterId = remotePrinterId
+        pendingPrintFileId = fileId
+        pendingPrintFileData = fileData
+        pendingPrintDeleteAfterPrint = optionDeleteAfterPrint === true
+        statusMsg = qsTr("Sending print order...")
+        statusSev = "info"
+        if (typeof cloudBridge.sendPrintOrderAsync === "function") {
+            cloudBridge.sendPrintOrderAsync(remotePrinterId, fileId, false, false)
+            return
+        }
+        var result = cloudBridge.sendPrintOrder(remotePrinterId, fileId, false, false)
+        remotePrintSubmitting = false
+        applyPrintOrderResult(remotePrinterId, fileId, result, fileData,
+                              optionDeleteAfterPrint === true)
+    }
+
     function startRemotePrint() {
-        if (remotePrintPreparing) {
-            statusMsg = qsTr("Remote print setup is still loading.")
+        if (remotePrintPreparing || remotePrintSubmitting) {
+            statusMsg = remotePrintPreparing
+                    ? qsTr("Remote print setup is still loading.")
+                    : qsTr("Print order is already being sent.")
             statusSev = "warn"
             return
         }
-        if (remotePrintSubmitting) {
-            statusMsg = qsTr("Print order is already being sent.")
+        if (remotePrinterId.length === 0) {
+            statusMsg = qsTr("Select a printer first.")
+            statusSev = "warn"
+            return
+        }
+        refreshRemotePrintGuard()
+        if (!remotePrintAllowed) {
+            statusMsg = remotePrintBlockReason.length > 0
+                    ? qsTr("Print blocked: %1").arg(remotePrintBlockReason)
+                    : qsTr("Print blocked by compatibility checks.")
+            statusSev = "warn"
+            return
+        }
+        if (!hasCloudBridge()) {
+            statusMsg = qsTr("Cloud backend is unavailable.")
             statusSev = "warn"
             return
         }
 
-        if (remotePrinterId.length === 0) {
-            statusMsg = qsTr("Select a printer first.")
-            statusSev = "warn"
+        if (remotePrintMode === "direct") {
+            if (directPrintLocalPath.length === 0
+                    || typeof cloudBridge.startUploadLocalFile !== "function") {
+                statusMsg = qsTr("Direct print upload is unavailable.")
+                statusSev = "error"
+                return
+            }
+            remotePrintSubmitting = true
+            remotePrintPreparing = true
+            remotePrintPrepareMessage = qsTr("Uploading the file before printing...")
+            pendingDirectUploadContext = "direct-print-" + String(Date.now())
+            cloudBridge.startUploadLocalFile(directPrintLocalPath,
+                                             directPrintCompletePreview,
+                                             pendingDirectUploadContext)
             return
         }
 
@@ -2792,52 +3126,14 @@ Item {
             statusSev = "warn"
             return
         }
-
         var fileData = selectedCloudFileData()
         if (!fileData) {
             statusMsg = qsTr("Select a cloud file first.")
             statusSev = "warn"
             return
         }
-
-        refreshRemotePrintGuard()
-        if (!remotePrintAllowed) {
-            statusMsg = remotePrintBlockReason.length > 0
-                    ? (qsTr("Print blocked: %1").arg(remotePrintBlockReason))
-                    : qsTr("Print blocked by compatibility checks.")
-            statusSev = "warn"
-            return
-        }
-
-        if (!hasCloudBridge()) {
-            statusMsg = qsTr("Demo: remote print payload prepared for %1")
-                    .arg(String(fileData.fileName || ""))
-            statusSev = "warn"
-            remotePrintConfigDialog.close()
-            return
-        }
-
-        var fileId = cloudFileIdValue(fileData)
-        if (typeof cloudBridge.sendPrintOrderAsync === "function") {
-            remotePrintSubmitting = true
-            pendingPrintPrinterId = remotePrinterId
-            pendingPrintFileId = fileId
-            pendingPrintFileData = fileData
-            pendingPrintDeleteAfterPrint = optionDeleteAfterPrint === true
-            statusMsg = qsTr("Sending print order...")
-            statusSev = "info"
-            cloudBridge.sendPrintOrderAsync(remotePrinterId,
-                                            fileId,
-                                            optionDeleteAfterPrint,
-                                            false)
-            return
-        }
-
-        var r = cloudBridge.sendPrintOrder(remotePrinterId,
-                                           fileId,
-                                           optionDeleteAfterPrint,
-                                           false)
-        applyPrintOrderResult(remotePrinterId, fileId, r, fileData, optionDeleteAfterPrint === true)
+        optionDeleteAfterPrint = false
+        submitPrintOrder(fileData)
     }
 
     function applyPrintOrderResult(printerId, fileId, r, fileData, deleteAfterPrint) {
@@ -2848,6 +3144,11 @@ Item {
                     : qsTr("Print order sent.")
             var trackedFileData = fileData ? fileData : ({})
             trackedFileData.deleteAfterPrint = deleteAfterPrint === true
+            trackedFileData.printMsgId = String(r.msgId || "")
+            if (remotePrintMode === "direct") {
+                trackedFileData.directMode = true
+                trackedFileData.deleteLocalOnFailure = directPrintDeleteLocalOnFailureSnapshot === true
+            }
             markRemotePrintAccepted(printerId, trackedFileData, taskId)
             remotePrintConfigDialog.close()
             if (printerId !== selectedPrinterId)
@@ -2867,6 +3168,7 @@ Item {
     }
 
     Component.onCompleted: {
+        restorePendingDirectPrints()
         if (!deferStartupInitialization)
             ensureStartupInitialized()
     }
@@ -2950,6 +3252,49 @@ Item {
             root.handleCompatiblePrintersByExtReady(requestId, fileExt, result)
         }
 
+        function onUploadContextProgressChanged(requestContext, progress, phase) {
+            if (String(requestContext || "") !== root.pendingDirectUploadContext)
+                return
+            root.remotePrintPrepareMessage = qsTr("Uploading before direct print: %1%")
+                    .arg(String(Math.round(Number(progress) * 100)))
+        }
+
+        function onUploadContextFinished(requestContext, result) {
+            if (String(requestContext || "") !== root.pendingDirectUploadContext)
+                return
+            root.pendingDirectUploadContext = ""
+            root.remotePrintPreparing = false
+            root.remotePrintPrepareMessage = ""
+            if (!result || result.ok !== true) {
+                root.remotePrintSubmitting = false
+                root.statusMsg = qsTr("Direct print upload failed: %1")
+                        .arg(root.backendStatusDetail(result ? result.message : "",
+                                                      qsTr("Transfer failed.")))
+                root.statusSev = "error"
+                return
+            }
+            var fileId = String(result.fileId || "").trim()
+            if (fileId.length === 0 || !root.uploadIsReady(result.uploadStatus, result.gcodeId)) {
+                root.remotePrintSubmitting = false
+                root.statusMsg = qsTr("The file was uploaded, but cloud processing is not ready for direct printing.")
+                root.statusSev = "warn"
+                return
+            }
+            var directData = {
+                "fileId": fileId,
+                "fileName": root.directPrintLocalName,
+                "gcodeId": String(result.gcodeId || ""),
+                "sizeBytes": 0,
+                "status": "READY",
+                "directMode": true,
+                "deleteAfterPrint": root.optionDeleteAfterPrint === true,
+                "deleteLocalOnFailure": root.directPrintDeleteLocalOnFailureSnapshot === true
+            }
+            root.setSingleRemotePrintFile(fileId, root.directPrintLocalName, directData)
+            root.remotePrintSubmitting = false
+            root.submitPrintOrder(directData)
+        }
+
         function onPrintOrderFinished(printerId, fileId, result) {
             if (String(printerId || "") !== String(root.pendingPrintPrinterId || "")
                     || String(fileId || "") !== String(root.pendingPrintFileId || "")) {
@@ -2998,6 +3343,42 @@ Item {
                 return
             }
 
+            if (normalizedContext.indexOf("direct_cleanup:") === 0) {
+                var directParts = normalizedContext.split(":")
+                var completionKind = directParts.length > 1 ? directParts[1] : "failure"
+                var operation = root.pendingDirectPrintByPrinterId[String(printerId || "")]
+                if (!operation)
+                    return
+                if (result.ok !== true) {
+                    root.setDirectLocalDeleteInFlight(printerId, false)
+                    operation.state = completionKind === "success"
+                            ? "SUCCESS_LOCAL_CLEANUP_ERROR" : "FAILED_LOCAL_CLEANUP_ERROR"
+                    root.savePendingDirectPrint(operation)
+                    root.statusMsg = qsTr("Printer-local file deletion failed. The cloud file was kept.")
+                    root.statusSev = "warn"
+                    return
+                }
+                var cleanupMsgId = String(result.msgId || "").trim()
+                if (cleanupMsgId.length === 0) {
+                    root.setDirectLocalDeleteInFlight(printerId, false)
+                    if (completionKind === "success")
+                        root.requestDirectCloudDelete(operation)
+                    else {
+                        root.statusMsg = qsTr("Direct print failed. The printer-local copy was deleted; the cloud file was kept.")
+                        root.statusSev = "warn"
+                        root.removePendingDirectPrint(operation.printerId)
+                    }
+                    return
+                }
+                var pendingDeletes = root.cloneMap(root.pendingDirectLocalDeleteByMsgId)
+                pendingDeletes[cleanupMsgId] = {
+                    "operation": operation,
+                    "completionKind": completionKind
+                }
+                root.pendingDirectLocalDeleteByMsgId = pendingDeletes
+                return
+            }
+
             if (normalizedContext.indexOf("post_print_local_delete:") === 0) {
                 var parts = normalizedContext.split(":")
                 var cloudFileId = parts.length > 1 ? String(parts[1] || "") : ""
@@ -3034,6 +3415,26 @@ Item {
 
         function onDeleteFileFinished(fileId, result) {
             var normalizedFileId = String(fileId || "").trim()
+            var directOperation = root.pendingDirectCloudDeleteByFileId[normalizedFileId]
+            if (directOperation) {
+                var directNext = {}
+                for (var directKey in root.pendingDirectCloudDeleteByFileId) {
+                    if (directKey !== normalizedFileId)
+                        directNext[directKey] = root.pendingDirectCloudDeleteByFileId[directKey]
+                }
+                root.pendingDirectCloudDeleteByFileId = directNext
+                if (result && result.ok === true) {
+                    root.statusMsg = qsTr("Direct print finished. Printer-local and cloud files were deleted.")
+                    root.statusSev = "success"
+                    root.removePendingDirectPrint(directOperation.printerId)
+                } else {
+                    directOperation.state = "CLOUD_DELETE_ERROR"
+                    root.savePendingDirectPrint(directOperation)
+                    root.statusMsg = qsTr("Printer-local file deleted, but cloud deletion failed.")
+                    root.statusSev = "warn"
+                }
+                return
+            }
             var printerId = String(root.pendingPostPrintCloudDeleteByFileId[normalizedFileId] || "")
             if (printerId.length <= 0)
                 return
@@ -3145,6 +3546,39 @@ Item {
             root.applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message)
         }
 
+        function onPrinterFileActionReceived(printerId, action, state, code, msgId, message) {
+            if (String(action || "").toLowerCase() !== "deletelocal")
+                return
+            var key = String(msgId || "").trim()
+            var pending = root.pendingDirectLocalDeleteByMsgId[key]
+            if (!pending)
+                return
+            var next = {}
+            for (var existing in root.pendingDirectLocalDeleteByMsgId) {
+                if (existing !== key)
+                    next[existing] = root.pendingDirectLocalDeleteByMsgId[existing]
+            }
+            root.pendingDirectLocalDeleteByMsgId = next
+            var success = String(state || "").toLowerCase() === "success" && Number(code) === 200
+            var operation = pending.operation
+            root.setDirectLocalDeleteInFlight(operation.printerId, false)
+            if (!success) {
+                operation.state = pending.completionKind === "success"
+                        ? "SUCCESS_LOCAL_CLEANUP_ERROR" : "FAILED_LOCAL_CLEANUP_ERROR"
+                root.savePendingDirectPrint(operation)
+                root.statusMsg = qsTr("Printer-local file deletion was not confirmed. The cloud file was kept.")
+                root.statusSev = "warn"
+                return
+            }
+            if (pending.completionKind === "success") {
+                root.requestDirectCloudDelete(operation)
+            } else {
+                root.statusMsg = qsTr("Direct print failed. The printer-local copy was deleted; the cloud file was kept.")
+                root.statusSev = "warn"
+                root.removePendingDirectPrint(operation.printerId)
+            }
+        }
+
         function onConnectedChanged() {
             if (!mqttBridge || mqttBridge.connected !== true)
                 return
@@ -3207,6 +3641,7 @@ Item {
         compatiblePrintersModel: remoteCompatiblePrintersModel
         remotePrinterId: root.remotePrinterId
         selectedCloudFileId: root.selectedCloudFileId
+        directPrintMode: root.remotePrintMode === "direct"
         selectedFileName: selectedCloudFileData() ? String(selectedCloudFileData().fileName || "-") : "-"
         selectedPrinterName: printerDataById(root.remotePrinterId)
                              ? String(printerDataById(root.remotePrinterId).name || "-")

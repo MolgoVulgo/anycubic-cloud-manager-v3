@@ -40,11 +40,15 @@ The remote-print confirmation dialog receives the complete row already held by `
 
 When this entry point is used before the Printers page has been initialized, it bootstraps only the printer list required for compatibility and selection. It does not trigger the startup printer-insights or recent-jobs refresh. Full details and job history remain owned by the Printers page when that page is explicitly activated, preventing remote-print preparation from causing unrelated project-thumbnail traffic.
 
+The toolbar distinguishes **Add to cloud** from **Direct print**. Standard upload ends after cloud registration and never presents a post-print cleanup option. Direct print keeps the selected local file as an operation input, checks printer compatibility by extension, uploads it, then automatically sends the print order after the cloud file becomes ready. Its cleanup checkbox belongs to that single operation: after a confirmed successful print, ACM deletes the exact printer-local file first and deletes the cloud file only after MQTT confirms `deleteLocal`.
+
+The Settings menu includes **Delete printer-local copy when a direct print fails**, disabled by default. Its value is snapshotted when a direct operation is launched and has no effect on standard uploads, cloud-list printing, or direct prints without cleanup selected. For a direct task that actually reached the active state and later ends with status 3 or 4, enabling the preference permits only the exact printer-local copy to be removed; the cloud file is always retained on failure, stop or cancellation.
+
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
 ## Cloud file multi-selection
 
-Each cloud-file row exposes an independent checkbox. The selected file identifiers and display names are kept as page state, separately from the single row used by the details view. When at least one file is selected, a destructive `Delete (N)` action appears between Refresh and Upload.
+Each cloud-file row exposes an independent checkbox. The selected file identifiers and display names are kept as page state, separately from the single row used by the details view. When at least one file is selected, a destructive `Delete (N)` action appears between Refresh and Add to cloud.
 
 The action always requires explicit confirmation. Deletions are then submitted sequentially through the existing asynchronous bridge operation so the GUI thread remains responsive and the current cloud/cache deletion contract is preserved. Successful items are removed from the selection; failed items remain selected. The list is refreshed once after the sequence and the status bar reports complete, partial or failed completion.
 

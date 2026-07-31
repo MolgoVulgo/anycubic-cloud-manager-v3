@@ -63,7 +63,7 @@ It must not be moved to a global network manager or reused for authenticated API
 
 ## Cache
 
-The cache improves startup and supports explicit fallback. Thumbnail files are derived data and are written atomically after content validation. Cache purge must not remove the session unless explicitly requested. The typed SQLite cache schema is version 4; startup migrates version 3 by adding `cloud_files.status_code` and `cloud_files.thumbnail_source_url` in a verified transaction. Replacing the cloud-file snapshot is transactional: preparation, insertion and commit failures are logged by stage, and the previous snapshot is preserved after rollback.
+The cache improves startup and supports explicit fallback. Thumbnail files are derived data and are written atomically after content validation. Cache purge must not remove the session unless explicitly requested. The typed SQLite cache schema is version 5; startup migrates version 3 by adding the version-4 cloud-file columns, the cloud/project correlation columns on `jobs`, and the `pending_direct_prints` table. Direct-print records persist only the identifiers and cleanup decisions needed to resume a bounded workflow; the failure-cleanup preference is snapshotted into the operation and defaults to false. Replacing the cloud-file snapshot is transactional: preparation, insertion and commit failures are logged by stage, and the previous snapshot is preserved after rollback.
 
 ## Reference data
 

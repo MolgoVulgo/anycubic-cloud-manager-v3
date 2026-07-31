@@ -40,11 +40,16 @@ Le dialogue de confirmation d'impression distante reçoit directement la ligne c
 
 Lorsque ce point d'entrée est utilisé avant l'initialisation de la page Imprimantes, il amorce uniquement la liste des imprimantes nécessaire à la compatibilité et à la sélection. Il ne déclenche ni le rafraîchissement initial des détails imprimante ni celui des jobs récents. Les détails complets et l'historique restent chargés lorsque la page Imprimantes est explicitement activée, ce qui empêche la préparation d'impression de provoquer du trafic de miniatures de projets sans rapport.
 
+La barre d'actions distingue **Ajouter au cloud** et **Impression directe**. L'upload standard s'arrête après l'enregistrement cloud et ne propose aucune option de nettoyage après impression. L'impression directe conserve le fichier local sélectionné comme entrée de l'opération, contrôle la compatibilité par extension, le téléverse puis envoie automatiquement l'ordre lorsque le fichier cloud est prêt. Sa case de nettoyage appartient uniquement à cette opération : après une impression réussie confirmée, ACM supprime d'abord le fichier local exact de l'imprimante, puis le fichier cloud uniquement après confirmation MQTT de `deleteLocal`.
+
+Le menu Paramètres propose **Supprimer la copie locale de l'imprimante si une impression directe échoue**, désactivé par défaut. Sa valeur est figée au lancement de l'opération directe et n'a aucun effet sur les uploads standards, les impressions depuis la liste cloud ou les impressions directes sans nettoyage demandé. Pour une tâche directe réellement passée à l'état actif puis terminée avec le statut 3 ou 4, l'activation autorise uniquement la suppression de la copie locale exacte ; le fichier cloud est toujours conservé en cas d'échec, d'arrêt ou d'annulation.
+
+
 La complétion des aperçus PWSZ est contrôlée par deux réglages persistés : la complétion elle-même est activée par défaut, et la confirmation avant remplacement permanent du fichier local est activée par défaut. La modal explique que `preview_1.png` est copié vers `preview_2.png`, que la version préparée est envoyée, puis que le fichier local n’est remplacé qu’après succès cloud. « Ne plus demander » désactive uniquement la confirmation ; les deux réglages restent accessibles depuis le menu Paramètres.
 
 ## Sélection multiple des fichiers cloud
 
-Chaque ligne de fichier cloud expose une case à cocher indépendante. Les identifiants et noms d’affichage sélectionnés sont conservés dans l’état de la page, séparément de la ligne unique utilisée par la vue de détails. Dès qu’au moins un fichier est sélectionné, une action destructive `Supprimer (N)` apparaît entre Rafraîchir et Envoyer.
+Chaque ligne de fichier cloud expose une case à cocher indépendante. Les identifiants et noms d’affichage sélectionnés sont conservés dans l’état de la page, séparément de la ligne unique utilisée par la vue de détails. Dès qu’au moins un fichier est sélectionné, une action destructive `Supprimer (N)` apparaît entre Rafraîchir et Ajouter au cloud.
 
 L’action exige toujours une confirmation explicite. Les suppressions sont ensuite soumises séquentiellement via l’opération asynchrone existante du bridge afin de ne pas bloquer le thread GUI et de préserver le contrat courant de suppression cloud/cache. Les éléments supprimés avec succès sortent de la sélection ; les éléments en échec restent sélectionnés. La liste est rafraîchie une seule fois à la fin et la barre d’état distingue réussite complète, réussite partielle et échec.
 

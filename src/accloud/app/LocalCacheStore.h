@@ -31,6 +31,7 @@ class LocalCacheStore {
   [[nodiscard]] QVariantMap loadRecentJobsForPrinters(const QStringList& printerIds,
                                                       int limitPerPrinter = 20) const;
   [[nodiscard]] QVariantMap loadQuota() const;
+  [[nodiscard]] QVariantList loadPendingDirectPrints() const;
 
   bool replaceFiles(const QVariantList& files) const;
   bool replacePrinters(const QVariantList& printers) const;
@@ -39,6 +40,8 @@ class LocalCacheStore {
   bool upsertJobsForPrinter(const QString& printerId, const QVariantList& jobs) const;
   bool savePrinterDetails(const QString& printerId, const QVariantMap& details) const;
   bool saveQuota(const QVariantMap& quota) const;
+  bool savePendingDirectPrint(const QVariantMap& operation) const;
+  bool removePendingDirectPrint(const QString& printerId) const;
 
   void removeFile(const QString& fileId) const;
   void updateSyncState(const QString& scope, bool ok, const QString& errorMessage) const;

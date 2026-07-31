@@ -107,12 +107,15 @@ bool createSchemaV3Database(const std::filesystem::path& dbPath) {
     return ok;
 }
 
-bool verifySchemaV4Database(const std::filesystem::path& dbPath) {
-    const QString connectionName = QStringLiteral("accloud_schema_v4_verify_")
+bool verifySchemaV5Database(const std::filesystem::path& dbPath) {
+    const QString connectionName = QStringLiteral("accloud_schema_v5_verify_")
         + QString::number(static_cast<qlonglong>(::getpid()));
     bool versionOk = false;
     bool hasStatusCode = false;
     bool hasThumbnailSource = false;
+    bool hasJobCloudFileId = false;
+    bool hasJobGcodeId = false;
+    bool hasPendingDirectPrints = false;
     {
         QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
         db.setDatabaseName(QString::fromStdString(dbPath.string()));
@@ -121,7 +124,7 @@ bool verifySchemaV4Database(const std::filesystem::path& dbPath) {
             if (version.exec(QStringLiteral(
                     "SELECT value FROM meta WHERE key='schema_version'"))
                 && version.next()) {
-                versionOk = version.value(0).toInt() == 4;
+                versionOk = version.value(0).toInt() == 5;
             }
             version.finish();
 
@@ -135,11 +138,32 @@ bool verifySchemaV4Database(const std::filesystem::path& dbPath) {
                 }
             }
             columns.finish();
+
+            QSqlQuery jobColumns(db);
+            if (jobColumns.exec(QStringLiteral("PRAGMA table_info(jobs)"))) {
+                while (jobColumns.next()) {
+                    const QString name = jobColumns.value(1).toString();
+                    hasJobCloudFileId = hasJobCloudFileId
+                        || name == QStringLiteral("cloud_file_id");
+                    hasJobGcodeId = hasJobGcodeId
+                        || name == QStringLiteral("gcode_id");
+                }
+            }
+            jobColumns.finish();
+
+            QSqlQuery pendingTable(db);
+            if (pendingTable.exec(QStringLiteral(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name='pending_direct_prints'"))) {
+                hasPendingDirectPrints = pendingTable.next();
+            }
+            pendingTable.finish();
             db.close();
         }
     }
     QSqlDatabase::removeDatabase(connectionName);
-    return versionOk && hasStatusCode && hasThumbnailSource;
+    return versionOk && hasStatusCode && hasThumbnailSource
+        && hasJobCloudFileId && hasJobGcodeId && hasPendingDirectPrints;
 }
 
 bool test_response_envelope_parser_contract() {
@@ -438,6 +462,8 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     updatedJob.insert("taskId", "task-active");
     updatedJob.insert("printerId", "printer-1");
     updatedJob.insert("printerName", "Printer One");
+    updatedJob.insert("cloudFileId", "cloud-active");
+    updatedJob.insert("gcodeId", "gcode-active");
     updatedJob.insert("gcodeName", "active-v1.pwmb");
     updatedJob.insert("printStatus", 1);
     updatedJob.insert("progress", 20);
@@ -500,6 +526,10 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
             sawOld = true;
         } else if (taskId == "task-active") {
             sawUpdated = true;
+            ok = ok && expect(job.value("cloudFileId").toString() == "cloud-active",
+                              "updated job cloudFileId mismatch");
+            ok = ok && expect(job.value("gcodeId").toString() == "gcode-active",
+                              "updated job gcodeId mismatch");
             ok = ok && expect(job.value("gcodeName").toString() == "active-v2.pwmb",
                               "updated job gcodeName mismatch");
             ok = ok && expect(job.value("progress").toInt() == 55,
@@ -529,7 +559,7 @@ bool test_local_cache_store_roundtrip_and_sync_state() {
     return ok;
 }
 
-bool test_local_cache_store_migrates_schema_v3_to_v4() {
+bool test_local_cache_store_migrates_schema_v3_to_v5() {
     const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
     const std::filesystem::path dbPath = uniqueTempDbPath("accloud_cache_schema_v3");
     bool ok = expect(createSchemaV3Database(dbPath),
@@ -562,8 +592,62 @@ bool test_local_cache_store_migrates_schema_v3_to_v4() {
                               == "https://example.invalid/migrated.jpg",
                           "migrated thumbnail source mismatch");
     }
-    ok = ok && expect(verifySchemaV4Database(dbPath),
-                      "schema version and v4 columns should be persisted");
+    ok = ok && expect(verifySchemaV5Database(dbPath),
+                      "schema version and v5 columns should be persisted");
+
+    restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
+    removeSqliteFiles(dbPath);
+    return ok;
+}
+
+
+bool test_pending_direct_print_persistence() {
+    const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
+    const std::filesystem::path dbPath = uniqueTempDbPath("accloud_direct_print_pending");
+    setenv("ACCLOUD_DB_PATH", dbPath.string().c_str(), 1);
+
+    accloud::LocalCacheStore cache;
+    bool ok = expect(cache.isAvailable(), "direct print cache should initialize");
+
+    QVariantMap operation;
+    operation.insert("printerId", "printer-1");
+    operation.insert("cloudFileId", "cloud-direct-1");
+    operation.insert("cloudGcodeId", "gcode-direct-1");
+    operation.insert("cloudFileName", "cube.pwsz");
+    operation.insert("cloudFileSize", 117557);
+    operation.insert("printTaskId", "task-direct-1");
+    operation.insert("printMsgId", "print-msg");
+    operation.insert("printerLocalFilename", "cube.pwsz");
+    operation.insert("printerLocalPath", "/");
+    operation.insert("deleteAfterSuccess", true);
+    operation.insert("deleteLocalOnFailure", false);
+    operation.insert("observedActive", true);
+    operation.insert("state", "PRINTING");
+    operation.insert("createdAt", 1785448826);
+
+    ok = ok && expect(cache.savePendingDirectPrint(operation),
+                      "pending direct print should persist");
+    const QVariantList rows = cache.loadPendingDirectPrints();
+    ok = ok && expect(rows.size() == 1, "one pending direct print should load");
+    if (!rows.isEmpty()) {
+        const QVariantMap loaded = rows.first().toMap();
+        ok = ok && expect(loaded.value("cloudFileId").toString() == "cloud-direct-1",
+                          "cloud file id should round-trip");
+        ok = ok && expect(loaded.value("printTaskId").toString() == "task-direct-1",
+                          "print task id should round-trip");
+        ok = ok && expect(loaded.value("printerLocalFilename").toString() == "cube.pwsz",
+                          "printer-local filename should round-trip");
+        ok = ok && expect(loaded.value("deleteAfterSuccess").toBool(),
+                          "success cleanup flag should round-trip");
+        ok = ok && expect(!loaded.value("deleteLocalOnFailure").toBool(),
+                          "failure cleanup preference must default/persist off");
+        ok = ok && expect(loaded.value("observedActive").toBool(),
+                          "active observation should round-trip");
+    }
+    ok = ok && expect(cache.removePendingDirectPrint("printer-1"),
+                      "pending direct print should be removable");
+    ok = ok && expect(cache.loadPendingDirectPrints().isEmpty(),
+                      "pending direct print should be removed");
 
     restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
     removeSqliteFiles(dbPath);
@@ -589,7 +673,8 @@ int main(int argc, char** argv) {
     ok = test_order_response_tracker_lifecycle() && ok;
     ok = test_upload_readiness_rejects_zero_sentinel() && ok;
     ok = test_local_cache_store_roundtrip_and_sync_state() && ok;
-    ok = test_local_cache_store_migrates_schema_v3_to_v4() && ok;
+    ok = test_local_cache_store_migrates_schema_v3_to_v5() && ok;
+    ok = test_pending_direct_print_persistence() && ok;
     ok = test_thumbnail_dir_defaults_to_local_share_accloud() && ok;
     if (!ok) {
         return 1;

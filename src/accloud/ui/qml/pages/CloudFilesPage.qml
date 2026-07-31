@@ -17,6 +17,7 @@ Item {
     property alias filesModel: cloudFilesModel
     signal statusBroadcast(string message, string severity, string operationId)
     signal printIntentRequested(string fileId, string fileName, var fileData)
+    signal directPrintIntentRequested(string localPath, string fileName, bool completePwszPreview2)
     signal pwszUploadSettingsChanged()
 
     // UI state
@@ -49,6 +50,7 @@ Item {
     readonly property string pwszPreviewCompletionSettingsKey: "cloud.upload.completePwszPreview2"
     readonly property string pwszPreviewConfirmationSettingsKey: "cloud.upload.confirmPwszPreview2"
     property string uploadLastFolderPath: StandardPaths.writableLocation(StandardPaths.HomeLocation)
+    property string localFileSelectionMode: "upload"
     property var pwszCloudUpdateCandidates: []
     property real pwszCloudUpdateBytes: 0
     property bool pwszCloudUpdateRunning: false
@@ -827,11 +829,25 @@ Item {
                                   selectedFileData !== null ? selectedFileData : ({}))
     }
 
-    function pickUploadFile() {
+    function openLocalFileSelector(mode) {
         if (uploadOverlay.visible)
             return
+        localFileSelectionMode = String(mode || "upload")
+        uploadFileDialog.dialogTitle = localFileSelectionMode === "direct"
+                ? qsTr("Select a file for direct printing")
+                : qsTr("Select a file to add to the cloud")
+        uploadFileDialog.confirmButtonText = localFileSelectionMode === "direct"
+                ? qsTr("Configure print") : qsTr("Add")
         uploadFileDialog.currentFolder = pathToFileUrl(uploadLastFolderPath)
         uploadFileDialog.open()
+    }
+
+    function pickUploadFile() {
+        openLocalFileSelector("upload")
+    }
+
+    function pickDirectPrintFile() {
+        openLocalFileSelector("direct")
     }
 
     function uploadInputToDisplayName(fileInput) {
@@ -902,6 +918,18 @@ Item {
         root.statusSev = "warn"
     }
 
+    function beginSelectedLocalAction(selectedInput, completePwszPreview2) {
+        if (localFileSelectionMode === "direct") {
+            var localPath = localPathFromInput(selectedInput)
+            var fileName = uploadInputToDisplayName(selectedInput)
+            statusMsg = qsTr("Preparing direct print for %1...").arg(fileName)
+            statusSev = "info"
+            directPrintIntentRequested(localPath, fileName, completePwszPreview2 === true)
+            return
+        }
+        beginUpload(selectedInput, completePwszPreview2 === true)
+    }
+
     function uploadSelectedLocalFile(fileUrl) {
         var selectedInput = String(fileUrl || "").trim()
         if (selectedInput.length === 0) {
@@ -927,7 +955,7 @@ Item {
         var completionEnabled = booleanSetting(pwszPreviewCompletionSettingsKey, true)
         if (fileExtension(fileName) !== "pwsz" || completionEnabled !== true
                 || typeof cloudBridge.inspectPwszPreview !== "function") {
-            beginUpload(selectedInput, false)
+            beginSelectedLocalAction(selectedInput, false)
             return
         }
 
@@ -939,7 +967,7 @@ Item {
             return
         }
         if (inspection.needsCompletion !== true) {
-            beginUpload(selectedInput, false)
+            beginSelectedLocalAction(selectedInput, false)
             return
         }
 
@@ -950,7 +978,7 @@ Item {
             pwszPreviewConfirmDialog.open()
             return
         }
-        beginUpload(selectedInput, true)
+        beginSelectedLocalAction(selectedInput, true)
     }
 
     function loadMockFiles() {
@@ -1306,14 +1334,16 @@ Item {
                 onClicked: pwszPreviewConfirmDialog.close()
             },
             AppButton {
-                text: qsTr("Modify and upload")
+                text: root.localFileSelectionMode === "direct"
+                      ? qsTr("Modify and continue")
+                      : qsTr("Modify and upload")
                 variant: "primary"
                 onClicked: {
                     var path = pwszPreviewConfirmDialog.pendingPath
                     if (pwszPreviewConfirmDialog.doNotAskAgain)
                         root.persistBooleanSetting(root.pwszPreviewConfirmationSettingsKey, false)
                     pwszPreviewConfirmDialog.close()
-                    root.beginUpload(path, true)
+                    root.beginSelectedLocalAction(path, true)
                 }
             }
         ]
@@ -1780,7 +1810,7 @@ Item {
 
             CloudFilesToolbar {
                 Layout.fillWidth: false
-                Layout.preferredWidth: 520
+                Layout.preferredWidth: 680
                 loading: root.loading
                 selectedFilesCount: root.selectedFilesCount
                 batchDeleteRunning: root.batchDeleteRunning
@@ -1801,9 +1831,8 @@ Item {
                         root.loadFiles()
                     }
                 }
-                onUploadRequested: {
-                    root.pickUploadFile()
-                }
+                onUploadRequested: root.pickUploadFile()
+                onDirectPrintRequested: root.pickDirectPrintFile()
                 onDeleteSelectedRequested: root.requestDeleteSelected()
                 onTypeFilterSelected: function(index, code) {
                     root.typeFilterValue = code

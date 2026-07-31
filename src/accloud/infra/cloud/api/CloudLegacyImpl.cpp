@@ -545,7 +545,9 @@ CloudPrinterProjectItem parsePrinterProjectItem(const nlohmann::json& e) {
         }
     }
 
-    item.taskId = jFirst(e, {"task_id", "id"});
+    item.taskId = jFirst(e, {"task_id", "taskid", "id"});
+    item.cloudFileId = jFirst(e, {"model", "file_id"});
+    item.gcodeId = jFirst(e, {"gcode_id"});
     item.gcodeName = jFirst(e, {"gcode_name", "old_filename", "filename", "file_name"});
     item.printerId = jFirst(e, {"printer_id"});
     item.printerName = jFirst(e, {"printer_name", "machine_name"});

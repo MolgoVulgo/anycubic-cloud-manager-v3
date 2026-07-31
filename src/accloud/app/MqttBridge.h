@@ -90,6 +90,12 @@ signals:
                                  const QString& state,
                                  int code,
                                  const QString& message);
+    void printerFileActionReceived(const QString& printerId,
+                                   const QString& action,
+                                   const QString& state,
+                                   int code,
+                                   const QString& msgId,
+                                   const QString& message);
 
 private:
     bool attemptAutoConnect();

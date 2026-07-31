@@ -653,15 +653,15 @@ MqttBridge::MqttBridge(QObject* parent)
                     firstArrayField(routed.envelope.data, {"records", "files"});
                 const bool listLikeAction = actionLower.startsWith(QStringLiteral("list"));
 
-                if (!source.isEmpty() && (fileRecords != nullptr || listLikeAction)) {
-                    std::string effectivePrinterId = routed.printerKey;
-                    if (!routed.printerKey.empty()) {
-                        const auto it = m_printerKeyToId.find(routed.printerKey);
-                        if (it != m_printerKeyToId.end() && !it->second.empty()) {
-                            effectivePrinterId = it->second;
-                        }
+                std::string effectivePrinterId = routed.printerKey;
+                if (!routed.printerKey.empty()) {
+                    const auto it = m_printerKeyToId.find(routed.printerKey);
+                    if (it != m_printerKeyToId.end() && !it->second.empty()) {
+                        effectivePrinterId = it->second;
                     }
+                }
 
+                if (!source.isEmpty() && (fileRecords != nullptr || listLikeAction)) {
                     QVariantList records;
                     if (fileRecords != nullptr) {
                         for (const auto& record : *fileRecords) {
@@ -694,6 +694,25 @@ MqttBridge::MqttBridge(QObject* parent)
                                                                                fileState,
                                                                                code,
                                                                                fileMessage);
+                                              },
+                                              Qt::QueuedConnection);
+                }
+
+                if (!listLikeAction) {
+                    const int actionCode = routed.envelope.raw.contains("code")
+                        ? jsonIntValueOr(routed.envelope.raw["code"], 0) : 0;
+                    const QString actionState = QString::fromStdString(routed.envelope.state);
+                    const QString actionMessage = toQStringField(routed.envelope.raw, "msg");
+                    const QString actionMsgId = QString::fromStdString(routed.envelope.msgid);
+                    const QString printerIdText = QString::fromStdString(effectivePrinterId);
+                    QMetaObject::invokeMethod(this,
+                                              [this, printerIdText, action, actionState, actionCode, actionMsgId, actionMessage]() {
+                                                  emit printerFileActionReceived(printerIdText,
+                                                                                 action,
+                                                                                 actionState,
+                                                                                 actionCode,
+                                                                                 actionMsgId,
+                                                                                 actionMessage);
                                               },
                                               Qt::QueuedConnection);
                 }

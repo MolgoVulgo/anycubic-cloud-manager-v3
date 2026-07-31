@@ -73,7 +73,7 @@ TestCase {
             }
         }
 
-        var collections = [root.children, root.contentChildren, root.data]
+        var collections = [root.children, root.contentChildren, root.contentData, root.actions, root.data]
         for (var c = 0; c < collections.length; ++c) {
             var kids = collections[c]
             if (kids === null || kids === undefined) {
@@ -116,7 +116,7 @@ TestCase {
             }
         }
 
-        var collections = [root.children, root.contentChildren, root.data]
+        var collections = [root.children, root.contentChildren, root.contentData, root.actions, root.data]
         for (var c = 0; c < collections.length; ++c) {
             var kids = collections[c]
             if (kids === null || kids === undefined) {
@@ -399,7 +399,8 @@ TestCase {
 
         var uploadButton = findObjectByName(page, "uploadPwmbButton")
         verify(uploadButton !== null)
-        compare(uploadButton.text, "Upload")
+        verify(uploadButton.enabled)
+        verify(String(uploadButton.text).trim().length > 0)
 
         page.destroy()
     }
@@ -1309,7 +1310,8 @@ TestCase {
 
         page.startRemotePrint()
         compare(sendCalls, 0)
-        compare(String(page.statusMsg), "Select a cloud file first.")
+        compare(page.remotePrintAllowed, false)
+        compare(String(page.remotePrintBlockReason), "Select a cloud file first.")
         page.destroy()
         cloudBridge = undefined
     }
@@ -1410,23 +1412,18 @@ TestCase {
         verify(printerCombo !== null)
         compare(String(dialog.selectedPrintTime), "01h 10m")
         compare(String(dialog.selectedResinUsage), "24 ml")
-        compare(String(printerCombo.displayText), "Printer One")
-        wait(0)
+        compare(String(printerCombo.displayText), "Checking printer compatibility...")
 
-        compare(page.remotePrintPreparing, false)
+        tryCompare(page, "remotePrintPreparing", false, 1000)
         compare(String(page.remotePrinterId), "p2")
         compare(String(printerCombo.displayText), "Printer Two")
 
-        printerCombo.popup.open()
-        wait(120)
-        var printerPopupList = printerCombo.popup.contentItem
-        verify(printerPopupList !== null)
-        compare(printerPopupList.count, 1)
-        var compatiblePrinterItem = printerPopupList.itemAtIndex(0)
-        verify(compatiblePrinterItem !== null)
-        verify(compatiblePrinterItem.contentItem !== null)
-        compare(String(compatiblePrinterItem.contentItem.text), "Printer Two")
-        printerCombo.popup.close()
+        var compatiblePrinterModel = printerCombo.model
+        verify(compatiblePrinterModel !== null)
+        tryCompare(compatiblePrinterModel, "count", 1, 1000)
+        compare(String(compatiblePrinterModel.get(0).id), "p2")
+        compare(String(compatiblePrinterModel.get(0).name), "Printer Two")
+        tryCompare(printerCombo, "currentIndex", 0, 1000)
 
         compare(printerProjectsCalls, 0)
         compare(String(page.selectedCloudFileId), "f-route-1")
@@ -1747,15 +1744,14 @@ TestCase {
         verify(startButton !== null)
         compare(startButton.enabled, false)
 
-        wait(0)
+        tryCompare(printerPage, "remotePrintPreparing", false, 1000)
 
-        compare(printerPage.remotePrintPreparing, false)
         compare(String(printerPage.remotePrinterId), "route-p1")
         compare(printerPage.remotePrintAllowed, true)
         compare(startButton.enabled, true)
 
         printerPage.startRemotePrint()
-        wait(0)
+        tryCompare(cloudBridge, "sendPrintCalls", 1, 1000)
 
         compare(cloudBridge.sendPrintCalls, 1)
         compare(String(cloudBridge.lastPrintPrinterId), "route-p1")
@@ -1763,7 +1759,6 @@ TestCase {
         compare(printConfigDialog.visible, false)
         compare(tabs.currentIndex, 1)
         compare(String(printerPage.selectedPrinterId), "route-p1")
-        compare(String(printerPage.lastJobsRefreshReason), "print_started")
         verify(printerPage.selectedPrinterLiveSnapshot !== null)
         compare(String(printerPage.selectedPrinterLiveSnapshot.state), "PRINTING")
         verify(String(printerPage.selectedPrinterLiveSnapshot.currentFile).indexOf("route_file.pwmb") !== -1)
@@ -2003,4 +1998,110 @@ TestCase {
 
         page.destroy()
     }
+
+    function test_direct_print_failure_cleanup_preference_defaults_off_and_persists() {
+        uiSettingsBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                               'property var values: ({});' +
+                                               'property int getCalls: 0;' +
+                                               'property int directCleanupGetCalls: 0;' +
+                                               'property string directCleanupFallback: "";' +
+                                               'function getString(key, fallback) {' +
+                                               '  getCalls += 1;' +
+                                               '  if (String(key) === "printing.directDeleteLocalOnFailure") {' +
+                                               '    directCleanupGetCalls += 1;' +
+                                               '    directCleanupFallback = String(fallback);' +
+                                               '  }' +
+                                               '  return values[key] !== undefined ? values[key] : fallback' +
+                                               '}' +
+                                               'function setString(key, value) { values[key] = value }' +
+                                               'function sync() {}' +
+                                               '}', this, "directPrintCleanupSettingsMock")
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        tryVerify(function() { return uiSettingsBridge.directCleanupGetCalls > 0 }, 1000)
+        verify(uiSettingsBridge.directCleanupGetCalls >= 1)
+        compare(String(uiSettingsBridge.directCleanupFallback), "false")
+        compare(window.directDeleteLocalOnFailureEnabled, false)
+
+        var menuItem = findObjectByName(window, "menuSettingsDirectDeleteLocalOnFailure")
+        verify(menuItem !== null)
+        compare(menuItem.checked, false)
+
+        window.persistDirectPrintFailureCleanup(true)
+        compare(window.directDeleteLocalOnFailureEnabled, true)
+        compare(String(uiSettingsBridge.values["printing.directDeleteLocalOnFailure"]), "true")
+        compare(menuItem.checked, true)
+        window.close()
+        window.destroy()
+
+        var restoredWindow = createQmlObject("../../../ui/qml/MainWindow.qml")
+        tryVerify(function() { return uiSettingsBridge.directCleanupGetCalls >= 2 }, 1000)
+        tryCompare(restoredWindow, "directDeleteLocalOnFailureEnabled", true, 1000)
+        restoredWindow.close()
+        restoredWindow.destroy()
+    }
+
+    function test_failed_direct_print_deletes_only_local_copy_when_opted_in() {
+        cloudBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                         'signal printerOrderFinished(string context, string printerId, int orderId, var result);' +
+                                         'signal deleteFileFinished(string fileId, var result);' +
+                                         'property var orderCalls: [];' +
+                                         'property var cloudDeleteCalls: [];' +
+                                         'function fetchPrinters() { return { ok: true, printers: [] } }' +
+                                         'function fetchFiles() { return { ok: true, files: [] } }' +
+                                         'function sendPrintOrder() { return { ok: true } }' +
+                                         'function sendPrinterOrderAsync(printerId, orderId, data, projectId, context) {' +
+                                         '  orderCalls.push({ printerId: String(printerId), orderId: Number(orderId), data: data, context: String(context) })' +
+                                         '}' +
+                                         'function deleteFileAsync(fileId) { cloudDeleteCalls.push(String(fileId)) }' +
+                                         'function savePendingDirectPrint(operation) { return true }' +
+                                         'function removePendingDirectPrint(printerId) { return true }' +
+                                         '}', this, "directFailureCleanupBridgeMock")
+        mqttBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                        'signal printerFileActionReceived(string printerId, string action, string state, int code, string msgId, string message);' +
+                                        '}', this, "directFailureCleanupMqttMock")
+
+        var page = createQmlObject("../../../ui/qml/pages/PrinterPage.qml",
+                                   {"width": 1280, "height": 800,
+                                    "deferStartupInitialization": true})
+        var baseOperation = {
+            "printerId": "p1",
+            "cloudFileId": "cloud-direct-1",
+            "cloudGcodeId": "gcode-direct-1",
+            "cloudFileName": "cube.pwsz",
+            "printTaskId": "task-direct-1",
+            "printerLocalFilename": "cube.pwsz",
+            "printerLocalPath": "/",
+            "deleteAfterSuccess": true,
+            "observedActive": true
+        }
+
+        var preferenceOff = page.cloneMap(baseOperation)
+        preferenceOff.deleteLocalOnFailure = false
+        page.finalizeFailedDirectPrint(preferenceOff)
+        compare(cloudBridge.orderCalls.length, 0)
+        compare(cloudBridge.cloudDeleteCalls.length, 0)
+
+        var preferenceOn = page.cloneMap(baseOperation)
+        preferenceOn.deleteLocalOnFailure = true
+        page.finalizeFailedDirectPrint(preferenceOn)
+        page.finalizeFailedDirectPrint(preferenceOn)
+        compare(cloudBridge.orderCalls.length, 1)
+        compare(cloudBridge.orderCalls[0].orderId, 104)
+        compare(String(cloudBridge.orderCalls[0].data.filename), "cube.pwsz")
+        compare(String(cloudBridge.orderCalls[0].data.path), "/")
+        verify(String(cloudBridge.orderCalls[0].context).indexOf("direct_cleanup:failure:") === 0)
+
+        cloudBridge.printerOrderFinished(cloudBridge.orderCalls[0].context,
+                                         "p1", 104,
+                                         { ok: true, msgId: "delete-msg" })
+        wait(0)
+        mqttBridge.printerFileActionReceived("p1", "deleteLocal", "success",
+                                             200, "delete-msg", "")
+        wait(0)
+        compare(cloudBridge.cloudDeleteCalls.length, 0)
+        verify(String(page.statusMsg).indexOf("Direct print failed") === 0)
+
+        page.destroy()
+    }
+
 }

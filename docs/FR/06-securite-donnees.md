@@ -63,7 +63,7 @@ Il ne doit pas être déplacé vers un manager réseau global ni réutilisé pou
 
 ## Cache
 
-Le cache accélère le démarrage et fournit un fallback explicite. Les miniatures sont des données dérivées écrites atomiquement après validation du contenu. Une purge cache ne supprime pas la session sans demande explicite. Le schéma typé du cache SQLite est en version 4 ; au démarrage, la version 3 est migrée par ajout de `cloud_files.status_code` et `cloud_files.thumbnail_source_url` dans une transaction vérifiée. Le remplacement du snapshot des fichiers cloud est transactionnel : les échecs de préparation, insertion et commit sont journalisés par étape, et le snapshot précédent est conservé après rollback.
+Le cache accélère le démarrage et fournit un fallback explicite. Les miniatures sont des données dérivées écrites atomiquement après validation du contenu. Une purge cache ne supprime pas la session sans demande explicite. Le schéma typé du cache SQLite est en version 5 ; au démarrage, la version 3 est migrée par ajout des colonnes cloud de la version 4, des colonnes de corrélation cloud/projet dans `jobs` et de la table `pending_direct_prints`. Les opérations directes ne persistent que les identifiants et décisions de nettoyage nécessaires à la reprise d’un flux borné ; la préférence de nettoyage après échec est figée dans l’opération et vaut `false` par défaut. Le remplacement du snapshot des fichiers cloud est transactionnel : les échecs de préparation, insertion et commit sont journalisés par étape, et le snapshot précédent est conservé après rollback.
 
 ## Données de référence
 

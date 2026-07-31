@@ -409,4 +409,35 @@ TestCase {
         page.destroy()
     }
 
+
+    function test_toolbar_distinguishes_cloud_upload_and_direct_print() {
+        createUploadBridgeMock()
+        var page = createQmlObject("../../../ui/qml/pages/CloudFilesPage.qml",
+                                   {"width": 1280, "height": 800})
+        var addButton = findObjectByName(page, "uploadPwmbButton")
+        var directButton = findObjectByName(page, "directPrintButton")
+        verify(addButton !== null)
+        verify(directButton !== null)
+        compare(String(addButton.text), "Add to cloud")
+        compare(String(directButton.text), "Direct print")
+
+        var directIntent = null
+        page.directPrintIntentRequested.connect(function(localPath, fileName, completePreview) {
+            directIntent = {
+                "localPath": String(localPath),
+                "fileName": String(fileName),
+                "completePreview": completePreview === true
+            }
+        })
+        page.localFileSelectionMode = "direct"
+        page.uploadSelectedLocalFile("file:///tmp/direct-cube.pwmb")
+        wait(0)
+        compare(cloudBridge.uploadCalls, 0)
+        verify(directIntent !== null)
+        compare(directIntent.localPath, "/tmp/direct-cube.pwmb")
+        compare(directIntent.fileName, "direct-cube.pwmb")
+        compare(directIntent.completePreview, false)
+        page.destroy()
+    }
+
 }

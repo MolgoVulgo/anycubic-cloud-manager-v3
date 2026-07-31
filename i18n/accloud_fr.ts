@@ -1118,6 +1118,30 @@ Annulés : %5</translation>
             <source>Invalid download destination.</source>
             <translation>Destination de téléchargement invalide.</translation>
         </message>
+        <message>
+            <source>Select a file for direct printing</source>
+            <translation>Sélectionner un fichier pour l’impression directe</translation>
+        </message>
+        <message>
+            <source>Select a file to add to the cloud</source>
+            <translation>Sélectionner un fichier à ajouter au cloud</translation>
+        </message>
+        <message>
+            <source>Configure print</source>
+            <translation>Configurer l’impression</translation>
+        </message>
+        <message>
+            <source>Add</source>
+            <translation>Ajouter</translation>
+        </message>
+        <message>
+            <source>Preparing direct print for %1...</source>
+            <translation>Préparation de l’impression directe pour %1…</translation>
+        </message>
+        <message>
+            <source>Modify and continue</source>
+            <translation>Modifier et continuer</translation>
+        </message>
 </context>
     <context>
         <name>CloudFilesPaginationBar</name>
@@ -1264,6 +1288,14 @@ Annulés : %5</translation>
         <message>
             <source>Delete (%1)</source>
             <translation>Supprimer (%1)</translation>
+        </message>
+        <message>
+            <source>Add to cloud</source>
+            <translation>Ajouter au cloud</translation>
+        </message>
+        <message>
+            <source>Direct print</source>
+            <translation>Impression directe</translation>
         </message>
 </context>
     <context>
@@ -2067,6 +2099,22 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         <source>Technical file details hidden.</source>
         <translation>Détails techniques des fichiers masqués.</translation>
     </message>
+        <message>
+            <source>Delete printer-local copy when a direct print fails</source>
+            <translation>Supprimer la copie locale de l’imprimante si une impression directe échoue</translation>
+        </message>
+        <message>
+            <source>Failed direct prints will remove the printer-local copy when cleanup was requested.</source>
+            <translation>En cas d’échec d’une impression directe, la copie locale de l’imprimante sera supprimée lorsque le nettoyage a été demandé.</translation>
+        </message>
+        <message>
+            <source>Failed direct prints will keep the printer-local copy.</source>
+            <translation>En cas d’échec d’une impression directe, la copie locale de l’imprimante sera conservée.</translation>
+        </message>
+        <message>
+            <source>Direct print entrypoint is unavailable.</source>
+            <translation>Le point d’entrée de l’impression directe est indisponible.</translation>
+        </message>
 </context>
     <context>
         <name>MqttPage</name>
@@ -3276,6 +3324,66 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <source>All captured broker messages for this printer</source>
             <translation>Tous les messages broker capturés pour cette imprimante</translation>
         </message>
+        <message>
+            <source>Direct print failed. The cloud file was kept and local cleanup could not start.</source>
+            <translation>L’impression directe a échoué. Le fichier cloud a été conservé et le nettoyage local n’a pas pu démarrer.</translation>
+        </message>
+        <message>
+            <source>Direct print failed. Cloud and printer-local files were kept.</source>
+            <translation>L’impression directe a échoué. Les fichiers cloud et local de l’imprimante ont été conservés.</translation>
+        </message>
+        <message>
+            <source>Cannot start direct print: missing local file.</source>
+            <translation>Impossible de démarrer l’impression directe : fichier local manquant.</translation>
+        </message>
+        <message>
+            <source>Cloud backend is unavailable.</source>
+            <translation>Le backend cloud est indisponible.</translation>
+        </message>
+        <message>
+            <source>Direct print upload is unavailable.</source>
+            <translation>Le téléversement pour impression directe est indisponible.</translation>
+        </message>
+        <message>
+            <source>Uploading the file before printing...</source>
+            <translation>Téléversement du fichier avant l’impression…</translation>
+        </message>
+        <message>
+            <source>Uploading before direct print: %1%</source>
+            <translation>Téléversement avant impression directe : %1 %</translation>
+        </message>
+        <message>
+            <source>Direct print upload failed: %1</source>
+            <translation>Échec du téléversement pour impression directe : %1</translation>
+        </message>
+        <message>
+            <source>Transfer failed.</source>
+            <translation>Échec du transfert.</translation>
+        </message>
+        <message>
+            <source>The file was uploaded, but cloud processing is not ready for direct printing.</source>
+            <translation>Le fichier a été téléversé, mais le traitement cloud n’est pas prêt pour l’impression directe.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deletion failed. The cloud file was kept.</source>
+            <translation>Échec de la suppression du fichier local de l’imprimante. Le fichier cloud a été conservé.</translation>
+        </message>
+        <message>
+            <source>Direct print failed. The printer-local copy was deleted; the cloud file was kept.</source>
+            <translation>L’impression directe a échoué. La copie locale de l’imprimante a été supprimée ; le fichier cloud a été conservé.</translation>
+        </message>
+        <message>
+            <source>Direct print finished. Printer-local and cloud files were deleted.</source>
+            <translation>L’impression directe est terminée. Les fichiers local de l’imprimante et cloud ont été supprimés.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deleted, but cloud deletion failed.</source>
+            <translation>Le fichier local de l’imprimante a été supprimé, mais la suppression cloud a échoué.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deletion was not confirmed. The cloud file was kept.</source>
+            <translation>La suppression du fichier local de l’imprimante n’a pas été confirmée. Le fichier cloud a été conservé.</translation>
+        </message>
     </context>
     <context>
     <name>PrinterRemotePrintConfigDialog</name>
@@ -3369,6 +3477,30 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         <source>Start Printing</source>
         <translation>Démarrer l’impression</translation>
     </message>
+        <message>
+            <source>Direct Print</source>
+            <translation>Impression directe</translation>
+        </message>
+        <message>
+            <source>Cloud Print</source>
+            <translation>Impression cloud</translation>
+        </message>
+        <message>
+            <source>Upload the local file, then start printing</source>
+            <translation>Téléverser le fichier local, puis démarrer l’impression</translation>
+        </message>
+        <message>
+            <source>Review task and printer before start</source>
+            <translation>Vérifier la tâche et l’imprimante avant le démarrage</translation>
+        </message>
+        <message>
+            <source>Delete printer-local and cloud files after a successful print</source>
+            <translation>Supprimer les fichiers local et cloud après une impression réussie</translation>
+        </message>
+        <message>
+            <source>Upload and print</source>
+            <translation>Téléverser et imprimer</translation>
+        </message>
 </context>
     <context>
         <name>PrinterSelectCloudFileDialog</name>

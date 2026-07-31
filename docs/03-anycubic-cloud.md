@@ -84,6 +84,11 @@ The local source is replaced atomically by the prepared archive only after the c
 
 An HTTP order starts the action. The final operational result can arrive later over MQTT. HTTP acceptance therefore means **request accepted**, not **print confirmed**.
 
+For a cloud-backed print, `cloud_files.id` is sent as `file_id`. The resulting project exposes the same value in `project.model`, the cloud `gcode_id` in `project.gcode_id`, and the print task identifier in `project.id/taskid`. MQTT `start` telemetry and `project.device_message.filename` expose the exact file name copied to the printer. The printer-local identity is therefore `printer_id + path + filename`; local deletion uses order `104` and is complete only after a matching MQTT `deleteLocal/success` confirmation. Cloud deletion is a separate authenticated API call.
+
+Direct print always sends `is_delete_file=0` so ACM owns the cleanup sequence. A successful operation with cleanup enabled deletes the printer-local copy before the cloud object. A stopped, cancelled or failed task retains the cloud object; the local copy is deleted only when the operation requested cleanup and the user preference captured at launch explicitly permits failure cleanup.
+
+
 ## Cache and fallback
 
 The cache accelerates startup and provides a labelled fallback. It does not redefine cloud authority or MQTT arbitration.

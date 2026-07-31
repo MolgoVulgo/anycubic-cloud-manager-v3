@@ -959,6 +959,30 @@ Cancelled: %5</translation>
         <source>Invalid download destination.</source>
         <translation type="unfinished"></translation>
     </message>
+        <message>
+            <source>Select a file for direct printing</source>
+            <translation>Select a file for direct printing</translation>
+        </message>
+        <message>
+            <source>Select a file to add to the cloud</source>
+            <translation>Select a file to add to the cloud</translation>
+        </message>
+        <message>
+            <source>Configure print</source>
+            <translation>Configure print</translation>
+        </message>
+        <message>
+            <source>Add</source>
+            <translation>Add</translation>
+        </message>
+        <message>
+            <source>Preparing direct print for %1...</source>
+            <translation>Preparing direct print for %1...</translation>
+        </message>
+        <message>
+            <source>Modify and continue</source>
+            <translation>Modify and continue</translation>
+        </message>
 </context>
 <context>
     <name>CloudFilesPaginationBar</name>
@@ -1106,6 +1130,14 @@ Cancelled: %5</translation>
         <source>Delete (%1)</source>
         <translation type="unfinished"></translation>
     </message>
+        <message>
+            <source>Add to cloud</source>
+            <translation>Add to cloud</translation>
+        </message>
+        <message>
+            <source>Direct print</source>
+            <translation>Direct print</translation>
+        </message>
 </context>
 <context>
     <name>CloudLoginPage</name>
@@ -1901,6 +1933,22 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <source>Technical file details hidden.</source>
         <translation type="unfinished"></translation>
     </message>
+        <message>
+            <source>Delete printer-local copy when a direct print fails</source>
+            <translation>Delete printer-local copy when a direct print fails</translation>
+        </message>
+        <message>
+            <source>Failed direct prints will remove the printer-local copy when cleanup was requested.</source>
+            <translation>Failed direct prints will remove the printer-local copy when cleanup was requested.</translation>
+        </message>
+        <message>
+            <source>Failed direct prints will keep the printer-local copy.</source>
+            <translation>Failed direct prints will keep the printer-local copy.</translation>
+        </message>
+        <message>
+            <source>Direct print entrypoint is unavailable.</source>
+            <translation>Direct print entrypoint is unavailable.</translation>
+        </message>
 </context>
 <context>
     <name>MqttPage</name>
@@ -2859,6 +2907,66 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <source>All captured broker messages for this printer</source>
         <translation type="unfinished"></translation>
     </message>
+        <message>
+            <source>Direct print failed. The cloud file was kept and local cleanup could not start.</source>
+            <translation>Direct print failed. The cloud file was kept and local cleanup could not start.</translation>
+        </message>
+        <message>
+            <source>Direct print failed. Cloud and printer-local files were kept.</source>
+            <translation>Direct print failed. Cloud and printer-local files were kept.</translation>
+        </message>
+        <message>
+            <source>Cannot start direct print: missing local file.</source>
+            <translation>Cannot start direct print: missing local file.</translation>
+        </message>
+        <message>
+            <source>Cloud backend is unavailable.</source>
+            <translation>Cloud backend is unavailable.</translation>
+        </message>
+        <message>
+            <source>Direct print upload is unavailable.</source>
+            <translation>Direct print upload is unavailable.</translation>
+        </message>
+        <message>
+            <source>Uploading the file before printing...</source>
+            <translation>Uploading the file before printing...</translation>
+        </message>
+        <message>
+            <source>Uploading before direct print: %1%</source>
+            <translation>Uploading before direct print: %1%</translation>
+        </message>
+        <message>
+            <source>Direct print upload failed: %1</source>
+            <translation>Direct print upload failed: %1</translation>
+        </message>
+        <message>
+            <source>Transfer failed.</source>
+            <translation>Transfer failed.</translation>
+        </message>
+        <message>
+            <source>The file was uploaded, but cloud processing is not ready for direct printing.</source>
+            <translation>The file was uploaded, but cloud processing is not ready for direct printing.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deletion failed. The cloud file was kept.</source>
+            <translation>Printer-local file deletion failed. The cloud file was kept.</translation>
+        </message>
+        <message>
+            <source>Direct print failed. The printer-local copy was deleted; the cloud file was kept.</source>
+            <translation>Direct print failed. The printer-local copy was deleted; the cloud file was kept.</translation>
+        </message>
+        <message>
+            <source>Direct print finished. Printer-local and cloud files were deleted.</source>
+            <translation>Direct print finished. Printer-local and cloud files were deleted.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deleted, but cloud deletion failed.</source>
+            <translation>Printer-local file deleted, but cloud deletion failed.</translation>
+        </message>
+        <message>
+            <source>Printer-local file deletion was not confirmed. The cloud file was kept.</source>
+            <translation>Printer-local file deletion was not confirmed. The cloud file was kept.</translation>
+        </message>
 </context>
 <context>
     <name>PrinterRemotePrintConfigDialog</name>
@@ -2952,6 +3060,30 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <source>Start Printing</source>
         <translation>Start Printing</translation>
     </message>
+        <message>
+            <source>Direct Print</source>
+            <translation>Direct Print</translation>
+        </message>
+        <message>
+            <source>Cloud Print</source>
+            <translation>Cloud Print</translation>
+        </message>
+        <message>
+            <source>Upload the local file, then start printing</source>
+            <translation>Upload the local file, then start printing</translation>
+        </message>
+        <message>
+            <source>Review task and printer before start</source>
+            <translation>Review task and printer before start</translation>
+        </message>
+        <message>
+            <source>Delete printer-local and cloud files after a successful print</source>
+            <translation>Delete printer-local and cloud files after a successful print</translation>
+        </message>
+        <message>
+            <source>Upload and print</source>
+            <translation>Upload and print</translation>
+        </message>
 </context>
 <context>
     <name>PrinterSelectCloudFileDialog</name>

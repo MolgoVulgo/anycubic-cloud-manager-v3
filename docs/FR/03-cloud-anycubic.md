@@ -84,6 +84,11 @@ Le fichier local source n’est remplacé atomiquement par l’archive préparé
 
 Une commande HTTP initie l'action. Le résultat opérationnel final peut arriver plus tard via MQTT. L'acceptation HTTP signifie donc **requête acceptée**, pas **impression confirmée**.
 
+Pour une impression adossée au cloud, `cloud_files.id` est envoyé comme `file_id`. Le projet obtenu expose la même valeur dans `project.model`, le `gcode_id` cloud dans `project.gcode_id` et l'identifiant de tâche dans `project.id/taskid`. La télémétrie MQTT `start` et `project.device_message.filename` fournissent le nom exact copié sur l'imprimante. L'identité locale est donc `printer_id + path + filename` ; la suppression locale utilise l'ordre `104` et n'est terminée qu'après une confirmation MQTT `deleteLocal/success` portant la même corrélation. La suppression cloud reste un appel API authentifié distinct.
+
+L'impression directe envoie toujours `is_delete_file=0` afin qu'ACM contrôle la séquence de nettoyage. En cas de réussite avec nettoyage demandé, la copie locale de l'imprimante est supprimée avant l'objet cloud. Une tâche arrêtée, annulée ou échouée conserve toujours l'objet cloud ; la copie locale n'est supprimée que si l'opération demandait le nettoyage et si la préférence utilisateur figée au lancement autorise explicitement le nettoyage après échec.
+
+
 ## Cache et fallback
 
 Le cache accélère le démarrage et fournit un fallback étiqueté. Il ne redéfinit ni l'autorité cloud ni l'arbitrage MQTT.
