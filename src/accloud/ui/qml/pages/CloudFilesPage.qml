@@ -34,12 +34,9 @@ Item {
     property var selectedFiles: []
     readonly property int selectedFilesCount: selectedFiles.length
     property bool batchDeleteRunning: false
-    property var batchDeleteQueue: []
     property int batchDeleteCompleted: 0
     property int batchDeleteTotal: 0
     property int batchDeleteSucceeded: 0
-    property var batchDeleteFailures: []
-    property string batchDeleteCurrentId: ""
     property string batchDeleteSummaryMessage: ""
     property string batchDeleteSummarySeverity: "success"
     property bool batchDeleteSummaryPending: false
@@ -64,7 +61,6 @@ Item {
     property bool pwszCloudUpdateProposalOpened: false
     readonly property bool pwszCloudUpdateProposalVisible: pwszCloudUpdateProposalPending
                                                            || pwszCloudUpdateConfirmDialog.visible
-    readonly property bool pwszCloudUpdateResultVisible: pwszCloudUpdateResultDialog.visible
     readonly property var supportedExtensions: [
         "photon", "pws", "pwsz", "photons", "pw0", "pwx", "pwmo", "pwma", "pwms",
         "pwmx", "pmx2", "pmsq", "dlp", "dl2p", "pwmb", "pm3", "pm3m",
@@ -134,6 +130,13 @@ Item {
                 && cloudBridge !== null
                 && typeof cloudBridge.fetchFiles === "function"
                 && typeof cloudBridge.fetchQuota === "function"
+    }
+
+    function hasCloudFilesWorkflowBridge() {
+        return (typeof cloudFilesWorkflowBridge !== "undefined")
+                && cloudFilesWorkflowBridge !== null
+                && typeof cloudFilesWorkflowBridge.startBatchDelete === "function"
+                && typeof cloudFilesWorkflowBridge.deleteSingleFile === "function"
     }
 
     function hasUiSettingsBridge() {
@@ -422,11 +425,6 @@ Item {
         return name
     }
 
-    function fileMatchesFilter(fileName) {
-        if (typeFilterValue === "all")
-            return true
-        return fileExtension(fileName) === String(typeFilterValue)
-    }
 
     function refreshTypeFilterOptions() {
         var sortedExt = cloudFilesModel.availableFileTypes(supportedExtensions)
@@ -520,23 +518,7 @@ Item {
         return value.length > 0 ? value : "-"
     }
 
-    function displayStatus(status) {
-        var raw = String(status || "UNKNOWN").toUpperCase()
-        if (raw === "READY")
-            return qsTr("Ready")
-        if (raw === "PROCESSING")
-            return qsTr("Processing")
-        return qsTr("Unknown")
-    }
 
-    function statusColor(status) {
-        var raw = String(status || "UNKNOWN").toUpperCase()
-        if (raw === "READY")
-            return Theme.success
-        if (raw === "PROCESSING")
-            return Theme.warning
-        return Theme.fgSecondary
-    }
 
     function fileDataById(fileId) {
         var entry = cloudFilesModel.fileDataById(String(fileId || ""))
@@ -552,9 +534,6 @@ Item {
         return -1
     }
 
-    function isFileSelected(fileId) {
-        return selectedFileIndex(fileId) >= 0
-    }
 
     function setFileSelected(fileId, fileName, checked) {
         var normalizedId = String(fileId || "").trim()
@@ -667,102 +646,20 @@ Item {
     function startBatchDelete() {
         if (selectedFilesCount <= 0 || batchDeleteRunning)
             return
-        if (!hasCloudBridge() || typeof cloudBridge.deleteFile !== "function") {
-            root.statusMsg = qsTr("Delete unavailable without backend.")
+        if (!hasCloudFilesWorkflowBridge()) {
+            root.statusMsg = qsTr("Delete unavailable without workflow backend.")
             root.statusSev = "warn"
             return
         }
 
-        batchDeleteQueue = selectedFiles.slice(0)
-        batchDeleteCompleted = 0
-        batchDeleteTotal = batchDeleteQueue.length
-        batchDeleteSucceeded = 0
-        batchDeleteFailures = []
-        batchDeleteCurrentId = ""
-        batchDeleteSummaryPending = false
-        batchDeleteAwaitingCloudRefresh = false
-        batchDeleteRunning = true
-        root.loading = true
-        runNextBatchDelete()
+        if (!cloudFilesWorkflowBridge.startBatchDelete(selectedFiles)) {
+            root.statusMsg = qsTr("Unable to start selected-file deletion.")
+            root.statusSev = "warn"
+        }
     }
 
-    function runNextBatchDelete() {
-        if (!batchDeleteRunning)
-            return
-        if (batchDeleteQueue.length <= 0) {
-            finishBatchDelete()
-            return
-        }
 
-        var nextItem = batchDeleteQueue[0]
-        batchDeleteQueue = batchDeleteQueue.slice(1)
-        batchDeleteCurrentId = String(nextItem.fileId || "")
-        root.statusMsg = qsTr("Deleting file %1 of %2...")
-                .arg(String(batchDeleteCompleted + 1))
-                .arg(String(batchDeleteTotal))
-        root.statusSev = "info"
 
-        if (typeof cloudBridge.deleteFileAsync === "function") {
-            cloudBridge.deleteFileAsync(batchDeleteCurrentId)
-            return
-        }
-
-        var result = cloudBridge.deleteFile(batchDeleteCurrentId)
-        handleBatchDeleteResult(batchDeleteCurrentId, result)
-    }
-
-    function handleBatchDeleteResult(fileId, result) {
-        if (!batchDeleteRunning || String(fileId) !== batchDeleteCurrentId)
-            return
-
-        batchDeleteCompleted += 1
-        if (result.ok === true) {
-            batchDeleteSucceeded += 1
-            removeFileSelection(fileId)
-        } else {
-            var failures = batchDeleteFailures.slice(0)
-            failures.push({
-                "fileId": String(fileId),
-                "message": backendStatusDetail(result.message, qsTr("Operation rejected by backend."))
-            })
-            batchDeleteFailures = failures
-        }
-        batchDeleteCurrentId = ""
-        Qt.callLater(root.runNextBatchDelete)
-    }
-
-    function finishBatchDelete() {
-        var failedCount = batchDeleteFailures.length
-        batchDeleteRunning = false
-        root.loading = false
-        batchDeleteCurrentId = ""
-
-        if (batchDeleteSucceeded === batchDeleteTotal) {
-            batchDeleteSummaryMessage = qsTr("Deleted %1 file(s).")
-                    .arg(String(batchDeleteSucceeded))
-            batchDeleteSummarySeverity = "success"
-        } else if (batchDeleteSucceeded > 0) {
-            batchDeleteSummaryMessage = qsTr("Deleted %1 of %2 file(s). %3 failed.")
-                    .arg(String(batchDeleteSucceeded))
-                    .arg(String(batchDeleteTotal))
-                    .arg(String(failedCount))
-            batchDeleteSummarySeverity = "warn"
-        } else {
-            batchDeleteSummaryMessage = qsTr("Unable to delete %1 selected file(s).")
-                    .arg(String(batchDeleteTotal))
-            batchDeleteSummarySeverity = "error"
-        }
-
-        if (batchDeleteSucceeded <= 0) {
-            root.statusMsg = batchDeleteSummaryMessage
-            root.statusSev = batchDeleteSummarySeverity
-            return
-        }
-
-        batchDeleteSummaryPending = true
-        batchDeleteAwaitingCloudRefresh = usesBackgroundFilesRefresh()
-        loadFiles()
-    }
 
     function applyBatchDeleteSummary() {
         if (!batchDeleteSummaryPending)
@@ -774,8 +671,8 @@ Item {
     }
 
     function runDelete(fileId) {
-        if (!hasCloudBridge() || typeof cloudBridge.deleteFile !== "function") {
-            root.statusMsg = qsTr("Delete unavailable without backend.")
+        if (!hasCloudFilesWorkflowBridge()) {
+            root.statusMsg = qsTr("Delete unavailable without workflow backend.")
             root.statusSev = "warn"
             return
         }
@@ -783,14 +680,11 @@ Item {
         root.loading = true
         root.statusMsg = qsTr("Deleting file...")
         root.statusSev = "info"
-        if (typeof cloudBridge.deleteFileAsync === "function") {
-            cloudBridge.deleteFileAsync(String(fileId))
-            return
+        if (!cloudFilesWorkflowBridge.deleteSingleFile(String(fileId))) {
+            root.loading = false
+            root.statusMsg = qsTr("Unable to start file deletion.")
+            root.statusSev = "warn"
         }
-
-        var r = cloudBridge.deleteFile(String(fileId))
-        root.loading = false
-        applyDeleteResult(String(fileId), r)
     }
 
     function applyDeleteResult(fileId, r) {
@@ -804,12 +698,6 @@ Item {
                     .arg(backendStatusDetail(r.message, qsTr("Operation rejected by backend.")))
             root.statusSev = "error"
         }
-    }
-
-    function requestRename(fileId, fileName) {
-        root.statusMsg = qsTr("Rename not implemented yet for %1")
-                .arg(String(fileName || fileId))
-        root.statusSev = "warn"
     }
 
     function requestPrint(fileId, fileName) {
@@ -1170,14 +1058,6 @@ Item {
             root.applyDownloadUrlResult(fileId, result)
         }
 
-        function onDeleteFileFinished(fileId, result) {
-            if (root.batchDeleteRunning && String(fileId) === root.batchDeleteCurrentId) {
-                root.handleBatchDeleteResult(fileId, result)
-                return
-            }
-            root.loading = false
-            root.applyDeleteResult(fileId, result)
-        }
 
         function onUploadProgressChanged(progress, phase) {
             uploadOverlay.progress = Math.max(0, Math.min(1, Number(progress)))
@@ -1285,6 +1165,82 @@ Item {
                     .arg(normalizedScope)
                     .arg(root.backendStatusDetail(message, qsTr("Retry later.")))
             root.statusSev = "warn"
+        }
+    }
+
+    Connections {
+        target: (typeof cloudFilesWorkflowBridge !== "undefined"
+                 && cloudFilesWorkflowBridge !== null) ? cloudFilesWorkflowBridge : null
+        ignoreUnknownSignals: true
+
+        function onBatchDeleteStarted(total) {
+            root.batchDeleteCompleted = 0
+            root.batchDeleteTotal = Number(total || 0)
+            root.batchDeleteSucceeded = 0
+            root.batchDeleteSummaryPending = false
+            root.batchDeleteAwaitingCloudRefresh = false
+            root.batchDeleteRunning = true
+            root.loading = true
+            root.statusMsg = qsTr("Deleting file %1 of %2...")
+                    .arg("1")
+                    .arg(String(root.batchDeleteTotal))
+            root.statusSev = "info"
+        }
+
+        function onBatchDeleteFileSucceeded(fileId) {
+            root.removeFileSelection(fileId)
+        }
+
+        function onBatchDeleteProgress(completed, total, succeeded, fileId, success) {
+            root.batchDeleteCompleted = Number(completed || 0)
+            root.batchDeleteTotal = Number(total || 0)
+            root.batchDeleteSucceeded = Number(succeeded || 0)
+            if (root.batchDeleteCompleted < root.batchDeleteTotal) {
+                root.statusMsg = qsTr("Deleting file %1 of %2...")
+                        .arg(String(root.batchDeleteCompleted + 1))
+                        .arg(String(root.batchDeleteTotal))
+                root.statusSev = "info"
+            }
+        }
+
+        function onBatchDeleteFinished(summary) {
+            root.batchDeleteRunning = false
+            root.loading = false
+            root.batchDeleteCompleted = Number(summary && summary.completed || 0)
+            root.batchDeleteTotal = Number(summary && summary.requested || 0)
+            root.batchDeleteSucceeded = Number(summary && summary.succeeded || 0)
+            var failedCount = Number(summary && summary.failed || 0)
+
+            if (root.batchDeleteSucceeded === root.batchDeleteTotal) {
+                root.batchDeleteSummaryMessage = qsTr("Deleted %1 file(s).")
+                        .arg(String(root.batchDeleteSucceeded))
+                root.batchDeleteSummarySeverity = "success"
+            } else if (root.batchDeleteSucceeded > 0) {
+                root.batchDeleteSummaryMessage = qsTr("Deleted %1 of %2 file(s). %3 failed.")
+                        .arg(String(root.batchDeleteSucceeded))
+                        .arg(String(root.batchDeleteTotal))
+                        .arg(String(failedCount))
+                root.batchDeleteSummarySeverity = "warn"
+            } else {
+                root.batchDeleteSummaryMessage = qsTr("Unable to delete %1 selected file(s).")
+                        .arg(String(root.batchDeleteTotal))
+                root.batchDeleteSummarySeverity = "error"
+            }
+
+            if (root.batchDeleteSucceeded <= 0) {
+                root.statusMsg = root.batchDeleteSummaryMessage
+                root.statusSev = root.batchDeleteSummarySeverity
+                return
+            }
+
+            root.batchDeleteSummaryPending = true
+            root.batchDeleteAwaitingCloudRefresh = root.usesBackgroundFilesRefresh()
+            root.loadFiles()
+        }
+
+        function onSingleDeleteFinished(fileId, result) {
+            root.loading = false
+            root.applyDeleteResult(fileId, result)
         }
     }
 
@@ -1600,9 +1556,6 @@ Item {
         fileTypeLabelProvider: root.fileTypeLabel
         fileNameWithoutExtensionProvider: root.fileNameWithoutExtension
         displayDateProvider: root.displayDate
-        onRenameRequested: function(fileId, fileName) {
-            root.requestRename(fileId, fileName)
-        }
         onDeleteRequested: function(fileId, fileName) {
             fileDetailsDialog.close()
             root.requestDelete(fileId, fileName)
@@ -1890,7 +1843,6 @@ Item {
             onDetailsRequested: function(fileId) { root.openFileDetails(fileId) }
             onDownloadRequested: function(fileId, fileName) { root.requestDownload(fileId, fileName) }
             onPrintRequested: function(fileId, fileName) { root.requestPrint(fileId, fileName) }
-            onRenameRequested: function(fileId, fileName) { root.requestRename(fileId, fileName) }
             onDeleteRequested: function(fileId, fileName) { root.requestDelete(fileId, fileName) }
             onPageSizeSelected: function(value) {
                 root.pageSize = value

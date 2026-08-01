@@ -23,7 +23,6 @@ Item {
 
                 AppButton { text: qsTr("Open app log") }
                 AppButton { text: qsTr("Open http log") }
-                AppButton { text: qsTr("Open render3d log") }
                 Item { Layout.fillWidth: true }
             }
 

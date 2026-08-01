@@ -27,7 +27,7 @@ AppDialogFrame {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
-    parent: Overlay.overlay
+    parent: root.overlayItem
     width: Math.min(1200, Math.round((parent ? parent.width : 1280) * 0.9))
     height: Math.min(800, Math.round((parent ? parent.height : 860) * 0.9))
     x: Math.round(((parent ? parent.width : width) - width) / 2)

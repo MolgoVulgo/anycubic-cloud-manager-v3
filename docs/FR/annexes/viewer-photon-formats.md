@@ -7,7 +7,9 @@ Statut : `PARTIEL` implémentation, `SPEC` contrat cible.
 
 ## Position produit
 
-Le viewer Photon/PWMB est une trajectoire, pas le flux principal terminé. Le dépôt contient drivers, décodage PWMB/PWS, previews, jobs/cache et squelette render3d, mais pas encore un viewer complet.
+Le viewer Photon/PWMB est une trajectoire, pas le flux principal terminé. Le dépôt contient les contrats de domaine ainsi que des drivers, composants de décodage, jobs, futurs caches RAM/disque et un squelette `render3d` encore placeholders. Ces fichiers `.cpp` de scaffold sont exclus des builds normaux et de `accloud_cli`.
+
+Le seul opt-in supporté est `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=ON`, exposé par le preset `experimental-viewer-core`. Il construit la cible objet isolée `accloud_experimental_viewer` et un smoke test de compilation. Il n'expose aucun contrôle viewer dans le QML de production, ne décode pas de fichiers réels et ne fournit aucun workflow rendu/navigation/export.
 
 ## Familles étudiées
 
@@ -47,4 +49,4 @@ Nonzero count, bbox px, checksum échantillon, layer count/dimensions, orientati
 
 ## Décision
 
-Le cloud manager ne dépend pas du viewer complet. Le viewer avance par contrats stricts et tests diagnostics ; il reste `PARTIEL` jusqu’à fermeture decode/render/navigation/export.
+Le cloud manager ne dépend pas du viewer complet. Les presets default, local-full et production gardent `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`, et le QML de production ne contient aucun réglage ni action viewer. Le viewer avance uniquement via la cible isolée, des contrats stricts et des tests diagnostics ; il reste `EXPÉRIMENTAL` jusqu’à fermeture decode/render/navigation/export.

@@ -6,8 +6,8 @@ All registry entries currently require bearer authentication and Workbench signi
 
 | Endpoint ID | Method | Runtime path | Content type | Timeout | Active owner / role |
 | --- | --- | --- | --- | ---: | --- |
-| `AuthCheckSession` | POST | `/p/p/workbench/api/work/index/getUserStore` | JSON | 10 s | `SessionProvider`, legacy auth validation |
-| `AuthLoginWithAccessToken` | POST | `/p/p/workbench/api/v3/public/loginWithAccessToken` | JSON | 10 s | legacy session bootstrap |
+| `AuthCheckSession` | POST | `/p/p/workbench/api/work/index/getUserStore` | JSON | 10 s | `SessionProvider`, `AuthApi::checkAuth` |
+| `AuthLoginWithAccessToken` | POST | `/p/p/workbench/api/v3/public/loginWithAccessToken` | JSON | 10 s | `AuthApi::checkAuth` fallback |
 | `FilesList` | POST | `/p/p/workbench/api/work/index/files` | JSON | 10 s | `FilesApi` / cloud file listing |
 | `FilesListFallback` | POST | `/p/p/workbench/api/work/index/userFiles` | JSON | 10 s | fallback file listing |
 | `FilesDelete` | POST | `/p/p/workbench/api/work/index/delFiles` | JSON | 10 s | `FilesApi::remove` |

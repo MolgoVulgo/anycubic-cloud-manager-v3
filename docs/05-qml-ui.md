@@ -6,7 +6,7 @@ QML owns presentation, navigation and user interaction. Bridges and Qt models ex
 
 ## Active views
 
-The current shell includes cloud login/session settings, cloud files, printers, MQTT status, settings and the experimental viewer. Debug builds may add log and debug pages.
+The current shell includes cloud login/session settings, cloud files, printers, MQTT status and settings. Debug builds may add log and diagnostic pages. The experimental Photon/PWMB viewer has no production QML page, dialog, pane or resource registration.
 
 The main file loaded by the desktop runtime is:
 
@@ -30,13 +30,13 @@ QML must not issue HTTP requests, parse large payloads, open SQLite transactions
 
 Uploads, downloads, cloud synchronisation, cache work and format decoding must not block the GUI thread. Busy state, progress, cancellation and errors are exposed through bridge properties and signals.
 
-Remote-print compatibility checks by cloud file identifier and file extension run in `CloudBridge` background tasks. Each request carries a correlation identifier; QML consumes only the matching completion signal and ignores stale responses. The synchronous compatibility methods remain available for plain test mocks and legacy adapters, but the production QObject bridge uses the asynchronous path.
+Remote-print preparation is owned by `PrintWorkflowBridge` and `PrepareRemotePrintUseCase`. The workflow bridge creates the correlation identifier, requests compatibility by cloud file identifier, falls back to extension when required, rejects stale completions, filters compatible printers and selects the preferred compatible printer. `CloudBridge` only executes the asynchronous cloud compatibility calls and returns their results to the workflow bridge; QML receives one semantic preparation result and does not correlate network callbacks. Local compatibility scoring has a single C++ implementation in `PrinterFileCompatibility`, shared by the preparation use case and the `CloudBridge` compatibility adapter; QML no longer tokenizes or scores machine metadata.
 
 MQTT routing, order correlation and the normalized realtime store continue while diagnostic pages are hidden. Diagnostics-only notifications, telemetry text formatting and raw-tail model resets are enabled only while the MQTT page is active; messages received while hidden remain in the bounded C++ history and are published as one synchronized model when the page reopens. The printers page defers MQTT-driven cache projection while hidden, performs one asynchronous catch-up when reopened, and stops its periodic cloud refresh outside the active tab. The log page polls its JSONL snapshot only while the page is active and visible.
 
 Printer selection data is held by C++ list models rather than rebuilt QML `ListModel` payloads. Compatible-printer rows use `PrintersModel`; cloud-print and printer-local file rows use `PrinterFilesModel`. Stable identities are patched with `dataChanged`, tail additions/removals use row deltas, and only identity reordering falls back to a model reset. Raw file metadata remains available through `get()` for remote-print preparation.
 
-The remote-print confirmation dialog receives the complete row already held by `CloudFilesModel` when **Print** is invoked from the cloud-file list. The file name, estimated print time and resin usage are therefore available as soon as the dialog opens, without waiting for another cloud synchronization. While the asynchronous compatibility check runs, the selector displays the preferred printer from the main printer model; it then switches to the filtered compatible-printer model and resynchronizes the selected identifier. The dialog does not offer file replacement because the originating action fixes the file.
+The remote-print confirmation dialog receives the complete row already held by `CloudFilesModel` when **Print** is invoked from the cloud-file list. The file name, estimated print time and resin usage are therefore available as soon as the dialog opens, without waiting for another cloud synchronization. While preparation runs in `PrintWorkflowBridge`, the selector can display the preferred printer from the main printer model; once the semantic preparation result arrives, QML replaces the compatible-printer model from that result and resynchronizes the selected identifier. The dialog does not offer file replacement because the originating action fixes the file.
 
 When this entry point is used before the Printers page has been initialized, it bootstraps only the printer list required for compatibility and selection. It does not trigger the startup printer-insights or recent-jobs refresh. Full details and job history remain owned by the Printers page when that page is explicitly activated, preventing remote-print preparation from causing unrelated project-thumbnail traffic.
 
@@ -44,13 +44,15 @@ The toolbar distinguishes **Add to cloud** from **Direct print**. Standard uploa
 
 The Settings menu includes **Delete printer-local copy when a direct print fails**, disabled by default. Its value is snapshotted when a direct operation is launched and has no effect on standard uploads, cloud-list printing, or direct prints without cleanup selected. For a direct task that actually reached the active state and later ends with status 3 or 4, enabling the preference permits only the exact printer-local copy to be removed; the cloud file is always retained on failure, stop or cancellation.
 
+Direct-print persistence, project reconciliation and cleanup state transitions are owned by `PrintWorkflowBridge`, backed by `PendingDirectPrintStore` and the typed `DirectPrintLifecycleUseCase`. QML only registers an accepted direct print and forwards refreshed project snapshots to the workflow; it no longer keeps a direct-print cleanup map, matches projects, dispatches printer-local deletion, correlates cloud deletion, or interprets cleanup transitions. `CloudBridge` no longer exposes direct-print persistence methods. Asynchronous printer-order correlation uses a structured `QVariantMap` context (`kind` plus typed fields) instead of concatenated identifiers parsed with string prefixes or `split(":")`. MQTT `deleteLocal` confirmations are wired directly from `MqttBridge` to `PrintWorkflowBridge`; the bridge owns the pending `msgId` correlation and both local/cloud delete in-flight state. Direct local/cloud transport intents are wired from the workflow to `CloudBridge` in the desktop bootstrap, while QML receives only semantic cleanup notices and tracking-release signals. Standard cloud-list printing uses the same workflow boundary for post-print cleanup: QML only reports the completed printer task, `PrintWorkflowBridge` requests deletion of the printer-local file first, requests cloud deletion only after the local order succeeds, and emits semantic completion/failure notices. The QML pending remote-print map remains only as a temporary visual telemetry placeholder for an accepted print until live project data arrives.
+
 PWSZ preview completion is controlled by two persisted settings: completion itself is enabled by default, and confirmation before permanent local replacement is enabled by default. The confirmation dialog explains that `preview_1.png` is copied to `preview_2.png`, the prepared version is uploaded, and the local file is replaced only after cloud success. “Do not ask again” disables only the confirmation; both settings remain available from the Settings menu.
 
 ## Cloud file multi-selection
 
 Each cloud-file row exposes an independent checkbox. The selected file identifiers and display names are kept as page state, separately from the single row used by the details view. When at least one file is selected, a destructive `Delete (N)` action appears between Refresh and Add to cloud.
 
-The action always requires explicit confirmation. Deletions are then submitted sequentially through the existing asynchronous bridge operation so the GUI thread remains responsive and the current cloud/cache deletion contract is preserved. Successful items are removed from the selection; failed items remain selected. The list is refreshed once after the sequence and the status bar reports complete, partial or failed completion.
+The action always requires explicit confirmation. `CloudFilesPage.qml` sends the selected rows once to `CloudFilesWorkflowBridge`; it does not own the queue, current file identifier, failure accumulator or per-file callback correlation. The bridge uses the typed `DeleteCloudFilesUseCase` to preserve selection order, request exactly one asynchronous deletion at a time, ignore stale completions and aggregate failures. `CloudBridge` remains responsible for the actual cloud/cache deletion. QML receives only semantic started/progress/success/finished signals, removes successful items from the visual selection, refreshes the list once after the sequence and translates the final complete/partial/failed summary.
 
 ## Cloud file download destination
 
@@ -61,6 +63,8 @@ The complete cloud file name, including its original extension, is prefilled bef
 ## Resources and production separation
 
 `resources.qrc` contains normal UI resources. `resources_debug.qrc` contains debug-only pages. Production cannot depend on debug objects or raw payload views.
+
+Dialogs normalize a missing Qt overlay to `null`, and shell status forwarding is guarded during object teardown. This prevents QObject/QJSValue and null-root warnings in standalone QML tests without changing the visible runtime behavior.
 
 ## Internationalisation
 
@@ -80,7 +84,7 @@ User-visible text uses the existing Qt translation mechanism. Source strings and
 - avoid eager thumbnail downloads during startup;
 - do not rebuild large models for a small change;
 - limit log and MQTT tail work on the GUI thread;
-- load expensive pages or viewer data on demand;
+- load expensive pages on demand;
 - prefer measured corrections over speculative refactors.
 
 Detailed performance notes remain in the UI performance appendix.
@@ -97,4 +101,4 @@ The details dialog prioritizes information useful for printing: the locally reso
 
 The persistent `ui.cloudFiles.showAdvancedDetails` option, exposed from **Settings > Show technical file details**, adds a technical tab for file identifiers, status code, technical timestamps, region and slice MD5. It defaults to disabled in production and enabled with `--debug-ui`, unless the user has already persisted a value.
 
-A separate **Cloud Metadata** tab is visible only in development builds with `ACCLOUD_DEBUG` enabled. It exposes the raw cloud identity, timestamps, region, bucket and object path required for diagnosis. Signed download URLs and local thumbnail-cache paths are never rendered. Every tab uses two equal-width cards that share the full available panel height. Detail rows keep their natural height with fixed compact spacing and remain grouped at the top of each card; only the unused area below the final row expands. Panels scroll only when their content actually overflows. Rename is located in the header; Delete remains isolated on the left of the footer, while the consistently sized Close, Download and Print actions are ordered on the right so Print remains the final primary action.
+A separate **Cloud Metadata** tab is visible only in development builds with `ACCLOUD_DEBUG` enabled. It exposes the raw cloud identity, timestamps, region, bucket and object path required for diagnosis. Signed download URLs and local thumbnail-cache paths are never rendered. Every tab uses two equal-width cards that share the full available panel height. Detail rows keep their natural height with fixed compact spacing and remain grouped at the top of each card; only the unused area below the final row expands. Panels scroll only when their content actually overflows. No rename action is exposed because no observed Anycubic rename endpoint is part of the runtime contract. Delete remains isolated on the left of the footer, while the consistently sized Close, Download and Print actions are ordered on the right so Print remains the final primary action.

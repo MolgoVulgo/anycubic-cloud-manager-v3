@@ -57,6 +57,18 @@ Le constructeur peut préparer l’auto-connexion de manière asynchrone. Une de
 
 Un générateur Android interne existe pour l'analyse de compatibilité. Le profil production reste `slicer` ; une opération de nettoyage ou de standardisation ne doit pas le remplacer par `android` ou un mode automatique.
 
+
+## Propriété de l'implémentation
+
+`MqttBridge` est une façade Qt/QML stable, pas un monolithe protocolaire. Son implémentation est compilée depuis `ACCLOUD_MQTT_BRIDGE_SOURCES` :
+
+- `MqttBridge.cpp` porte la construction QObject, les propriétés publiques et les petits setters d'état ;
+- `MqttBridgeSession.cpp` porte la préparation du profil SLICER, les paramètres broker/TLS/session figés, le cycle de connexion et les abonnements dynamiques ;
+- `MqttBridgeMessages.cpp` porte la redaction/capture des payloads, le routing, les signaux de listes/actions fichiers, les mises à jour du store temps réel et la corrélation des ordres HTTP/MQTT ;
+- `MqttBridgeTelemetry.cpp` porte les buffers de diagnostic, les snapshots de télémétrie et le rafraîchissement des compteurs de timeout.
+
+Ce découpage ne doit ni dupliquer le gestionnaire de session ou le router, ni déplacer la configuration broker ou le parsing MQTT brut dans QML.
+
 ## Topics et contexte
 
 Le runtime résine nominal souscrit uniquement au topic de compte `slice/report` et au wildcard `v1/printer/public/<machineType>/<deviceId>/#` de chaque imprimante. Le topic `fdmslice/report`, propre au FDM, est exclu. Le wildcard `v1/server/printer/.../#`, refusé par le broker observé, reste disponible uniquement en mode de découverte étendue explicite. Les familles résine importantes comprennent `status`, `print`, `releaseFilm`, `autoOperation` et `wifi`.

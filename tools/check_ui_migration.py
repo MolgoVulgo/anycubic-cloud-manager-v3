@@ -172,6 +172,7 @@ def check_tabs_geometry_v2() -> list[str]:
         "property var selectedFiles: []",
         "readonly property int selectedFilesCount: selectedFiles.length",
         "function startBatchDelete()",
+        "cloudFilesWorkflowBridge.startBatchDelete(selectedFiles)",
         "id: batchDeleteConfirmDialog",
         "onDeleteSelectedRequested: root.requestDeleteSelected()",
     ):
@@ -358,7 +359,6 @@ def check_cloud_file_details_contract() -> list[str]:
         'text: qsTr("Cloud Metadata")',
         'visible: root.buildDebugEnabled',
         'objectName: "cloudFileDetailsCloudMetadataPanel"',
-        'headerActionsData:',
         'objectName: "cloudFileDetailsPrintButton"',
     ):
         if required not in details_text:
@@ -463,7 +463,6 @@ def find_legacy_alias_usage() -> list[str]:
         QML_ROOT / "MainWindow.qml",
         QML_ROOT / "dialogs" / "PrintDraftDialog.qml",
         QML_ROOT / "dialogs" / "UploadDraftDialog.qml",
-        QML_ROOT / "dialogs" / "ViewerDraftDialog.qml",
         QML_ROOT / "dialogs" / "SessionSettingsDialog.qml",
         QML_ROOT / "pages" / "CloudFilesPage.qml",
         QML_ROOT / "pages" / "CloudFileDetailsDialog.qml",
@@ -533,8 +532,8 @@ def _extract_function_block(text: str, fn_name: str) -> str:
 
 def check_backend_message_contract() -> list[str]:
     issues: list[str] = []
-    backend_files = [
-        APP_ROOT / "CloudBridge.cpp",
+    finalize_owners = [
+        APP_ROOT / "cloud" / "CloudBridgeSupport.cpp",
         APP_ROOT / "SessionImportBridge.cpp",
     ]
     required_tokens = (
@@ -543,7 +542,7 @@ def check_backend_message_contract() -> list[str]:
         'out.insert("params"',
     )
 
-    for path in backend_files:
+    for path in finalize_owners:
         text = read_text(path)
         block = _extract_function_block(text, "finalizeUiMessage")
         if not block:
@@ -555,14 +554,296 @@ def check_backend_message_contract() -> list[str]:
                     f"{path.relative_to(REPO_ROOT)} finalizeUiMessage() missing `{token}`"
                 )
 
-        if text.count('out.insert("messageKey"') < 5:
-            issues.append(
-                f"{path.relative_to(REPO_ROOT)} has too few explicit messageKey assignments"
-            )
+    explicit_message_sources = [
+        APP_ROOT / "CloudBridge.cpp",
+        APP_ROOT / "cloud" / "CloudUploadController.cpp",
+        APP_ROOT / "SessionImportBridge.cpp",
+    ]
+    explicit_count = sum(
+        read_text(path).count('out.insert("messageKey"')
+        for path in explicit_message_sources
+    )
+    if explicit_count < 10:
+        issues.append("backend adapters have too few explicit messageKey assignments")
 
     return issues
 
 
+
+def check_print_workflow_boundaries() -> list[str]:
+    issues: list[str] = []
+    printer_page = QML_ROOT / "pages" / "PrinterPage.qml"
+    printer_text = read_text(printer_page)
+    cloud_header = APP_ROOT / "CloudBridge.h"
+    cloud_text = read_text(cloud_header)
+
+    required_qml = (
+        "printWorkflowBridge.trackDirectPrint(operation)",
+        "printWorkflowBridge.reconcileDirectPrints(list)",
+        "printWorkflowBridge.trackRemotePrintCleanup",
+        "printWorkflowBridge.beginRemotePostPrintCleanup",
+        "printWorkflowBridge.beginRemotePrintPreparation",
+        "printWorkflowBridge.evaluateRemotePrintGuard",
+        "cloudBridge.evaluateLocalPrinterFileCompatibility",
+    )
+    for token in required_qml:
+        if token not in printer_text:
+            issues.append(f"PrinterPage print workflow boundary missing `{token}`")
+
+    forbidden_qml = (
+        "cloudBridge.savePendingDirectPrint",
+        "cloudBridge.removePendingDirectPrint",
+        "cloudBridge.loadPendingDirectPrints",
+        "pendingDirectLocalDeleteByMsgId",
+        "pendingDirectLocalDeleteInFlightByPrinterId",
+        "onPrinterFileActionReceived",
+        "handleDirectLocalDeleteConfirmation",
+        "direct_cleanup:",
+        "post_print_local_delete:",
+        "local_file_delete:",
+        "resin_feed_start:",
+        "resin_feed_stop:",
+        '"kind": "postPrintLocalDelete"',
+        "pendingPostPrintCloudDeleteByFileId",
+        "requestPostPrintLocalDelete",
+        "requestPostPrintCloudDelete",
+        "maybeRunPostPrintCleanup",
+        "localCompatibilityForPrinterFile",
+        "fileHasLocalCompatibilityMetadata",
+        "compatTokens",
+        "normalizedCompatText",
+        "preferredCompatiblePrinterId",
+        "rebuildRemoteCompatiblePrintersModel",
+        "requestRemotePrintCompatibilityAsync",
+        "handleCompatiblePrintersByFileIdReady",
+        "handleCompatiblePrintersByExtReady",
+        "cloudBridge.fetchCompatiblePrintersByFileIdAsync",
+        "cloudBridge.fetchCompatiblePrintersByExtAsync",
+        "pendingDirectPrintByPrinterId",
+        "pendingDirectCloudDeleteByFileId",
+        "restorePendingDirectPrints",
+        "matchingProjectForDirectOperation",
+        "requestDirectLocalDelete",
+        "requestDirectCloudDelete",
+        "finalizeFailedDirectPrint",
+        "reconcilePendingDirectPrints",
+        "beginDirectLocalDelete",
+        "handleDirectLocalDeleteDispatch",
+        "beginDirectCloudDelete",
+        "handleDirectCloudDeleteResult",
+        "directCloudDeleteRequested",
+        '"kind": "directCleanup"',
+    )
+    for token in forbidden_qml:
+        if token in printer_text:
+            issues.append(f"PrinterPage still contains legacy workflow encoding `{token}`")
+
+    forbidden_cloud_api = (
+        "loadPendingDirectPrints() const",
+        "savePendingDirectPrint(const QVariantMap& operation) const",
+        "removePendingDirectPrint(const QString& printerId) const",
+    )
+    for token in forbidden_cloud_api:
+        if token in cloud_text:
+            issues.append(f"CloudBridge still exposes direct-print persistence `{token}`")
+
+    if "const QVariantMap& context = QVariantMap()" not in cloud_text:
+        issues.append("CloudBridge printer-order async context is not structured as QVariantMap")
+    if "void printerOrderFinished(const QVariantMap& context" not in cloud_text:
+        issues.append("CloudBridge printerOrderFinished signal does not expose structured context")
+
+    workflow_header = APP_ROOT / "PrintWorkflowBridge.h"
+    workflow_source = APP_ROOT / "PrintWorkflowBridge.cpp"
+    store_header = APP_ROOT / "printing" / "PendingDirectPrintStore.h"
+    store_source = APP_ROOT / "printing" / "PendingDirectPrintStore.cpp"
+    compat_header = APP_ROOT / "printing" / "PrinterFileCompatibility.h"
+    compat_source = APP_ROOT / "printing" / "PrinterFileCompatibility.cpp"
+    prepare_header = APP_ROOT / "usecases" / "printing" / "PrepareRemotePrintUseCase.h"
+    prepare_source = APP_ROOT / "usecases" / "printing" / "PrepareRemotePrintUseCase.cpp"
+    for path in (workflow_header, workflow_source, store_header, store_source,
+                 compat_header, compat_source, prepare_header, prepare_source):
+        if not path.exists():
+            issues.append(f"Print workflow C++ boundary missing `{path.relative_to(REPO_ROOT)}`")
+
+    if workflow_header.exists():
+        workflow_header_text = read_text(workflow_header)
+        for token in (
+            "void handlePrinterFileAction(",
+            "Q_INVOKABLE void reconcileDirectPrints(const QVariantList& projects);",
+            "void directLocalDeleteRequested(const QVariantMap& request);",
+            "void directCloudDeleteRequested(const QVariantMap& operation);",
+            "void directPrintTrackingReleased(const QString& printerId);",
+            "void directCleanupNotice(int noticeKind);",
+            "m_pendingLocalDeleteByMsgId",
+            "m_directLocalDeleteInFlight",
+            "trackRemotePrintCleanup",
+            "beginRemotePostPrintCleanup",
+            "remoteLocalDeleteRequested",
+            "remoteCloudDeleteRequested",
+            "beginRemotePrintPreparation",
+            "remoteCompatibilityByFileIdRequested",
+            "remoteCompatibilityByExtRequested",
+            "remotePrintPreparationReady",
+        ):
+            if token not in workflow_header_text:
+                issues.append(f"PrintWorkflowBridge MQTT boundary missing `{token}`")
+
+    main_source = APP_ROOT / "main.cpp"
+    main_text = read_text(main_source)
+    for token in (
+        "&accloud::MqttBridge::printerFileActionReceived",
+        "&accloud::PrintWorkflowBridge::handlePrinterFileAction",
+        "&accloud::CloudBridge::printerOrderFinished",
+        "&accloud::PrintWorkflowBridge::handlePrinterOrderFinished",
+        "&accloud::CloudBridge::deleteFileFinished",
+        "&accloud::PrintWorkflowBridge::handleCloudDeleteFinished",
+        "&accloud::PrintWorkflowBridge::directLocalDeleteRequested",
+        "&accloud::PrintWorkflowBridge::directCloudDeleteRequested",
+        "&accloud::CloudBridge::compatiblePrintersByFileIdReady",
+        "&accloud::PrintWorkflowBridge::handleCompatiblePrintersByFileIdReady",
+        "&accloud::CloudBridge::compatiblePrintersByExtReady",
+        "&accloud::PrintWorkflowBridge::handleCompatiblePrintersByExtReady",
+    ):
+        if token not in main_text:
+            issues.append(f"Desktop bootstrap MQTT workflow wiring missing `{token}`")
+
+    return issues
+
+
+
+def check_cloud_files_workflow_boundaries() -> list[str]:
+    issues: list[str] = []
+    cloud_page = QML_ROOT / "pages" / "CloudFilesPage.qml"
+    cloud_text = read_text(cloud_page)
+
+    for token in (
+        "function hasCloudFilesWorkflowBridge()",
+        "cloudFilesWorkflowBridge.startBatchDelete(selectedFiles)",
+        "cloudFilesWorkflowBridge.deleteSingleFile(String(fileId))",
+        "function onBatchDeleteStarted(total)",
+        "function onBatchDeleteFinished(summary)",
+        "function onSingleDeleteFinished(fileId, result)",
+    ):
+        if token not in cloud_text:
+            issues.append(f"CloudFilesPage workflow boundary missing `{token}`")
+
+    for token in (
+        "batchDeleteQueue",
+        "batchDeleteFailures",
+        "batchDeleteCurrentId",
+        "runNextBatchDelete",
+        "handleBatchDeleteResult",
+        "finishBatchDelete",
+        "cloudBridge.deleteFileAsync",
+        "function onDeleteFileFinished",
+    ):
+        if token in cloud_text:
+            issues.append(f"CloudFilesPage still owns delete orchestration `{token}`")
+
+    workflow_header = APP_ROOT / "CloudFilesWorkflowBridge.h"
+    workflow_source = APP_ROOT / "CloudFilesWorkflowBridge.cpp"
+    batch_header = APP_ROOT / "usecases" / "cloud" / "DeleteCloudFilesUseCase.h"
+    batch_source = APP_ROOT / "usecases" / "cloud" / "DeleteCloudFilesUseCase.cpp"
+    for path in (workflow_header, workflow_source, batch_header, batch_source):
+        if not path.exists():
+            issues.append(f"Cloud files workflow C++ boundary missing `{path.relative_to(REPO_ROOT)}`")
+
+    if workflow_header.exists():
+        header_text = read_text(workflow_header)
+        for token in (
+            "startBatchDelete",
+            "cancelBatchDelete",
+            "deleteSingleFile",
+            "handleDeleteFileFinished",
+            "deleteFileRequested",
+            "batchDeleteFinished",
+            "singleDeleteFinished",
+        ):
+            if token not in header_text:
+                issues.append(f"CloudFilesWorkflowBridge contract missing `{token}`")
+
+    if batch_header.exists() and "class DeleteCloudFilesUseCase" not in read_text(batch_header):
+        issues.append("DeleteCloudFilesUseCase typed batch boundary is missing")
+
+    main_text = read_text(APP_ROOT / "main.cpp")
+    for token in (
+        "accloud::CloudFilesWorkflowBridge cloudFilesWorkflowBridge",
+        "&accloud::CloudFilesWorkflowBridge::handleDeleteFileFinished",
+        "&accloud::CloudFilesWorkflowBridge::deleteFileRequested",
+        'setContextProperty("cloudFilesWorkflowBridge", &cloudFilesWorkflowBridge)',
+    ):
+        if token not in main_text:
+            issues.append(f"Desktop bootstrap cloud-files workflow wiring missing `{token}`")
+
+    return issues
+
+
+def check_qml_dead_workflow_cleanup() -> list[str]:
+    issues: list[str] = []
+    printer_text = read_text(QML_ROOT / "pages" / "PrinterPage.qml")
+    for token in (
+        "localUdiskListOrderId",
+        "function uploadInputToDisplayName",
+        "function progressRatio",
+        "function printerSecondaryText",
+        "function selectedPrinterIndex",
+        "function findCloudFileInListById",
+        "function buildPrinterMqttDetails",
+    ):
+        if token in printer_text:
+            issues.append(f"PrinterPage retains dead workflow/UI helper `{token}`")
+
+    cloud_text = read_text(QML_ROOT / "pages" / "CloudFilesPage.qml")
+    for token in (
+        "pwszCloudUpdateResultVisible",
+        "function fileMatchesFilter",
+        "function displayStatus",
+        "function statusColor",
+        "function isFileSelected",
+    ):
+        if token in cloud_text:
+            issues.append(f"CloudFilesPage retains dead helper `{token}`")
+    return issues
+
+
+def check_residual_ui_debt() -> list[str]:
+    issues: list[str] = []
+
+    cloud_paths = (
+        QML_ROOT / "pages" / "CloudFilesPage.qml",
+        QML_ROOT / "pages" / "CloudFileDetailsDialog.qml",
+        QML_ROOT / "pages" / "CloudFilesTablePanel.qml",
+        QML_ROOT / "pages" / "CloudFilesTableRow.qml",
+    )
+    for path in cloud_paths:
+        text = read_text(path)
+        for token in ("renameRequested", "requestRename", "Rename not implemented yet"):
+            if token in text:
+                issues.append(
+                    f"unsupported cloud rename surface remains in {path.relative_to(REPO_ROOT)}: `{token}`"
+                )
+
+    dialog_frame = read_text(QML_ROOT / "components" / "AppDialogFrame.qml")
+    for token in (
+        'readonly property Item overlayItem:',
+        'parent: root.overlayItem',
+        'anchors.centerIn: root.overlayItem',
+    ):
+        if token not in dialog_frame:
+            issues.append(f"AppDialogFrame overlay safety contract missing `{token}`")
+    if 'parent: Overlay.overlay' in dialog_frame:
+        issues.append("AppDialogFrame assigns Overlay.overlay directly to QObject parent")
+
+    upload_dialog = read_text(QML_ROOT / "components" / "UploadFileDialog.qml")
+    if 'parent: Overlay.overlay' in upload_dialog:
+        issues.append("UploadFileDialog bypasses the normalized overlay parent")
+
+    main_window = read_text(QML_ROOT / "MainWindow.qml")
+    guarded_status = 'root !== null && root !== undefined'
+    if main_window.count(guarded_status) < 2:
+        issues.append("MainWindow status forwarding is not guarded during object teardown")
+
+    return issues
 
 def check_incremental_printer_models() -> list[str]:
     issues: list[str] = []
@@ -583,7 +864,7 @@ def check_incremental_printer_models() -> list[str]:
 
     required = (
         "PrinterFilesModel {",
-        "remoteCompatiblePrintersModel.replaceOrPatchPrinters(compatiblePrinters)",
+        "remoteCompatiblePrintersModel.replaceOrPatchPrinters(preparation.compatiblePrinters || [])",
         "printCloudFilesModel.replaceOrPatchFiles(compatibleFiles)",
         "printerLocalFilesModel.replaceOrPatchFiles(localFiles)",
     )
@@ -613,6 +894,10 @@ def main() -> int:
     errors.extend(f"- {msg}" for msg in check_runtime_status_rules())
     errors.extend(f"- {msg}" for msg in check_backend_message_contract())
     errors.extend(f"- {msg}" for msg in check_incremental_printer_models())
+    errors.extend(f"- {msg}" for msg in check_print_workflow_boundaries())
+    errors.extend(f"- {msg}" for msg in check_cloud_files_workflow_boundaries())
+    errors.extend(f"- {msg}" for msg in check_qml_dead_workflow_cleanup())
+    errors.extend(f"- {msg}" for msg in check_residual_ui_debt())
     errors.extend(f"- {msg}" for msg in check_cloud_file_details_contract())
 
     legacy_usage = find_legacy_alias_usage()
@@ -634,6 +919,9 @@ def main() -> int:
     print("- Runtime statuses avoid raw text and free concatenation")
     print("- Backend UI message envelope contract is enforced")
     print("- Printer selection lists use incremental C++ models")
+    print("- Direct print persistence, reconciliation and cleanup use the C++ workflow boundary")
+    print("- Cloud file deletion sequencing uses the C++ workflow boundary")
+    print("- Unsupported rename/viewer surfaces and teardown warnings are guarded")
     print("- Cloud file details keep standard and technical data separated")
     print("- No legacy theme aliases in migrated files")
     return 0

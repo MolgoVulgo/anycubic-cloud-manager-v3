@@ -14,7 +14,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "ACCLOUD_ENABLE_QT": "ON",
-        "ACCLOUD_DEBUG": "OFF"
+        "ACCLOUD_DEBUG": "OFF",
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "OFF"
       }
     },
     {
@@ -36,7 +37,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "ACCLOUD_ENABLE_QT": "ON",
-        "ACCLOUD_DEBUG": "OFF"
+        "ACCLOUD_DEBUG": "OFF",
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "OFF"
       }
     },
     {
@@ -50,7 +52,17 @@
         "ACCLOUD_ENABLE_QML_TESTS": "OFF",
         "ACCLOUD_ENABLE_LIVE_TESTS": "OFF",
         "ACCLOUD_DEBUG": "OFF",
-        "ACCLOUD_REQUIRE_QT": "OFF"
+        "ACCLOUD_REQUIRE_QT": "OFF",
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "OFF"
+      }
+    },
+    {
+      "name": "experimental-viewer-core",
+      "displayName": "Experimental Viewer Scaffold (no Qt, offline)",
+      "inherits": "protected-core",
+      "binaryDir": "${sourceDir}/build/experimental-viewer-core",
+      "cacheVariables": {
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "ON"
       }
     },
     {
@@ -84,6 +96,10 @@
       "configurePreset": "protected-core"
     },
     {
+      "name": "experimental-viewer-core",
+      "configurePreset": "experimental-viewer-core"
+    },
+    {
       "name": "local-full",
       "configurePreset": "local-full"
     }
@@ -104,6 +120,10 @@
     {
       "name": "protected-core",
       "configurePreset": "protected-core"
+    },
+    {
+      "name": "experimental-viewer-core",
+      "configurePreset": "experimental-viewer-core"
     },
     {
       "name": "local-full",

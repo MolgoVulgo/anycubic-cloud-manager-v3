@@ -1,8 +1,5 @@
 #pragma once
 
-#include <QFile>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QObject>
 #include <QVariantList>
 #include <QVariantMap>
@@ -16,6 +13,8 @@
 namespace accloud {
 
 class LocalCacheStore;
+class CloudDownloadController;
+class CloudUploadController;
 
 class CloudBridge : public QObject {
     Q_OBJECT
@@ -96,10 +95,6 @@ public:
     Q_INVOKABLE void loadCachedPrinterProjectsAsync(const QString& printerId,
                                                     int page = 1,
                                                     int limit = 20);
-    Q_INVOKABLE QVariantList loadPendingDirectPrints() const;
-    Q_INVOKABLE bool savePendingDirectPrint(const QVariantMap& operation) const;
-    Q_INVOKABLE bool removePendingDirectPrint(const QString& printerId) const;
-
     // Retourne { ok, message, taskId, msgId, correlationTicket, correlationStatus }
     Q_INVOKABLE QVariantMap sendPrintOrder(const QString& printerId,
                                            const QString& fileId,
@@ -118,7 +113,7 @@ public:
                                            int orderId,
                                            const QVariantMap& data = QVariantMap(),
                                            const QString& projectId = QString(),
-                                           const QString& context = QString());
+                                           const QVariantMap& context = QVariantMap());
 
     // ── Téléchargement asynchrone ─────────────────────────────────────────
     // signedUrl : URL obtenue via getDownloadUrl()
@@ -156,7 +151,7 @@ Q_SIGNALS:
     void deleteFileFinished(const QString& fileId, const QVariantMap& result);
     void downloadUrlReady(const QString& fileId, const QVariantMap& result);
     void printOrderFinished(const QString& printerId, const QString& fileId, const QVariantMap& result);
-    void printerOrderFinished(const QString& context,
+    void printerOrderFinished(const QVariantMap& context,
                               const QString& printerId,
                               int orderId,
                               const QVariantMap& result);
@@ -187,19 +182,14 @@ private:
     QVariantList fetchAllFilesWithRetry(int pageSize, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
-    void cleanupDownload();
     void launchBackgroundTask(std::function<void()> task);
     void reapFinishedBackgroundTasksLocked();
     void waitBackgroundTasks();
 
-    QNetworkAccessManager* m_nam{nullptr};
-    QNetworkReply*         m_dlReply{nullptr};
-    QFile*                 m_dlFile{nullptr};
-    QString                m_dlPath;
     LocalCacheStore*       m_cache{nullptr};
+    CloudDownloadController* m_downloadController{nullptr};
+    CloudUploadController* m_uploadController{nullptr};
     mutable std::atomic_bool m_refreshFilesRunning{false};
-    mutable std::atomic_bool m_pwszCloudUpdateRunning{false};
-    std::atomic_bool m_pwszCloudUpdateCancelRequested{false};
     mutable std::atomic_bool m_refreshPrintersRunning{false};
     mutable std::atomic_bool m_refreshReasonCatalogRunning{false};
     std::atomic_bool m_shuttingDown{false};

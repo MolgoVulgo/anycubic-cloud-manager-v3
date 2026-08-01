@@ -15,7 +15,6 @@ AppDialogFrame {
     property var fileNameWithoutExtensionProvider: null
     property var displayDateProvider: null
 
-    signal renameRequested(string fileId, string fileName)
     signal deleteRequested(string fileId, string fileName)
     signal downloadRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
@@ -207,16 +206,6 @@ AppDialogFrame {
     maximumWidth: 1180
     minimumHeight: 700
     maximumHeight: 900
-
-    headerActionsData: [
-        AppButton {
-            objectName: "cloudFileDetailsRenameButton"
-            text: qsTr("Rename")
-            variant: "secondary"
-            onClicked: root.renameRequested(String(root.fileData.fileId || ""),
-                                            String(root.fileData.fileName || ""))
-        }
-    ]
 
     RowLayout {
         id: summaryLayout

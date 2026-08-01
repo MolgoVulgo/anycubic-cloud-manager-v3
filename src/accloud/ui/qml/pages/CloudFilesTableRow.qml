@@ -47,7 +47,6 @@ Rectangle {
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
-    signal renameRequested(string fileId, string fileName)
     signal deleteRequested(string fileId, string fileName)
 
     objectName: "cloudFilesTableRow"
@@ -262,11 +261,6 @@ Rectangle {
 
                 Menu {
                     id: rowMenu
-
-                    MenuItem {
-                        text: qsTr("Rename")
-                        onTriggered: root.renameRequested(root.fileId, root.fileName)
-                    }
 
                     MenuItem {
                         text: qsTr("Delete")

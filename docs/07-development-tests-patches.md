@@ -70,6 +70,46 @@ ctest --preset default -R '^accloud_documentation_contract$' --output-on-failure
 
 The guard validates bilingual file pairs, local links, frozen MQTT/SSL tokens, the single thumbnail `ignoreSslErrors()` scope, active QML resources, unique TS catalogs and synthetic-only public reference data.
 
+Cloud bridge boundary guard:
+
+```bash
+python ../tools/check_cloud_bridge_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_cloud_bridge_architecture$' --output-on-failure
+```
+
+This guard keeps `CloudBridge` as a bounded facade and prevents thumbnail TLS/image handling, signed-download transport, or upload/PWSZ orchestration from moving back into it.
+
+Local cache boundary guard:
+
+```bash
+python ../tools/check_local_cache_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_local_cache_architecture$' --output-on-failure
+```
+
+This guard keeps `LocalCacheStore` as a small compatibility facade, requires separate schema/files/printers/jobs/state implementation units, and verifies that runtime and SQL regression tests compile the same `ACCLOUD_LOCAL_CACHE_SOURCES` set.
+
+
+MQTT bridge boundary guard:
+
+```bash
+python ../tools/check_mqtt_bridge_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_mqtt_bridge_architecture$' --output-on-failure
+```
+
+This guard keeps `MqttBridge` as a bounded Qt facade, requires the session/messages/telemetry implementation units, verifies the shared `ACCLOUD_MQTT_BRIDGE_SOURCES` set and preserves the frozen broker/SLICER ownership in the session unit.
+
+Experimental viewer isolation:
+
+```bash
+cmake --preset experimental-viewer-core
+cmake --build --preset experimental-viewer-core --clean-first
+ctest --preset experimental-viewer-core \
+  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold)$' \
+  --output-on-failure
+```
+
+Normal presets explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The opt-in preset compiles the separate format/job/cache/render scaffold in `accloud_experimental_viewer` and its smoke test without linking it to `accloud_cli` or exposing viewer controls in production QML. The architecture guard also rejects any source marked `Scaffold placeholder` from `accloud_infra`.
+
 Do not invent commands that CMake does not declare. Live broker tests require a controlled environment and are never implied by a local unit test. The default CTest run reports `accloud_mqtt_live_broker` as **Skipped** unless live execution is explicitly enabled.
 
 Run the live check only with a valid local session and explicit mTLS paths:

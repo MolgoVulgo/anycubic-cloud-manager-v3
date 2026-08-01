@@ -7,7 +7,9 @@ Status: `PARTIAL` for implementation, `SPEC` for the target viewer contract.
 
 ## Product position
 
-The Photon/PWMB viewer is a project trajectory, not the main finished workflow. The current repository contains relevant pieces: format drivers, PWMB/PWS decode components, preview decoding, job/cache infrastructure and a render3d skeleton. It does not yet deliver a complete production viewer.
+The Photon/PWMB viewer is a project trajectory, not the main finished workflow. The repository contains domain contracts plus placeholder format drivers, decode components, jobs, future RAM/disk cache components and a `render3d` skeleton. These scaffold `.cpp` files are excluded from normal builds and from `accloud_cli`.
+
+The only supported opt-in is `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=ON`, exposed by the `experimental-viewer-core` preset. It builds the isolated `accloud_experimental_viewer` object target and a compile smoke test. It does not expose viewer controls in production QML, decode real files or provide a render/navigation/export workflow.
 
 ## Supported format families under study
 
@@ -122,4 +124,4 @@ For real files, maintain golden values computed before binarization:
 
 ## Decision
 
-The cloud manager must not depend on the viewer being complete. The viewer path advances through strict format contracts and diagnostic tests, but product documentation must mark it as partial until decode, render, navigation and export workflows are closed.
+The cloud manager must not depend on the viewer being complete. Default, local-full and production presets keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`; production QML contains no viewer settings or actions. The viewer path advances only through the isolated target, strict format contracts and diagnostic tests, and remains experimental until decode, render, navigation and export workflows are closed.

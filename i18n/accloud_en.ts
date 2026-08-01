@@ -66,11 +66,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="132"/>
-        <source>Rename</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186"/>
         <source>Preview unavailable</source>
         <translation type="unfinished"></translation>
@@ -448,11 +443,6 @@
     <message>
         <location filename="../ui/qml/pages/CloudFilesPage.qml" line="425"/>
         <source>Operation rejected by backend.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="431"/>
-        <source>Rename not implemented yet for %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1083,11 +1073,6 @@ Cancelled: %5</translation>
     <message>
         <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="244"/>
         <source>...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="255"/>
-        <source>Rename</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1844,11 +1829,6 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
     <message>
         <location filename="../ui/qml/MainWindow.qml" line="977"/>
         <source>Print Dialog</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/MainWindow.qml" line="984"/>
-        <source>3D Viewer Dialog</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3513,102 +3493,6 @@ Cloud connection: </source>
     <message>
         <location filename="../ui/qml/dialogs/UploadDraftDialog.qml" line="57"/>
         <source>Start upload</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>Viewer3DPane</name>
-    <message>
-        <location filename="../ui/qml/panes/Viewer3DPane.qml" line="7"/>
-        <source>3D Viewer (OpenGL placeholder)</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>ViewerDraftDialog</name>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="9"/>
-        <source>PWMB 3D Viewer</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="10"/>
-        <source>Build progressif contours/fill avec controle camera.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="36"/>
-        <source>Source PWMB path</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="42"/>
-        <source>Quality 33</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="43"/>
-        <source>Quality 66</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="44"/>
-        <source>Quality 100</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="51"/>
-        <source>Palette Steel</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="52"/>
-        <source>Palette Resin</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="53"/>
-        <source>Palette Heat</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="56"/>
-        <source>Contour only</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="59"/>
-        <source>Rebuild</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="60"/>
-        <source>Cancel</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="74"/>
-        <source>OpenGL viewport placeholder</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="82"/>
-        <source>Retry</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="83"/>
-        <source>Reset camera</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="84"/>
-        <source>Export screenshot</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="88"/>
-        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

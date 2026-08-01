@@ -42,7 +42,6 @@ Rectangle {
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
-    signal renameRequested(string fileId, string fileName)
     signal deleteRequested(string fileId, string fileName)
     signal pageSizeSelected(int value)
     signal previousPageRequested()
@@ -137,7 +136,6 @@ Rectangle {
                 onDetailsRequested: function(fileId) { root.detailsRequested(fileId) }
                 onDownloadRequested: function(fileId, fileName) { root.downloadRequested(fileId, fileName) }
                 onPrintRequested: function(fileId, fileName) { root.printRequested(fileId, fileName) }
-                onRenameRequested: function(fileId, fileName) { root.renameRequested(fileId, fileName) }
                 onDeleteRequested: function(fileId, fileName) { root.deleteRequested(fileId, fileName) }
             }
         }

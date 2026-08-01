@@ -1,4 +1,7 @@
 #include "app/LocalCacheStore.h"
+#include "app/CloudFilesWorkflowBridge.h"
+#include "app/PrintWorkflowBridge.h"
+#include "app/printing/PendingDirectPrintStore.h"
 #include "app/usecases/cloud/OrderResponseTracker.h"
 #include "app/usecases/cloud/UploadLocalFileUseCase.h"
 #include "infra/config/AppPaths.h"
@@ -654,6 +657,509 @@ bool test_pending_direct_print_persistence() {
     return ok;
 }
 
+bool test_print_workflow_bridge_centralizes_direct_print_persistence() {
+    const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
+    const std::filesystem::path dbPath = uniqueTempDbPath("accloud_print_workflow_bridge");
+    setenv("ACCLOUD_DB_PATH", dbPath.string().c_str(), 1);
+
+    accloud::PrintWorkflowBridge bridge;
+    QVariantMap operation;
+    operation.insert("printerId", "printer-workflow-1");
+    operation.insert("cloudFileId", "cloud-workflow-1");
+    operation.insert("cloudFileName", "workflow.pwsz");
+    operation.insert("printerLocalFilename", "workflow.pwsz");
+    operation.insert("printerLocalPath", "/");
+    operation.insert("deleteAfterSuccess", true);
+    operation.insert("deleteLocalOnFailure", true);
+    operation.insert("observedActive", true);
+    operation.insert("state", "PRINTING");
+    constexpr qlonglong kCreatedAt = 4294967419LL;
+    constexpr qlonglong kUpdatedAt = 4294967420LL;
+    operation.insert("createdAt", QVariant::fromValue<qlonglong>(kCreatedAt));
+    operation.insert("updatedAt", QVariant::fromValue<qlonglong>(kUpdatedAt));
+
+    const auto beforeTrack = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    bool ok = expect(bridge.trackDirectPrint(operation),
+                     "workflow bridge should persist tracked direct print");
+    const auto afterTrack = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    QVariantList rows = bridge.pendingDirectPrints();
+    ok = ok && expect(rows.size() == 1,
+                      "workflow bridge should restore one tracked direct print");
+    if (!rows.isEmpty()) {
+        const QVariantMap restored = rows.first().toMap();
+        ok = ok && expect(restored.value("createdAt").toLongLong() == kCreatedAt,
+                          "workflow bridge should preserve 64-bit createdAt");
+        const qlonglong restoredUpdatedAt = restored.value("updatedAt").toLongLong();
+        ok = ok && expect(restoredUpdatedAt >= static_cast<qlonglong>(beforeTrack)
+                              && restoredUpdatedAt <= static_cast<qlonglong>(afterTrack),
+                          "workflow bridge should refresh updatedAt to the persistence time");
+        ok = ok && expect(restoredUpdatedAt != kUpdatedAt,
+                          "workflow bridge should not preserve caller-supplied updatedAt");
+    }
+
+    QVariantMap begin = bridge.beginDirectLocalDelete(
+        operation, accloud::PrintWorkflowBridge::FailureCompletion);
+    QVariantMap prepared = begin.value("operation").toMap();
+    ok = ok && expect(begin.value("persisted").toBool(),
+                      "begin local cleanup should persist through bridge");
+    ok = ok && expect(begin.value("requestLocalDelete").toBool(),
+                      "begin local cleanup should request printer-local deletion");
+    ok = ok && expect(prepared.value("state").toString() == "FAILURE_LOCAL_DELETE_PENDING",
+                      "failure cleanup state should be typed and persisted");
+
+    QVariantMap failedDispatch = bridge.handleDirectLocalDeleteDispatch(
+        prepared, accloud::PrintWorkflowBridge::FailureCompletion, false, QString{});
+    QVariantMap failedOperation = failedDispatch.value("operation").toMap();
+    ok = ok && expect(failedDispatch.value("persisted").toBool(),
+                      "failed local dispatch should persist cleanup error");
+    ok = ok && expect(failedOperation.value("state").toString() == "FAILED_LOCAL_CLEANUP_ERROR",
+                      "failed local dispatch should enter cleanup error state");
+
+    QVariantMap cloudBegin = bridge.beginDirectCloudDelete(operation, false);
+    QVariantMap cloudOperation = cloudBegin.value("operation").toMap();
+    ok = ok && expect(cloudBegin.value("requestCloudDelete").toBool(),
+                      "cloud cleanup should be requested by lifecycle bridge");
+    QVariantMap cloudDone = bridge.handleDirectCloudDeleteResult(cloudOperation, true);
+    ok = ok && expect(cloudDone.value("removed").toBool(),
+                      "successful cloud cleanup should remove pending operation");
+    ok = ok && expect(bridge.pendingDirectPrints().isEmpty(),
+                      "workflow bridge should own pending direct print removal");
+
+    int cloudDeleteRequests = 0;
+    int lastCleanupNotice = accloud::PrintWorkflowBridge::NoCleanupNotice;
+    QVariantMap requestedCloudDelete;
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::directCloudDeleteRequested,
+                     [&cloudDeleteRequests, &requestedCloudDelete](const QVariantMap& requested) {
+                         ++cloudDeleteRequests;
+                         requestedCloudDelete = requested;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::directCleanupNotice,
+                     [&lastCleanupNotice](int noticeKind) {
+                         lastCleanupNotice = noticeKind;
+                     });
+
+    QVariantMap mqttFailure = operation;
+    mqttFailure.insert("printerId", "printer-workflow-mqtt-failure");
+    mqttFailure.insert("cloudFileId", "cloud-workflow-mqtt-failure");
+    ok = ok && expect(bridge.trackDirectPrint(mqttFailure),
+                      "workflow bridge should persist MQTT-confirmed failure cleanup");
+    QVariantMap mqttFailureBegin = bridge.beginDirectLocalDelete(
+        mqttFailure, accloud::PrintWorkflowBridge::FailureCompletion);
+    QVariantMap mqttFailurePrepared = mqttFailureBegin.value("operation").toMap();
+    ok = ok && expect(mqttFailureBegin.value("requestLocalDelete").toBool(),
+                      "first MQTT-confirmed cleanup should request local deletion");
+    QVariantMap mqttFailureDispatch = bridge.handleDirectLocalDeleteDispatch(
+        mqttFailurePrepared,
+        accloud::PrintWorkflowBridge::FailureCompletion,
+        true,
+        QStringLiteral("mqtt-delete-failure"));
+    ok = ok && expect(!mqttFailureDispatch.value("requestCloudDelete").toBool(),
+                      "pending MQTT confirmation must not delete cloud early");
+    QVariantMap duplicateBegin = bridge.beginDirectLocalDelete(
+        mqttFailurePrepared, accloud::PrintWorkflowBridge::FailureCompletion);
+    ok = ok && expect(!duplicateBegin.value("requestLocalDelete").toBool(),
+                      "bridge should suppress duplicate local deletion while MQTT confirmation is pending");
+
+    bridge.handlePrinterFileAction(QStringLiteral("printer-workflow-mqtt-failure"),
+                                   QStringLiteral("deleteLocal"),
+                                   QStringLiteral("success"),
+                                   200,
+                                   QStringLiteral("unrelated-msg"),
+                                   QString{});
+    ok = ok && expect(lastCleanupNotice == accloud::PrintWorkflowBridge::NoCleanupNotice,
+                      "unrelated MQTT confirmation should be ignored");
+    bridge.handlePrinterFileAction(QStringLiteral("printer-workflow-mqtt-failure"),
+                                   QStringLiteral("deleteLocal"),
+                                   QStringLiteral("success"),
+                                   200,
+                                   QStringLiteral("mqtt-delete-failure"),
+                                   QString{});
+    ok = ok && expect(lastCleanupNotice == accloud::PrintWorkflowBridge::FailureLocalDeleteCompleted,
+                      "failure cleanup MQTT confirmation should emit semantic completion notice");
+    ok = ok && expect(cloudDeleteRequests == 0,
+                      "failed direct print must keep the cloud file after local cleanup");
+
+    QVariantMap mqttSuccess = operation;
+    mqttSuccess.insert("printerId", "printer-workflow-mqtt-success");
+    mqttSuccess.insert("cloudFileId", "cloud-workflow-mqtt-success");
+    ok = ok && expect(bridge.trackDirectPrint(mqttSuccess),
+                      "workflow bridge should persist MQTT-confirmed success cleanup");
+    QVariantMap mqttSuccessBegin = bridge.beginDirectLocalDelete(
+        mqttSuccess, accloud::PrintWorkflowBridge::SuccessCompletion);
+    QVariantMap mqttSuccessPrepared = mqttSuccessBegin.value("operation").toMap();
+    (void)bridge.handleDirectLocalDeleteDispatch(
+        mqttSuccessPrepared,
+        accloud::PrintWorkflowBridge::SuccessCompletion,
+        true,
+        QStringLiteral("mqtt-delete-success"));
+    bridge.handlePrinterFileAction(QStringLiteral("printer-workflow-mqtt-success"),
+                                   QStringLiteral("deleteLocal"),
+                                   QStringLiteral("success"),
+                                   200,
+                                   QStringLiteral("mqtt-delete-success"),
+                                   QString{});
+    ok = ok && expect(cloudDeleteRequests == 1,
+                      "successful direct print cleanup should request cloud deletion after MQTT confirmation");
+    ok = ok && expect(requestedCloudDelete.value("printerId").toString() == "printer-workflow-mqtt-success",
+                      "cloud deletion request should carry the correlated direct-print operation");
+    ok = ok && expect(requestedCloudDelete.value("state").toString() == "CLOUD_DELETE_PENDING",
+                      "cloud deletion request should expose the typed pending state");
+
+    QVariantMap mqttRejected = operation;
+    mqttRejected.insert("printerId", "printer-workflow-mqtt-rejected");
+    mqttRejected.insert("cloudFileId", "cloud-workflow-mqtt-rejected");
+    ok = ok && expect(bridge.trackDirectPrint(mqttRejected),
+                      "workflow bridge should persist rejected MQTT cleanup fixture");
+    QVariantMap mqttRejectedBegin = bridge.beginDirectLocalDelete(
+        mqttRejected, accloud::PrintWorkflowBridge::FailureCompletion);
+    QVariantMap mqttRejectedPrepared = mqttRejectedBegin.value("operation").toMap();
+    (void)bridge.handleDirectLocalDeleteDispatch(
+        mqttRejectedPrepared,
+        accloud::PrintWorkflowBridge::FailureCompletion,
+        true,
+        QStringLiteral("mqtt-delete-rejected"));
+    bridge.handlePrinterFileAction(QStringLiteral("printer-workflow-mqtt-rejected"),
+                                   QStringLiteral("deleteLocal"),
+                                   QStringLiteral("failed"),
+                                   500,
+                                   QStringLiteral("mqtt-delete-rejected"),
+                                   QStringLiteral("rejected"));
+    ok = ok && expect(lastCleanupNotice == accloud::PrintWorkflowBridge::LocalDeleteConfirmationFailed,
+                      "failed MQTT confirmation should emit semantic cleanup failure notice");
+    ok = ok && expect(cloudDeleteRequests == 1,
+                      "failed MQTT confirmation must never request cloud deletion");
+
+    ok = ok && expect(bridge.completeDirectPrint(QStringLiteral("printer-workflow-mqtt-success")),
+                      "success MQTT fixture should be removable");
+    ok = ok && expect(bridge.completeDirectPrint(QStringLiteral("printer-workflow-mqtt-rejected")),
+                      "rejected MQTT fixture should be removable");
+
+    int localDeleteRequests = 0;
+    int trackingReleased = 0;
+    QVariantMap lastLocalDeleteRequest;
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::directLocalDeleteRequested,
+                     [&localDeleteRequests, &lastLocalDeleteRequest](const QVariantMap& request) {
+                         ++localDeleteRequests;
+                         lastLocalDeleteRequest = request;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::directPrintTrackingReleased,
+                     [&trackingReleased](const QString&) { ++trackingReleased; });
+
+    QVariantMap orchestrated = operation;
+    orchestrated.insert("printerId", "printer-workflow-orchestrated-success");
+    orchestrated.insert("cloudFileId", "cloud-workflow-orchestrated-success");
+    orchestrated.insert("printerLocalFilename", "");
+    orchestrated.insert("observedActive", true);
+    orchestrated.insert("deleteAfterSuccess", true);
+    orchestrated.insert("state", "PRINTING");
+    ok = ok && expect(bridge.trackDirectPrint(orchestrated),
+                      "orchestrated direct print should persist before project reconciliation");
+
+    QVariantMap completedProject;
+    completedProject.insert("printerId", "printer-workflow-orchestrated-success");
+    completedProject.insert("cloudFileId", "cloud-workflow-orchestrated-success");
+    completedProject.insert("currentFile", "orchestrated.pwsz");
+    completedProject.insert("printStatus", 2);
+    QVariantList completedProjects;
+    completedProjects.push_back(completedProject);
+    bridge.reconcileDirectPrints(completedProjects);
+    ok = ok && expect(localDeleteRequests == 1,
+                      "workflow reconciliation should request printer-local cleanup without QML orchestration");
+    ok = ok && expect(lastLocalDeleteRequest.value("fileName").toString() == "orchestrated.pwsz",
+                      "workflow reconciliation should carry the printer-local filename");
+    ok = ok && expect(lastLocalDeleteRequest.value("completionKind").toInt()
+                          == accloud::PrintWorkflowBridge::SuccessCompletion,
+                      "successful print reconciliation should carry success cleanup semantics");
+    bridge.reconcileDirectPrints(completedProjects);
+    ok = ok && expect(localDeleteRequests == 1,
+                      "workflow reconciliation must suppress duplicate local cleanup while request is in flight");
+
+    QVariantMap directCleanupContext;
+    directCleanupContext.insert("kind", "directCleanup");
+    directCleanupContext.insert("completionKind", accloud::PrintWorkflowBridge::SuccessCompletion);
+    bridge.handlePrinterOrderFinished(directCleanupContext,
+                                      QStringLiteral("printer-workflow-orchestrated-success"),
+                                      104,
+                                      QVariantMap{{QStringLiteral("ok"), true},
+                                                  {QStringLiteral("msgId"), QStringLiteral("orchestrated-delete-msg")}});
+    bridge.handlePrinterFileAction(QStringLiteral("printer-workflow-orchestrated-success"),
+                                   QStringLiteral("deleteLocal"),
+                                   QStringLiteral("success"),
+                                   200,
+                                   QStringLiteral("orchestrated-delete-msg"),
+                                   QString{});
+    ok = ok && expect(cloudDeleteRequests == 2,
+                      "workflow should request cloud deletion after local cleanup confirmation");
+    bridge.handleCloudDeleteFinished(QStringLiteral("cloud-workflow-orchestrated-success"),
+                                     QVariantMap{{QStringLiteral("ok"), true}});
+    ok = ok && expect(lastCleanupNotice == accloud::PrintWorkflowBridge::DirectCleanupCompleted,
+                      "workflow should emit semantic direct cleanup completion after cloud deletion");
+    ok = ok && expect(trackingReleased >= 1,
+                      "workflow should release UI tracking when direct cleanup completes");
+
+    QVariantMap failedNoCleanup = operation;
+    failedNoCleanup.insert("printerId", "printer-workflow-orchestrated-failure");
+    failedNoCleanup.insert("cloudFileId", "cloud-workflow-orchestrated-failure");
+    failedNoCleanup.insert("printerLocalFilename", "failed.pwsz");
+    failedNoCleanup.insert("observedActive", true);
+    failedNoCleanup.insert("deleteAfterSuccess", true);
+    failedNoCleanup.insert("deleteLocalOnFailure", false);
+    failedNoCleanup.insert("state", "PRINTING");
+    ok = ok && expect(bridge.trackDirectPrint(failedNoCleanup),
+                      "failed direct print fixture should persist");
+    QVariantMap failedProject;
+    failedProject.insert("printerId", "printer-workflow-orchestrated-failure");
+    failedProject.insert("cloudFileId", "cloud-workflow-orchestrated-failure");
+    failedProject.insert("currentFile", "failed.pwsz");
+    failedProject.insert("printStatus", 3);
+    const int localRequestsBeforeFailure = localDeleteRequests;
+    const int cloudRequestsBeforeFailure = cloudDeleteRequests;
+    QVariantList failedProjects;
+    failedProjects.push_back(failedProject);
+    bridge.reconcileDirectPrints(failedProjects);
+    ok = ok && expect(localDeleteRequests == localRequestsBeforeFailure,
+                      "failed direct print with cleanup disabled must not delete printer-local file");
+    ok = ok && expect(cloudDeleteRequests == cloudRequestsBeforeFailure,
+                      "failed direct print must never delete cloud file");
+    ok = ok && expect(lastCleanupNotice == accloud::PrintWorkflowBridge::FailureFilesKept,
+                      "workflow should emit semantic files-kept notice for failed direct print");
+
+    restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
+    removeSqliteFiles(dbPath);
+    return ok;
+}
+
+bool test_print_workflow_bridge_remote_cleanup_and_preparation() {
+    const auto previousDbPath = envValue("ACCLOUD_DB_PATH");
+    const std::filesystem::path dbPath = uniqueTempDbPath("accloud_remote_print_workflow");
+    setenv("ACCLOUD_DB_PATH", dbPath.string().c_str(), 1);
+
+    accloud::PrintWorkflowBridge bridge;
+    bool ok = true;
+
+    int localDeleteRequests = 0;
+    int cloudDeleteRequests = 0;
+    int trackingReleased = 0;
+    int cleanupNotice = accloud::PrintWorkflowBridge::NoRemoteCleanupNotice;
+    QVariantMap lastLocalDelete;
+    QString lastCloudDelete;
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remoteLocalDeleteRequested,
+                     [&](const QVariantMap& request) {
+                         ++localDeleteRequests;
+                         lastLocalDelete = request;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remoteCloudDeleteRequested,
+                     [&](const QString& fileId) {
+                         ++cloudDeleteRequests;
+                         lastCloudDelete = fileId;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remotePrintTrackingReleased,
+                     [&](const QString&) { ++trackingReleased; });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remoteCleanupNotice,
+                     [&](int notice, const QString&) { cleanupNotice = notice; });
+
+    QVariantMap remoteFile;
+    remoteFile.insert("fileId", "cloud-remote-1");
+    remoteFile.insert("fileName", "remote.pwmb");
+    remoteFile.insert("deleteAfterPrint", true);
+    ok = ok && expect(bridge.trackRemotePrintCleanup("printer-remote-1", remoteFile),
+                      "remote cleanup should be tracked by workflow bridge");
+    bridge.beginRemotePostPrintCleanup("printer-remote-1");
+    bridge.beginRemotePostPrintCleanup("printer-remote-1");
+    ok = ok && expect(localDeleteRequests == 1,
+                      "remote cleanup must suppress duplicate local delete dispatch");
+    ok = ok && expect(lastLocalDelete.value("fileName").toString() == "remote.pwmb",
+                      "remote local delete request should carry the printer-local filename");
+
+    QVariantMap cleanupContext;
+    cleanupContext.insert("kind", "remotePostPrintCleanup");
+    bridge.handlePrinterOrderFinished(cleanupContext,
+                                      QStringLiteral("printer-remote-1"),
+                                      104,
+                                      {{QStringLiteral("ok"), true}});
+    ok = ok && expect(cloudDeleteRequests == 1 && lastCloudDelete == "cloud-remote-1",
+                      "remote cleanup should request cloud delete only after local delete succeeds");
+    bridge.handleCloudDeleteFinished(QStringLiteral("cloud-remote-1"),
+                                     {{QStringLiteral("ok"), true}});
+    ok = ok && expect(cleanupNotice == accloud::PrintWorkflowBridge::RemoteCleanupCompleted,
+                      "remote cleanup should emit semantic completion after cloud delete");
+    ok = ok && expect(trackingReleased == 1,
+                      "remote cleanup should release UI tracking after completion");
+
+    QVariantMap keepFile = remoteFile;
+    keepFile.insert("fileId", "cloud-remote-keep");
+    keepFile.insert("deleteAfterPrint", false);
+    ok = ok && expect(bridge.trackRemotePrintCleanup("printer-remote-keep", keepFile),
+                      "remote print without cleanup should still be tracked until completion");
+    bridge.beginRemotePostPrintCleanup("printer-remote-keep");
+    ok = ok && expect(localDeleteRequests == 1,
+                      "deleteAfterPrint=false must not issue local deletion");
+    ok = ok && expect(trackingReleased == 2,
+                      "deleteAfterPrint=false should release tracking immediately at completion");
+
+    int byFileRequests = 0;
+    int byExtRequests = 0;
+    QString activeRequestId;
+    QString activeExt;
+    QVariantMap preparation;
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remoteCompatibilityByFileIdRequested,
+                     [&](const QString& requestId, const QString& fileId) {
+                         ++byFileRequests;
+                         activeRequestId = requestId;
+                         ok = expect(fileId == "cloud-prep-1", "file compatibility request should carry file id") && ok;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remoteCompatibilityByExtRequested,
+                     [&](const QString& requestId, const QString& fileExt) {
+                         ++byExtRequests;
+                         activeRequestId = requestId;
+                         activeExt = fileExt;
+                     });
+    QObject::connect(&bridge, &accloud::PrintWorkflowBridge::remotePrintPreparationReady,
+                     [&](const QVariantMap& result) { preparation = result; });
+
+    QVariantMap p1{{"id", "p1"}, {"name", "Printer One"}, {"model", "Mono M7"},
+                   {"machineType", "m7"}, {"state", "READY"}};
+    QVariantMap p2{{"id", "p2"}, {"name", "Printer Two"}, {"model", "Mono M5s"},
+                   {"machineType", "m5s"}, {"state", "READY"}};
+    QVariantList printers{p1, p2};
+    QVariantMap prepFile{{"fileId", "cloud-prep-1"}, {"fileName", "route_file.pwmb"}};
+
+    const QString requestId = bridge.beginRemotePrintPreparation(
+        QStringLiteral("cloud"), QStringLiteral("cloud-prep-1"), QStringLiteral("route_file.pwmb"),
+        prepFile, printers, QStringLiteral("p1"));
+    ok = ok && expect(byFileRequests == 1 && !requestId.isEmpty(),
+                      "remote preparation should own compatibility request sequencing");
+    bridge.handleCompatiblePrintersByFileIdReady(
+        QStringLiteral("stale-request"), QStringLiteral("cloud-prep-1"),
+        {{QStringLiteral("ok"), true}});
+    ok = ok && expect(preparation.isEmpty(), "stale compatibility response must be ignored");
+
+    QVariantList serverRows;
+    serverRows.push_back(QVariantMap{{"id", "p1"}, {"available", 0}, {"reason", "unavailable reason:file type mismatch"}});
+    serverRows.push_back(QVariantMap{{"id", "p2"}, {"available", 1}, {"reason", ""}});
+    bridge.handleCompatiblePrintersByFileIdReady(
+        requestId, QStringLiteral("cloud-prep-1"),
+        {{QStringLiteral("ok"), true}, {QStringLiteral("printers"), serverRows}});
+    ok = ok && expect(preparation.value("selectedPrinterId").toString() == "p2",
+                      "remote preparation should select an available compatible printer");
+    ok = ok && expect(preparation.value("compatiblePrinters").toList().size() == 1,
+                      "remote preparation should return a filtered printer model");
+
+    preparation.clear();
+    const QString fallbackRequestId = bridge.beginRemotePrintPreparation(
+        QStringLiteral("cloud"), QStringLiteral("cloud-prep-1"), QStringLiteral("route_file.pwmb"),
+        prepFile, printers, QStringLiteral("p1"));
+    bridge.handleCompatiblePrintersByFileIdReady(
+        fallbackRequestId, QStringLiteral("cloud-prep-1"), {{QStringLiteral("ok"), false}});
+    ok = ok && expect(byExtRequests == 1 && activeExt == "pwmb",
+                      "file compatibility failure should fall back to extension compatibility");
+
+    QVariantMap localFile{{"fileId", "local-prep"}, {"fileName", "local.pwmb"},
+                          {"machineType", "m5s"}};
+    preparation.clear();
+    const QString localRequestId = bridge.beginRemotePrintPreparation(
+        QStringLiteral("direct"), QString{}, QStringLiteral("local.pwmb"),
+        localFile, printers, QStringLiteral("p1"));
+    ok = ok && expect(byExtRequests == 2 && activeExt == "pwmb",
+                      "direct preparation should request extension compatibility through the workflow");
+    bridge.handleCompatiblePrintersByExtReady(
+        localRequestId, QStringLiteral("pwmb"), {{QStringLiteral("ok"), false}});
+    ok = ok && expect(preparation.value("selectedPrinterId").toString() == "p2",
+                      "local compatibility should be decided in C++ when server compatibility fails");
+    ok = ok && expect(preparation.value("allowed").toBool(),
+                      "locally compatible printer should pass remote print guard");
+    const QVariantMap incompatibleGuard = bridge.evaluateRemotePrintGuard(
+        QStringLiteral("cloud"), p1, localFile);
+    ok = ok && expect(!incompatibleGuard.value("ok").toBool()
+                          && incompatibleGuard.value("reasonKey").toString() == "machine_type_mismatch",
+                      "remote print guard should use the shared C++ local compatibility evaluator");
+
+    restoreEnv("ACCLOUD_DB_PATH", previousDbPath);
+    removeSqliteFiles(dbPath);
+    return ok;
+}
+
+
+bool test_cloud_files_workflow_bridge_sequences_delete_requests() {
+    accloud::CloudFilesWorkflowBridge bridge;
+    bool ok = true;
+    QStringList requestedIds;
+    QStringList successfulIds;
+    QVariantMap finalSummary;
+    QVariantMap singleResult;
+    int startedTotal = 0;
+    int progressCount = 0;
+
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::deleteFileRequested,
+                     [&](const QString& fileId) { requestedIds.push_back(fileId); });
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::batchDeleteStarted,
+                     [&](int total) { startedTotal = total; });
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::batchDeleteProgress,
+                     [&](int completed, int total, int succeeded, const QString&, bool) {
+                         ++progressCount;
+                         ok = expect(completed == progressCount,
+                                     "batch workflow progress must advance one result at a time") && ok;
+                         ok = expect(total == 2, "batch workflow progress must retain total") && ok;
+                         ok = expect(succeeded <= completed,
+                                     "batch workflow success count cannot exceed completed count") && ok;
+                     });
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::batchDeleteFileSucceeded,
+                     [&](const QString& fileId) { successfulIds.push_back(fileId); });
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::batchDeleteFinished,
+                     [&](const QVariantMap& summary) { finalSummary = summary; });
+    QObject::connect(&bridge, &accloud::CloudFilesWorkflowBridge::singleDeleteFinished,
+                     [&](const QString&, const QVariantMap& result) { singleResult = result; });
+
+    QVariantList files;
+    files.push_back(QVariantMap{{"fileId", "batch-a"}, {"fileName", "a.pwsz"}});
+    files.push_back(QVariantMap{{"fileId", "batch-b"}, {"fileName", "b.pwsz"}});
+    ok = ok && expect(bridge.startBatchDelete(files), "batch bridge must accept a valid selection");
+    ok = ok && expect(startedTotal == 2, "batch bridge must publish total at start");
+    ok = ok && expect(requestedIds == QStringList{QStringLiteral("batch-a")},
+                      "batch bridge must request only the first file initially");
+    ok = ok && expect(!bridge.deleteSingleFile(QStringLiteral("single-blocked")),
+                      "single delete must not interleave with an active batch");
+
+    bridge.handleDeleteFileFinished(QStringLiteral("batch-b"),
+                                    {{QStringLiteral("ok"), true}});
+    ok = ok && expect(requestedIds.size() == 1,
+                      "out-of-order delete completion must not advance the batch");
+
+    bridge.handleDeleteFileFinished(QStringLiteral("batch-a"),
+                                    {{QStringLiteral("ok"), true},
+                                     {QStringLiteral("message"), QStringLiteral("ok")}});
+    ok = ok && expect(requestedIds == QStringList{QStringLiteral("batch-a"),
+                                                  QStringLiteral("batch-b")},
+                      "second delete must be requested only after the first completion");
+    ok = ok && expect(successfulIds == QStringList{QStringLiteral("batch-a")},
+                      "successful file signal must identify the completed file");
+
+    bridge.handleDeleteFileFinished(QStringLiteral("batch-b"),
+                                    {{QStringLiteral("ok"), false},
+                                     {QStringLiteral("message"), QStringLiteral("rejected")}});
+    ok = ok && expect(progressCount == 2, "batch bridge must publish progress for every completion");
+    ok = ok && expect(finalSummary.value("requested").toInt() == 2
+                          && finalSummary.value("completed").toInt() == 2
+                          && finalSummary.value("succeeded").toInt() == 1
+                          && finalSummary.value("failed").toInt() == 1,
+                      "batch bridge must publish aggregated summary counts");
+    const QVariantList failures = finalSummary.value("failures").toList();
+    ok = ok && expect(failures.size() == 1
+                          && failures[0].toMap().value("fileId").toString() == "batch-b",
+                      "batch bridge must publish failed file details");
+
+    ok = ok && expect(bridge.deleteSingleFile(QStringLiteral("single-a")),
+                      "single delete must start once the batch completes");
+    ok = ok && expect(requestedIds.last() == "single-a",
+                      "single delete must use the same semantic transport request");
+    bridge.handleDeleteFileFinished(QStringLiteral("single-a"),
+                                    {{QStringLiteral("ok"), true},
+                                     {QStringLiteral("message"), QStringLiteral("ok")}});
+    ok = ok && expect(singleResult.value("ok").toBool(),
+                      "single delete result must be forwarded semantically to QML");
+    return ok;
+}
+
 bool test_thumbnail_dir_defaults_to_local_share_accloud() {
     const std::filesystem::path thumbnailDir = accloud::config::thumbnailDir();
     const std::string dirText = thumbnailDir.generic_string();
@@ -675,6 +1181,9 @@ int main(int argc, char** argv) {
     ok = test_local_cache_store_roundtrip_and_sync_state() && ok;
     ok = test_local_cache_store_migrates_schema_v3_to_v5() && ok;
     ok = test_pending_direct_print_persistence() && ok;
+    ok = test_print_workflow_bridge_centralizes_direct_print_persistence() && ok;
+    ok = test_print_workflow_bridge_remote_cleanup_and_preparation() && ok;
+    ok = test_cloud_files_workflow_bridge_sequences_delete_requests() && ok;
     ok = test_thumbnail_dir_defaults_to_local_share_accloud() && ok;
     if (!ok) {
         return 1;

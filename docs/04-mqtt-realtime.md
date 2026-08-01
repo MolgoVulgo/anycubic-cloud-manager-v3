@@ -57,6 +57,18 @@ The constructor can prepare the automatic connection asynchronously. A later UI 
 
 An internal Android credential generator exists for compatibility analysis. The production profile remains `slicer`; it must not be switched to `android` or automatic selection by cleanup or standardisation work.
 
+
+## Implementation ownership
+
+`MqttBridge` is a stable Qt/QML facade, not a protocol monolith. Its implementation is compiled from `ACCLOUD_MQTT_BRIDGE_SOURCES`:
+
+- `MqttBridge.cpp` owns QObject construction, public properties and small state setters;
+- `MqttBridgeSession.cpp` owns SLICER profile preparation, the frozen broker/TLS/session parameters, connection lifecycle and dynamic topic subscriptions;
+- `MqttBridgeMessages.cpp` owns payload redaction/capture, message routing, file-list/action signals, realtime-store updates and HTTP/MQTT order correlation;
+- `MqttBridgeTelemetry.cpp` owns diagnostic buffers, telemetry snapshots and timeout-counter refresh.
+
+This split must not duplicate the session manager or router, and it must not move broker configuration or raw MQTT parsing into QML.
+
 ## Topics and message context
 
 The nominal resin runtime subscribes only to the account `slice/report` topic and the `v1/printer/public/<machineType>/<deviceId>/#` wildcard for each printer. The FDM-only `fdmslice/report` topic is excluded. The broker-rejected `v1/server/printer/.../#` wildcard is available only in explicit extended discovery mode. Important resin message families include `status`, `print`, `releaseFilm`, `autoOperation` and `wifi`.

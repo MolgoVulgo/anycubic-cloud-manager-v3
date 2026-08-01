@@ -69,11 +69,6 @@
         <translation>%1 • %2 • Téléversé le %3 • %4</translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="132"/>
-        <source>Rename</source>
-        <translation>Renommer</translation>
-    </message>
-    <message>
         <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186"/>
         <source>Preview unavailable</source>
         <translation>Aperçu indisponible</translation>
@@ -458,11 +453,6 @@
             <translation>Opération rejetée par le backend.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="431" />
-            <source>Rename not implemented yet for %1</source>
-            <translation>Renommage pas encore implémenté pour %1</translation>
-        </message>
-        <message>
             <location filename="../ui/qml/pages/CloudFilesPage.qml" line="440" />
             <source>Cannot start remote print: missing file id.</source>
             <translation>Impossible de demarrer l'impression a distance : id de fichier manquant.</translation>
@@ -586,10 +576,6 @@
             <translation type="vanished">Échec de la suppression : </translation>
         </message>
         <message>
-            <source>Rename not implemented yet for </source>
-            <translation type="vanished">Renommage pas encore implémenté pour </translation>
-        </message>
-        <message>
             <source>Open Printers &gt; Details to start remote print for </source>
             <translation type="vanished">Ouvrez Imprimantes &gt; Détails pour lancer l'impression distante de </translation>
         </message>
@@ -684,10 +670,6 @@
         <message>
             <source>ID: </source>
             <translation type="vanished">ID : </translation>
-        </message>
-        <message>
-            <source>Rename</source>
-            <translation type="vanished">Renommer</translation>
         </message>
         <message>
             <source>Basic Information</source>
@@ -1243,11 +1225,6 @@ Annulés : %5</translation>
             <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="244" />
             <source>...</source>
             <translation>...</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="255" />
-            <source>Rename</source>
-            <translation>Renommer</translation>
         </message>
         <message>
             <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="260" />
@@ -2011,11 +1988,6 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/MainWindow.qml" line="977" />
             <source>Print Dialog</source>
             <translation>Dialogue d'impression</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/MainWindow.qml" line="984" />
-            <source>3D Viewer Dialog</source>
-            <translation>Dialogue du visualiseur 3D</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="991" />
@@ -3950,102 +3922,6 @@ Connexion cloud : </translation>
             <location filename="../ui/qml/dialogs/UploadDraftDialog.qml" line="57" />
             <source>Start upload</source>
             <translation>Démarrer le téléversement</translation>
-        </message>
-    </context>
-    <context>
-        <name>Viewer3DPane</name>
-        <message>
-            <location filename="../ui/qml/panes/Viewer3DPane.qml" line="7" />
-            <source>3D Viewer (OpenGL placeholder)</source>
-            <translation>Visualiseur 3D (espace réservé OpenGL)</translation>
-        </message>
-    </context>
-    <context>
-        <name>ViewerDraftDialog</name>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="9" />
-            <source>PWMB 3D Viewer</source>
-            <translation>Visualiseur 3D PWMB</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="10" />
-            <source>Build progressif contours/fill avec controle camera.</source>
-            <translation>Construction progressive des contours/remplissages avec contrôle caméra.</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="36" />
-            <source>Source PWMB path</source>
-            <translation>Chemin source PWMB</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="42" />
-            <source>Quality 33</source>
-            <translation>Qualité 33</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="43" />
-            <source>Quality 66</source>
-            <translation>Qualité 66</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="44" />
-            <source>Quality 100</source>
-            <translation>Qualité 100</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="51" />
-            <source>Palette Steel</source>
-            <translation>Palette Acier</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="52" />
-            <source>Palette Resin</source>
-            <translation>Palette Résine</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="53" />
-            <source>Palette Heat</source>
-            <translation>Palette Chaleur</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="56" />
-            <source>Contour only</source>
-            <translation>Contour uniquement</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="59" />
-            <source>Rebuild</source>
-            <translation>Reconstruire</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="60" />
-            <source>Cancel</source>
-            <translation>Annuler</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="74" />
-            <source>OpenGL viewport placeholder</source>
-            <translation>Espace réservé de viewport OpenGL</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="82" />
-            <source>Retry</source>
-            <translation>Réessayer</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="83" />
-            <source>Reset camera</source>
-            <translation>Réinitialiser la caméra</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="84" />
-            <source>Export screenshot</source>
-            <translation>Exporter une capture d'écran</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/dialogs/ViewerDraftDialog.qml" line="88" />
-            <source>Close</source>
-            <translation>Fermer</translation>
         </message>
     </context>
     <context>

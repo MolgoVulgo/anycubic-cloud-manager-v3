@@ -11,6 +11,8 @@
 #include <future>
 #include <map>
 #include <set>
+#include <string>
+#include <utility>
 class QTimer;
 
 namespace accloud {
@@ -98,6 +100,10 @@ signals:
                                    const QString& message);
 
 private:
+    void initializeSessionCallbacks();
+    void startBackgroundAutoConnect();
+    void shutdownSession();
+    void handleIncomingMessage(const std::string& topic, const std::string& payload);
     bool attemptAutoConnect();
     void refreshDynamicSubscriptions();
     void setStatus(const QString& value);

@@ -6,8 +6,8 @@ Toutes les entrées du registre exigent actuellement bearer et signature Workben
 
 | Endpoint ID | Méthode | Path runtime | Content type | Timeout | Propriétaire actif / rôle |
 | --- | --- | --- | --- | ---: | --- |
-| `AuthCheckSession` | POST | `/p/p/workbench/api/work/index/getUserStore` | JSON | 10 s | `SessionProvider`, validation auth legacy |
-| `AuthLoginWithAccessToken` | POST | `/p/p/workbench/api/v3/public/loginWithAccessToken` | JSON | 10 s | bootstrap session legacy |
+| `AuthCheckSession` | POST | `/p/p/workbench/api/work/index/getUserStore` | JSON | 10 s | `SessionProvider`, `AuthApi::checkAuth` |
+| `AuthLoginWithAccessToken` | POST | `/p/p/workbench/api/v3/public/loginWithAccessToken` | JSON | 10 s | fallback `AuthApi::checkAuth` |
 | `FilesList` | POST | `/p/p/workbench/api/work/index/files` | JSON | 10 s | `FilesApi` / listing fichiers cloud |
 | `FilesListFallback` | POST | `/p/p/workbench/api/work/index/userFiles` | JSON | 10 s | fallback du listing fichiers |
 | `FilesDelete` | POST | `/p/p/workbench/api/work/index/delFiles` | JSON | 10 s | `FilesApi::remove` |

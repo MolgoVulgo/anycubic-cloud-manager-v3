@@ -151,15 +151,117 @@ def check_mqtt_and_ssl_contract(root: Path, errors: list[str]) -> None:
             continue
         if "ignoreSslErrors(" in read_text(source):
             occurrences.append(source)
-    expected = root / "src/accloud/app/CloudBridge.cpp"
+    expected = root / "src/accloud/app/cloud/ThumbnailService.cpp"
     if occurrences != [expected]:
         relative = [str(path.relative_to(root)) for path in occurrences]
-        errors.append(f"ignoreSslErrors() must occur only in CloudBridge.cpp, found: {relative}")
+        errors.append(f"ignoreSslErrors() must occur only in ThumbnailService.cpp, found: {relative}")
     if expected.is_file():
         text = read_text(expected)
         for token in ("QImageReader", "QSaveFile", "safeUrlForLogs"):
             if token not in text:
                 errors.append(f"thumbnail TLS guard missing {token} in {expected.relative_to(root)}")
+
+
+
+def check_workflow_architecture_contract(root: Path, errors: list[str]) -> None:
+    tokens = ("CloudFilesWorkflowBridge", "DeleteCloudFilesUseCase")
+    for relative in (
+        "docs/02-architecture-runtime.md",
+        "docs/05-qml-ui.md",
+        "docs/FR/02-architecture-runtime.md",
+        "docs/FR/05-interface-qml.md",
+    ):
+        require_tokens(root / relative, tokens, errors)
+
+
+def check_cloud_bridge_architecture_contract(root: Path, errors: list[str]) -> None:
+    tokens = (
+        "CloudBridgeSupport",
+        "ThumbnailService",
+        "CloudDownloadController",
+        "CloudUploadController",
+    )
+    for relative in (
+        "docs/02-architecture-runtime.md",
+        "docs/FR/02-architecture-runtime.md",
+    ):
+        require_tokens(root / relative, tokens, errors)
+
+    require_tokens(root / "docs/06-security-data.md", ("ThumbnailService",), errors)
+    require_tokens(root / "docs/FR/06-securite-donnees.md", ("ThumbnailService",), errors)
+
+
+
+def check_local_cache_architecture_contract(root: Path, errors: list[str]) -> None:
+    architecture_tokens = (
+        "LocalCacheStore",
+        "LocalCacheSql",
+        "LocalCacheFiles",
+        "LocalCachePrinters",
+        "LocalCacheJobs",
+        "LocalCacheState",
+        "ACCLOUD_LOCAL_CACHE_SOURCES",
+    )
+    for relative in (
+        "docs/02-architecture-runtime.md",
+        "docs/FR/02-architecture-runtime.md",
+    ):
+        require_tokens(root / relative, architecture_tokens, errors)
+
+    test_tokens = (
+        "check_local_cache_architecture.py",
+        "accloud_local_cache_architecture",
+        "ACCLOUD_LOCAL_CACHE_SOURCES",
+    )
+    for relative in (
+        "docs/07-development-tests-patches.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+    ):
+        require_tokens(root / relative, test_tokens, errors)
+
+def check_mqtt_bridge_architecture_contract(root: Path, errors: list[str]) -> None:
+    architecture_tokens = (
+        "MqttBridge",
+        "MqttBridgeSession",
+        "MqttBridgeMessages",
+        "MqttBridgeTelemetry",
+        "ACCLOUD_MQTT_BRIDGE_SOURCES",
+    )
+    for relative in (
+        "docs/02-architecture-runtime.md",
+        "docs/04-mqtt-realtime.md",
+        "docs/FR/02-architecture-runtime.md",
+        "docs/FR/04-mqtt-temps-reel.md",
+    ):
+        require_tokens(root / relative, architecture_tokens, errors)
+
+    test_tokens = (
+        "check_mqtt_bridge_architecture.py",
+        "accloud_mqtt_bridge_architecture",
+        "ACCLOUD_MQTT_BRIDGE_SOURCES",
+    )
+    for relative in (
+        "docs/07-development-tests-patches.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+    ):
+        require_tokens(root / relative, test_tokens, errors)
+
+
+def check_experimental_viewer_contract(root: Path, errors: list[str]) -> None:
+    tokens = (
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER",
+        "experimental-viewer-core",
+        "accloud_experimental_viewer",
+    )
+    for relative in (
+        "docs/02-architecture-runtime.md",
+        "docs/07-development-tests-patches.md",
+        "docs/appendices/photon-viewer-formats.md",
+        "docs/FR/02-architecture-runtime.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+        "docs/FR/annexes/viewer-photon-formats.md",
+    ):
+        require_tokens(root / relative, tokens, errors)
 
 
 def check_i18n_contract(root: Path, errors: list[str]) -> None:
@@ -237,6 +339,11 @@ def main() -> int:
     check_temporary_documentation(root, errors)
     check_markdown_links(root, errors)
     check_mqtt_and_ssl_contract(root, errors)
+    check_workflow_architecture_contract(root, errors)
+    check_cloud_bridge_architecture_contract(root, errors)
+    check_local_cache_architecture_contract(root, errors)
+    check_mqtt_bridge_architecture_contract(root, errors)
+    check_experimental_viewer_contract(root, errors)
     check_i18n_contract(root, errors)
     check_public_reference_data(root, errors)
     check_qml_runtime(root, errors)

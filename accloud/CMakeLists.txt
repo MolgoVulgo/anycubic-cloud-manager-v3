@@ -11,6 +11,9 @@ option(ACCLOUD_REQUIRE_QT "Fail configuration when the requested Qt stack is inc
 option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
 option(ACCLOUD_ENABLE_LIVE_TESTS "Enable tests requiring controlled external services" ON)
 option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
+option(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER
+       "Build the isolated Photon/PWMB viewer scaffold (not linked to the production runtime)"
+       OFF)
 
 if(ACCLOUD_ENABLE_QT)
   set(CMAKE_AUTOMOC ON)
@@ -27,6 +30,26 @@ set(ACCLOUD_TOOLS_ROOT ${ACCLOUD_REPO_ROOT}/tools)
 set(ACCLOUD_I18N_ROOT ${ACCLOUD_REPO_ROOT}/i18n)
 set(ACCLOUD_DEPENDENCY_ARCHIVE "" CACHE FILEPATH
     "Optional offline dependency ZIP containing nlohmann_jsonConfig.cmake")
+
+set(ACCLOUD_LOCAL_CACHE_SOURCES
+    ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
+    ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.h
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCacheSql.cpp
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCacheSql.h
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCacheFiles.cpp
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCachePrinters.cpp
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCacheJobs.cpp
+    ${ACCLOUD_SRC_ROOT}/app/cache/LocalCacheState.cpp
+)
+
+set(ACCLOUD_MQTT_BRIDGE_SOURCES
+    ${ACCLOUD_SRC_ROOT}/app/MqttBridge.cpp
+    ${ACCLOUD_SRC_ROOT}/app/MqttBridge.h
+    ${ACCLOUD_SRC_ROOT}/app/mqtt/MqttBridgeSession.cpp
+    ${ACCLOUD_SRC_ROOT}/app/mqtt/MqttBridgeMessages.cpp
+    ${ACCLOUD_SRC_ROOT}/app/mqtt/MqttBridgeTelemetry.cpp
+)
+
 
 find_package(nlohmann_json CONFIG QUIET)
 if(NOT nlohmann_json_FOUND)
@@ -79,7 +102,7 @@ add_library(accloud_domain INTERFACE)
 
 target_include_directories(accloud_domain INTERFACE ${ACCLOUD_SRC_ROOT})
 
-set(ACCLOUD_INFRA_SOURCES
+set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     infra/photons/PhotonsReader.cpp
     infra/photons/drivers/pwmb/PwmbDriver.cpp
     infra/photons/drivers/pwmb/PwmbTables.cpp
@@ -95,6 +118,22 @@ set(ACCLOUD_INFRA_SOURCES
     infra/photons/drivers/photons/preview/Rgb565Decoder.cpp
     infra/photons/drivers/pwsz/PwszLinesDriver.cpp
     infra/photons/drivers/pwsz/PwszSceneDriver.cpp
+    infra/jobs/JobManager.cpp
+    infra/jobs/Jobs_OpenPhotons.cpp
+    infra/jobs/Jobs_BuildMasks.cpp
+    infra/jobs/Jobs_Build3D.cpp
+    infra/jobs/Jobs_Cloud.cpp
+    infra/jobs/Jobs_ExportReport.cpp
+    infra/cache/RamWindowCache.cpp
+    infra/cache/DiskLruCache.cpp
+    infra/cache/CacheIndex.cpp
+    render3d/gl/Renderer.cpp
+    render3d/gl/UploadQueue.cpp
+    render3d/gl/MeshlessVolume.cpp
+    render3d/qtquick/QmlGlItem.cpp
+)
+
+set(ACCLOUD_INFRA_SOURCES
     infra/cloud/CloudClient.cpp
     infra/cloud/HarImporter.cpp
     infra/cloud/SignHeaders.cpp
@@ -112,6 +151,7 @@ set(ACCLOUD_INFRA_SOURCES
     infra/mqtt/routing/MqttMessageRouter.cpp
     infra/mqtt/observability/MqttTelemetry.cpp
     infra/mqtt/observability/TelemetryObservationStore.cpp
+    infra/cloud/api/ApiSupport.cpp
     infra/cloud/api/AuthApi.cpp
     infra/cloud/api/FilesApi.cpp
     infra/cloud/api/QuotaApi.cpp
@@ -121,23 +161,13 @@ set(ACCLOUD_INFRA_SOURCES
     infra/cloud/api/UploadsApi.cpp
     infra/cloud/api/ReasonCatalogApi.cpp
     infra/cloud/api/PrintOrderApi.cpp
-    infra/cloud/api/CloudLegacyImpl.cpp
     infra/cloud/api/ThumbnailCandidateBuilder.cpp
     infra/cloud/thumbnail/ThumbnailValidation.cpp
     infra/cloud/archive/PwszPreviewArchive.cpp
-    infra/cache/RamWindowCache.cpp
-    infra/cache/DiskLruCache.cpp
-    infra/cache/CacheIndex.cpp
     infra/logging/JsonlLogger.cpp
     infra/logging/RawTrafficLogger.cpp
     infra/logging/Redactor.cpp
     infra/logging/Rotator.cpp
-    infra/jobs/JobManager.cpp
-    infra/jobs/Jobs_OpenPhotons.cpp
-    infra/jobs/Jobs_BuildMasks.cpp
-    infra/jobs/Jobs_Build3D.cpp
-    infra/jobs/Jobs_Cloud.cpp
-    infra/jobs/Jobs_ExportReport.cpp
     app/realtime/PrinterRealtimeStore.cpp
     app/usecases/cloud/ApplyRealtimeOverlayUseCase.cpp
     app/usecases/cloud/OrderResponseTracker.cpp
@@ -158,10 +188,8 @@ set(ACCLOUD_INFRA_SOURCES
     app/usecases/cloud/SendPrintOrderUseCase.cpp
     app/usecases/cloud/SendPrinterOrderUseCase.cpp
     app/usecases/cloud/DeleteCloudFileUseCase.cpp
-    render3d/gl/Renderer.cpp
-    render3d/gl/UploadQueue.cpp
-    render3d/gl/MeshlessVolume.cpp
-    render3d/qtquick/QmlGlItem.cpp
+    app/usecases/cloud/DeleteCloudFilesUseCase.cpp
+    app/usecases/printing/DirectPrintLifecycleUseCase.cpp
 )
 list(TRANSFORM ACCLOUD_INFRA_SOURCES PREPEND "${ACCLOUD_SRC_ROOT}/")
 
@@ -170,6 +198,17 @@ target_include_directories(accloud_infra PRIVATE ${ACCLOUD_SRC_ROOT})
 target_compile_definitions(accloud_infra PRIVATE ACCLOUD_REPO_ROOT_PATH="${ACCLOUD_REPO_ROOT}")
 target_link_libraries(accloud_infra PRIVATE accloud_domain)
 target_link_libraries(accloud_infra PUBLIC nlohmann_json::nlohmann_json)
+
+if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
+  set(_accloud_experimental_viewer_sources ${ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES})
+  list(TRANSFORM _accloud_experimental_viewer_sources PREPEND "${ACCLOUD_SRC_ROOT}/")
+
+  add_library(accloud_experimental_viewer OBJECT ${_accloud_experimental_viewer_sources})
+  target_include_directories(accloud_experimental_viewer PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_experimental_viewer PRIVATE accloud_domain)
+  target_compile_definitions(accloud_experimental_viewer PRIVATE
+      ACCLOUD_EXPERIMENTAL_VIEWER=1)
+endif()
 
 add_executable(accloud_cli
     ${ACCLOUD_SRC_ROOT}/app/main.cpp
@@ -223,10 +262,27 @@ if(ACCLOUD_ENABLE_QT)
         ${ACCLOUD_SRC_ROOT}/app/CloudFilesModel.h
         ${ACCLOUD_SRC_ROOT}/app/CloudBridge.cpp
         ${ACCLOUD_SRC_ROOT}/app/CloudBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudBridgeSupport.cpp
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudBridgeSupport.h
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudDownloadController.cpp
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudDownloadController.h
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudUploadController.cpp
+        ${ACCLOUD_SRC_ROOT}/app/cloud/CloudUploadController.h
+        ${ACCLOUD_SRC_ROOT}/app/cloud/ThumbnailService.cpp
+        ${ACCLOUD_SRC_ROOT}/app/cloud/ThumbnailService.h
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesWorkflowBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesWorkflowBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/PrintWorkflowBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrintWorkflowBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/printing/PendingDirectPrintStore.cpp
+        ${ACCLOUD_SRC_ROOT}/app/printing/PendingDirectPrintStore.h
+        ${ACCLOUD_SRC_ROOT}/app/printing/PrinterFileCompatibility.cpp
+        ${ACCLOUD_SRC_ROOT}/app/printing/PrinterFileCompatibility.h
+        ${ACCLOUD_SRC_ROOT}/app/usecases/printing/PrepareRemotePrintUseCase.cpp
+        ${ACCLOUD_SRC_ROOT}/app/usecases/printing/PrepareRemotePrintUseCase.h
         ${ACCLOUD_SRC_ROOT}/app/ThumbnailCachePolicy.cpp
         ${ACCLOUD_SRC_ROOT}/app/ThumbnailCachePolicy.h
-        ${ACCLOUD_SRC_ROOT}/app/MqttBridge.cpp
-        ${ACCLOUD_SRC_ROOT}/app/MqttBridge.h
+        ${ACCLOUD_MQTT_BRIDGE_SOURCES}
         ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.cpp
         ${ACCLOUD_SRC_ROOT}/app/MqttTailModel.h
         ${ACCLOUD_SRC_ROOT}/app/PrintersModel.cpp
@@ -235,8 +291,7 @@ if(ACCLOUD_ENABLE_QT)
         ${ACCLOUD_SRC_ROOT}/app/PrinterFilesModel.h
         ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.cpp
         ${ACCLOUD_SRC_ROOT}/app/RecentJobsModel.h
-        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
-        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.h
+        ${ACCLOUD_LOCAL_CACHE_SOURCES}
         ${ACCLOUD_SRC_ROOT}/app/UiSettingsBridge.cpp
         ${ACCLOUD_SRC_ROOT}/app/UiSettingsBridge.h
         ${ACCLOUD_SRC_ROOT}/app/SessionImportBridge.cpp
@@ -346,10 +401,56 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_documentation_contract.py
             --repo-root ${ACCLOUD_REPO_ROOT}
   )
+  add_test(
+    NAME accloud_cloud_api_architecture
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_cloud_api_architecture.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
+  add_test(
+    NAME accloud_cloud_bridge_architecture
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_cloud_bridge_architecture.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
+  add_test(
+    NAME accloud_experimental_viewer_architecture
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_experimental_viewer_architecture.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
+  add_test(
+    NAME accloud_local_cache_architecture
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_local_cache_architecture.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
+  add_test(
+    NAME accloud_mqtt_bridge_architecture
+    COMMAND ${Python3_EXECUTABLE} ${ACCLOUD_TOOLS_ROOT}/check_mqtt_bridge_architecture.py
+            --repo-root ${ACCLOUD_REPO_ROOT}
+  )
   set_tests_properties(accloud_ui_migration_check PROPERTIES LABELS "static;ui")
   set_tests_properties(accloud_documentation_contract PROPERTIES LABELS "static;documentation")
+  set_tests_properties(accloud_cloud_api_architecture PROPERTIES LABELS "static;cloud;architecture")
+  set_tests_properties(accloud_cloud_bridge_architecture PROPERTIES LABELS "static;cloud;architecture")
+  set_tests_properties(accloud_experimental_viewer_architecture PROPERTIES
+    LABELS "static;architecture;experimental;viewer")
+  set_tests_properties(accloud_local_cache_architecture PROPERTIES
+    LABELS "static;architecture;cache;sql")
+  set_tests_properties(accloud_mqtt_bridge_architecture PROPERTIES
+    LABELS "static;architecture;mqtt;qt")
 else()
   message(WARNING "Python3 interpreter not found: skipping Python documentation and UI guard tests")
+endif()
+
+if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
+  add_executable(accloud_experimental_viewer_scaffold_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_experimental_viewer_scaffold.cpp)
+  target_include_directories(accloud_experimental_viewer_scaffold_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_experimental_viewer_scaffold_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_experimental_viewer_scaffold
+           COMMAND accloud_experimental_viewer_scaffold_tests)
+  set_tests_properties(accloud_experimental_viewer_scaffold PROPERTIES
+      LABELS "core;experimental;viewer")
 endif()
 
 add_executable(accloud_har_tests
@@ -365,11 +466,42 @@ endif()
 add_test(NAME accloud_har_import COMMAND accloud_har_tests)
 set_tests_properties(accloud_har_import PROPERTIES LABELS "core;cloud")
 
+add_executable(accloud_direct_print_lifecycle_tests
+    ${ACCLOUD_TESTS_ROOT}/printing/test_direct_print_lifecycle.cpp
+)
+target_link_libraries(accloud_direct_print_lifecycle_tests PRIVATE accloud_domain accloud_infra)
+add_test(NAME accloud_direct_print_lifecycle COMMAND accloud_direct_print_lifecycle_tests)
+set_tests_properties(accloud_direct_print_lifecycle PROPERTIES LABELS "core;printing")
+
+add_executable(accloud_cloud_files_delete_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_delete_cloud_files.cpp
+)
+target_link_libraries(accloud_cloud_files_delete_tests PRIVATE accloud_domain accloud_infra)
+add_test(NAME accloud_cloud_files_delete COMMAND accloud_cloud_files_delete_tests)
+set_tests_properties(accloud_cloud_files_delete PROPERTIES LABELS "core;cloud")
+
+add_executable(accloud_cloud_api_support_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_api_support.cpp
+)
+target_link_libraries(accloud_cloud_api_support_tests PRIVATE accloud_domain accloud_infra)
+add_test(NAME accloud_cloud_api_support COMMAND accloud_cloud_api_support_tests)
+set_tests_properties(accloud_cloud_api_support PROPERTIES LABELS "core;cloud;architecture")
+
 if(ACCLOUD_ENABLE_QT)
   if(TARGET Qt6::Sql)
     add_executable(accloud_cloud_core_tests
         ${ACCLOUD_TESTS_ROOT}/cloud/test_cloud_core_regressions.cpp
-        ${ACCLOUD_SRC_ROOT}/app/LocalCacheStore.cpp
+        ${ACCLOUD_LOCAL_CACHE_SOURCES}
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesWorkflowBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/CloudFilesWorkflowBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/PrintWorkflowBridge.cpp
+        ${ACCLOUD_SRC_ROOT}/app/PrintWorkflowBridge.h
+        ${ACCLOUD_SRC_ROOT}/app/printing/PendingDirectPrintStore.cpp
+        ${ACCLOUD_SRC_ROOT}/app/printing/PendingDirectPrintStore.h
+        ${ACCLOUD_SRC_ROOT}/app/printing/PrinterFileCompatibility.cpp
+        ${ACCLOUD_SRC_ROOT}/app/printing/PrinterFileCompatibility.h
+        ${ACCLOUD_SRC_ROOT}/app/usecases/printing/PrepareRemotePrintUseCase.cpp
+        ${ACCLOUD_SRC_ROOT}/app/usecases/printing/PrepareRemotePrintUseCase.h
     )
     target_link_libraries(accloud_cloud_core_tests PRIVATE accloud_domain accloud_infra Qt6::Core Qt6::Sql)
     add_test(NAME accloud_cloud_core_regressions COMMAND accloud_cloud_core_tests)

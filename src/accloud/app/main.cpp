@@ -10,8 +10,10 @@
 #include "AppI18nBridge.h"
 #include "CloudBridge.h"
 #include "CloudFilesModel.h"
+#include "CloudFilesWorkflowBridge.h"
 #include "MqttBridge.h"
 #include "PrintersModel.h"
+#include "PrintWorkflowBridge.h"
 #include "PrinterFilesModel.h"
 #include "RecentJobsModel.h"
 #include "SessionImportBridge.h"
@@ -278,7 +280,94 @@ ApplicationWindow {
     qmlRegisterType<accloud::RecentJobsModel>("Accloud.Models", 1, 0, "RecentJobsModel");
     accloud::SessionImportBridge sessionImportBridge;
     accloud::CloudBridge cloudBridge;
+    accloud::CloudFilesWorkflowBridge cloudFilesWorkflowBridge;
+    accloud::PrintWorkflowBridge printWorkflowBridge;
     accloud::MqttBridge mqttBridge;
+    QObject::connect(&mqttBridge,
+                     &accloud::MqttBridge::printerFileActionReceived,
+                     &printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::handlePrinterFileAction);
+    QObject::connect(&cloudBridge,
+                     &accloud::CloudBridge::printerOrderFinished,
+                     &printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::handlePrinterOrderFinished);
+    QObject::connect(&cloudBridge,
+                     &accloud::CloudBridge::deleteFileFinished,
+                     &printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::handleCloudDeleteFinished);
+    QObject::connect(&cloudBridge,
+                     &accloud::CloudBridge::deleteFileFinished,
+                     &cloudFilesWorkflowBridge,
+                     &accloud::CloudFilesWorkflowBridge::handleDeleteFileFinished);
+    QObject::connect(&cloudFilesWorkflowBridge,
+                     &accloud::CloudFilesWorkflowBridge::deleteFileRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QString& fileId) { cloudBridge.deleteFileAsync(fileId); });
+    QObject::connect(&cloudBridge,
+                     &accloud::CloudBridge::compatiblePrintersByFileIdReady,
+                     &printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::handleCompatiblePrintersByFileIdReady);
+    QObject::connect(&cloudBridge,
+                     &accloud::CloudBridge::compatiblePrintersByExtReady,
+                     &printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::handleCompatiblePrintersByExtReady);
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::directLocalDeleteRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QVariantMap& request) {
+                         const QString printerId = request.value(QStringLiteral("printerId")).toString().trimmed();
+                         const QString fileName = request.value(QStringLiteral("fileName")).toString().trimmed();
+                         QString path = request.value(QStringLiteral("path")).toString().trimmed();
+                         if (path.isEmpty()) {
+                             path = QStringLiteral("/");
+                         }
+                         QVariantMap payload;
+                         payload.insert(QStringLiteral("filename"), fileName);
+                         payload.insert(QStringLiteral("path"), path);
+                         QVariantMap context;
+                         context.insert(QStringLiteral("kind"), QStringLiteral("directCleanup"));
+                         context.insert(QStringLiteral("completionKind"),
+                                        request.value(QStringLiteral("completionKind")));
+                         cloudBridge.sendPrinterOrderAsync(printerId, 104, payload, printerId, context);
+                     });
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::directCloudDeleteRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QVariantMap& operation) {
+                         const QString fileId = operation.value(QStringLiteral("cloudFileId")).toString().trimmed();
+                         if (!fileId.isEmpty()) {
+                             cloudBridge.deleteFileAsync(fileId);
+                         }
+                     });
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::remoteLocalDeleteRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QVariantMap& request) {
+                         const QString printerId = request.value(QStringLiteral("printerId")).toString().trimmed();
+                         const QString fileName = request.value(QStringLiteral("fileName")).toString().trimmed();
+                         QVariantMap payload;
+                         payload.insert(QStringLiteral("filename"), fileName);
+                         payload.insert(QStringLiteral("path"), QStringLiteral("/"));
+                         QVariantMap context;
+                         context.insert(QStringLiteral("kind"), QStringLiteral("remotePostPrintCleanup"));
+                         cloudBridge.sendPrinterOrderAsync(printerId, 104, payload, printerId, context);
+                     });
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::remoteCloudDeleteRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QString& fileId) { cloudBridge.deleteFileAsync(fileId); });
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::remoteCompatibilityByFileIdRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QString& requestId, const QString& fileId) {
+                         cloudBridge.fetchCompatiblePrintersByFileIdAsync(fileId, requestId);
+                     });
+    QObject::connect(&printWorkflowBridge,
+                     &accloud::PrintWorkflowBridge::remoteCompatibilityByExtRequested,
+                     &cloudBridge,
+                     [&cloudBridge](const QString& requestId, const QString& fileExt) {
+                         cloudBridge.fetchCompatiblePrintersByExtAsync(fileExt, requestId);
+                     });
 #if defined(ACCLOUD_DEBUG)
     accloud::LogBridge logBridge;
 #endif
@@ -291,6 +380,8 @@ ApplicationWindow {
                                              !kBuildDebugEnabled);
     engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
     engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
+    engine.rootContext()->setContextProperty("cloudFilesWorkflowBridge", &cloudFilesWorkflowBridge);
+    engine.rootContext()->setContextProperty("printWorkflowBridge", &printWorkflowBridge);
     engine.rootContext()->setContextProperty("mqttBridge", &mqttBridge);
 #if defined(ACCLOUD_DEBUG)
     engine.rootContext()->setContextProperty("logBridge", &logBridge);

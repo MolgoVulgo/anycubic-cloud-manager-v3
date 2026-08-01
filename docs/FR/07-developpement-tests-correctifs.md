@@ -70,6 +70,46 @@ ctest --preset default -R '^accloud_documentation_contract$' --output-on-failure
 
 La garde valide les paires bilingues, les liens locaux, les constantes MQTT/SSL figées, l’unique portée miniature de `ignoreSslErrors()`, les ressources QML actives, l’unicité des catalogues TS et le caractère exclusivement synthétique des données publiques de référence.
 
+Garde de frontière du bridge cloud :
+
+```bash
+python ../tools/check_cloud_bridge_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_cloud_bridge_architecture$' --output-on-failure
+```
+
+Cette garde maintient `CloudBridge` comme une façade bornée et empêche le traitement TLS/image des miniatures, le transport par URL signée ou l’orchestration upload/PWSZ de revenir dans le bridge.
+
+Garde de frontière du cache local :
+
+```bash
+python ../tools/check_local_cache_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_local_cache_architecture$' --output-on-failure
+```
+
+Cette garde maintient `LocalCacheStore` comme une petite façade de compatibilité, impose des unités séparées pour schéma/fichiers/imprimantes/jobs/état et vérifie que le runtime et les tests de régression SQL compilent le même ensemble `ACCLOUD_LOCAL_CACHE_SOURCES`.
+
+
+Garde de frontière du bridge MQTT :
+
+```bash
+python ../tools/check_mqtt_bridge_architecture.py --repo-root ..
+ctest --preset default -R '^accloud_mqtt_bridge_architecture$' --output-on-failure
+```
+
+Cette garde maintient `MqttBridge` comme une façade Qt bornée, impose les unités session/messages/télémétrie, vérifie l'ensemble partagé `ACCLOUD_MQTT_BRIDGE_SOURCES` et préserve la propriété de la configuration broker/SLICER figée dans l'unité session.
+
+Isolation du viewer expérimental :
+
+```bash
+cmake --preset experimental-viewer-core
+cmake --build --preset experimental-viewer-core --clean-first
+ctest --preset experimental-viewer-core \
+  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold)$' \
+  --output-on-failure
+```
+
+Les presets normaux imposent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. Le preset d'opt-in compile le scaffold formats/jobs/cache/rendu séparé dans `accloud_experimental_viewer` et son smoke test, sans le lier à `accloud_cli` ni exposer de contrôles viewer dans le QML de production. La garde d'architecture rejette également toute source marquée `Scaffold placeholder` dans `accloud_infra`.
+
 Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local. L'exécution CTest par défaut classe `accloud_mqtt_live_broker` en **Skipped** tant que l'exécution live n'est pas explicitement activée.
 
 Lancer le contrôle live uniquement avec une session locale valide et des chemins mTLS explicites :

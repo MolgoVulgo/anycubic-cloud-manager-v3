@@ -48,7 +48,7 @@ Le broker utilise TLS 1.2 et mTLS. `VerifyNone` et OpenSSL `SECLEVEL=0` peuvent 
 
 ### Exception de preview miniature
 
-`ignoreSslErrors()` existe uniquement dans le téléchargement synchrone utilisé pour alimenter le cache local de preview :
+`ignoreSslErrors()` existe uniquement dans `ThumbnailService`, dans le téléchargement synchrone utilisé pour alimenter le cache local de preview :
 
 ```text
 URL miniature

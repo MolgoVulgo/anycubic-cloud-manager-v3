@@ -48,7 +48,7 @@ The broker uses TLS 1.2 and mTLS. `VerifyNone` and OpenSSL `SECLEVEL=0` may be r
 
 ### Thumbnail preview exception
 
-`ignoreSslErrors()` exists only in the synchronous thumbnail fetch used to populate the local preview cache:
+`ignoreSslErrors()` exists only in `ThumbnailService`, in the synchronous thumbnail fetch used to populate the local preview cache:
 
 ```text
 thumbnail URL

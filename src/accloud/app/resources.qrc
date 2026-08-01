@@ -17,13 +17,11 @@
     <file alias="qml/pages/PrinterSelectCloudFileDialog.qml">../ui/qml/pages/PrinterSelectCloudFileDialog.qml</file>
     <file alias="qml/pages/PrinterRemotePrintConfigDialog.qml">../ui/qml/pages/PrinterRemotePrintConfigDialog.qml</file>
     <file alias="qml/pages/PrinterMainPanel.qml">../ui/qml/pages/PrinterMainPanel.qml</file>
-    <file alias="qml/pages/ViewerPage.qml">../ui/qml/pages/ViewerPage.qml</file>
     <file alias="qml/pages/SettingsPage.qml">../ui/qml/pages/SettingsPage.qml</file>
     <file alias="qml/pages/MqttPage.qml">../ui/qml/pages/MqttPage.qml</file>
     <file alias="qml/dialogs/SessionSettingsDialog.qml">../ui/qml/dialogs/SessionSettingsDialog.qml</file>
     <file alias="qml/dialogs/UploadDraftDialog.qml">../ui/qml/dialogs/UploadDraftDialog.qml</file>
     <file alias="qml/dialogs/PrintDraftDialog.qml">../ui/qml/dialogs/PrintDraftDialog.qml</file>
-    <file alias="qml/dialogs/ViewerDraftDialog.qml">../ui/qml/dialogs/ViewerDraftDialog.qml</file>
     <file alias="qml/components/Theme.js">../ui/qml/components/Theme.js</file>
     <file alias="qml/components/AppButton.qml">../ui/qml/components/AppButton.qml</file>
     <file alias="qml/components/AppTextField.qml">../ui/qml/components/AppTextField.qml</file>
@@ -50,6 +48,5 @@
     <file alias="qml/components/FolderTreeNode.qml">../ui/qml/components/FolderTreeNode.qml</file>
     <file alias="qml/panes/PreviewPane.qml">../ui/qml/panes/PreviewPane.qml</file>
     <file alias="qml/panes/LayerInspectorPane.qml">../ui/qml/panes/LayerInspectorPane.qml</file>
-    <file alias="qml/panes/Viewer3DPane.qml">../ui/qml/panes/Viewer3DPane.qml</file>
   </qresource>
 </RCC>

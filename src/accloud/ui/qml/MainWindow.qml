@@ -26,11 +26,6 @@ ApplicationWindow {
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
     property string sessionTargetPath: ""
     property string sessionDetailsText: qsTr("No session check executed yet.")
-    property int render3dDefaultQualityIndex: 2
-    property string render3dDefaultPalette: "Palette Steel"
-    property bool render3dDefaultContourOnly: false
-    property int render3dDefaultCutoff: 100
-    property int render3dDefaultStride: 1
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
@@ -236,10 +231,6 @@ ApplicationWindow {
         printDialog.open()
     }
 
-    function openViewerDialog() {
-        viewerDialog.open()
-    }
-
     function showSessionDetails() {
         if (typeof sessionImportBridge === "undefined"
                 || sessionImportBridge === null
@@ -374,16 +365,6 @@ ApplicationWindow {
                 }
             }
 
-            MenuItem {
-                objectName: "menuSettingsRender3d"
-                text: qsTr("3D rendering")
-                onTriggered: {
-                    root.statusText = qsTr("Opening default 3D rendering settings.")
-                    render3dDefaultsDialog.open()
-                }
-            }
-
-
             MenuSeparator {}
 
             MenuItem {
@@ -486,11 +467,6 @@ ApplicationWindow {
     Dialogs.PrintDraftDialog {
         id: printDialog
         objectName: "printDraftDialog"
-    }
-
-    Dialogs.ViewerDraftDialog {
-        id: viewerDialog
-        objectName: "viewerDraftDialog"
     }
 
     AppDialogFrame {
@@ -846,139 +822,6 @@ ApplicationWindow {
     }
 
     AppDialogFrame {
-        id: render3dDefaultsDialog
-        objectName: "render3dDefaultsDialog"
-        title: qsTr("Default 3D Rendering Settings")
-        subtitle: qsTr("Set default 3D rendering values here (without opening the viewer).")
-        minimumWidth: 620
-        maximumWidth: 620
-        minimumHeight: 410
-        maximumHeight: 410
-        dialogSize: "medium"
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Quality"); Layout.preferredWidth: 130 }
-            AppComboBox {
-                id: renderQualityCombo
-                objectName: "renderQualityCombo"
-                Layout.fillWidth: true
-                textRole: "label"
-                model: [
-                    { "value": "q33", "label": qsTr("Quality 33") },
-                    { "value": "q66", "label": qsTr("Quality 66") },
-                    { "value": "q100", "label": qsTr("Quality 100") }
-                ]
-                currentIndex: root.render3dDefaultQualityIndex
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Palette"); Layout.preferredWidth: 130 }
-            AppComboBox {
-                id: renderPaletteCombo
-                objectName: "renderPaletteCombo"
-                Layout.fillWidth: true
-                textRole: "label"
-                model: [
-                    { "value": "Palette Steel", "label": qsTr("Palette Steel") },
-                    { "value": "Palette Resin", "label": qsTr("Palette Resin") },
-                    { "value": "Palette Heat", "label": qsTr("Palette Heat") }
-                ]
-                Component.onCompleted: {
-                    for (var i = 0; i < model.length; ++i) {
-                        if (String(model[i].value) === root.render3dDefaultPalette) {
-                            currentIndex = i
-                            return
-                        }
-                    }
-                    currentIndex = 0
-                }
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Layer cutoff"); Layout.preferredWidth: 130 }
-            AppSlider {
-                id: renderCutoffSlider
-                objectName: "renderCutoffSlider"
-                Layout.fillWidth: true
-                from: 0
-                to: 100
-                stepSize: 1
-                value: root.render3dDefaultCutoff
-            }
-            Text {
-                text: Math.round(renderCutoffSlider.value) + "%"
-                color: Theme.fgSecondary
-                Layout.preferredWidth: 46
-                horizontalAlignment: Text.AlignRight
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Stride"); Layout.preferredWidth: 130 }
-            AppSpinBox {
-                id: renderStrideSpin
-                objectName: "renderStrideSpin"
-                from: 1
-                to: 8
-                value: root.render3dDefaultStride
-            }
-            Item { Layout.fillWidth: true }
-            AppCheckBox {
-                id: renderContourOnlyCheck
-                objectName: "renderContourOnlyCheck"
-                text: qsTr("Contour only")
-                checked: root.render3dDefaultContourOnly
-            }
-        }
-
-        Item { Layout.fillHeight: true }
-
-        footerLeadingData: [
-            AppButton {
-                text: qsTr("Reset")
-                onClicked: {
-                    renderQualityCombo.currentIndex = 2
-                    renderPaletteCombo.currentIndex = 0
-                    renderCutoffSlider.value = 100
-                    renderStrideSpin.value = 1
-                    renderContourOnlyCheck.checked = false
-                }
-            }
-        ]
-
-        footerTrailingData: [
-            AppButton {
-                text: qsTr("Close")
-                onClicked: render3dDefaultsDialog.close()
-            },
-            AppButton {
-                text: qsTr("Apply")
-                variant: "primary"
-                onClicked: {
-                    root.render3dDefaultQualityIndex = renderQualityCombo.currentIndex
-                    if (renderPaletteCombo.currentIndex >= 0
-                            && renderPaletteCombo.currentIndex < renderPaletteCombo.model.length) {
-                        root.render3dDefaultPalette = String(renderPaletteCombo.model[renderPaletteCombo.currentIndex].value)
-                    }
-                    root.render3dDefaultCutoff = Math.round(renderCutoffSlider.value)
-                    root.render3dDefaultStride = renderStrideSpin.value
-                    root.render3dDefaultContourOnly = renderContourOnlyCheck.checked
-                    root.statusText = qsTr("Applied 3D defaults: %1, %2, cutoff %3%")
-                            .arg(String(renderQualityCombo.currentText))
-                            .arg(root.render3dDefaultPalette)
-                            .arg(root.render3dDefaultCutoff)
-                }
-            }
-        ]
-    }
-
-    AppDialogFrame {
         id: aboutDialog
         objectName: "aboutDialog"
         title: qsTr("About")
@@ -990,7 +833,7 @@ ApplicationWindow {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow, runtime logs, and 3D rendering.")
+            text: qsTr("Anycubic Cloud Control Room\nVersion: 0.1.0\nQt/QML interface for cloud workflow and runtime logs.")
             color: Theme.fgPrimary
             wrapMode: Text.WordWrap
         }
@@ -1129,13 +972,6 @@ ApplicationWindow {
                         }
 
                         HeaderActionButton {
-                            id: viewerDialogButton
-                            objectName: "viewerDialogButton"
-                            text: qsTr("3D Viewer Dialog")
-                            onClicked: root.openViewerDialog()
-                        }
-
-                        HeaderActionButton {
                             id: uploadDialogButton
                             objectName: "uploadDialogButton"
                             text: qsTr("Upload Dialog")
@@ -1224,7 +1060,10 @@ ApplicationWindow {
                             embeddedInTabsContainer: true
                             showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled
                             onStatusBroadcast: function(message, severity, operationId) {
-                                root.pushGlobalStatus(message, severity, operationId)
+                                if (root !== null && root !== undefined
+                                        && typeof root.pushGlobalStatus === "function") {
+                                    root.pushGlobalStatus(message, severity, operationId)
+                                }
                             }
                             onPwszUploadSettingsChanged: root.loadPwszUploadSettings()
                             onPrintIntentRequested: function(fileId, fileName, fileData) {
@@ -1259,7 +1098,10 @@ ApplicationWindow {
                             directDeleteLocalOnFailurePreference: root.directDeleteLocalOnFailureEnabled
                             pageActive: controlTabs.currentIndex === 1
                             onStatusBroadcast: function(message, severity, operationId) {
-                                root.pushGlobalStatus(message, severity, operationId)
+                                if (root !== null && root !== undefined
+                                        && typeof root.pushGlobalStatus === "function") {
+                                    root.pushGlobalStatus(message, severity, operationId)
+                                }
                             }
                             onRemotePrintAccepted: function(printerId, taskId) {
                                 controlTabs.currentIndex = 1

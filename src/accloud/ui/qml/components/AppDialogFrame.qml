@@ -20,8 +20,10 @@ Dialog {
     property int minimumHeight: 0
     property int maximumHeight: 980
     readonly property color headerFooterBg: Qt.darker(Theme.bgDialog, 1.05)
-    readonly property real overlayWidth: (Overlay.overlay && Overlay.overlay.width > 0) ? Overlay.overlay.width : 1280
-    readonly property real overlayHeight: (Overlay.overlay && Overlay.overlay.height > 0) ? Overlay.overlay.height : 860
+    readonly property Item overlayItem: (typeof Overlay.overlay !== "undefined"
+                                         && Overlay.overlay !== null) ? Overlay.overlay : null
+    readonly property real overlayWidth: (overlayItem && overlayItem.width > 0) ? overlayItem.width : 1280
+    readonly property real overlayHeight: (overlayItem && overlayItem.height > 0) ? overlayItem.height : 860
     readonly property real widthRatio: dialogSize === "small"
                                      ? 0.46
                                      : dialogSize === "large"
@@ -43,8 +45,8 @@ Dialog {
     }
 
     modal: true
-    parent: Overlay.overlay
-    anchors.centerIn: Overlay.overlay
+    parent: root.overlayItem
+    anchors.centerIn: root.overlayItem
     header: null
     closePolicy: allowScrimClose && allowEscapeClose
                  ? (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
