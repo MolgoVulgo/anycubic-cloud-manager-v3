@@ -575,6 +575,13 @@ endif()
 add_test(NAME accloud_security_redaction COMMAND accloud_security_tests)
 set_tests_properties(accloud_security_redaction PROPERTIES LABELS "core;security")
 
+add_executable(accloud_jsonl_logger_tests
+    ${ACCLOUD_TESTS_ROOT}/cloud/test_jsonl_logger.cpp
+)
+target_link_libraries(accloud_jsonl_logger_tests PRIVATE accloud_domain accloud_infra)
+add_test(NAME accloud_jsonl_logger_timestamp COMMAND accloud_jsonl_logger_tests)
+set_tests_properties(accloud_jsonl_logger_timestamp PROPERTIES LABELS "core;logging")
+
 if(ACCLOUD_DEBUG)
   add_executable(accloud_raw_traffic_log_tests
       ${ACCLOUD_TESTS_ROOT}/cloud/test_raw_traffic_logger.cpp

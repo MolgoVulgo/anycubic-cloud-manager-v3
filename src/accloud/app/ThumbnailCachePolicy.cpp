@@ -20,6 +20,22 @@ void appendUnique(QStringList& output, const QString& source) {
 
 } // namespace
 
+ThumbnailRefreshDecision refreshDecision(ThumbnailRefreshPolicy policy,
+                                         bool hasInventoryBaseline,
+                                         bool fileAlreadyKnown) {
+    switch (policy) {
+    case ThumbnailRefreshPolicy::CacheOnly:
+        return {};
+    case ThumbnailRefreshPolicy::NewFilesOnly:
+        return {hasInventoryBaseline && !fileAlreadyKnown, false};
+    case ThumbnailRefreshPolicy::MissingThumbnails:
+        return {true, false};
+    case ThumbnailRefreshPolicy::ForceAll:
+        return {true, true};
+    }
+    return {};
+}
+
 QString canonicalSourceIdentity(const QString& source) {
     const QString value = source.trimmed();
     if (value.isEmpty()) {

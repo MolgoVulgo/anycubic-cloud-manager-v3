@@ -259,6 +259,9 @@ void CloudUploadController::startUploadLocalFile(const QString& localPath,
 
             const bool ready = usecases::cloud::UploadLocalFileUseCase::isUploadReady(
                 result.uploadStatus, result.gcodeId);
+            if (result.ok && !m_shuttingDown.load() && m_refreshFilesCallback) {
+                m_refreshFilesCallback();
+            }
             if (result.ok && !ready && !m_shuttingDown.load() && m_refreshFilesCallback) {
                 QTimer::singleShot(10000, this, [this]() {
                     if (!m_shuttingDown.load() && m_refreshFilesCallback) {

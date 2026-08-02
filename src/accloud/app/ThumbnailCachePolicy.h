@@ -6,6 +6,22 @@
 
 namespace accloud::thumbnail_cache {
 
+enum class ThumbnailRefreshPolicy {
+    CacheOnly,
+    NewFilesOnly,
+    MissingThumbnails,
+    ForceAll,
+};
+
+struct ThumbnailRefreshDecision {
+    bool downloadMissing{false};
+    bool forceDownload{false};
+};
+
+ThumbnailRefreshDecision refreshDecision(ThumbnailRefreshPolicy policy,
+                                         bool hasInventoryBaseline,
+                                         bool fileAlreadyKnown);
+
 QString canonicalSourceIdentity(const QString& source);
 QByteArray stableCacheKey(const QString& source);
 QStringList orderedCandidates(const QStringList& candidates,

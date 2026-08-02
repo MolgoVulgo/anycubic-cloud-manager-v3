@@ -1776,10 +1776,10 @@ Item {
                         root.loadFiles()
                         return
                     }
-                    if (typeof cloudBridge.refreshFilesAsync === "function") {
+                    if (typeof cloudBridge.refreshFilesAndThumbnailsAsync === "function") {
                         root.statusMsg = qsTr("Force refresh from cloud...")
                         root.statusSev = "info"
-                        cloudBridge.refreshFilesAsync(1, 20, true)
+                        cloudBridge.refreshFilesAndThumbnailsAsync(1, 20, true)
                     } else {
                         root.loadFiles()
                     }

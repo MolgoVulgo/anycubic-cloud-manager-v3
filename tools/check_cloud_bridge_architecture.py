@@ -83,6 +83,23 @@ def main() -> int:
     if thumbnail.count("ignoreSslErrors()") != 1:
         errors.append("ThumbnailService must contain exactly one thumbnail-only ignoreSslErrors() call")
 
+    support = (cloud_dir / "CloudBridgeSupport.cpp").read_text(encoding="utf-8")
+    if "ThumbnailService.h" in support or "resolveThumbnailLocalUrl(" in support:
+        errors.append("printer project mapping must remain independent from thumbnail resolution")
+    if 'm.insert("img", QString{});' not in support or 'm.insert("imgRaw", rawImg);' not in support:
+        errors.append("printer project mapping must keep only raw thumbnail metadata")
+    if "resolveProjectImageFromFilesCache" in thumbnail or "localImageIsVisuallyUsable" in thumbnail:
+        errors.append("ThumbnailService must not own printer-history cache enrichment")
+    if "resolveProjectImageFromFilesCache" in bridge or "localImageIsVisuallyUsable" in bridge:
+        errors.append("CloudBridge printer history must not consult the thumbnail cache")
+
+    cloud_files_page = (root / "src/accloud/ui/qml/pages/CloudFilesPage.qml").read_text(encoding="utf-8")
+    printer_page = (root / "src/accloud/ui/qml/pages/PrinterPage.qml").read_text(encoding="utf-8")
+    if "cloudBridge.refreshFilesAndThumbnailsAsync(1, 20, true)" not in cloud_files_page:
+        errors.append("Files refresh button must own the explicit forced thumbnail refresh")
+    if "cloudBridge.refreshFilesMetadataAsync(1, 200, true)" not in printer_page:
+        errors.append("Printer cloud-file refresh must remain metadata/cache only")
+
     if errors:
         return fail(errors)
 

@@ -7,79 +7,107 @@ AppPageFrame {
     id: root
 
     property bool loading: false
-    property bool debugUi: false
-    property bool showDebugLabels: false
+    property bool developmentBuild: false
     property bool localFilePrintEnabled: true
+    property string localFilePrintBlockReason: ""
     property var printersModel: null
     property string selectedPrinterId: ""
     property var tabTitleProvider: null
     property var selectedPrinter: null
     property var selectedPrinterDetails: ({})
     property var selectedLiveJobData: ({})
-    property string selectedPrinterDetailsRawJson: ""
-    property string selectedPrinterProjectsRawJson: ""
     property bool feedingOperationActive: false
     property int feedingOperationType: 0
     property bool feedingStopInProgress: false
     property bool loadingPrinterHistory: false
     property var printerHistoryModel: null
-    property string printersEndpointPath: ""
-    property string printersEndpointRawJson: ""
     property var statusChipTextProvider: null
     property var progressTextProvider: null
     property var timeTextProvider: null
     property var unixTimeTextProvider: null
-    property var printStatusTextProvider: null
-    property var prettyJsonProvider: null
     property var localizedTextProvider: null
+    property int fleetRevision: 0
+
+    readonly property var fleetCounts: {
+        root.fleetRevision
+        return root.calculateFleetCounts()
+    }
 
     signal refreshRequested()
-    signal debugToggled(bool checked)
     signal printerSelected(string printerId)
-    signal printerMqttDetailsRequested(string printerId)
     signal cloudFileRequested(string printerId)
     signal localFileRequested(string printerId)
     signal resinFeedRequested(string printerId, int feedType)
     signal resinFeedStopRequested(string printerId, int feedType)
 
-    component DebugTag: Rectangle {
-        property string label: ""
-        visible: root.showDebugLabels
-        z: 200
-        radius: 4
-        color: Qt.rgba(1.0, 0.95, 0.82, 0.95)
-        border.width: 1
-        border.color: Theme.warning
-        implicitWidth: debugTagText.implicitWidth + 10
-        implicitHeight: debugTagText.implicitHeight + 6
+    function printerIsPrinting(printer) {
+        if (!printer)
+            return false
+        if (String(printer.state || "").toUpperCase() === "PRINTING")
+            return true
+        var state = String(printer.mqttPrintState || "").toLowerCase()
+        if (state.length <= 0 && printer.details)
+            state = String(printer.details.mqttPrintState || "").toLowerCase()
+        return state === "printing"
+                || state === "monitoring"
+                || state === "preheating"
+                || state === "paused"
+                || state === "resuming"
+                || state === "resumed"
+    }
 
-        Text {
-            id: debugTagText
-            anchors.centerIn: parent
-            text: parent.label
-            color: Theme.warning
-            font.pixelSize: 10
-            font.bold: true
+    function printerIsOffline(printer) {
+        if (!printer)
+            return true
+        var state = String(printer.state || "").toUpperCase()
+        if (state === "OFFLINE")
+            return true
+        var available = Number(printer.available)
+        return isFinite(available) && available === 0
+    }
+
+    function calculateFleetCounts() {
+        var counts = { total: 0, online: 0, printing: 0, offline: 0 }
+        if (!root.printersModel || root.printersModel.count === undefined
+                || typeof root.printersModel.get !== "function")
+            return counts
+
+        counts.total = Number(root.printersModel.count)
+        if (!isFinite(counts.total) || counts.total < 0)
+            counts.total = 0
+
+        for (var i = 0; i < counts.total; ++i) {
+            var printer = root.printersModel.get(i)
+            if (root.printerIsOffline(printer)) {
+                counts.offline += 1
+                continue
+            }
+            counts.online += 1
+            if (root.printerIsPrinting(printer))
+                counts.printing += 1
         }
+        return counts
     }
 
     anchors.fill: parent
 
-    PrinterToolbar {
-        loading: root.loading
-        debugChecked: root.showDebugLabels
-        showDebugControls: root.debugUi || root.showDebugLabels
-        onRefreshRequested: root.refreshRequested()
-        onDebugToggled: function(checked) { root.debugToggled(checked) }
+    Connections {
+        target: root.printersModel
+        ignoreUnknownSignals: true
+        function onDataChanged() { root.fleetRevision += 1 }
+        function onModelReset() { root.fleetRevision += 1 }
+        function onRowsInserted() { root.fleetRevision += 1 }
+        function onRowsRemoved() { root.fleetRevision += 1 }
+        function onCountChanged() { root.fleetRevision += 1 }
     }
 
-    Text {
-        Layout.fillWidth: true
-        visible: root.showDebugLabels
-        text: qsTr("sections: printerToolbar | printersTabsBar | deviceDetailsPanel | endpointJsonPanel")
-        color: Theme.warning
-        font.pixelSize: Theme.fontCaptionPx
-        elide: Text.ElideRight
+    PrinterToolbar {
+        loading: root.loading
+        totalCount: Number(root.fleetCounts.total || 0)
+        onlineCount: Number(root.fleetCounts.online || 0)
+        printingCount: Number(root.fleetCounts.printing || 0)
+        offlineCount: Number(root.fleetCounts.offline || 0)
+        onRefreshRequested: root.refreshRequested()
     }
 
     Rectangle {
@@ -102,7 +130,6 @@ AppPageFrame {
                 selectedPrinterId: root.selectedPrinterId
                 tabTitleProvider: root.tabTitleProvider
                 onPrinterSelected: function(printerId) { root.printerSelected(printerId) }
-                onPrinterDetailsRequested: function(printerId) { root.printerMqttDetailsRequested(printerId) }
             }
 
             PrinterDetailPanel {
@@ -110,41 +137,28 @@ AppPageFrame {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 embeddedInTabsContainer: true
+                developmentBuild: root.developmentBuild
                 selectedPrinter: root.selectedPrinter
                 selectedPrinterId: root.selectedPrinterId
                 selectedPrinterDetails: root.selectedPrinterDetails
                 selectedLiveJobData: root.selectedLiveJobData
-                selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
-                selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
                 feedingOperationActive: root.feedingOperationActive
                 feedingOperationType: root.feedingOperationType
                 feedingStopInProgress: root.feedingStopInProgress
                 loadingPrinterHistory: root.loadingPrinterHistory
                 localFilePrintEnabled: root.localFilePrintEnabled
+                localFilePrintBlockReason: root.localFilePrintBlockReason
                 printerHistoryModel: root.printerHistoryModel
-                showDebugLabels: root.showDebugLabels
-                printersEndpointPath: root.printersEndpointPath
-                printersEndpointRawJson: root.printersEndpointRawJson
                 statusChipTextProvider: root.statusChipTextProvider
                 progressTextProvider: root.progressTextProvider
                 timeTextProvider: root.timeTextProvider
                 unixTimeTextProvider: root.unixTimeTextProvider
-                printStatusTextProvider: root.printStatusTextProvider
-                prettyJsonProvider: root.prettyJsonProvider
                 localizedTextProvider: root.localizedTextProvider
                 onCloudFileRequested: function(printerId) { root.cloudFileRequested(printerId) }
                 onLocalFileRequested: function(printerId) { root.localFileRequested(printerId) }
                 onResinFeedRequested: function(printerId, feedType) { root.resinFeedRequested(printerId, feedType) }
                 onResinFeedStopRequested: function(printerId, feedType) { root.resinFeedStopRequested(printerId, feedType) }
             }
-        }
-
-        DebugTag {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.leftMargin: 8
-            anchors.topMargin: 8
-            label: "panel: deviceDetailsPanel"
         }
     }
 }

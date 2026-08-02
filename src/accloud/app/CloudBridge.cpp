@@ -4,6 +4,7 @@
 #include "app/cloud/CloudDownloadController.h"
 #include "app/cloud/CloudUploadController.h"
 #include "app/cloud/ThumbnailService.h"
+#include "app/ThumbnailCachePolicy.h"
 
 #include "app/printing/PrinterFileCompatibility.h"
 
@@ -54,8 +55,6 @@ using cloud_bridge_support::printerDetailsToMap;
 using cloud_bridge_support::printerInfoToMap;
 using cloud_bridge_support::printerProjectToMap;
 using cloud_bridge_support::reasonCatalogItemToMap;
-using thumbnail_service::localImageIsVisuallyUsable;
-using thumbnail_service::resolveProjectImageFromFilesCache;
 using thumbnail_service::resolveThumbnailInMap;
 
 
@@ -84,7 +83,8 @@ CloudBridge::CloudBridge(QObject* parent)
             this, &CloudBridge::pwszCloudPreviewUpdateFinished);
     m_uploadController->setRefreshFilesCallback([this]() {
         if (!m_shuttingDown.load()) {
-            refreshFilesAsync(1, 20, true);
+            refreshFilesAsyncWithPolicy(
+                1, 20, true, thumbnail_cache::ThumbnailRefreshPolicy::MissingThumbnails);
         }
     });
 }
@@ -167,6 +167,34 @@ bool CloudBridge::shouldRefresh(const QString& scope, int ttlSec, bool force) co
 
 namespace {
 
+QSet<QString> cachedFileIds(const LocalCacheStore* cache) {
+    QSet<QString> fileIds;
+    if (cache == nullptr || !cache->isAvailable()) {
+        return fileIds;
+    }
+
+    const QVariantList cachedFiles = cache->loadFiles(1, 1500);
+    fileIds.reserve(cachedFiles.size());
+    for (const QVariant& cachedFile : cachedFiles) {
+        const QString fileId = cachedFile.toMap()
+                                   .value(QStringLiteral("fileId"))
+                                   .toString()
+                                   .trimmed();
+        if (!fileId.isEmpty()) {
+            fileIds.insert(fileId);
+        }
+    }
+    return fileIds;
+}
+
+bool hasFilesInventoryBaseline(const LocalCacheStore* cache) {
+    if (cache == nullptr || !cache->isAvailable()) {
+        return false;
+    }
+    const auto state = cache->syncState(QStringLiteral("files"));
+    return state.has_value() && state->hasSuccess;
+}
+
 QHash<QString, QString> cachedThumbnailUrlsByFileId(const LocalCacheStore* cache) {
     QHash<QString, QString> thumbnails;
     if (cache == nullptr || !cache->isAvailable()) {
@@ -208,7 +236,14 @@ void reuseCachedThumbnailCandidate(QVariantMap& item,
 
 } // namespace
 
-QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails) const {
+QVariantList CloudBridge::fetchFilesWithRetry(
+    int page,
+    int limit,
+    QString& message,
+    bool& ok,
+    thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy,
+    const QSet<QString>& knownFileIds,
+    bool hasInventoryBaseline) const {
     ok = false;
     QVariantList files;
     const usecases::cloud::LoadCloudFilesUseCase useCase;
@@ -219,23 +254,30 @@ QVariantList CloudBridge::fetchFilesWithRetry(int page, int limit, QString& mess
         return files;
     }
 
+    const bool forceAll = thumbnailPolicy == thumbnail_cache::ThumbnailRefreshPolicy::ForceAll;
     const QHash<QString, QString> cachedThumbnails =
-        forceThumbnails ? QHash<QString, QString>{} : cachedThumbnailUrlsByFileId(m_cache);
+        forceAll ? QHash<QString, QString>{} : cachedThumbnailUrlsByFileId(m_cache);
     files.reserve(static_cast<qsizetype>(result.files.size()));
     for (const auto& f : result.files) {
         QVariantMap item = fileInfoToMap(f);
-        reuseCachedThumbnailCandidate(item, cachedThumbnails, forceThumbnails);
-        resolveThumbnailInMap(item, downloadThumbnails, forceThumbnails);
+        const QString fileId = item.value(QStringLiteral("fileId")).toString().trimmed();
+        const bool fileAlreadyKnown = fileId.isEmpty() || knownFileIds.contains(fileId);
+        const auto decision = thumbnail_cache::refreshDecision(
+            thumbnailPolicy, hasInventoryBaseline, fileAlreadyKnown);
+        reuseCachedThumbnailCandidate(item, cachedThumbnails, decision.forceDownload);
+        resolveThumbnailInMap(item, decision.downloadMissing, decision.forceDownload);
         files.append(item);
     }
     return files;
 }
 
-QVariantList CloudBridge::fetchAllFilesWithRetry(int pageSize,
-                                                   QString& message,
-                                                   bool& ok,
-                                                   bool downloadThumbnails,
-                                                   bool forceThumbnails) const {
+QVariantList CloudBridge::fetchAllFilesWithRetry(
+    int pageSize,
+    QString& message,
+    bool& ok,
+    thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy,
+    const QSet<QString>& knownFileIds,
+    bool hasInventoryBaseline) const {
     ok = false;
     QVariantList files;
     const usecases::cloud::LoadCloudFilesUseCase useCase;
@@ -246,13 +288,18 @@ QVariantList CloudBridge::fetchAllFilesWithRetry(int pageSize,
         return files;
     }
 
+    const bool forceAll = thumbnailPolicy == thumbnail_cache::ThumbnailRefreshPolicy::ForceAll;
     const QHash<QString, QString> cachedThumbnails =
-        forceThumbnails ? QHash<QString, QString>{} : cachedThumbnailUrlsByFileId(m_cache);
+        forceAll ? QHash<QString, QString>{} : cachedThumbnailUrlsByFileId(m_cache);
     files.reserve(static_cast<qsizetype>(result.files.size()));
     for (const auto& file : result.files) {
         QVariantMap item = fileInfoToMap(file);
-        reuseCachedThumbnailCandidate(item, cachedThumbnails, forceThumbnails);
-        resolveThumbnailInMap(item, downloadThumbnails, forceThumbnails);
+        const QString fileId = item.value(QStringLiteral("fileId")).toString().trimmed();
+        const bool fileAlreadyKnown = fileId.isEmpty() || knownFileIds.contains(fileId);
+        const auto decision = thumbnail_cache::refreshDecision(
+            thumbnailPolicy, hasInventoryBaseline, fileAlreadyKnown);
+        reuseCachedThumbnailCandidate(item, cachedThumbnails, decision.forceDownload);
+        resolveThumbnailInMap(item, decision.downloadMissing, decision.forceDownload);
         files.append(item);
     }
     return files;
@@ -527,17 +574,25 @@ void CloudBridge::loadCachedQuotaAsync() {
 }
 
 void CloudBridge::refreshFilesAsync(int page, int limit, bool force) {
-    refreshFilesAsyncWithPolicy(page, limit, force, false);
+    refreshFilesAsyncWithPolicy(
+        page, limit, force, thumbnail_cache::ThumbnailRefreshPolicy::NewFilesOnly);
+}
+
+void CloudBridge::refreshFilesMetadataAsync(int page, int limit, bool force) {
+    refreshFilesAsyncWithPolicy(
+        page, limit, force, thumbnail_cache::ThumbnailRefreshPolicy::CacheOnly);
 }
 
 void CloudBridge::refreshFilesAndThumbnailsAsync(int page, int limit, bool force) {
-    refreshFilesAsyncWithPolicy(page, limit, force, true);
+    refreshFilesAsyncWithPolicy(
+        page, limit, force, thumbnail_cache::ThumbnailRefreshPolicy::ForceAll);
 }
 
-void CloudBridge::refreshFilesAsyncWithPolicy(int page,
-                                              int limit,
-                                              bool force,
-                                              bool forceThumbnails) {
+void CloudBridge::refreshFilesAsyncWithPolicy(
+    int page,
+    int limit,
+    bool force,
+    thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy) {
     if (m_shuttingDown.load()) {
         return;
     }
@@ -545,7 +600,7 @@ void CloudBridge::refreshFilesAsyncWithPolicy(int page,
         return;
     }
 
-    launchBackgroundTask([this, page, limit, force, forceThumbnails]() {
+    launchBackgroundTask([this, page, limit, force, thumbnailPolicy]() {
         if (m_shuttingDown.load()) {
             m_refreshFilesRunning.store(false);
             return;
@@ -556,11 +611,18 @@ void CloudBridge::refreshFilesAsyncWithPolicy(int page,
             return;
         }
 
+        const QSet<QString> knownFileIds = cachedFileIds(m_cache);
+        const bool hasInventoryBaseline = hasFilesInventoryBaseline(m_cache);
         const int scanPageSize = std::max(100, std::min(limit, 500));
         QString inventoryMessage;
         bool inventoryComplete = false;
         QVariantList files = fetchAllFilesWithRetry(
-            scanPageSize, inventoryMessage, inventoryComplete, true, forceThumbnails);
+            scanPageSize,
+            inventoryMessage,
+            inventoryComplete,
+            thumbnailPolicy,
+            knownFileIds,
+            hasInventoryBaseline);
 
         QString message = inventoryMessage;
         bool ok = inventoryComplete;
@@ -568,7 +630,13 @@ void CloudBridge::refreshFilesAsyncWithPolicy(int page,
             QString fallbackMessage;
             bool fallbackOk = false;
             files = fetchFilesWithRetry(
-                page, limit, fallbackMessage, fallbackOk, true, forceThumbnails);
+                page,
+                limit,
+                fallbackMessage,
+                fallbackOk,
+                thumbnailPolicy,
+                knownFileIds,
+                hasInventoryBaseline);
             message = fallbackMessage;
             ok = fallbackOk;
         }
@@ -774,18 +842,7 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
         if (projectsResult.ok) {
             projects.reserve(static_cast<qsizetype>(projectsResult.items.size()));
             for (const auto& item : projectsResult.items) {
-                QVariantMap projectMap = printerProjectToMap(item);
-                QString currentImage = projectMap.value(QStringLiteral("img")).toString();
-                if (!localImageIsVisuallyUsable(currentImage)) {
-                    const QString fallbackImage = resolveProjectImageFromFilesCache(
-                        m_cache,
-                        projectMap.value(QStringLiteral("currentFile")).toString(),
-                        projectMap.value(QStringLiteral("gcodeName")).toString());
-                    if (!fallbackImage.isEmpty()) {
-                        projectMap.insert(QStringLiteral("img"), fallbackImage);
-                    }
-                }
-                projects.append(projectMap);
+                projects.append(printerProjectToMap(item));
             }
             if (m_cache != nullptr) {
                 m_cache->upsertJobsForPrinter(normalizedPrinterId, projects);
@@ -793,21 +850,6 @@ void CloudBridge::refreshPrinterInsightsAsync(const QString& printerId, int page
             }
         } else if (m_cache != nullptr) {
             projects = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
-            for (int i = 0; i < projects.size(); ++i) {
-                QVariantMap projectMap = projects[i].toMap();
-                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
-                if (localImageIsVisuallyUsable(currentImage)) {
-                    continue;
-                }
-                const QString fallbackImage = resolveProjectImageFromFilesCache(
-                    m_cache,
-                    projectMap.value(QStringLiteral("currentFile")).toString(),
-                    projectMap.value(QStringLiteral("gcodeName")).toString());
-                if (!fallbackImage.isEmpty()) {
-                    projectMap.insert(QStringLiteral("img"), fallbackImage);
-                    projects[i] = projectMap;
-                }
-            }
         }
 
         const bool ok = detailsResult.ok || projectsResult.ok || !projects.isEmpty();
@@ -857,7 +899,14 @@ QVariantMap CloudBridge::fetchFiles(int page, int limit) const {
     QVariantMap out;
     QString message;
     bool ok = false;
-    const QVariantList files = fetchFilesWithRetry(page, limit, message, ok, false);
+    const QVariantList files = fetchFilesWithRetry(
+        page,
+        limit,
+        message,
+        ok,
+        thumbnail_cache::ThumbnailRefreshPolicy::CacheOnly,
+        {},
+        false);
 
     out.insert("ok", ok);
     out.insert("message", message);
@@ -975,8 +1024,13 @@ QVariantMap CloudBridge::inspectPwszPreview(const QString& localPath) const {
     return m_uploadController->inspectPwszPreview(localPath);
 }
 
-QVariantMap CloudBridge::uploadLocalFile(const QString& localPath, bool completePwszPreview2) const {
-    return m_uploadController->uploadLocalFile(localPath, completePwszPreview2);
+QVariantMap CloudBridge::uploadLocalFile(const QString& localPath, bool completePwszPreview2) {
+    const QVariantMap result = m_uploadController->uploadLocalFile(localPath, completePwszPreview2);
+    if (result.value(QStringLiteral("ok")).toBool() && !m_shuttingDown.load()) {
+        refreshFilesAsyncWithPolicy(
+            1, 20, true, thumbnail_cache::ThumbnailRefreshPolicy::MissingThumbnails);
+    }
+    return result;
 }
 
 void CloudBridge::startUploadLocalFile(const QString& localPath,
@@ -1141,18 +1195,7 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
         QVariantList projects;
         projects.reserve(static_cast<qsizetype>(r.items.size()));
         for (const auto& item : r.items) {
-            QVariantMap projectMap = printerProjectToMap(item);
-            const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
-            if (!localImageIsVisuallyUsable(currentImage)) {
-                const QString fallbackImage = resolveProjectImageFromFilesCache(
-                    m_cache,
-                    projectMap.value(QStringLiteral("currentFile")).toString(),
-                    projectMap.value(QStringLiteral("gcodeName")).toString());
-                if (!fallbackImage.isEmpty()) {
-                    projectMap.insert(QStringLiteral("img"), fallbackImage);
-                }
-            }
-            projects.append(projectMap);
+            projects.append(printerProjectToMap(item));
         }
         out.insert("projects", projects);
         if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
@@ -1162,25 +1205,9 @@ QVariantMap CloudBridge::fetchPrinterProjects(const QString& printerId, int page
     } else if (m_cache != nullptr && !normalizedPrinterId.isEmpty()) {
         const QVariantList cached = m_cache->loadJobsForPrinter(normalizedPrinterId, page, limit);
         if (!cached.isEmpty()) {
-            QVariantList enriched = cached;
-            for (int i = 0; i < enriched.size(); ++i) {
-                QVariantMap projectMap = enriched[i].toMap();
-                const QString currentImage = projectMap.value(QStringLiteral("img")).toString();
-                if (localImageIsVisuallyUsable(currentImage)) {
-                    continue;
-                }
-                const QString fallbackImage = resolveProjectImageFromFilesCache(
-                    m_cache,
-                    projectMap.value(QStringLiteral("currentFile")).toString(),
-                    projectMap.value(QStringLiteral("gcodeName")).toString());
-                if (!fallbackImage.isEmpty()) {
-                    projectMap.insert(QStringLiteral("img"), fallbackImage);
-                    enriched[i] = projectMap;
-                }
-            }
             out.insert("ok", true);
             out.insert("message", QStringLiteral("Jobs chargés depuis le cache local."));
-            out.insert("projects", enriched);
+            out.insert("projects", cached);
         }
     }
     finalizeUiMessage(out);

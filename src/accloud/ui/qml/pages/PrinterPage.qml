@@ -13,6 +13,7 @@ Item {
     property bool embeddedInTabsContainer: false
     property bool deferStartupInitialization: false
     property bool pageActive: true
+    property bool developmentBuild: false
     property bool directDeleteLocalOnFailurePreference: false
     signal statusBroadcast(string message, string severity, string operationId)
     signal remotePrintAccepted(string printerId, string taskId)
@@ -21,10 +22,6 @@ Item {
     property string statusMsg: qsTr("Ready.")
     property string statusSev: "info" // info | success | warn | error
     property string selectedPrinterId: ""
-    property bool debugUi: false
-    property bool showDebugLabels: false
-    property string printersEndpointPath: "/p/p/workbench/api/work/printer/getPrinters + /p/p/workbench/api/work/project/getProjects?printer_id=<id>&print_status=1"
-    property string printersEndpointRawJson: ""
 
     property string remotePrinterId: ""
     property string selectedCloudFileId: ""
@@ -39,7 +36,14 @@ Item {
     property int localFileDeleteOrderId: 104
     property int localFileStartPrintOrderId: 1
     property int resinFeedOrderId: 1224
-    readonly property bool localFilePrintEnabled: true
+    readonly property var localFilePrintGuard: canStartFromPrinterState(selectedPrinterLiveSnapshot)
+    readonly property bool localFilePrintEnabled: localFilePrintGuard !== null
+                                                   && localFilePrintGuard !== undefined
+                                                   && localFilePrintGuard.ok === true
+    readonly property string localFilePrintBlockReason: localFilePrintEnabled
+                                                         ? ""
+                                                         : String(localFilePrintGuard && localFilePrintGuard.reason !== undefined
+                                                                  ? localFilePrintGuard.reason : "")
     property bool optionDeleteAfterPrint: false
     property string remotePrintMode: "cloud"
     property string directPrintLocalPath: ""
@@ -62,8 +66,6 @@ Item {
     property string pendingPrintFileId: ""
     property var pendingPrintFileData: null
     property var selectedPrinterDetails: ({})
-    property string selectedPrinterDetailsRawJson: ""
-    property string selectedPrinterProjectsRawJson: ""
     property var liveProjectData: ({})
     property var selectedPrinterLiveSnapshot: null
     property bool loadingPrinterDetails: false
@@ -77,8 +79,6 @@ Item {
     property var pendingRemotePrintByPrinterId: ({})
     property bool pendingPrintDeleteAfterPrint: false
     property string lastJobsRefreshReason: ""
-    property string mqttDetailsTitle: ""
-    property string mqttDetailsText: ""
     property bool resinFeedActive: false
     property int resinFeedType: 0
     property bool resinFeedStopSubmitting: false
@@ -136,26 +136,7 @@ Item {
         objectName: "printerHistoryModel"
     }
 
-    component DebugTag: Rectangle {
-        property string label: ""
-        visible: root.showDebugLabels
-        z: 200
-        radius: 4
-        color: Qt.rgba(1.0, 0.95, 0.82, 0.95)
-        border.width: 1
-        border.color: Theme.warning
-        implicitWidth: debugTagText.implicitWidth + 10
-        implicitHeight: debugTagText.implicitHeight + 6
 
-        Text {
-            id: debugTagText
-            anchors.centerIn: parent
-            text: parent.label
-            color: Theme.warning
-            font.pixelSize: 10
-            font.bold: true
-        }
-    }
 
     function hasCloudBridge() {
         return (typeof cloudBridge !== "undefined")
@@ -305,16 +286,6 @@ Item {
         return Qt.formatDateTime(d, "yyyy-MM-dd hh:mm")
     }
 
-    function printStatusText(printStatus) {
-        var s = Number(printStatus)
-        if (!isFinite(s))
-            return "-"
-        if (s === 1) return qsTr("Printing")
-        if (s === 2) return qsTr("Finished")
-        if (s === 3) return qsTr("Failed")
-        if (s === 4) return qsTr("Canceled")
-        return String(s)
-    }
 
 
     function hasPrinterJob(printer) {
@@ -341,9 +312,7 @@ Item {
 
 
     function printerTabTitle(printer) {
-        var name = String(printer && printer.name !== undefined ? printer.name : "-")
-        var status = statusChipText(printer ? printer.state : "READY")
-        return name + " | " + status
+        return String(printer && printer.name !== undefined ? printer.name : "-")
     }
 
 
@@ -400,17 +369,6 @@ Item {
         var result = evaluateRemotePrintGuard()
         remotePrintAllowed = (result.ok === true)
         remotePrintBlockReason = remotePrintReasonText(result.reasonKey, result.reason)
-    }
-
-    function prettyJson(rawPayload) {
-        var text = String(rawPayload || "").trim()
-        if (text.length === 0)
-            return "{\n  \"message\": \"No endpoint response captured.\"\n}"
-        try {
-            return JSON.stringify(JSON.parse(text), null, 2)
-        } catch (error) {
-            return text
-        }
     }
 
     function selectedPrinterData() {
@@ -532,7 +490,7 @@ Item {
             if (Number(item.printStatus) === 1)
                 return item
         }
-        return printerHistoryModel.count > 0 ? printerHistoryModel.get(0) : null
+        return null
     }
 
     function firstActiveProject(projectsList) {
@@ -543,7 +501,7 @@ Item {
             if (Number(list[i].printStatus) === 1)
                 return list[i]
         }
-        return list[0]
+        return null
     }
 
     function setLiveProjectFromList(projectsList) {
@@ -906,10 +864,6 @@ Item {
             return
         if (selected.details !== undefined)
             updateSelectedPrinterDetails(selected.details)
-        if (selected.detailsRawJson !== undefined)
-            selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
-        if (selected.projectsRawJson !== undefined)
-            selectedPrinterProjectsRawJson = String(selected.projectsRawJson || "")
     }
 
     function refreshPrintersFromTimer() {
@@ -1005,8 +959,6 @@ Item {
     function loadSelectedPrinterInsights(reason, force, resetHistory, refreshCloud) {
         lastJobsRefreshReason = String(reason || "")
         selectedPrinterDetails = ({})
-        selectedPrinterDetailsRawJson = ""
-        selectedPrinterProjectsRawJson = ""
         liveProjectData = ({})
 
         if (selectedPrinterId.length === 0)
@@ -1019,10 +971,6 @@ Item {
         if (selected) {
             if (selected.details !== undefined)
                 updateSelectedPrinterDetails(selected.details)
-            if (selected.detailsRawJson !== undefined)
-                selectedPrinterDetailsRawJson = String(selected.detailsRawJson || "")
-            if (selected.projectsRawJson !== undefined)
-                selectedPrinterProjectsRawJson = String(selected.projectsRawJson || "")
         }
 
         if (!hasCloudBridge())
@@ -1070,8 +1018,6 @@ Item {
                     if (hasFetchedDetails || !hasCurrentDetails)
                         updateSelectedPrinterDetails(fetchedDetails)
                 }
-                if (detailsRes.rawJson !== undefined)
-                    selectedPrinterDetailsRawJson = String(detailsRes.rawJson || selectedPrinterDetailsRawJson)
             }
 
             if (typeof cloudBridge.fetchPrinterProjects === "function") {
@@ -1083,8 +1029,6 @@ Item {
                     setLiveProjectFromList(cloudProjects)
                     replaceRecentJobsCard(cloudProjects)
                 }
-                if (projectsRes.rawJson !== undefined)
-                    selectedPrinterProjectsRawJson = String(projectsRes.rawJson || selectedPrinterProjectsRawJson)
             }
         }
 
@@ -1098,8 +1042,6 @@ Item {
     }
 
     function loadMockPrinters() {
-        printersEndpointPath = "demo://printers"
-        printersEndpointRawJson = "{\n  \"mode\": \"demo\",\n  \"message\": \"Backend unavailable\"\n}"
         printersModel.replaceOrPatchPrinters([
         {
             "id": "demo-printer-1",
@@ -1155,8 +1097,6 @@ Item {
 
     function applyPrintersLoadResult(r, useCacheFlow) {
         loading = false
-        printersEndpointPath = String(r.endpoint || printersEndpointPath)
-        printersEndpointRawJson = String(r.rawJson || "")
 
         var printers = r.printers !== undefined ? r.printers : []
         replacePrintersModel(printers, false)
@@ -1294,8 +1234,6 @@ Item {
         var r = cloudBridge.loadCachedPrinters()
         if (r.ok !== true)
             return
-        printersEndpointPath = String(r.endpoint || printersEndpointPath)
-        printersEndpointRawJson = String(r.rawJson || "")
         var list = r.printers !== undefined ? r.printers : []
         replacePrintersModel(list, false)
     }
@@ -1774,13 +1712,6 @@ Item {
 
         statusMsg = qsTr("Loading local files from printer...")
         statusSev = "info"
-    }
-
-    function openPrinterDetailsDialog(printerId) {
-        var normalizedPrinterId = String(printerId || "").trim()
-        if (normalizedPrinterId.length > 0)
-            choosePrinter(normalizedPrinterId)
-        printerDetailsDialog.open()
     }
 
     function applyPrinterLocalFilesFromMqtt(printerId, source, records, state, code, message) {
@@ -2297,8 +2228,8 @@ Item {
                 return
             }
 
-            if (typeof cloudBridge.refreshFilesAsync === "function") {
-                cloudBridge.refreshFilesAsync(1, 200, true)
+            if (typeof cloudBridge.refreshFilesMetadataAsync === "function") {
+                cloudBridge.refreshFilesMetadataAsync(1, 200, true)
                 return
             }
 
@@ -2452,10 +2383,6 @@ Item {
             setLiveProjectFromList(list)
             mergeRecentJobsCard(list)
 
-            if (detailsRawJson !== undefined)
-                root.selectedPrinterDetailsRawJson = String(detailsRawJson || root.selectedPrinterDetailsRawJson)
-            if (projectsRawJson !== undefined)
-                root.selectedPrinterProjectsRawJson = String(projectsRawJson || root.selectedPrinterProjectsRawJson)
 
             root.loadingPrinterDetails = false
             root.loadingPrinterHistory = false
@@ -2697,30 +2624,24 @@ Item {
     PrinterMainPanel {
         embeddedInTabsContainer: root.embeddedInTabsContainer
         loading: root.loading
-        debugUi: root.debugUi
-        showDebugLabels: root.showDebugLabels
+        developmentBuild: root.developmentBuild
         localFilePrintEnabled: root.localFilePrintEnabled
+        localFilePrintBlockReason: root.localFilePrintBlockReason
         printersModel: printersModel
         selectedPrinterId: root.selectedPrinterId
         tabTitleProvider: root.printerTabTitle
         selectedPrinter: root.selectedPrinterLiveSnapshot
         selectedPrinterDetails: root.selectedPrinterDetails
         selectedLiveJobData: root.liveProjectData
-        selectedPrinterDetailsRawJson: root.selectedPrinterDetailsRawJson
-        selectedPrinterProjectsRawJson: root.selectedPrinterProjectsRawJson
         feedingOperationActive: root.resinFeedActive
         feedingOperationType: root.resinFeedType
         feedingStopInProgress: root.resinFeedStopSubmitting
         loadingPrinterHistory: root.loadingPrinterHistory
         printerHistoryModel: printerHistoryModel
-        printersEndpointPath: root.printersEndpointPath
-        printersEndpointRawJson: root.printersEndpointRawJson
         statusChipTextProvider: root.statusChipText
         progressTextProvider: root.progressText
         timeTextProvider: root.timeText
         unixTimeTextProvider: root.unixTimeText
-        printStatusTextProvider: root.printStatusText
-        prettyJsonProvider: root.prettyJson
         localizedTextProvider: root.translateLocalizedText
         onRefreshRequested: {
             if (!root.hasCloudBridge()) {
@@ -2734,9 +2655,6 @@ Item {
             } else {
                 root.loadPrinters()
             }
-        }
-        onDebugToggled: function(checked) {
-            root.showDebugLabels = checked
         }
         onPrinterSelected: function(printerId) {
             root.choosePrinter(printerId)
@@ -2753,39 +2671,6 @@ Item {
         onResinFeedStopRequested: function(printerId, feedType) {
             root.stopResinFeedOperation(printerId, feedType)
         }
-        onPrinterMqttDetailsRequested: function(printerId) {
-            root.openPrinterDetailsDialog(printerId)
-        }
     }
 
-    AppDialogFrame {
-        id: printerDetailsDialog
-        objectName: "printerDetailsDialog"
-        title: qsTr("Printer details")
-        subtitle: qsTr("Current printer characteristics")
-        minimumWidth: 980
-        maximumWidth: 1280
-        minimumHeight: 560
-        maximumHeight: 980
-
-        ScrollView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-
-            TextArea {
-                objectName: "printerDetailsDialogText"
-                readOnly: true
-                text: root.prettyJson(root.selectedPrinterDetails || ({}))
-                wrapMode: TextEdit.NoWrap
-                color: Theme.fgPrimary
-                font.family: "monospace"
-                font.pixelSize: Theme.fontCaptionPx
-                selectByMouse: true
-                background: Rectangle {
-                    color: "transparent"
-                }
-            }
-        }
-    }
 }

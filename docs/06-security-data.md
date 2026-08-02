@@ -26,6 +26,8 @@ The default root is `~/.local/share/accloud`. Session, settings, cache, thumbnai
 
 Logs are structured and redacted. Useful fields include component, event, status, endpoint identifier, printer key, correlation data and bounded error messages.
 
+JSONL and console timestamps use local ISO 8601 with the UTC offset effective at the event instant. Daylight-saving transitions therefore emit the seasonal offset (for example `+02:00` for Europe/Paris in August and `+01:00` in winter).
+
 A value is not safe merely because its field name is generic. Any URL that can contain temporary credentials must pass through `logging::safeUrlForLogs()` before it is emitted. The safe form keeps scheme, host and path, removes URL user information, and removes the complete query string and fragment.
 
 The full URL is still used internally for the request and thumbnail cache hash. Only the log representation is reduced.

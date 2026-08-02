@@ -17,6 +17,36 @@ bool expect(bool condition, const std::string& message) {
     return true;
 }
 
+bool test_thumbnail_refresh_policies_are_origin_scoped() {
+    using accloud::thumbnail_cache::ThumbnailRefreshPolicy;
+    using accloud::thumbnail_cache::refreshDecision;
+
+    const auto cacheOnly = refreshDecision(ThumbnailRefreshPolicy::CacheOnly, true, false);
+    const auto initialInventory = refreshDecision(
+        ThumbnailRefreshPolicy::NewFilesOnly, false, false);
+    const auto knownFile = refreshDecision(
+        ThumbnailRefreshPolicy::NewFilesOnly, true, true);
+    const auto newFile = refreshDecision(
+        ThumbnailRefreshPolicy::NewFilesOnly, true, false);
+    const auto afterUpload = refreshDecision(
+        ThumbnailRefreshPolicy::MissingThumbnails, false, true);
+    const auto explicitRefresh = refreshDecision(
+        ThumbnailRefreshPolicy::ForceAll, true, true);
+
+    return expect(!cacheOnly.downloadMissing && !cacheOnly.forceDownload,
+                  "cache-only refresh must never download thumbnails")
+        && expect(!initialInventory.downloadMissing,
+                  "initial inventory must establish a baseline without bulk thumbnail downloads")
+        && expect(!knownFile.downloadMissing,
+                  "automatic refresh must not download thumbnails for known files")
+        && expect(newFile.downloadMissing && !newFile.forceDownload,
+                  "automatic refresh must download only newly detected file thumbnails")
+        && expect(afterUpload.downloadMissing && !afterUpload.forceDownload,
+                  "post-upload refresh must resolve missing thumbnails without invalidating valid cache entries")
+        && expect(explicitRefresh.downloadMissing && explicitRefresh.forceDownload,
+                  "the Files refresh action must force a complete thumbnail refresh");
+}
+
 bool test_signed_urls_share_one_cache_identity() {
     const QString first = QStringLiteral(
         "https://User@Cloud-Slice-Prod.S3.us-east-2.amazonaws.com/cloud/a.jpg"
@@ -102,7 +132,8 @@ bool test_invalid_remote_content_is_suppressed_until_explicit_refresh() {
 } // namespace
 
 int main() {
-    if (!test_signed_urls_share_one_cache_identity()
+    if (!test_thumbnail_refresh_policies_are_origin_scoped()
+        || !test_signed_urls_share_one_cache_identity()
         || !test_different_remote_paths_keep_distinct_keys()
         || !test_cached_local_candidate_precedes_remote_download()
         || !test_validated_local_candidate_skips_second_validation()

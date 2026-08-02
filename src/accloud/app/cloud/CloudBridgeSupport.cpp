@@ -1,7 +1,5 @@
 #include "CloudBridgeSupport.h"
 
-#include "ThumbnailService.h"
-
 #include <QDateTime>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -431,8 +429,7 @@ QVariantMap printerProjectToMap(const cloud::CloudPrinterProjectItem& item) {
     m.insert("createTime", static_cast<qlonglong>(item.createTime));
     m.insert("endTime", static_cast<qlonglong>(item.endTime));
     const QString rawImg = QString::fromStdString(item.img);
-    const QString resolvedImg = thumbnail_service::resolveThumbnailLocalUrl(rawImg, true).localUrl;
-    m.insert("img", resolvedImg);
+    m.insert("img", QString{});
     m.insert("imgRaw", rawImg);
     return m;
 }

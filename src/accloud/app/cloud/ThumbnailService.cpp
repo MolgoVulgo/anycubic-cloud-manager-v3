@@ -1,6 +1,5 @@
 #include "ThumbnailService.h"
 
-#include "app/LocalCacheStore.h"
 #include "app/ThumbnailCachePolicy.h"
 #include "infra/cloud/thumbnail/ThumbnailValidation.h"
 #include "infra/config/AppPaths.h"
@@ -616,108 +615,6 @@ ThumbnailResolveResult resolveThumbnailLocalUrl(
                   {{"url", safeThumbnailUrlForLogs(normalized).toStdString()},
                    {"path", QUrl(fetch.localUrl).toLocalFile().toStdString()}});
     return out;
-}
-
-QString normalizeFileNameForMatch(const QString& value) {
-    const QString trimmed = value.trimmed();
-    if (trimmed.isEmpty()) {
-        return {};
-    }
-    return QFileInfo(trimmed).fileName().toLower();
-}
-
-QString normalizeFileStemForMatch(const QString& value) {
-    const QString trimmed = value.trimmed();
-    if (trimmed.isEmpty()) {
-        return {};
-    }
-    return QFileInfo(trimmed).completeBaseName().toLower();
-}
-
-bool localImageIsVisuallyUsable(const QString& sourceUrl) {
-    const QUrl url(sourceUrl);
-    if (!url.isLocalFile()) {
-        return true;
-    }
-    const QString path = url.toLocalFile();
-    const QFileInfo info(path);
-    if (!info.exists() || !info.isFile() || info.size() <= 0) {
-        return false;
-    }
-    if (info.size() < static_cast<qint64>(cloud::thumbnail::kMinimumValidThumbnailBytes)) {
-        return false;
-    }
-
-    QImageReader reader(path);
-    if (!reader.canRead()) {
-        return false;
-    }
-    QImage image = reader.read();
-    if (image.isNull()) {
-        return false;
-    }
-    if (!image.hasAlphaChannel()) {
-        return true;
-    }
-
-    const QImage argb = image.convertToFormat(QImage::Format_ARGB32);
-    const int w = argb.width();
-    const int h = argb.height();
-    if (w <= 0 || h <= 0) {
-        return false;
-    }
-
-    for (int y = 0; y < h; ++y) {
-        const QRgb* row = reinterpret_cast<const QRgb*>(argb.constScanLine(y));
-        for (int x = 0; x < w; ++x) {
-            if (qAlpha(row[x]) > 0) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-QString resolveProjectImageFromFilesCache(const LocalCacheStore* cache,
-                                          const QString& currentFile,
-                                          const QString& gcodeName) {
-    if (cache == nullptr) {
-        return {};
-    }
-
-    const QString targetName = normalizeFileNameForMatch(currentFile);
-    const QString targetStem = normalizeFileStemForMatch(currentFile);
-    const QString altName = normalizeFileNameForMatch(gcodeName);
-    const QString altStem = normalizeFileStemForMatch(gcodeName);
-    if (targetName.isEmpty() && targetStem.isEmpty() && altName.isEmpty() && altStem.isEmpty()) {
-        return {};
-    }
-
-    const QVariantList files = cache->loadFiles(1, 1500);
-    QString stemMatchCandidate;
-    for (const QVariant& fileVar : files) {
-        const QVariantMap fileMap = fileVar.toMap();
-        const QString fileName = fileMap.value(QStringLiteral("fileName")).toString();
-        const QString fileKey = normalizeFileNameForMatch(fileName);
-        const QString fileStem = normalizeFileStemForMatch(fileName);
-        const QString thumb = fileMap.value(QStringLiteral("thumbnailUrl")).toString().trimmed();
-        if (thumb.isEmpty()) {
-            continue;
-        }
-
-        const bool exactNameMatch = (!targetName.isEmpty() && fileKey == targetName)
-                                 || (!altName.isEmpty() && fileKey == altName);
-        if (exactNameMatch) {
-            return resolveThumbnailLocalUrl(thumb, true).localUrl;
-        }
-
-        const bool stemMatch = (!targetStem.isEmpty() && fileStem == targetStem)
-                            || (!altStem.isEmpty() && fileStem == altStem);
-        if (stemMatch && stemMatchCandidate.isEmpty()) {
-            stemMatchCandidate = resolveThumbnailLocalUrl(thumb, true).localUrl;
-        }
-    }
-    return stemMatchCandidate;
 }
 
 void resolveThumbnailInMap(QVariantMap& map, bool downloadMissing, bool forceDownload) {

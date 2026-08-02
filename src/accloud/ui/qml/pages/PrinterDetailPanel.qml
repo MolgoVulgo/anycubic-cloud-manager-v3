@@ -14,12 +14,9 @@ Rectangle {
     property var selectedLiveJobData: ({})
     property bool loadingPrinterHistory: false
     property bool localFilePrintEnabled: true
+    property string localFilePrintBlockReason: ""
     property var printerHistoryModel: null
-    property bool showDebugLabels: false
-    property string printersEndpointPath: ""
-    property string printersEndpointRawJson: ""
-    property string selectedPrinterDetailsRawJson: ""
-    property string selectedPrinterProjectsRawJson: ""
+    property bool developmentBuild: false
     property bool feedingOperationActive: false
     property int feedingOperationType: 0 // 1=fill, 2=drain
     property bool feedingStopInProgress: false
@@ -29,8 +26,6 @@ Rectangle {
     property var progressTextProvider: null
     property var timeTextProvider: null
     property var unixTimeTextProvider: null
-    property var printStatusTextProvider: null
-    property var prettyJsonProvider: null
     property var localizedTextProvider: null
     property bool embeddedInTabsContainer: false
 
@@ -48,7 +43,7 @@ Rectangle {
         return typeof provider === "function" ? String(provider(arg)) : fallback
     }
 
-    function printerDisplayStatus() {
+    function printerSemanticStatus() {
         if (root.selectedPrinter) {
             var mqttState = String(root.selectedPrinter.mqttPrintState || "").trim()
             if (mqttState.length > 0 && mqttState.toLowerCase() !== "finished")
@@ -59,10 +54,30 @@ Rectangle {
                 if (mqttState.length > 0 && mqttState.toLowerCase() !== "finished")
                     return mqttState
             }
+
+            var available = Number(root.selectedPrinter.available)
+            if (isFinite(available) && available === 0)
+                return "OFFLINE"
+
+            var printerState = String(root.selectedPrinter.state || "").trim()
+            if (printerState.length > 0)
+                return printerState
         }
-        return root.providerText(root.statusChipTextProvider,
-                                 root.selectedPrinter ? root.selectedPrinter.state : "READY",
-                                 qsTr("Ready"))
+        return "READY"
+    }
+
+    function printerDisplayStatus() {
+        var semanticStatus = root.printerSemanticStatus()
+        var normalizedStatus = String(semanticStatus || "").toUpperCase()
+        var localizedStatus = normalizedStatus === "OFFLINE"
+                || normalizedStatus === "PRINTING"
+                || normalizedStatus === "ERROR"
+                || normalizedStatus === "READY"
+                || normalizedStatus === "FREE"
+                || normalizedStatus === "ONLINE"
+        if (localizedStatus && typeof root.statusChipTextProvider === "function")
+            return String(root.statusChipTextProvider(semanticStatus))
+        return semanticStatus
     }
 
     function selectedMqttDetails() {
@@ -298,12 +313,6 @@ Rectangle {
         return false
     }
 
-    function prettyPayload(rawPayload) {
-        if (typeof root.prettyJsonProvider === "function")
-            return String(root.prettyJsonProvider(rawPayload || ""))
-        return String(rawPayload || "")
-    }
-
     function nonNegativeInt(value) {
         var n = Number(value)
         if (!isFinite(n) || n < 0)
@@ -455,15 +464,6 @@ Rectangle {
         return ""
     }
 
-    function imageStatusText(statusCode) {
-        if (statusCode === Image.Ready)
-            return "Ready"
-        if (statusCode === Image.Loading)
-            return "Loading"
-        if (statusCode === Image.Error)
-            return "Error"
-        return "Null"
-    }
 
     function printCountText(details) {
         if (!details)
@@ -660,21 +660,40 @@ Rectangle {
     }
 
     function isActiveRecentJob(taskId, printerId) {
+        var normalizedTaskId = String(taskId || "").trim()
+        var normalizedPrinterId = String(printerId || "").trim()
+
         var activeTaskId = String(selectedMqttField("mqttActiveTaskId", "") || "").trim()
-        if (taskId.length > 0 && activeTaskId.length > 0 && taskId === activeTaskId)
+        if (root.hasActiveWorkflowStatus()
+                && normalizedTaskId.length > 0
+                && activeTaskId.length > 0
+                && normalizedTaskId === activeTaskId)
             return true
+
+        var liveStatus = Number(root.selectedLiveJobData && root.selectedLiveJobData.printStatus !== undefined
+                                ? root.selectedLiveJobData.printStatus : -1)
+        if (!isFinite(liveStatus) || Math.round(liveStatus) !== 1)
+            return false
 
         var liveTaskId = String(root.selectedLiveJobData && root.selectedLiveJobData.taskId !== undefined
                                 ? root.selectedLiveJobData.taskId : "").trim()
-        if (taskId.length > 0 && liveTaskId.length > 0 && taskId === liveTaskId)
-            return true
+        if (normalizedTaskId.length > 0 || liveTaskId.length > 0)
+            return normalizedTaskId.length > 0
+                    && liveTaskId.length > 0
+                    && normalizedTaskId === liveTaskId
 
         var livePrinterId = String(root.selectedLiveJobData && root.selectedLiveJobData.printerId !== undefined
                                    ? root.selectedLiveJobData.printerId : "").trim()
-        var liveStatus = Number(root.selectedLiveJobData && root.selectedLiveJobData.printStatus !== undefined
-                                ? root.selectedLiveJobData.printStatus : -1)
-        return printerId.length > 0 && livePrinterId.length > 0 && printerId === livePrinterId
-                && isFinite(liveStatus) && Math.round(liveStatus) === 1
+        return normalizedPrinterId.length > 0
+                && livePrinterId.length > 0
+                && normalizedPrinterId === livePrinterId
+    }
+
+    function historyDateText(startEpoch) {
+        var value = Number(startEpoch)
+        if (!isFinite(value) || value <= 0)
+            return "-"
+        return Qt.formatDate(new Date(value * 1000), "yyyy-MM-dd")
     }
 
     function historyDurationText(startEpoch, endEpoch) {
@@ -685,132 +704,6 @@ Rectangle {
         if (typeof root.timeTextProvider === "function")
             return String(root.timeTextProvider(endValue - startValue))
         return "-"
-    }
-
-    function debugEndpointPayloadText() {
-        var blocks = []
-
-        var liveJobBlock = debugLiveJobDetailsText()
-        if (liveJobBlock.length > 0)
-            blocks.push(liveJobBlock)
-
-        var printersPayload = String(root.printersEndpointRawJson || "").trim()
-        if (printersPayload.length > 0) {
-            blocks.push(qsTr("getPrinters + inline getProjects:\n%1")
-                        .arg(prettyPayload(printersPayload)))
-        }
-
-        var detailsPayload = String(root.selectedPrinterDetailsRawJson || "").trim()
-        if (detailsPayload.length > 0) {
-            blocks.push(qsTr("v2/printer/info:\n%1")
-                        .arg(prettyPayload(detailsPayload)))
-        }
-
-        var projectsPayload = String(root.selectedPrinterProjectsRawJson || "").trim()
-        if (projectsPayload.length > 0) {
-            blocks.push(qsTr("work/project/getProjects:\n%1")
-                        .arg(prettyPayload(projectsPayload)))
-        }
-
-        if (blocks.length === 0)
-            return qsTr("No debug endpoint payload captured.")
-        return blocks.join("\n\n")
-    }
-
-    function debugLiveJobDetailsText() {
-        var selectedPrinterId = String(root.selectedPrinter && root.selectedPrinter.id !== undefined
-                                       ? root.selectedPrinter.id
-                                       : "").trim()
-        var selectedPrinterState = String(root.selectedPrinter && root.selectedPrinter.state !== undefined
-                                          ? root.selectedPrinter.state
-                                          : "").trim()
-
-        var liveJob = root.selectedLiveJobData !== null && root.selectedLiveJobData !== undefined
-                ? root.selectedLiveJobData
-                : ({})
-
-        function pickText(primary, fallback) {
-            var first = String(primary || "").trim()
-            if (first.length > 0)
-                return first
-            var second = String(fallback || "").trim()
-            return second.length > 0 ? second : "-"
-        }
-
-        function pickInt(primary, fallback) {
-            var p = Number(primary)
-            if (isFinite(p) && p >= 0)
-                return Math.round(p)
-            var f = Number(fallback)
-            if (isFinite(f) && f >= 0)
-                return Math.round(f)
-            return -1
-        }
-
-        var taskId = pickText(liveJob.taskId, "")
-        var fileName = pickText(liveJob.currentFile,
-                                pickText(liveJob.gcodeName,
-                                         root.selectedPrinter ? root.selectedPrinter.currentFile : ""))
-        var printStatusCode = pickInt(liveJob.printStatus, -1)
-        var printStatusText = (printStatusCode >= 0 && typeof root.printStatusTextProvider === "function")
-                ? root.printStatusTextProvider(printStatusCode)
-                : "-"
-        var mqttPrintState = pickText(root.selectedPrinter ? root.selectedPrinter.mqttPrintState : "", "")
-        var mqttJobStage = pickText(root.selectedPrinter ? root.selectedPrinter.mqttJobStage : "", "")
-        var selectedDetails = root.selectedPrinter && root.selectedPrinter.details ? root.selectedPrinter.details : null
-        if (mqttPrintState.length <= 0 && selectedDetails)
-            mqttPrintState = pickText(selectedDetails.mqttPrintState, "")
-        if (mqttJobStage.length <= 0 && selectedDetails)
-            mqttJobStage = pickText(selectedDetails.mqttJobStage, "")
-        var progressRaw = pickInt(liveJob.progress,
-                                  root.selectedPrinter ? root.selectedPrinter.progress : -1)
-        var currentLayerRaw = pickInt(liveJob.currentLayer,
-                                      root.selectedPrinter ? root.selectedPrinter.currentLayer : -1)
-        var totalLayersRaw = pickInt(liveJob.totalLayers,
-                                     root.selectedPrinter ? root.selectedPrinter.totalLayers : -1)
-        var elapsedSecRaw = pickInt(liveJob.elapsedSec,
-                                    root.selectedPrinter ? root.selectedPrinter.elapsedSec : -1)
-        var remainingSecRaw = pickInt(liveJob.remainingSec,
-                                      root.selectedPrinter ? root.selectedPrinter.remainingSec : -1)
-        var reasonText = pickText(liveJob.reason, "")
-        var startText = (typeof root.unixTimeTextProvider === "function")
-                ? root.unixTimeTextProvider(pickInt(liveJob.createTime, 0))
-                : "-"
-        var endText = (typeof root.unixTimeTextProvider === "function")
-                ? root.unixTimeTextProvider(pickInt(liveJob.endTime, 0))
-                : "-"
-        var elapsedText = (typeof root.timeTextProvider === "function")
-                ? root.timeTextProvider(elapsedSecRaw)
-                : "-"
-        var remainingText = (typeof root.timeTextProvider === "function")
-                ? root.timeTextProvider(remainingSecRaw)
-                : "-"
-
-        var lines = []
-        lines.push("Live Job Details:")
-        lines.push("  printer_id: " + (selectedPrinterId.length > 0 ? selectedPrinterId : "-"))
-        lines.push("  printer_state: " + (selectedPrinterState.length > 0 ? selectedPrinterState : "-"))
-        lines.push("  task_id: " + taskId)
-        lines.push("  file: " + fileName)
-        lines.push("  print_status: " + (printStatusCode >= 0 ? String(printStatusCode) : "-")
-                   + " (" + String(printStatusText || "-") + ")")
-        lines.push("  mqtt_print_state: " + (mqttPrintState.length > 0 ? mqttPrintState : "-"))
-        lines.push("  mqtt_job_stage: " + (mqttJobStage.length > 0 ? mqttJobStage : "-"))
-        lines.push("  progress_raw: " + (progressRaw >= 0 ? String(progressRaw) : "-"))
-        lines.push("  layers: printed=" + (currentLayerRaw >= 0 ? String(currentLayerRaw) : "-")
-                   + " total=" + (totalLayersRaw >= 0 ? String(totalLayersRaw) : "-")
-                   + " remaining="
-                   + ((currentLayerRaw >= 0 && totalLayersRaw >= 0)
-                      ? String(Math.max(0, totalLayersRaw - Math.min(currentLayerRaw, totalLayersRaw)))
-                      : "-"))
-        lines.push("  elapsed: " + String(elapsedText || "-")
-                   + " (raw=" + (elapsedSecRaw >= 0 ? String(elapsedSecRaw) : "-") + ")")
-        lines.push("  remaining: " + String(remainingText || "-")
-                   + " (raw=" + (remainingSecRaw >= 0 ? String(remainingSecRaw) : "-") + ")")
-        lines.push("  reason: " + reasonText)
-        lines.push("  start: " + String(startText || "-"))
-        lines.push("  end: " + String(endText || "-"))
-        return lines.join("\n")
     }
 
     Layout.fillWidth: true
@@ -825,11 +718,44 @@ Rectangle {
         anchors.margins: 12
         spacing: 10
 
-        Text {
-            text: qsTr("Device Details")
-            color: Theme.fgPrimary
-            font.pixelSize: Theme.fontTitlePx
-            font.bold: true
+        RowLayout {
+            id: printerDetailHeader
+            objectName: "printerDetailHeader"
+            visible: root.selectedPrinter !== null
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+
+            Item { Layout.fillWidth: true }
+
+            AppButton {
+                objectName: "printerHeaderLocalFilesButton"
+                text: qsTr("Local Files")
+                compact: true
+                variant: "primary"
+                enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
+                disabledStatus: !enabled && root.selectedPrinter
+                                && String(root.selectedPrinter.state || "").toUpperCase() === "OFFLINE"
+                                ? "offline" : ""
+                ToolTip.visible: hovered
+                ToolTip.delay: 350
+                ToolTip.text: enabled || String(root.localFilePrintBlockReason || "").trim().length === 0
+                              ? qsTr("Show files stored locally on the printer.")
+                              : String(root.localFilePrintBlockReason)
+                onClicked: {
+                    if (!root.localFilePrintEnabled)
+                        return
+                    root.localFileRequested(
+                                String(root.selectedPrinter && root.selectedPrinter.id !== undefined
+                                       ? root.selectedPrinter.id
+                                       : root.selectedPrinterId))
+                }
+            }
+
+            StatusChip {
+                objectName: "printerHeaderStatusChip"
+                status: root.printerDisplayStatus()
+                toneStatus: root.printerSemanticStatus()
+            }
         }
 
         Text {
@@ -847,42 +773,38 @@ Rectangle {
             spacing: 8
 
             RowLayout {
+                id: printerContentRow
+                objectName: "printerContentRow"
                 Layout.fillWidth: true
-                Layout.fillHeight: false
+                Layout.fillHeight: true
                 spacing: 10
 
                 Rectangle {
+                    objectName: "deviceDetailsCard"
                     Layout.fillWidth: true
-                    Layout.fillHeight: false
-                    Layout.preferredHeight: deviceDetailsContent.implicitHeight + 20
+                    Layout.fillHeight: true
                     radius: Theme.radiusControl
-                    color: Theme.bgWindow
+                    color: Theme.bgCard
                     border.width: Theme.borderWidth
                     border.color: Theme.borderSubtle
 
                     ColumnLayout {
                         id: deviceDetailsContent
-                        anchors.fill: parent
+                        objectName: "deviceDetailsContent"
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
                         anchors.margins: 10
+                        height: implicitHeight
                         spacing: 8
 
-                        RowLayout {
+                        SectionHeader {
+                            objectName: "deviceDetailsSectionHeader"
                             Layout.fillWidth: true
-                            spacing: 10
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: String(root.selectedPrinter ? root.selectedPrinter.name : "-")
-                                color: Theme.fgPrimary
-                                font.pixelSize: Theme.fontTitlePx
-                                font.bold: true
-                                elide: Text.ElideRight
-                            }
-
-                            StatusChip {
-                                objectName: "printerHeaderStatusChip"
-                                status: root.printerDisplayStatus()
-                            }
+                            Layout.preferredHeight: implicitHeight
+                            Layout.maximumHeight: implicitHeight
+                            title: qsTr("Device Details")
+                            subtitle: qsTr("Current printer characteristics")
                         }
 
                         RowLayout {
@@ -1079,39 +1001,8 @@ Rectangle {
                                         value: root.progressRatio(root.selectedPrinter)
                                     }
 
-                                    Text {
-                                        visible: root.showDebugLabels
-                                        Layout.fillWidth: true
-                                        text: qsTr("Image source: %1").arg(
-                                                  root.currentPreviewSource.length > 0
-                                                  ? root.currentPreviewSource
-                                                  : qsTr("(empty)"))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WrapAnywhere
-                                    }
 
-                                    Text {
-                                        visible: root.showDebugLabels
-                                        Layout.fillWidth: true
-                                        text: qsTr("Image status: %1 (%2)").arg(
-                                                  currentFilePreviewImage.status).arg(
-                                                  root.imageStatusText(currentFilePreviewImage.status))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                    }
 
-                                    Text {
-                                        visible: root.showDebugLabels
-                                        Layout.fillWidth: true
-                                        text: qsTr("Image source normalized: %1").arg(
-                                                  currentFilePreviewImage.source.toString().length > 0
-                                                  ? currentFilePreviewImage.source.toString()
-                                                  : qsTr("(empty)"))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        wrapMode: Text.WrapAnywhere
-                                    }
                                 }
                             }
                         }
@@ -1248,6 +1139,7 @@ Rectangle {
                         }
 
                         GridLayout {
+                            objectName: "printerBasicDetailsGrid"
                             visible: root.printerInfoMode() === "basic"
                             Layout.fillWidth: true
                             Layout.preferredHeight: visible ? implicitHeight : 0
@@ -1506,24 +1398,6 @@ Rectangle {
                             }
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            AppButton {
-                                Layout.minimumWidth: implicitWidth
-                                text: qsTr("From Local File")
-                                variant: "primary"
-                                enabled: root.selectedPrinter !== null && root.localFilePrintEnabled
-                                ToolTip.visible: hovered && !enabled
-                                ToolTip.delay: 350
-                                ToolTip.text: qsTr("Local printer file printing is not enabled in this build.")
-                                onClicked: root.localFileRequested(
-                                               String(root.selectedPrinter && root.selectedPrinter.id !== undefined
-                                                      ? root.selectedPrinter.id
-                                                      : ""))
-                            }
-                        }
                     }
                 }
 
@@ -1531,7 +1405,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: Theme.radiusControl
-                    color: Theme.bgWindow
+                    color: Theme.bgCard
                     border.width: Theme.borderWidth
                     border.color: Theme.borderSubtle
 
@@ -1546,12 +1420,68 @@ Rectangle {
                             subtitle: root.loadingPrinterHistory ? qsTr("Loading...") : qsTr("Latest projects for this printer")
                         }
 
+                        Rectangle {
+                            objectName: "recentJobsHeader"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 30
+                            radius: Theme.radiusControl
+                            color: Theme.bgCardSubtle
+                            border.width: Theme.borderWidth
+                            border.color: Theme.borderSubtle
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 10
+                                spacing: 10
+
+                                Text {
+                                    objectName: "recentJobsHeaderFile"
+                                    Layout.fillWidth: true
+                                    text: qsTr("File")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                }
+
+                                Text {
+                                    objectName: "recentJobsHeaderDate"
+                                    Layout.preferredWidth: 116
+                                    text: qsTr("Date")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                }
+
+                                Text {
+                                    objectName: "recentJobsHeaderDuration"
+                                    Layout.preferredWidth: 90
+                                    text: qsTr("Duration")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    horizontalAlignment: Text.AlignRight
+                                }
+
+                                Text {
+                                    objectName: "recentJobsHeaderStatus"
+                                    Layout.preferredWidth: 104
+                                    text: qsTr("Status")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                            }
+                        }
+
                         ListView {
                             id: recentJobsList
+                            objectName: "recentJobsList"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
-                            spacing: 6
+                            spacing: 4
                             rightMargin: 14
                             cacheBuffer: 360
                             model: root.printerHistoryModel
@@ -1562,27 +1492,81 @@ Rectangle {
 
                             delegate: Rectangle {
                                 width: ListView.view.width
-                                height: 74
+                                height: root.developmentBuild ? 60 : 50
                                 radius: Theme.radiusControl
-                                color: Theme.bgSurface
+                                color: index % 2 === 0 ? Theme.bgSurface : Theme.bgCardSubtle
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderSubtle
 
-                                Item {
+                                RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 8
-                                    anchors.rightMargin: 18
-                                    anchors.topMargin: 8
-                                    anchors.bottomMargin: 8
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    anchors.topMargin: 6
+                                    anchors.bottomMargin: 6
+                                    spacing: 10
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Text {
+                                            objectName: "recentJobFile"
+                                            Layout.fillWidth: true
+                                            text: String(model.gcodeName || "-")
+                                            color: Theme.fgPrimary
+                                            font.pixelSize: Theme.fontBodyPx
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Loader {
+                                            id: recentJobTaskIdLoader
+                                            Layout.fillWidth: true
+                                            property string taskIdText: qsTr("Task %1").arg(String(model.taskId || "-"))
+                                            active: root.developmentBuild
+                                            visible: active
+                                            sourceComponent: Component {
+                                                Text {
+                                                    objectName: "recentJobTaskId"
+                                                    width: recentJobTaskIdLoader.width
+                                                    text: recentJobTaskIdLoader.taskIdText
+                                                    color: Theme.fgSecondary
+                                                    font.pixelSize: Theme.fontCaptionPx
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        objectName: "recentJobDate"
+                                        Layout.preferredWidth: 116
+                                        text: root.historyDateText(model.createTime)
+                                        color: Theme.fgPrimary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    Text {
+                                        objectName: "recentJobDuration"
+                                        Layout.preferredWidth: 90
+                                        text: root.historyDurationText(model.createTime, model.endTime)
+                                        color: Theme.fgSecondary
+                                        font.pixelSize: Theme.fontCaptionPx
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
 
                                     Rectangle {
                                         id: recentJobStatusBadge
                                         objectName: "recentJobStatusBadge"
                                         readonly property var statusInfo: root.recentJobStatusInfo(model.printStatus, model.taskId, model.printerId)
-                                        anchors.top: parent.top
-                                        anchors.right: parent.right
-                                        width: Math.max(74, statusText.implicitWidth + 12)
-                                        height: 22
+                                        Layout.preferredWidth: 104
+                                        Layout.preferredHeight: 24
+                                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                         radius: Theme.radiusControl
                                         color: statusInfo.bg
                                         border.width: Theme.borderWidth
@@ -1596,50 +1580,6 @@ Rectangle {
                                             font.pixelSize: Theme.fontCaptionPx
                                             font.bold: true
                                         }
-                                    }
-
-                                    Text {
-                                        id: recentJobNameText
-                                        anchors.left: parent.left
-                                        anchors.right: recentJobStatusBadge.left
-                                        anchors.rightMargin: 8
-                                        anchors.top: parent.top
-                                        height: 22
-                                        text: String(model.gcodeName || "-")
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.top: recentJobNameText.bottom
-                                        anchors.topMargin: 4
-                                        height: 18
-                                        text: qsTr("Start %1 | End %2 | Duration %3")
-                                            .arg(root.providerText(root.unixTimeTextProvider, model.createTime, "-"))
-                                            .arg(root.providerText(root.unixTimeTextProvider, model.endTime, "-"))
-                                            .arg(root.historyDurationText(model.createTime, model.endTime))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: 18
-                                        text: qsTr("Task %1")
-                                            .arg(String(model.taskId || "-"))
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
                                     }
                                 }
                             }
@@ -1755,49 +1695,6 @@ Rectangle {
                 ]
             }
 
-            Rectangle {
-                objectName: "endpointJsonPanel"
-                visible: root.showDebugLabels
-                Layout.fillWidth: true
-                Layout.preferredHeight: 220
-                radius: Theme.radiusControl
-                color: Theme.bgWindow
-                border.width: Theme.borderWidth
-                border.color: Theme.borderSubtle
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 6
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("Endpoint responses (debug): ") + root.printersEndpointPath
-                        color: Theme.warning
-                        font.pixelSize: Theme.fontCaptionPx
-                        font.bold: true
-                        elide: Text.ElideRight
-                    }
-
-                    ScrollView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-
-                        TextArea {
-                            readOnly: true
-                            text: root.debugEndpointPayloadText()
-                            wrapMode: TextEdit.NoWrap
-                            color: Theme.fgPrimary
-                            font.family: "monospace"
-                            font.pixelSize: Theme.fontCaptionPx
-                            background: Rectangle {
-                                color: "transparent"
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

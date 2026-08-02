@@ -2264,8 +2264,13 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="381"/>
-        <source>From Local File</source>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="717"/>
+        <source>Local Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="723"/>
+        <source>Show files stored locally on the printer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2301,6 +2306,41 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
     <message>
         <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="486"/>
         <source>Endpoint responses (debug): </source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="734"/>
+        <source>Details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="784"/>
+        <source>Current printer characteristics</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1434"/>
+        <source>File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1432"/>
+        <source>Date</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1441"/>
+        <source>Duration</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1450"/>
+        <source>Status</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1506"/>
+        <source>Task %1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3133,6 +3173,26 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
     <message>
         <location filename="../ui/qml/pages/PrinterToolbar.qml" line="28"/>
         <source>Debug UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33"/>
+        <source>Printers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33"/>
+        <source>Online</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33"/>
+        <source>Printing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33"/>
+        <source>Offline</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -6,6 +6,7 @@ Button {
     id: root
 
     property string variant: "secondary" // primary | secondary | danger
+    property string disabledStatus: "" // optional status tone for a disabled control
     property bool compact: false
 
     implicitHeight: compact ? Math.max(28, Theme.controlHeight - 8) : Theme.controlHeight
@@ -20,9 +21,34 @@ Button {
         cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
     }
 
+    function normalizedDisabledStatus() {
+        return String(disabledStatus || "").toLowerCase()
+    }
+
+    function disabledToneColor() {
+        var state = normalizedDisabledStatus()
+        if (state === "offline")
+            return Theme.fgSecondary
+        if (state === "printing")
+            return Theme.accent
+        if (state === "error")
+            return Theme.danger
+        return Theme.fgDisabled
+    }
+
+    function disabledBackgroundColor() {
+        var state = normalizedDisabledStatus()
+        if (state.length <= 0)
+            return Theme.bgSurface
+        var baseColor = disabledToneColor()
+        return Theme.themeName === "Dark"
+                ? Qt.darker(baseColor, 2.6)
+                : Qt.lighter(baseColor, 1.9)
+    }
+
     function backgroundColor() {
         if (!enabled)
-            return Theme.bgSurface
+            return disabledBackgroundColor()
         if (variant === "primary")
             return down ? Qt.darker(Theme.accent, 1.08) : (hovered ? Qt.lighter(Theme.accent, 1.04) : Theme.accent)
         if (variant === "danger")
@@ -31,6 +57,8 @@ Button {
     }
 
     function borderColor() {
+        if (!enabled && normalizedDisabledStatus().length > 0)
+            return disabledToneColor()
         if (activeFocus)
             return Theme.accent
         if (variant === "primary")
@@ -42,7 +70,7 @@ Button {
 
     function foregroundColor() {
         if (!enabled)
-            return Theme.fgDisabled
+            return disabledToneColor()
         if (variant === "primary")
             return Theme.accentFg
         if (variant === "danger")

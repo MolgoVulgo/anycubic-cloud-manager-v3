@@ -26,6 +26,8 @@ La racine par défaut est `~/.local/share/accloud`. Session, paramètres, cache,
 
 Les logs sont structurés et redacted. Les champs utiles comprennent composant, événement, statut, identifiant d'endpoint, clé imprimante, corrélation et erreur bornée.
 
+Les timestamps JSONL et console utilisent un ISO 8601 local avec l’offset UTC effectif à l’instant de l’événement. Les changements d’heure utilisent donc l’offset saisonnier (`+02:00` pour Europe/Paris en août et `+01:00` en hiver).
+
 Une valeur n'est pas sûre parce que sa clé est générique. Toute URL susceptible de contenir des credentials temporaires doit passer par `logging::safeUrlForLogs()` avant journalisation. La forme sûre conserve schéma, host et path, supprime les informations utilisateur de l'URL, puis retire intégralement query string et fragment.
 
 L'URL complète reste utilisée en interne pour la requête et le hash du cache miniature. Seule sa représentation dans les logs est réduite.

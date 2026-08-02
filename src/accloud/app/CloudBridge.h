@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -11,6 +12,10 @@
 #include <vector>
 
 namespace accloud {
+
+namespace thumbnail_cache {
+enum class ThumbnailRefreshPolicy;
+}
 
 class LocalCacheStore;
 class CloudDownloadController;
@@ -31,6 +36,7 @@ public:
     Q_INVOKABLE QVariantMap fetchQuota() const;
     Q_INVOKABLE QVariantMap loadCachedQuota() const;
     Q_INVOKABLE void refreshFilesAsync(int page = 1, int limit = 20, bool force = false);
+    Q_INVOKABLE void refreshFilesMetadataAsync(int page = 1, int limit = 20, bool force = false);
     Q_INVOKABLE void refreshFilesAndThumbnailsAsync(int page = 1,
                                                     int limit = 20,
                                                     bool force = true);
@@ -44,7 +50,7 @@ public:
     Q_INVOKABLE void getDownloadUrlAsync(const QString& fileId);
     // Retourne { ok, message, fileId, gcodeId, uploadStatus }
     Q_INVOKABLE QVariantMap inspectPwszPreview(const QString& localPath) const;
-    Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath, bool completePwszPreview2 = false) const;
+    Q_INVOKABLE QVariantMap uploadLocalFile(const QString& localPath, bool completePwszPreview2 = false);
     // Upload asynchrone pour UI avec progression.
     Q_INVOKABLE void startUploadLocalFile(const QString& localPath,
                                             bool completePwszPreview2 = false,
@@ -176,10 +182,23 @@ private:
     void refreshFilesAsyncWithPolicy(int page,
                                      int limit,
                                      bool force,
-                                     bool forceThumbnails);
+                                     thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy);
     bool shouldRefresh(const QString& scope, int ttlSec, bool force) const;
-    QVariantList fetchFilesWithRetry(int page, int limit, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;
-    QVariantList fetchAllFilesWithRetry(int pageSize, QString& message, bool& ok, bool downloadThumbnails, bool forceThumbnails = false) const;
+    QVariantList fetchFilesWithRetry(
+        int page,
+        int limit,
+        QString& message,
+        bool& ok,
+        thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy,
+        const QSet<QString>& knownFileIds,
+        bool hasInventoryBaseline) const;
+    QVariantList fetchAllFilesWithRetry(
+        int pageSize,
+        QString& message,
+        bool& ok,
+        thumbnail_cache::ThumbnailRefreshPolicy thumbnailPolicy,
+        const QSet<QString>& knownFileIds,
+        bool hasInventoryBaseline) const;
     QVariantList fetchPrintersWithRetry(QString& message, bool& ok, QString& rawJson) const;
     QVariantMap fetchQuotaWithRetry(QString& message, bool& ok) const;
     void launchBackgroundTask(std::function<void()> task);

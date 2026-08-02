@@ -2,6 +2,7 @@
 
 #include "infra/logging/Rotator.h"
 
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -23,6 +24,9 @@ struct Config {
 };
 
 using FieldMap = std::map<std::string, std::string>;
+
+[[nodiscard]] std::string formatIso8601LocalTimestamp(
+    std::chrono::system_clock::time_point timestamp);
 
 void initialize(const Config& config = {});
 [[nodiscard]] bool isInitialized();

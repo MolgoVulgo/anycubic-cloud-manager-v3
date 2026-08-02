@@ -2425,9 +2425,14 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <translation>Depuis fichier cloud</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="381" />
-            <source>From Local File</source>
-            <translation>Depuis fichier local</translation>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="717" />
+            <source>Local Files</source>
+            <translation>Fichiers locaux</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="723" />
+            <source>Show files stored locally on the printer.</source>
+            <translation>Afficher les fichiers stockés localement sur l’imprimante.</translation>
         </message>
         <message>
             <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="407" />
@@ -2463,6 +2468,41 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="486" />
             <source>Endpoint responses (debug): </source>
             <translation>Reponses endpoint (debug) : </translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="734" />
+            <source>Details</source>
+            <translation>Détails</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="784" />
+            <source>Current printer characteristics</source>
+            <translation>Caractéristiques actuelles de l’imprimante</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1434" />
+            <source>File</source>
+            <translation>Fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1432" />
+            <source>Date</source>
+            <translation>Date</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1441" />
+            <source>Duration</source>
+            <translation>Durée</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1450" />
+            <source>Status</source>
+            <translation>Statut</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterDetailPanel.qml" line="1506" />
+            <source>Task %1</source>
+            <translation>Tâche %1</translation>
         </message>
     </context>
     <context>
@@ -3543,6 +3583,26 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/pages/PrinterToolbar.qml" line="28" />
             <source>Debug UI</source>
             <translation>UI debug</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33" />
+            <source>Printers</source>
+            <translation>Imprimantes</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33" />
+            <source>Online</source>
+            <translation>En ligne</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33" />
+            <source>Printing</source>
+            <translation>En impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterToolbar.qml" line="33" />
+            <source>Offline</source>
+            <translation>Hors ligne</translation>
         </message>
     </context>
     <context>

@@ -98,9 +98,21 @@ std::string toIso8601Local(std::chrono::system_clock::time_point ts) {
   gmtime_r(&rawTime, &utcTm);
 #endif
 
-  const std::time_t localAsEpoch = std::mktime(&localTm);
-  const std::time_t utcAsEpoch = std::mktime(&utcTm);
+#if defined(_WIN32)
+  std::tm localCopy = localTm;
+  long offsetSeconds = static_cast<long>(
+      std::difftime(_mkgmtime(&localCopy), rawTime));
+#else
+  std::tm localCopy = localTm;
+  std::tm utcCopy = utcTm;
+  // mktime() interprets both structures as local time. Force the UTC wall-clock
+  // structure to use the DST state active at the represented instant, otherwise
+  // summer timestamps fall back to the standard-time offset.
+  utcCopy.tm_isdst = localCopy.tm_isdst;
+  const std::time_t localAsEpoch = std::mktime(&localCopy);
+  const std::time_t utcAsEpoch = std::mktime(&utcCopy);
   long offsetSeconds = static_cast<long>(std::difftime(localAsEpoch, utcAsEpoch));
+#endif
   const char sign = offsetSeconds >= 0 ? '+' : '-';
   offsetSeconds = std::labs(offsetSeconds);
   const int offsetHours = static_cast<int>(offsetSeconds / 3600);
@@ -304,6 +316,10 @@ std::vector<std::string> sinksForEvent(std::string_view source, std::string_view
 }
 
 } // namespace
+
+std::string formatIso8601LocalTimestamp(std::chrono::system_clock::time_point timestamp) {
+  return toIso8601Local(timestamp);
+}
 
 void initialize(const Config& config) {
   State& s = state();

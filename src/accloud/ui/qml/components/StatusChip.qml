@@ -7,12 +7,13 @@ Rectangle {
     id: root
 
     property string status: "Offline"
+    property string toneStatus: status
     property int horizontalPadding: 10
     property int dotSize: 8
     property int spacingValue: 6
 
     function normalized() {
-        return String(status).toLowerCase()
+        return String(toneStatus).toLowerCase()
     }
 
     function toneColor() {

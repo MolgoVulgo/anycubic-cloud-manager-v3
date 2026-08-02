@@ -1092,8 +1092,8 @@ ApplicationWindow {
                         Pages.PrinterPage {
                             id: printerPage
                             objectName: "printerPage"
-                            debugUi: root.debugUi
                             embeddedInTabsContainer: true
+                            developmentBuild: root.buildDebugEnabled
                             deferStartupInitialization: true
                             directDeleteLocalOnFailurePreference: root.directDeleteLocalOnFailureEnabled
                             pageActive: controlTabs.currentIndex === 1
