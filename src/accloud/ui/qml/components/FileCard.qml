@@ -17,12 +17,15 @@ Item {
     property string layerThickness: "-"
     property int layers: 0
     property bool isPwmb: false
+    property bool viewerEnabled: false
+    readonly property bool viewerSupported: String(fileName || "").toLowerCase().endsWith(".pwsz")
     property string resinUsage: "-"
     property string dimensions: "-"
     property string thumbnailUrl: ""
 
     signal deleteRequested(string fileId)
     signal downloadRequested(string fileId)
+    signal viewerRequested(string fileId, string fileName)
 
     implicitHeight: 220
 
@@ -136,9 +139,15 @@ Item {
                         id: openViewerButton
                         objectName: "openViewerButton"
                         text: qsTr("Open 3D Viewer")
-                        visible: root.isPwmb
-                        enabled: root.isPwmb
+                        visible: root.viewerSupported
+                        enabled: root.viewerEnabled
                         variant: "primary"
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 350
+                        ToolTip.text: root.viewerEnabled
+                                      ? qsTr("Open the layer-based 3D view")
+                                      : qsTr("The 3D viewer is disabled in this build.")
+                        onClicked: root.viewerRequested(root.fileId, root.fileName)
                     }
                 }
             }

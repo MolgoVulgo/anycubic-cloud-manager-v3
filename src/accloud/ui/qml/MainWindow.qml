@@ -21,6 +21,9 @@ ApplicationWindow {
                                      && accloudBuildDebugEnabled === true
     property bool prodUi: (typeof accloudProdUi !== "undefined")
                           && accloudProdUi === true
+    property bool experimentalViewerEnabled:
+        (typeof accloudExperimentalViewerEnabled !== "undefined")
+        && accloudExperimentalViewerEnabled === true
     property bool debugUi: buildDebugEnabled
                                && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
@@ -34,8 +37,10 @@ ApplicationWindow {
     property bool pwszPreviewConfirmationEnabled: true
     property bool cloudFileAdvancedDetailsEnabled: false
     property bool directDeleteLocalOnFailureEnabled: false
+    property int render3dWorkerCount: 4
     readonly property string directDeleteLocalOnFailureSettingsKey: "printing.directDeleteLocalOnFailure"
     readonly property string cloudFileAdvancedDetailsSettingsKey: "ui.cloudFiles.showAdvancedDetails"
+    readonly property string render3dWorkerCountSettingsKey: "render3d.workerCount"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -166,6 +171,35 @@ ApplicationWindow {
     }
 
 
+    function normalizeRender3dWorkerCount(value) {
+        var parsed = Number(value)
+        if (!isFinite(parsed))
+            parsed = 4
+        return Math.max(1, Math.min(16, Math.round(parsed)))
+    }
+
+    function loadRender3dSettings() {
+        var configured = 4
+        if (root.hasUiSettingsBridge()) {
+            configured = root.normalizeRender3dWorkerCount(uiSettingsBridge.getString(
+                    root.render3dWorkerCountSettingsKey, "4"))
+            uiSettingsBridge.setString(root.render3dWorkerCountSettingsKey, String(configured))
+            if (typeof uiSettingsBridge.sync === "function")
+                uiSettingsBridge.sync()
+        }
+        root.render3dWorkerCount = configured
+    }
+
+    function persistRender3dWorkerCount(value) {
+        root.render3dWorkerCount = root.normalizeRender3dWorkerCount(value)
+        if (!root.hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(root.render3dWorkerCountSettingsKey,
+                                   String(root.render3dWorkerCount))
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
     function loadPwszUploadSettings() {
         if (!root.hasUiSettingsBridge())
             return
@@ -269,6 +303,7 @@ ApplicationWindow {
         root.loadLanguageFromSettings()
         root.loadMqttAuthModeFromSettings()
         root.loadPwszUploadSettings()
+        root.loadRender3dSettings()
         root.loadDirectPrintSettings()
         root.loadCloudFileDetailsSettings()
         Qt.callLater(function() {
@@ -290,6 +325,7 @@ ApplicationWindow {
             root.applyStartupCheckResult(sessionImportBridge.checkStartup())
         })
     }
+
 
     Connections {
         target: (typeof sessionImportBridge !== "undefined"
@@ -366,6 +402,17 @@ ApplicationWindow {
             }
 
             MenuSeparator {}
+
+            MenuItem {
+                objectName: "menuSettingsRender3dWorkers"
+                text: qsTr("3D generation workers: %1").arg(root.render3dWorkerCount)
+                visible: root.experimentalViewerEnabled
+                enabled: root.experimentalViewerEnabled
+                onTriggered: {
+                    render3dWorkersSpin.value = root.render3dWorkerCount
+                    render3dWorkersDialog.open()
+                }
+            }
 
             MenuItem {
                 objectName: "menuSettingsPwszPreviewCompletion"
@@ -559,6 +606,62 @@ ApplicationWindow {
             AppButton {
                 text: qsTr("Close")
                 onClicked: sessionDetailsDialog.close()
+            }
+        ]
+    }
+
+    AppDialogFrame {
+        id: render3dWorkersDialog
+        objectName: "render3dWorkersDialog"
+        title: qsTr("3D generation settings")
+        subtitle: qsTr("Configure the number of parallel mesh workers.")
+        minimumWidth: 460
+        maximumWidth: 560
+
+        bodyData: [
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.gapRow
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Parallel workers")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
+                }
+
+                AppSpinBox {
+                    id: render3dWorkersSpin
+                    objectName: "render3dWorkersSpin"
+                    from: 1
+                    to: 16
+                    value: root.render3dWorkerCount
+                }
+            },
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Default: 4. Higher values use more CPU and memory during 3D generation.")
+                color: Theme.fgSecondary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Cancel")
+                variant: "secondary"
+                onClicked: render3dWorkersDialog.close()
+            },
+            AppButton {
+                objectName: "render3dWorkersApplyButton"
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    root.persistRender3dWorkerCount(render3dWorkersSpin.value)
+                    root.statusText = qsTr("3D generation workers updated: %1").arg(root.render3dWorkerCount)
+                    render3dWorkersDialog.close()
+                }
             }
         ]
     }
@@ -1058,6 +1161,8 @@ ApplicationWindow {
                             id: cloudFilesPage
                             objectName: "cloudFilesPage"
                             embeddedInTabsContainer: true
+                            viewerEnabled: root.experimentalViewerEnabled
+                            render3dWorkerCount: root.render3dWorkerCount
                             showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled
                             onStatusBroadcast: function(message, severity, operationId) {
                                 if (root !== null && root !== undefined
@@ -1159,6 +1264,7 @@ ApplicationWindow {
                                 }
                             }
                         }
+
                     }
 
                     InlineStatusBar {

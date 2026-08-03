@@ -2,9 +2,12 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <ctime>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -43,6 +46,46 @@ std::chrono::system_clock::time_point timePointFromEpochMillis(long long epochMi
   return std::chrono::system_clock::time_point{std::chrono::milliseconds{epochMillis}};
 }
 
+bool test_render3d_events_have_a_dedicated_sink() {
+  const auto unique = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path logDir =
+      std::filesystem::temp_directory_path()
+      / ("accloud-render3d-log-test-" + std::to_string(unique));
+  std::error_code ec;
+  std::filesystem::remove_all(logDir, ec);
+
+  accloud::logging::shutdown();
+  accloud::logging::Config config;
+  config.logDir = logDir;
+  config.mirrorToStderr = false;
+  accloud::logging::initialize(config);
+  accloud::logging::log(
+      accloud::logging::Level::kDebug,
+      "render3d",
+      "mesher",
+      "build_started",
+      {},
+      {{"generation", "7"}, {"layer_step", "2"}});
+  accloud::logging::shutdown();
+
+  const std::filesystem::path dedicatedPath = logDir / "render3d.jsonl";
+  std::ifstream input(dedicatedPath);
+  std::ostringstream content;
+  content << input.rdbuf();
+  const std::string line = content.str();
+  const bool ok = expect(std::filesystem::exists(dedicatedPath),
+                         "Render3D events must create render3d.jsonl")
+      && expect(line.find("\"source\":\"render3d\"") != std::string::npos,
+                "Dedicated Render3D log must preserve its source")
+      && expect(line.find("\"event\":\"build_started\"") != std::string::npos,
+                "Dedicated Render3D log must preserve generation events")
+      && expect(line.find("\"layer_step\":\"2\"") != std::string::npos,
+                "Dedicated Render3D log must preserve sampling diagnostics");
+
+  std::filesystem::remove_all(logDir, ec);
+  return ok;
+}
+
 bool test_local_timestamp_uses_effective_dst_offset() {
 #if defined(_WIN32)
   // The Windows CRT does not consistently accept portable POSIX DST transition
@@ -69,9 +112,10 @@ bool test_local_timestamp_uses_effective_dst_offset() {
 }  // namespace
 
 int main() {
-  if (!test_local_timestamp_uses_effective_dst_offset()) {
+  if (!test_local_timestamp_uses_effective_dst_offset()
+      || !test_render3d_events_have_a_dedicated_sink()) {
     return 1;
   }
-  std::cout << "Jsonl logger timestamp tests passed\n";
+  std::cout << "Jsonl logger tests passed\n";
   return 0;
 }

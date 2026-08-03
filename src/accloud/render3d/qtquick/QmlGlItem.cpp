@@ -33,7 +33,6 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -157,16 +156,19 @@ public:
           {{"generation", text(generation_)}});
     }
 
-    cutTransactions_ = viewer->cutTransactions_;
-    auto cutSnapshot = cutTransactions_->takeReadySnapshot();
-    requestedCutGeneration_ = cutSnapshot.generation;
+    requestedCutGeneration_ = viewer->cutGeneration_.load(std::memory_order_acquire);
     if (pendingCutBatch_ && pendingCutBatch_->generation != requestedCutGeneration_) {
       pendingCutBatch_.reset();
     }
-    if (cutSnapshot.result
-        && cutSnapshot.result->sceneGeneration == generation_
-        && cutSnapshot.result->generation == requestedCutGeneration_) {
-      pendingCutBatch_ = std::move(*cutSnapshot.result);
+    {
+      std::scoped_lock resultLock(viewer->cutResultMutex_);
+      if (viewer->readyCutBatch_) {
+        if (viewer->readyCutBatch_->sceneGeneration == generation_
+            && viewer->readyCutBatch_->generation == requestedCutGeneration_) {
+          pendingCutBatch_ = std::move(*viewer->readyCutBatch_);
+        }
+        viewer->readyCutBatch_.reset();
+      }
     }
 
     if (viewer->uploadQueue_ && !gpuFailureReported_) {
@@ -550,9 +552,7 @@ private:
       return;
     }
     if (pendingCutBatch_->sceneGeneration != generation_
-        || pendingCutBatch_->generation != requestedCutGeneration_
-        || !cutTransactions_
-        || !cutTransactions_->isCurrent(pendingCutBatch_->generation)) {
+        || pendingCutBatch_->generation != requestedCutGeneration_) {
       pendingCutBatch_.reset();
       return;
     }
@@ -568,28 +568,11 @@ private:
 
     const std::size_t previousChunks = cutGpuChunks_.size();
     const std::size_t previousBytes = gpuBytes(cutGpuChunks_);
-    const bool committed = cutTransactions_ && cutTransactions_->commitIfCurrent(
-        batch.generation,
-        [&] {
-          cutGpuChunks_.swap(staging);
-          displayedFirstLayer_ = batch.firstLayer;
-          displayedLastLayer_ = batch.lastLayer;
-          activeCutGeneration_ = batch.generation;
-        });
-    if (!committed) {
-      releaseGpuChunks(staging);
-      trace3d(
-          logging::Level::kDebug,
-          "gpu",
-          "cut_surface_swap_discarded",
-          {},
-          {{"generation", text(generation_)},
-           {"cut_generation", text(batch.generation)},
-           {"requested_cut_generation", text(
-                cutTransactions_ ? cutTransactions_->currentGeneration() : 0)}});
-      return;
-    }
+    cutGpuChunks_.swap(staging);
     releaseGpuChunks(staging);
+    displayedFirstLayer_ = batch.firstLayer;
+    displayedLastLayer_ = batch.lastLayer;
+    activeCutGeneration_ = batch.generation;
     trace3d(
         logging::Level::kDebug,
         "gpu",
@@ -614,7 +597,6 @@ private:
   std::optional<QmlGlItem::CutSurfaceBatch> pendingCutBatch_;
   GpuMemoryBudget gpuBudget_;
   QPointer<QmlGlItem> viewer_;
-  std::shared_ptr<QmlGlItem::CutSurfaceTransactions> cutTransactions_;
   std::uint64_t generation_ = 0;
   std::uint64_t requestedCutGeneration_ = 0;
   std::uint64_t activeCutGeneration_ = 0;
@@ -756,31 +738,40 @@ void QmlGlItem::stopCutWorker() {
     return;
   }
   cutWorker_.request_stop();
-  cutTransactions_->notifyAll();
+  cutRequestChanged_.notify_all();
   cutWorker_.join();
-  cutTransactions_->invalidate();
+  std::scoped_lock resultLock(cutResultMutex_);
+  readyCutBatch_.reset();
 }
 
 void QmlGlItem::requestCutSurfaceRebuild() {
-  // Request replacement, stale-result removal and generation publication are
-  // one transaction. The active GPU section remains visible until the newest
-  // complete batch is decoded, uploaded and committed.
-  const std::uint64_t generation = cutTransactions_->replaceRequest(
-      [&](std::uint64_t nextGeneration) -> std::optional<CutSurfaceRequest> {
-        if (!loading_ && archiveReader_ && totalLayers_ > 0
-            && firstLayer_ > 0 && lastLayer_ >= firstLayer_) {
-          return CutSurfaceRequest{
-              sceneGeneration_,
-              nextGeneration,
-              firstLayer_,
-              lastLayer_,
-              totalLayers_,
-              std::max(1, layerStep_),
-              archiveReader_,
-          };
-        }
-        return std::nullopt;
-      });
+  std::uint64_t generation = 0;
+  {
+    // Generation publication, stale-result removal and request replacement are
+    // one transaction. The active GPU section is intentionally preserved until
+    // a complete new batch has been decoded and uploaded.
+    std::scoped_lock lock(cutRequestMutex_);
+    generation = cutGeneration_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    {
+      std::scoped_lock resultLock(cutResultMutex_);
+      readyCutBatch_.reset();
+    }
+    if (!loading_ && archiveReader_ && totalLayers_ > 0
+        && firstLayer_ > 0 && lastLayer_ >= firstLayer_) {
+      cutRequest_ = CutSurfaceRequest{
+          sceneGeneration_,
+          generation,
+          firstLayer_,
+          lastLayer_,
+          totalLayers_,
+          std::max(1, layerStep_),
+          archiveReader_,
+      };
+    } else {
+      cutRequest_.reset();
+    }
+  }
+  cutRequestChanged_.notify_all();
   trace3d(
       logging::Level::kDebug,
       "cut_surface",
@@ -801,15 +792,23 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
   std::uint64_t cachedSceneGeneration = 0;
 
   while (!stopToken.stop_requested()) {
-    auto pendingRequest = cutTransactions_->waitAndTake(stopToken);
-    if (!pendingRequest) {
-      break;
+    CutSurfaceRequest request;
+    {
+      std::unique_lock lock(cutRequestMutex_);
+      cutRequestChanged_.wait(
+          lock,
+          stopToken,
+          [&] { return cutRequest_.has_value(); });
+      if (stopToken.stop_requested()) {
+        break;
+      }
+      request = std::move(*cutRequest_);
+      cutRequest_.reset();
     }
-    CutSurfaceRequest request = std::move(*pendingRequest);
 
     const auto stillCurrent = [&] {
       return !stopToken.stop_requested()
-             && cutTransactions_->isCurrent(request.generation);
+             && cutGeneration_.load(std::memory_order_acquire) == request.generation;
     };
     if (!request.reader || !stillCurrent()) {
       continue;
@@ -939,7 +938,8 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
       QMetaObject::invokeMethod(
           this,
           [guard, generation = request.generation] {
-            if (!guard || !guard->cutTransactions_->isCurrent(generation)) {
+            if (!guard
+                || guard->cutGeneration_.load(std::memory_order_acquire) != generation) {
               return;
             }
             guard->errorString_ = QmlGlItem::tr(
@@ -962,12 +962,18 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
     batch.cacheHits = cacheAfter.hits - cacheBefore.hits;
     batch.cacheMisses = cacheAfter.misses - cacheBefore.misses;
 
-    // Publication is serialized with request replacement. The renderer only
-    // sees complete batches; the previous clipping range remains active until
-    // this batch has also been uploaded successfully.
-    const bool published = cutTransactions_->publishIfCurrent(
-        request.generation,
-        std::move(batch));
+    bool published = false;
+    {
+      // Publication is serialized with request replacement. The renderer only
+      // sees complete batches; the previous clipping range remains active until
+      // this batch has also been uploaded successfully.
+      std::scoped_lock requestLock(cutRequestMutex_);
+      if (stillCurrent()) {
+        std::scoped_lock resultLock(cutResultMutex_);
+        readyCutBatch_ = std::move(batch);
+        published = true;
+      }
+    }
     if (!published) {
       continue;
     }
@@ -1016,7 +1022,14 @@ void QmlGlItem::resetDocumentState() {
   cameraTouched_ = false;
   uploadQueue_->clear();
   archiveReader_.reset();
-  cutTransactions_->invalidate();
+  {
+    std::scoped_lock lock(cutRequestMutex_);
+    cutGeneration_.fetch_add(1, std::memory_order_release);
+    cutRequest_.reset();
+    std::scoped_lock resultLock(cutResultMutex_);
+    readyCutBatch_.reset();
+  }
+  cutRequestChanged_.notify_all();
   ++sceneGeneration_;
   emit loadingChanged();
   emit progressChanged();
@@ -1361,7 +1374,14 @@ void QmlGlItem::applyGpuFailure(
     worker_.request_stop();
   }
   uploadQueue_->clear();
-  cutTransactions_->invalidate();
+  {
+    std::scoped_lock lock(cutRequestMutex_);
+    cutGeneration_.fetch_add(1, std::memory_order_release);
+    cutRequest_.reset();
+    std::scoped_lock resultLock(cutResultMutex_);
+    readyCutBatch_.reset();
+  }
+  cutRequestChanged_.notify_all();
   loading_ = false;
   errorString_ = std::move(errorString);
   ++sceneGeneration_;

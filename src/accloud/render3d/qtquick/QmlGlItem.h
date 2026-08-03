@@ -1,7 +1,6 @@
 #pragma once
 
 #include "domain/photons/MeshChunk.h"
-#include "render3d/core/CutSurfaceTransactionCoordinator.h"
 #include "render3d/core/OrbitCamera.h"
 #include "render3d/gl/UploadQueue.h"
 
@@ -9,9 +8,13 @@
 #include <QQuickFramebufferObject>
 #include <QString>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -158,10 +161,12 @@ private:
   std::uint64_t sceneGeneration_ = 0;
   std::shared_ptr<UploadQueue> uploadQueue_;
   std::shared_ptr<photons::pwsz::PwszArchiveReader> archiveReader_;
-  using CutSurfaceTransactions =
-      CutSurfaceTransactionCoordinator<CutSurfaceRequest, CutSurfaceBatch>;
-  std::shared_ptr<CutSurfaceTransactions> cutTransactions_ =
-      std::make_shared<CutSurfaceTransactions>();
+  std::atomic<std::uint64_t> cutGeneration_{0};
+  std::mutex cutRequestMutex_;
+  std::mutex cutResultMutex_;
+  std::condition_variable_any cutRequestChanged_;
+  std::optional<CutSurfaceRequest> cutRequest_;
+  std::optional<CutSurfaceBatch> readyCutBatch_;
   std::jthread worker_;
   std::jthread cutWorker_;
 };

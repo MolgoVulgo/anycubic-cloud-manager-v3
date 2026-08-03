@@ -224,9 +224,95 @@ TestCase {
         verify(findObjectByName(window, "menuSettingsRender3d") === null)
         verify(findObjectByName(window, "viewerDraftDialog") === null)
         verify(findObjectByName(window, "viewerDialogButton") === null)
+        verify(findObjectByName(window, "viewerTabButton") === null)
 
         window.close()
         window.destroy()
+    }
+
+    function test_experimental_viewer_is_a_file_action_not_a_tab() {
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true
+        })
+        wait(0)
+
+        var tabs = findObjectByName(window, "controlRoomTabs")
+        var filesPage = findObjectByName(window, "cloudFilesPage")
+        var dialogLoader = findObjectByName(window, "viewerDialogLoader")
+        verify(tabs !== null)
+        verify(filesPage !== null)
+        verify(dialogLoader !== null)
+        compare(tabs.count, 4)
+        compare(filesPage.viewerEnabled, true)
+        compare(filesPage.render3dWorkerCount, 4)
+        compare(dialogLoader.active, false)
+        verify(findObjectByName(window, "viewerTabButton") === null)
+        verify(findObjectByName(window, "viewerPageHost") === null)
+
+        window.close()
+        window.destroy()
+    }
+
+    function test_render3d_worker_setting_defaults_to_four_and_persists_bounds() {
+        uiSettingsBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                               'property var values: ({});' +
+                                               'function getString(key, fallback) {' +
+                                               '  return values[key] !== undefined ? values[key] : fallback' +
+                                               '}' +
+                                               'function setString(key, value) { values[key] = value }' +
+                                               'function sync() {}' +
+                                               '}', this, "render3dWorkerSettingsMock")
+
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true
+        })
+        wait(0)
+        compare(window.render3dWorkerCount, 4)
+        compare(String(uiSettingsBridge.values["render3d.workerCount"]), "4")
+
+        var filesPage = findObjectByName(window, "cloudFilesPage")
+        var settingsMenu = findObjectByName(window, "menuParametre")
+        var menuItem = findObjectByName(window, "menuSettingsRender3dWorkers")
+        var dialog = findObjectByName(window, "render3dWorkersDialog")
+        var spin = findObjectByName(window, "render3dWorkersSpin")
+        verify(filesPage !== null)
+        verify(settingsMenu !== null)
+        verify(menuItem !== null)
+        verify(dialog !== null)
+        verify(spin !== null)
+        compare(filesPage.render3dWorkerCount, 4)
+        compare(window.experimentalViewerEnabled, true)
+        compare(menuItem.enabled, true)
+        settingsMenu.open()
+        tryCompare(settingsMenu, "visible", true, 1000)
+        tryCompare(menuItem, "visible", true, 1000)
+        settingsMenu.close()
+        compare(spin.from, 1)
+        compare(spin.to, 16)
+
+        window.persistRender3dWorkerCount(12)
+        compare(window.render3dWorkerCount, 12)
+        compare(filesPage.render3dWorkerCount, 12)
+        compare(String(uiSettingsBridge.values["render3d.workerCount"]), "12")
+
+        window.persistRender3dWorkerCount(0)
+        compare(window.render3dWorkerCount, 1)
+        window.persistRender3dWorkerCount(99)
+        compare(window.render3dWorkerCount, 16)
+        window.close()
+        window.destroy()
+
+        uiSettingsBridge.values["render3d.workerCount"] = "7"
+        var restoredWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true
+        })
+        wait(0)
+        compare(restoredWindow.render3dWorkerCount, 7)
+        var restoredFilesPage = findObjectByName(restoredWindow, "cloudFilesPage")
+        verify(restoredFilesPage !== null)
+        compare(restoredFilesPage.render3dWorkerCount, 7)
+        restoredWindow.close()
+        restoredWindow.destroy()
     }
 
     function test_main_window_uses_compact_primary_shell() {
@@ -668,9 +754,10 @@ TestCase {
         compare(thumb.width, 76)
         compare(thumb.height, 76)
         compare(page.colSelectWidth, 30)
-        compare(page.colActionsWidth, 326)
+        compare(page.colActionsWidth, 380)
         compare(page.actionDetailsWidth + page.actionDownloadWidth
-                + page.actionPrintWidth + page.actionMenuWidth + 18, 318)
+                + page.actionViewerWidth + page.actionPrintWidth
+                + page.actionMenuWidth + 24, 372)
         compare(page.tableRowHorizontalMargin, 12)
         compare(tablePanel.border.width, 1)
         compare(tablePanel.tableRowHorizontalMargin, page.tableRowHorizontalMargin)
@@ -838,18 +925,82 @@ TestCase {
         page.destroy()
     }
 
-    function test_file_card_shows_viewer_button_only_for_pwmb() {
-        var nonPwmb = createQmlObject("../../../ui/qml/components/FileCard.qml", {"isPwmb": false})
-        var viewerA = findObjectByName(nonPwmb, "openViewerButton")
-        verify(viewerA !== null)
-        compare(viewerA.visible, false)
-        nonPwmb.destroy()
+    function test_file_card_shows_viewer_button_only_for_pwsz_in_viewer_build() {
+        var disabled = createQmlObject("../../../ui/qml/components/FileCard.qml", {
+            "viewerEnabled": false,
+            "fileName": "part.pwsz"
+        })
+        var disabledButton = findObjectByName(disabled, "openViewerButton")
+        verify(disabledButton !== null)
+        compare(disabledButton.visible, true)
+        compare(disabledButton.enabled, false)
+        disabled.destroy()
 
-        var pwmb = createQmlObject("../../../ui/qml/components/FileCard.qml", {"isPwmb": true})
-        var viewerB = findObjectByName(pwmb, "openViewerButton")
-        verify(viewerB !== null)
-        compare(viewerB.visible, true)
-        pwmb.destroy()
+        var unsupported = createQmlObject("../../../ui/qml/components/FileCard.qml", {
+            "viewerEnabled": true,
+            "fileName": "part.pwmb"
+        })
+        var unsupportedButton = findObjectByName(unsupported, "openViewerButton")
+        verify(unsupportedButton !== null)
+        compare(unsupportedButton.visible, false)
+        unsupported.destroy()
+
+        var pwsz = createQmlObject("../../../ui/qml/components/FileCard.qml", {
+            "viewerEnabled": true,
+            "fileName": "part.pwsz"
+        })
+        var viewerButton = findObjectByName(pwsz, "openViewerButton")
+        verify(viewerButton !== null)
+        compare(viewerButton.visible, true)
+        compare(viewerButton.enabled, true)
+        pwsz.destroy()
+    }
+
+    function test_cloud_file_row_routes_pwsz_viewer_action() {
+        var row = createQmlObject("../../../ui/qml/pages/CloudFilesTableRow.qml", {
+            "width": 900,
+            "viewerEnabled": true,
+            "fileId": "pwsz-1",
+            "fileName": "butterfly.pwsz"
+        })
+        var button = findObjectByName(row, "fileRowViewerButton")
+        verify(button !== null)
+        compare(button.visible, true)
+        compare(button.enabled, true)
+
+        var requestedId = ""
+        var requestedName = ""
+        row.viewerRequested.connect(function(fileId, fileName) {
+            requestedId = String(fileId)
+            requestedName = String(fileName)
+        })
+        button.clicked()
+        compare(requestedId, "pwsz-1")
+        compare(requestedName, "butterfly.pwsz")
+        row.destroy()
+
+        var disabledRow = createQmlObject("../../../ui/qml/pages/CloudFilesTableRow.qml", {
+            "width": 900,
+            "viewerEnabled": false,
+            "fileId": "pwsz-disabled",
+            "fileName": "disabled.pwsz"
+        })
+        var disabledRowButton = findObjectByName(disabledRow, "fileRowViewerButton")
+        verify(disabledRowButton !== null)
+        compare(disabledRowButton.visible, true)
+        compare(disabledRowButton.enabled, false)
+        disabledRow.destroy()
+
+        var unsupported = createQmlObject("../../../ui/qml/pages/CloudFilesTableRow.qml", {
+            "width": 900,
+            "viewerEnabled": true,
+            "fileId": "pwmb-1",
+            "fileName": "legacy.pwmb"
+        })
+        var unsupportedButton = findObjectByName(unsupported, "fileRowViewerButton")
+        verify(unsupportedButton !== null)
+        compare(unsupportedButton.visible, false)
+        unsupported.destroy()
     }
 
     function test_session_dialog_default_target_path() {

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "domain/photons/BinaryMask.h"
+
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace accloud::photons {
@@ -14,9 +17,13 @@ struct BoundingBox {
 };
 
 struct LayerSlice {
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
   std::optional<std::vector<std::uint8_t>> decodedGray;
-  std::optional<std::vector<std::uint8_t>> maskTruth;
+  std::optional<BinaryMask> maskTruth;
   std::optional<BoundingBox> bbox;
+  bool hasIntermediateGray = false;
+  std::vector<std::string> diagnostics;
 };
 
 } // namespace accloud::photons

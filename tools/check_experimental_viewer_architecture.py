@@ -151,7 +151,6 @@ def main() -> int:
         "NAME accloud_experimental_viewer_architecture",
         "NAME accloud_experimental_viewer_scaffold",
         "NAME accloud_render_pipeline",
-        "NAME accloud_cut_surface_transactions",
         "add_executable(accloud_render3d_worker_benchmark",
         "NAME accloud_render3d_worker_benchmark_selftest",
         "NAME accloud_render3d_shader_compile",
@@ -232,8 +231,6 @@ def main() -> int:
     mesh_chunk_header = read(root / "src/accloud/domain/photons/MeshChunk.h")
     section_cache_header = read(root / "src/accloud/render3d/core/LayerSectionCache.h")
     section_cache_cpp = read(root / "src/accloud/render3d/core/LayerSectionCache.cpp")
-    transaction_header = read(root / "src/accloud/render3d/core/CutSurfaceTransactionCoordinator.h")
-    transaction_test = read(root / "tests/photons/test_cut_surface_transactions.cpp")
     logger_test = read(root / "tests/cloud/test_jsonl_logger.cpp")
     registration_token = "qmlRegisterType<accloud::render3d::QmlGlItem>"
     if registration_token not in main_cpp:
@@ -274,9 +271,8 @@ def main() -> int:
         '"cut_surface_uploaded"',
         '"boundary_built"',
         "u_cutSurfacePass",
-        "cutTransactions_",
+        "readyCutBatch_",
         "cut_surface_swap_committed",
-        "cut_surface_swap_discarded",
         "displayedFirstLayer_",
         "LayerSectionCache",
         "glDrawArraysInstanced",
@@ -301,25 +297,6 @@ def main() -> int:
     ):
         if obsolete in qml_item_cpp or obsolete in qml_item_header:
             errors.append(f"obsolete non-transactional cut-surface token remains: {obsolete}")
-
-
-    for token in (
-        "class CutSurfaceTransactionCoordinator",
-        "replaceRequest",
-        "publishIfCurrent",
-        "takeReadySnapshot",
-        "commitIfCurrent",
-    ):
-        if token not in transaction_header:
-            errors.append(f"missing cut-surface transaction coordinator token: {token}")
-    for token in (
-        "rapid slider movement",
-        "staleCommit",
-        "displayed.firstLayer == 1",
-        "generation4",
-    ):
-        if token not in transaction_test:
-            errors.append(f"cut-surface transaction regression is missing token: {token}")
 
     for token in (
         "struct LayerSectionRect",

@@ -519,13 +519,6 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_experimental_viewer)
   add_test(NAME accloud_viewer_controls COMMAND accloud_viewer_controls_tests)
 
-  add_executable(accloud_cut_surface_transaction_tests
-      ${ACCLOUD_TESTS_ROOT}/photons/test_cut_surface_transactions.cpp)
-  target_include_directories(accloud_cut_surface_transaction_tests PRIVATE ${ACCLOUD_SRC_ROOT})
-  target_link_libraries(accloud_cut_surface_transaction_tests PRIVATE accloud_domain)
-  add_test(NAME accloud_cut_surface_transactions
-           COMMAND accloud_cut_surface_transaction_tests)
-
   add_executable(accloud_render3d_worker_benchmark
       ${ACCLOUD_TOOLS_ROOT}/render3d_worker_benchmark.cpp)
   target_include_directories(accloud_render3d_worker_benchmark PRIVATE ${ACCLOUD_SRC_ROOT})
@@ -543,7 +536,6 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_layer_stack_mesher
       accloud_render_pipeline
       accloud_viewer_controls
-      accloud_cut_surface_transactions
       accloud_render3d_worker_benchmark_selftest
       PROPERTIES LABELS "core;experimental;viewer")
   set_tests_properties(accloud_render3d_worker_benchmark_selftest PROPERTIES

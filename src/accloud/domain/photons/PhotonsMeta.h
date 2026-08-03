@@ -9,6 +9,9 @@ namespace accloud::photons {
 struct PhotonsMeta {
   std::optional<std::uint32_t> resolutionX;
   std::optional<std::uint32_t> resolutionY;
+  std::optional<double> pitchXMm;
+  std::optional<double> pitchYMm;
+  // Compatibility field for formats that expose one square XY pitch.
   std::optional<double> pitchXYMm;
   std::optional<double> pitchZMm;
   std::optional<std::uint32_t> layerCount;
