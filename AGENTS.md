@@ -25,7 +25,7 @@ Les documents sous `docs/FR/sources-techniques/` sont des matériaux historiques
 - ressources debug : `src/accloud/app/resources_debug.qrc` ;
 - fenêtre principale : `src/accloud/ui/qml/MainWindow.qml` ;
 - cloud : `src/accloud/infra/cloud/` ;
-- MQTT : `src/accloud/infra/mqtt/` et `src/accloud/app/MqttBridge.cpp`.
+- MQTT : `src/accloud/infra/mqtt/`, façade `src/accloud/app/MqttBridge.cpp` et cycle session/abonnements `src/accloud/app/mqtt/MqttBridgeSession.cpp`.
 
 ## Invariants
 

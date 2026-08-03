@@ -102,4 +102,4 @@ Un message inconnu reste non bloquant. Il peut être conservé comme observation
 
 - construction : `src/accloud/infra/mqtt/routing/MqttTopicBuilder.cpp` ;
 - routage : `src/accloud/infra/mqtt/routing/MqttMessageRouter.cpp` ;
-- propriétaire des abonnements runtime : `src/accloud/app/MqttBridge.cpp`.
+- propriétaire des abonnements runtime : `src/accloud/app/mqtt/MqttBridgeSession.cpp` (`MqttBridge.cpp` reste la façade exposée à QML).
