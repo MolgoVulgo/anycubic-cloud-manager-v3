@@ -1,7 +1,6 @@
 #include "render3d/meshing/LayerStackMesher.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -20,14 +19,6 @@ namespace {
 
 using photons::BinaryMask;
 using photons::MeshChunk;
-using photons::MeshVertex;
-
-struct Point3 {
-  float x;
-  float y;
-  float z;
-};
-
 enum class WallAxis {
   X,
   Y,
@@ -48,25 +39,81 @@ struct WallSpan {
   }
 };
 
-void addQuad(
+void includeQuadBounds(
     MeshChunk& chunk,
-    const std::array<Point3, 4>& points,
-    const Point3& normal) {
-  const auto base = static_cast<std::uint32_t>(chunk.vertices.size());
-  for (const auto& point : points) {
-    chunk.vertices.push_back(MeshVertex{
-        point.x,
-        point.y,
-        point.z,
-        normal.x,
-        normal.y,
-        normal.z,
-    });
-    chunk.bounds.include(point.x, point.y, point.z);
-  }
-  chunk.indices.insert(
-      chunk.indices.end(),
-      {base, base + 1u, base + 2u, base, base + 2u, base + 3u});
+    float x0,
+    float x1,
+    float y0,
+    float y1,
+    float z0,
+    float z1) {
+  chunk.bounds.include(x0, y0, z0);
+  chunk.bounds.include(x1, y1, z1);
+}
+
+void addXSurface(
+    MeshChunk& chunk,
+    photons::PackedSurfaceFace face,
+    std::uint32_t fixedX,
+    std::uint32_t y0,
+    std::uint32_t y1,
+    std::size_t globalZ0,
+    std::size_t globalZ1) {
+  const auto relativeZ0 = static_cast<std::uint32_t>(globalZ0 - chunk.layers.first);
+  const auto relativeZ1 = static_cast<std::uint32_t>(globalZ1 - chunk.layers.first);
+  chunk.surfaces.push_back(photons::packXSurface(
+      face, fixedX, y0, y1, relativeZ0, relativeZ1));
+  includeQuadBounds(
+      chunk,
+      fixedX * chunk.pitchXMm,
+      fixedX * chunk.pitchXMm,
+      y0 * chunk.pitchYMm,
+      y1 * chunk.pitchYMm,
+      static_cast<float>(globalZ0) * chunk.pitchZMm,
+      static_cast<float>(globalZ1) * chunk.pitchZMm);
+}
+
+void addYSurface(
+    MeshChunk& chunk,
+    photons::PackedSurfaceFace face,
+    std::uint32_t fixedY,
+    std::uint32_t x0,
+    std::uint32_t x1,
+    std::size_t globalZ0,
+    std::size_t globalZ1) {
+  const auto relativeZ0 = static_cast<std::uint32_t>(globalZ0 - chunk.layers.first);
+  const auto relativeZ1 = static_cast<std::uint32_t>(globalZ1 - chunk.layers.first);
+  chunk.surfaces.push_back(photons::packYSurface(
+      face, fixedY, x0, x1, relativeZ0, relativeZ1));
+  includeQuadBounds(
+      chunk,
+      x0 * chunk.pitchXMm,
+      x1 * chunk.pitchXMm,
+      fixedY * chunk.pitchYMm,
+      fixedY * chunk.pitchYMm,
+      static_cast<float>(globalZ0) * chunk.pitchZMm,
+      static_cast<float>(globalZ1) * chunk.pitchZMm);
+}
+
+void addZSurface(
+    MeshChunk& chunk,
+    photons::PackedSurfaceFace face,
+    std::size_t globalZ,
+    std::uint32_t x0,
+    std::uint32_t x1,
+    std::uint32_t y0,
+    std::uint32_t y1) {
+  const auto relativeZ = static_cast<std::uint32_t>(globalZ - chunk.layers.first);
+  chunk.surfaces.push_back(photons::packZSurface(
+      face, relativeZ, x0, x1, y0, y1));
+  includeQuadBounds(
+      chunk,
+      x0 * chunk.pitchXMm,
+      x1 * chunk.pitchXMm,
+      y0 * chunk.pitchYMm,
+      y1 * chunk.pitchYMm,
+      static_cast<float>(globalZ) * chunk.pitchZMm,
+      static_cast<float>(globalZ) * chunk.pitchZMm);
 }
 
 using PixelRun = std::pair<std::uint32_t, std::uint32_t>;
@@ -128,29 +175,25 @@ void emitHorizontalSurface(
     MeshChunk& chunk,
     const BinaryMask& material,
     const BinaryMask* neighbour,
-    float z,
-    bool top,
-    float pitchX,
-    float pitchY) {
+    std::size_t globalZ,
+    bool top) {
   using Run = PixelRun;
   std::map<Run, std::uint32_t> active;
 
   const auto emitRectangle = [&](const Run& run,
                                  std::uint32_t firstY,
                                  std::uint32_t endY) {
-    const float x0 = run.first * pitchX;
-    const float x1 = run.second * pitchX;
-    const float yLow = (material.height() - endY) * pitchY;
-    const float yHigh = (material.height() - firstY) * pitchY;
-    if (top) {
-      addQuad(chunk,
-              {{{x0, yLow, z}, {x1, yLow, z}, {x1, yHigh, z}, {x0, yHigh, z}}},
-              {0.0F, 0.0F, 1.0F});
-    } else {
-      addQuad(chunk,
-              {{{x0, yLow, z}, {x0, yHigh, z}, {x1, yHigh, z}, {x1, yLow, z}}},
-              {0.0F, 0.0F, -1.0F});
-    }
+    const std::uint32_t y0 = material.height() - endY;
+    const std::uint32_t y1 = material.height() - firstY;
+    addZSurface(
+        chunk,
+        top ? photons::PackedSurfaceFace::PositiveZ
+            : photons::PackedSurfaceFace::NegativeZ,
+        globalZ,
+        run.first,
+        run.second,
+        y0,
+        y1);
   };
 
   for (std::uint32_t y = 0; y < material.height(); ++y) {
@@ -271,50 +314,30 @@ void emitWall(
     MeshChunk& chunk,
     const WallSpan& wall,
     std::uint32_t rasterHeight,
-    float z0,
-    float z1,
-    float pitchX,
-    float pitchY) {
+    std::size_t globalZ0,
+    std::size_t globalZ1) {
   if (wall.axis == WallAxis::X) {
-    const float worldX = wall.fixed * pitchX;
-    const float yLow = (rasterHeight - wall.last) * pitchY;
-    const float yHigh = (rasterHeight - wall.first) * pitchY;
-    if (wall.orientation > 0) {
-      addQuad(chunk,
-              {{{worldX, yLow, z0},
-                {worldX, yHigh, z0},
-                {worldX, yHigh, z1},
-                {worldX, yLow, z1}}},
-              {1.0F, 0.0F, 0.0F});
-    } else {
-      addQuad(chunk,
-              {{{worldX, yLow, z0},
-                {worldX, yLow, z1},
-                {worldX, yHigh, z1},
-                {worldX, yHigh, z0}}},
-              {-1.0F, 0.0F, 0.0F});
-    }
+    addXSurface(
+        chunk,
+        wall.orientation > 0 ? photons::PackedSurfaceFace::PositiveX
+                             : photons::PackedSurfaceFace::NegativeX,
+        wall.fixed,
+        rasterHeight - wall.last,
+        rasterHeight - wall.first,
+        globalZ0,
+        globalZ1);
     return;
   }
 
-  const float worldY = (rasterHeight - wall.fixed) * pitchY;
-  const float x0 = wall.first * pitchX;
-  const float x1 = wall.last * pitchX;
-  if (wall.orientation > 0) {
-    addQuad(chunk,
-            {{{x0, worldY, z0},
-              {x0, worldY, z1},
-              {x1, worldY, z1},
-              {x1, worldY, z0}}},
-            {0.0F, 1.0F, 0.0F});
-  } else {
-    addQuad(chunk,
-            {{{x0, worldY, z0},
-              {x1, worldY, z0},
-              {x1, worldY, z1},
-              {x0, worldY, z1}}},
-            {0.0F, -1.0F, 0.0F});
-  }
+  addYSurface(
+      chunk,
+      wall.orientation > 0 ? photons::PackedSurfaceFace::PositiveY
+                           : photons::PackedSurfaceFace::NegativeY,
+      rasterHeight - wall.fixed,
+      wall.first,
+      wall.last,
+      globalZ0,
+      globalZ1);
 }
 
 using ActiveWalls = std::map<WallSpan, std::size_t>;
@@ -324,19 +347,11 @@ void updateActiveWalls(
     ActiveWalls& active,
     const std::set<WallSpan>& current,
     std::size_t layer,
-    std::uint32_t rasterHeight,
-    float pitchX,
-    float pitchY,
-    float pitchZ) {
+    std::uint32_t rasterHeight) {
   for (auto iterator = active.begin(); iterator != active.end();) {
     if (!current.contains(iterator->first)) {
-      emitWall(chunk,
-               iterator->first,
-               rasterHeight,
-               static_cast<float>(iterator->second) * pitchZ,
-               static_cast<float>(layer) * pitchZ,
-               pitchX,
-               pitchY);
+      emitWall(
+          chunk, iterator->first, rasterHeight, iterator->second, layer);
       iterator = active.erase(iterator);
     } else {
       ++iterator;
@@ -351,18 +366,9 @@ void flushActiveWalls(
     MeshChunk& chunk,
     ActiveWalls& active,
     std::size_t endLayerExclusive,
-    std::uint32_t rasterHeight,
-    float pitchX,
-    float pitchY,
-    float pitchZ) {
+    std::uint32_t rasterHeight) {
   for (const auto& [wall, firstLayer] : active) {
-    emitWall(chunk,
-             wall,
-             rasterHeight,
-             static_cast<float>(firstLayer) * pitchZ,
-             static_cast<float>(endLayerExclusive) * pitchZ,
-             pitchX,
-             pitchY);
+    emitWall(chunk, wall, rasterHeight, firstLayer, endLayerExclusive);
   }
   active.clear();
 }
@@ -443,10 +449,17 @@ TaskBuildResult buildTask(
     const std::function<void()>& sampleCompleted) {
   TaskBuildResult result;
   result.chunk.layers = {task.firstLayer, task.endLayerExclusive - 1};
+  result.chunk.rasterWidth = source.width();
+  result.chunk.rasterHeight = source.height();
+  result.chunk.pitchXMm = static_cast<float>(options.pitchXMm);
+  result.chunk.pitchYMm = static_cast<float>(options.pitchYMm);
+  result.chunk.pitchZMm = static_cast<float>(options.pitchZMm);
+  if (task.endLayerExclusive - task.firstLayer
+      > photons::kPackedSurfaceMaximumRelativeZ) {
+    result.error = "mesh chunk exceeds the packed relative Z range";
+    return result;
+  }
 
-  const float pitchX = static_cast<float>(options.pitchXMm);
-  const float pitchY = static_cast<float>(options.pitchYMm);
-  const float pitchZ = static_cast<float>(options.pitchZMm);
   std::string loadError;
 
   const auto load = [&](std::size_t layer) -> std::optional<BinaryMask> {
@@ -533,10 +546,8 @@ TaskBuildResult buildTask(
       nextMask = nullptr;
     }
 
-    const float z0 = static_cast<float>(layer) * pitchZ;
-    const float z1 = static_cast<float>(segmentEndExclusive) * pitchZ;
-    emitHorizontalSurface(result.chunk, *current, previousMask, z0, false, pitchX, pitchY);
-    emitHorizontalSurface(result.chunk, *current, nextMask, z1, true, pitchX, pitchY);
+    emitHorizontalSurface(result.chunk, *current, previousMask, layer, false);
+    emitHorizontalSurface(result.chunk, *current, nextMask, segmentEndExclusive, true);
 
     auto walls = collectXWalls(*current);
     const auto yWalls = collectYWalls(*current);
@@ -546,10 +557,7 @@ TaskBuildResult buildTask(
         activeWalls,
         walls,
         layer,
-        source.height(),
-        pitchX,
-        pitchY,
-        pitchZ);
+        source.height());
 
     sampleCompleted();
     if (sampleIndex == task.lastSample) {
@@ -583,15 +591,65 @@ TaskBuildResult buildTask(
       result.chunk,
       activeWalls,
       task.endLayerExclusive,
-      source.height(),
-      pitchX,
-      pitchY,
-      pitchZ);
+      source.height());
   result.ok = true;
   return result;
 }
 
 } // namespace
+
+CutSurfaceBuildResult LayerStackMesher::buildCutSurface(
+    photons::LayerMaskSource& source,
+    std::size_t maskLayer,
+    std::size_t planeLayer,
+    CutSurfaceBoundary boundary,
+    const MeshBuildOptions& options) const {
+  CutSurfaceBuildResult result;
+  if (maskLayer >= source.layerCount()) {
+    result.error = "cut surface mask layer is outside the source";
+    return result;
+  }
+  if (source.width() == 0 || source.height() == 0) {
+    result.error = "cut surface source dimensions must be non-zero";
+    return result;
+  }
+  if (source.width() > photons::kPackedSurfaceMaximumX
+      || source.height() > photons::kPackedSurfaceMaximumY) {
+    result.error = "cut surface dimensions exceed the packed surface format";
+    return result;
+  }
+  if (!(options.pitchXMm > 0.0) || !(options.pitchYMm > 0.0)
+      || !(options.pitchZMm > 0.0)) {
+    result.error = "cut surface pitch must be positive";
+    return result;
+  }
+
+  std::string loadError;
+  auto mask = source.loadMask(maskLayer, loadError);
+  if (!mask) {
+    result.error = std::move(loadError);
+    return result;
+  }
+  if (mask->width() != source.width() || mask->height() != source.height()) {
+    result.error = "cut surface mask dimensions differ from the source metadata";
+    return result;
+  }
+  result.decodedLayerCount = 1;
+  result.chunk.layers = {planeLayer, planeLayer};
+  result.chunk.rasterWidth = source.width();
+  result.chunk.rasterHeight = source.height();
+  result.chunk.pitchXMm = static_cast<float>(options.pitchXMm);
+  result.chunk.pitchYMm = static_cast<float>(options.pitchYMm);
+  result.chunk.pitchZMm = static_cast<float>(options.pitchZMm);
+  emitHorizontalSurface(
+      result.chunk,
+      *mask,
+      nullptr,
+      planeLayer,
+      boundary == CutSurfaceBoundary::Upper);
+  result.ok = true;
+  return result;
+}
 
 MeshBuildResult LayerStackMesher::build(
     photons::LayerMaskSource& source,
@@ -607,10 +665,20 @@ MeshBuildResult LayerStackMesher::build(
     result.error = "mesh source dimensions must be non-zero";
     return result;
   }
+  if (source.width() > photons::kPackedSurfaceMaximumX
+      || source.height() > photons::kPackedSurfaceMaximumY) {
+    result.error = "mesh source dimensions exceed the packed surface format";
+    return result;
+  }
   if (!(options.pitchXMm > 0.0) || !(options.pitchYMm > 0.0)
       || !(options.pitchZMm > 0.0) || options.chunkLayerCount == 0
       || options.layerStride == 0) {
     result.error = "mesh pitch, chunk size and layer stride must be positive";
+    return result;
+  }
+  if (options.chunkLayerCount > photons::kPackedSurfaceMaximumRelativeZ
+      || options.layerStride > photons::kPackedSurfaceMaximumRelativeZ) {
+    result.error = "mesh chunk size and layer stride must fit the packed relative Z range";
     return result;
   }
   if (options.workerCount < kMinimumMeshWorkerCount

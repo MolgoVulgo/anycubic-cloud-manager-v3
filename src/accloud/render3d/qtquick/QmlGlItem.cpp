@@ -1,5 +1,8 @@
 #include "render3d/qtquick/QmlGlItem.h"
 
+#include "render3d/qtquick/CompactShaderSources.h"
+#include "render3d/core/LayerSectionCache.h"
+
 #include "infra/logging/JsonlLogger.h"
 #include "infra/photons/drivers/pwsz/PwszArchiveReader.h"
 #include "render3d/meshing/LayerStackMesher.h"
@@ -10,6 +13,7 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
@@ -27,6 +31,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -37,9 +42,13 @@
 namespace accloud::render3d {
 namespace {
 
-constexpr std::size_t kChunkLayers = 32;
+constexpr std::size_t kChunkLayers = 8;
 constexpr std::size_t kUploadQueueChunks = 8;
 constexpr std::size_t kUploadQueueBytes = 256u * 1024u * 1024u;
+constexpr std::size_t kCutSurfaceBatchBytes = 256u * 1024u * 1024u;
+constexpr std::size_t kLayerSectionCacheBytes = 64u * 1024u * 1024u;
+constexpr std::size_t kLayerSectionCacheEntries = 2048;
+constexpr std::size_t kGpuBudgetBytes = std::size_t{2} * 1024u * 1024u * 1024u;
 constexpr float kVerticalFovDegrees = 45.0F;
 constexpr std::string_view kRender3dLogSource = "render3d";
 
@@ -84,6 +93,11 @@ QVector3D toVector(const Vec3& value) {
       static_cast<float>(value.z));
 }
 
+std::size_t sampledMaskLayer(std::size_t layer, int layerStep) {
+  const auto stride = static_cast<std::size_t>(std::max(1, layerStep));
+  return (layer / stride) * stride;
+}
+
 bool intersects(const photons::LayerRange& left, int firstLayer, int lastLayer) {
   if (!left.valid() || firstLayer <= 0 || lastLayer < firstLayer) {
     return false;
@@ -98,16 +112,22 @@ bool intersects(const photons::LayerRange& left, int firstLayer, int lastLayer) 
 struct GpuChunk {
   photons::LayerRange layers;
   photons::MeshBounds bounds;
-  std::unique_ptr<QOpenGLBuffer> vertices;
-  std::unique_ptr<QOpenGLBuffer> indices;
+  std::unique_ptr<QOpenGLBuffer> instances;
   std::unique_ptr<QOpenGLVertexArrayObject> vertexArray;
-  GLsizei indexCount = 0;
+  GLsizei instanceCount = 0;
+  std::size_t bytes = 0;
+  float pitchXMm = 1.0F;
+  float pitchYMm = 1.0F;
+  float pitchZMm = 1.0F;
+  float baseLayer = 0.0F;
 };
 
 } // namespace
 
 class GlFramebufferRenderer final : public QQuickFramebufferObject::Renderer {
 public:
+  GlFramebufferRenderer() : gpuBudget_(kGpuBudgetBytes) {}
+
   QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override {
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
@@ -117,27 +137,54 @@ public:
 
   void synchronize(QQuickFramebufferObject* item) override {
     auto* viewer = static_cast<QmlGlItem*>(item);
-    if (generation_ != viewer->sceneGeneration_) {
+    viewer_ = viewer;
+    const bool sceneChanged = generation_ != viewer->sceneGeneration_;
+    if (sceneChanged) {
       generation_ = viewer->sceneGeneration_;
       clearRequested_ = true;
+      gpuFailureReported_ = false;
       pendingUploads_.clear();
+      pendingCutBatch_.reset();
+      activeCutGeneration_ = 0;
+      displayedFirstLayer_ = viewer->firstLayer_;
+      displayedLastLayer_ = viewer->lastLayer_;
       trace3d(
           logging::Level::kDebug,
           "gpu",
-          "scene_reset",
+          "scene_reset_requested",
           {},
           {{"generation", text(generation_)}});
     }
 
-    if (viewer->uploadQueue_) {
+    requestedCutGeneration_ = viewer->cutGeneration_.load(std::memory_order_acquire);
+    if (pendingCutBatch_ && pendingCutBatch_->generation != requestedCutGeneration_) {
+      pendingCutBatch_.reset();
+    }
+    {
+      std::scoped_lock resultLock(viewer->cutResultMutex_);
+      if (viewer->readyCutBatch_) {
+        if (viewer->readyCutBatch_->sceneGeneration == generation_
+            && viewer->readyCutBatch_->generation == requestedCutGeneration_) {
+          pendingCutBatch_ = std::move(*viewer->readyCutBatch_);
+        }
+        viewer->readyCutBatch_.reset();
+      }
+    }
+
+    if (viewer->uploadQueue_ && !gpuFailureReported_) {
       auto queued = viewer->uploadQueue_->takeAll();
       for (auto& chunk : queued) {
         pendingUploads_.push_back(std::move(chunk));
       }
     }
 
-    firstLayer_ = viewer->firstLayer_;
-    lastLayer_ = viewer->lastLayer_;
+    requestedFirstLayer_ = viewer->firstLayer_;
+    requestedLastLayer_ = viewer->lastLayer_;
+    totalLayers_ = viewer->totalLayers_;
+    if (displayedFirstLayer_ <= 0 && requestedFirstLayer_ > 0) {
+      displayedFirstLayer_ = requestedFirstLayer_;
+      displayedLastLayer_ = requestedLastLayer_;
+    }
     pitchZMm_ = static_cast<float>(viewer->layerHeightMm_);
     backgroundColor_ = viewer->backgroundColor_;
     meshColor_ = viewer->meshColor_;
@@ -154,16 +201,31 @@ public:
     }
 
     if (clearRequested_) {
+      const std::size_t previousChunks = gpuChunks_.size() + cutGpuChunks_.size();
+      const std::size_t previousBytes = gpuBudget_.residentBytes();
       gpuChunks_.clear();
+      cutGpuChunks_.clear();
+      gpuBudget_.reset();
       clearRequested_ = false;
+      pendingCutBatch_.reset();
+      activeCutGeneration_ = 0;
+      trace3d(
+          logging::Level::kDebug,
+          "gpu",
+          "scene_reset",
+          {},
+          {{"generation", text(generation_)},
+           {"released_chunks", text(previousChunks)},
+           {"released_bytes", text(previousBytes)}});
     }
     uploadPending();
+    commitPendingCutBatch();
 
     auto* context = QOpenGLContext::currentContext();
     if (context == nullptr) {
       return;
     }
-    QOpenGLFunctions* functions = context->functions();
+    QOpenGLExtraFunctions* functions = context->extraFunctions();
     const QSize renderSize = framebufferObject()->size();
     functions->glViewport(0, 0, renderSize.width(), renderSize.height());
     functions->glEnable(GL_DEPTH_TEST);
@@ -188,11 +250,11 @@ public:
     view.lookAt(cameraPosition_, cameraTarget_, QVector3D(0.0F, 0.0F, 1.0F));
     const QMatrix4x4 mvp = projection * view;
 
-    const float minimumZ = firstLayer_ > 0
-                               ? static_cast<float>(firstLayer_ - 1) * pitchZMm_
+    const float minimumZ = displayedFirstLayer_ > 0
+                               ? static_cast<float>(displayedFirstLayer_ - 1) * pitchZMm_
                                : 0.0F;
-    const float maximumZ = lastLayer_ > 0
-                               ? static_cast<float>(lastLayer_) * pitchZMm_
+    const float maximumZ = displayedLastLayer_ > 0
+                               ? static_cast<float>(displayedLastLayer_) * pitchZMm_
                                : 0.0F;
 
     program_->bind();
@@ -201,182 +263,352 @@ public:
         meshColor_.redF(), meshColor_.greenF(), meshColor_.blueF(), meshColor_.alphaF()));
     program_->setUniformValue("u_lightDirection", QVector3D(-0.4F, -0.6F, -0.7F).normalized());
     program_->setUniformValue("u_clipZ", QVector2D(minimumZ, maximumZ));
+    program_->setUniformValue("u_hasLowerCut", displayedFirstLayer_ > 1);
+    program_->setUniformValue(
+        "u_hasUpperCut",
+        displayedLastLayer_ > 0 && displayedLastLayer_ < totalLayers_);
+    program_->setUniformValue(
+        "u_clipEpsilon",
+        std::max(0.00001F, pitchZMm_ * 0.001F));
+    program_->setUniformValue("u_cutSurfacePass", false);
 
     for (const auto& chunk : gpuChunks_) {
-      if (!intersects(chunk.layers, firstLayer_, lastLayer_)) {
+      if (!intersects(chunk.layers, displayedFirstLayer_, displayedLastLayer_)) {
         continue;
       }
+      program_->setUniformValue(
+          "u_pitch", QVector3D(chunk.pitchXMm, chunk.pitchYMm, chunk.pitchZMm));
+      program_->setUniformValue("u_baseLayer", chunk.baseLayer);
       chunk.vertexArray->bind();
-      functions->glDrawElements(
+      functions->glDrawArraysInstanced(
           GL_TRIANGLES,
-          chunk.indexCount,
-          GL_UNSIGNED_INT,
-          nullptr);
+          0,
+          6,
+          chunk.instanceCount);
+      chunk.vertexArray->release();
+    }
+
+    program_->setUniformValue("u_cutSurfacePass", true);
+    for (const auto& chunk : cutGpuChunks_) {
+      program_->setUniformValue(
+          "u_pitch", QVector3D(chunk.pitchXMm, chunk.pitchYMm, chunk.pitchZMm));
+      program_->setUniformValue("u_baseLayer", chunk.baseLayer);
+      chunk.vertexArray->bind();
+      functions->glDrawArraysInstanced(
+          GL_TRIANGLES,
+          0,
+          6,
+          chunk.instanceCount);
       chunk.vertexArray->release();
     }
     program_->release();
 
     functions->glDisable(GL_DEPTH_TEST);
     QQuickOpenGLUtils::resetOpenGLState();
-    if (loading_ || !pendingUploads_.empty()) {
+    if (loading_ || !pendingUploads_.empty() || pendingCutBatch_.has_value()) {
       update();
     }
   }
 
 private:
   void initializeIfNeeded() {
-    if (program_) {
+    if (program_ || shaderInitializationFailed_) {
       return;
     }
 
     auto program = std::make_unique<QOpenGLShaderProgram>();
-    static constexpr auto vertexShader = R"glsl(
-#version 330 core
-layout(location = 0) in vec3 a_position;
-layout(location = 1) in vec3 a_normal;
-uniform mat4 u_mvp;
-out vec3 v_normal;
-out float v_worldZ;
-void main() {
-  v_normal = a_normal;
-  v_worldZ = a_position.z;
-  gl_Position = u_mvp * vec4(a_position, 1.0);
-}
-)glsl";
-    static constexpr auto fragmentShader = R"glsl(
-#version 330 core
-in vec3 v_normal;
-in float v_worldZ;
-uniform vec4 u_meshColor;
-uniform vec3 u_lightDirection;
-uniform vec2 u_clipZ;
-out vec4 fragColor;
-void main() {
-  if (v_worldZ < u_clipZ.x || v_worldZ > u_clipZ.y)
-    discard;
-  float diffuse = abs(dot(normalize(v_normal), -u_lightDirection));
-  float light = 0.28 + 0.72 * diffuse;
-  fragColor = vec4(u_meshColor.rgb * light, u_meshColor.a);
-}
-)glsl";
 
-    if (!program->addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShader)
-        || !program->addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShader)
+    if (!program->addShaderFromSourceCode(
+            QOpenGLShader::Vertex, shader::kCompactVertexShader)
+        || !program->addShaderFromSourceCode(
+            QOpenGLShader::Fragment, shader::kCompactFragmentShader)
         || !program->link()) {
+      shaderInitializationFailed_ = true;
       qWarning("Render3D shader initialization failed: %s", qPrintable(program->log()));
       trace3d(
           logging::Level::kError,
           "gpu",
           "shader_initialization_failed",
-          "Unable to initialize the 3D shader program",
+          "Unable to initialize the compact 3D shader program",
           {{"generation", text(generation_)},
            {"shader_log", program->log().toStdString()}});
+      reportGpuFailure(QmlGlItem::tr("Unable to initialize the 3D renderer."));
       return;
     }
     program_ = std::move(program);
     trace3d(
         logging::Level::kDebug,
         "gpu",
-        "shader_ready",
+        "compact_shader_ready",
         {},
-        {{"generation", text(generation_)}});
+        {{"generation", text(generation_)},
+         {"instance_bytes", text(sizeof(photons::PackedSurfaceQuad))},
+         {"gpu_budget_bytes", text(gpuBudget_.maximumBytes())}});
   }
 
-  void uploadPending() {
-    if (!program_) {
+  void reportGpuFailure(QString message) {
+    if (gpuFailureReported_) {
       return;
     }
-    for (auto& chunk : pendingUploads_) {
+    gpuFailureReported_ = true;
+    pendingUploads_.clear();
+    pendingCutBatch_.reset();
+    loading_ = false;
+    const auto generation = generation_;
+    QPointer<QmlGlItem> guard = viewer_;
+    if (guard) {
+      QMetaObject::invokeMethod(
+          guard.data(),
+          [guard, generation, message = std::move(message)]() mutable {
+            if (guard) {
+              guard->applyGpuFailure(generation, std::move(message));
+            }
+          },
+          Qt::QueuedConnection);
+    }
+  }
+
+  [[nodiscard]] std::size_t gpuBytes(
+      const std::vector<GpuChunk>& chunks) const noexcept {
+    std::size_t total = 0;
+    for (const auto& chunk : chunks) {
+      total += chunk.bytes;
+    }
+    return total;
+  }
+
+  void releaseGpuChunks(std::vector<GpuChunk>& chunks) {
+    const std::size_t releasedBytes = gpuBytes(chunks);
+    chunks.clear();
+    gpuBudget_.release(releasedBytes);
+  }
+
+  bool uploadChunks(
+      std::vector<photons::MeshChunk>& pending,
+      std::vector<GpuChunk>& destination,
+      bool cutSurface,
+      std::uint64_t cutGenerationForLog) {
+    auto* context = QOpenGLContext::currentContext();
+    if (context == nullptr) {
+      return true;
+    }
+    QOpenGLExtraFunctions* functions = context->extraFunctions();
+
+    for (auto& chunk : pending) {
       if (chunk.empty()) {
         continue;
       }
 
       const auto uploadStarted = std::chrono::steady_clock::now();
-      const std::size_t vertexCount = chunk.vertices.size();
+      const std::size_t surfaceCount = chunk.surfaceQuadCount();
       const std::size_t triangleCount = chunk.triangleCount();
       const std::size_t uploadBytes = UploadQueue::byteSize(chunk);
+      const std::size_t legacyBytes = UploadQueue::legacyEquivalentByteSize(chunk);
       const photons::LayerRange layerRange = chunk.layers;
+
+      if (surfaceCount > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max())
+          || uploadBytes > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        trace3d(
+            logging::Level::kError,
+            "gpu",
+            cutSurface ? "cut_surface_too_large" : "compact_chunk_too_large",
+            "A compact 3D surface buffer exceeds the OpenGL upload limits",
+            {{"generation", text(generation_)},
+             {"cut_generation", text(cutGenerationForLog)},
+             {"first_layer", text(layerRange.first + 1)},
+             {"last_layer", text(layerRange.last + 1)},
+             {"surface_quads", text(surfaceCount)},
+             {"compact_bytes", text(uploadBytes)}});
+        pending.clear();
+        reportGpuFailure(QmlGlItem::tr("The 3D model contains a chunk that is too large for OpenGL."));
+        return false;
+      }
+
+      if (!gpuBudget_.tryReserve(uploadBytes)) {
+        trace3d(
+            logging::Level::kError,
+            "gpu",
+            "budget_exceeded",
+            "The compact 3D mesh exceeds the configured GPU memory budget",
+            {{"generation", text(generation_)},
+             {"cut_generation", text(cutGenerationForLog)},
+             {"cut_surface", cutSurface ? "true" : "false"},
+             {"requested_bytes", text(uploadBytes)},
+             {"resident_bytes", text(gpuBudget_.residentBytes())},
+             {"budget_bytes", text(gpuBudget_.maximumBytes())},
+             {"legacy_equivalent_bytes", text(legacyBytes)}});
+        pending.clear();
+        reportGpuFailure(QmlGlItem::tr(
+            "The complete 3D model exceeds the safe GPU memory budget. No partial model was kept."));
+        return false;
+      }
 
       GpuChunk gpu;
       gpu.layers = chunk.layers;
       gpu.bounds = chunk.bounds;
-      gpu.indexCount = static_cast<GLsizei>(chunk.indices.size());
-      gpu.vertices = std::make_unique<QOpenGLBuffer>(QOpenGLBuffer::VertexBuffer);
-      gpu.indices = std::make_unique<QOpenGLBuffer>(QOpenGLBuffer::IndexBuffer);
+      gpu.instanceCount = static_cast<GLsizei>(surfaceCount);
+      gpu.bytes = uploadBytes;
+      gpu.pitchXMm = chunk.pitchXMm;
+      gpu.pitchYMm = chunk.pitchYMm;
+      gpu.pitchZMm = chunk.pitchZMm;
+      gpu.baseLayer = static_cast<float>(chunk.layers.first);
+      gpu.instances = std::make_unique<QOpenGLBuffer>(QOpenGLBuffer::VertexBuffer);
       gpu.vertexArray = std::make_unique<QOpenGLVertexArrayObject>();
 
-      if (!gpu.vertices->create() || !gpu.indices->create() || !gpu.vertexArray->create()) {
-        qWarning("Render3D GPU buffer allocation failed");
+      if (!gpu.instances->create() || !gpu.vertexArray->create()) {
+        gpuBudget_.release(uploadBytes);
         trace3d(
             logging::Level::kError,
             "gpu",
-            "buffer_allocation_failed",
-            "Unable to allocate GPU buffers for a 3D mesh chunk",
+            cutSurface ? "cut_surface_buffer_allocation_failed" : "buffer_allocation_failed",
+            "Unable to allocate a compact GPU instance buffer",
             {{"generation", text(generation_)},
+             {"cut_generation", text(cutGenerationForLog)},
              {"first_layer", text(layerRange.first + 1)},
              {"last_layer", text(layerRange.last + 1)},
-             {"bytes", text(uploadBytes)}});
-        continue;
+             {"compact_bytes", text(uploadBytes)}});
+        pending.clear();
+        reportGpuFailure(QmlGlItem::tr("Unable to allocate memory for the complete 3D model."));
+        return false;
       }
 
+      while (functions->glGetError() != GL_NO_ERROR) {
+      }
       gpu.vertexArray->bind();
       program_->bind();
-      gpu.vertices->bind();
-      gpu.vertices->setUsagePattern(QOpenGLBuffer::StaticDraw);
-      gpu.vertices->allocate(
-          chunk.vertices.data(),
-          static_cast<int>(chunk.vertices.size() * sizeof(photons::MeshVertex)));
-      program_->enableAttributeArray(0);
-      program_->setAttributeBuffer(
+      gpu.instances->bind();
+      gpu.instances->setUsagePattern(QOpenGLBuffer::StaticDraw);
+      gpu.instances->allocate(chunk.surfaces.data(), static_cast<int>(uploadBytes));
+      functions->glEnableVertexAttribArray(0);
+      functions->glVertexAttribIPointer(
           0,
-          GL_FLOAT,
-          static_cast<int>(offsetof(photons::MeshVertex, x)),
-          3,
-          sizeof(photons::MeshVertex));
-      program_->enableAttributeArray(1);
-      program_->setAttributeBuffer(
-          1,
-          GL_FLOAT,
-          static_cast<int>(offsetof(photons::MeshVertex, nx)),
-          3,
-          sizeof(photons::MeshVertex));
-
-      gpu.indices->bind();
-      gpu.indices->setUsagePattern(QOpenGLBuffer::StaticDraw);
-      gpu.indices->allocate(
-          chunk.indices.data(),
-          static_cast<int>(chunk.indices.size() * sizeof(std::uint32_t)));
-
+          2,
+          GL_UNSIGNED_INT,
+          static_cast<GLsizei>(sizeof(photons::PackedSurfaceQuad)),
+          nullptr);
+      functions->glVertexAttribDivisor(0, 1);
+      const GLenum uploadError = functions->glGetError();
       gpu.vertexArray->release();
-      gpu.vertices->release();
-      gpu.indices->release();
+      gpu.instances->release();
       program_->release();
-      gpuChunks_.push_back(std::move(gpu));
+
+      if (uploadError != GL_NO_ERROR) {
+        gpuBudget_.release(uploadBytes);
+        trace3d(
+            logging::Level::kError,
+            "gpu",
+            cutSurface ? "cut_surface_upload_failed" : "compact_upload_failed",
+            "OpenGL rejected a compact 3D instance buffer",
+            {{"generation", text(generation_)},
+             {"cut_generation", text(cutGenerationForLog)},
+             {"first_layer", text(layerRange.first + 1)},
+             {"last_layer", text(layerRange.last + 1)},
+             {"compact_bytes", text(uploadBytes)},
+             {"gl_error", text(uploadError)}});
+        pending.clear();
+        reportGpuFailure(QmlGlItem::tr("OpenGL rejected the complete 3D model before rendering."));
+        return false;
+      }
+
+      destination.push_back(std::move(gpu));
+      const double compressionRatio = uploadBytes == 0
+                                          ? 0.0
+                                          : static_cast<double>(legacyBytes)
+                                                / static_cast<double>(uploadBytes);
       trace3d(
           logging::Level::kDebug,
           "gpu",
-          "chunk_uploaded",
+          cutSurface ? "cut_surface_uploaded" : "compact_chunk_uploaded",
           {},
           {{"generation", text(generation_)},
+           {"cut_generation", text(cutGenerationForLog)},
            {"first_layer", text(layerRange.first + 1)},
            {"last_layer", text(layerRange.last + 1)},
-           {"vertices", text(vertexCount)},
+           {"surface_quads", text(surfaceCount)},
            {"triangles", text(triangleCount)},
-           {"bytes", text(uploadBytes)},
+           {"compact_bytes", text(uploadBytes)},
+           {"legacy_equivalent_bytes", text(legacyBytes)},
+           {"compression_ratio", text(compressionRatio)},
+           {"resident_bytes", text(gpuBudget_.residentBytes())},
+           {"budget_bytes", text(gpuBudget_.maximumBytes())},
            {"duration_ms", text(elapsedMilliseconds(uploadStarted))},
-           {"gpu_chunk_count", text(gpuChunks_.size())}});
+           {"gpu_chunk_count", text(destination.size())}});
     }
-    pendingUploads_.clear();
+    pending.clear();
+    return true;
+  }
+
+  void uploadPending() {
+    if (!program_ || gpuFailureReported_) {
+      pendingUploads_.clear();
+      pendingCutBatch_.reset();
+      return;
+    }
+    (void)uploadChunks(pendingUploads_, gpuChunks_, false, 0);
+  }
+
+  void commitPendingCutBatch() {
+    if (!pendingCutBatch_ || gpuFailureReported_) {
+      return;
+    }
+    if (pendingCutBatch_->sceneGeneration != generation_
+        || pendingCutBatch_->generation != requestedCutGeneration_) {
+      pendingCutBatch_.reset();
+      return;
+    }
+
+    auto batch = std::move(*pendingCutBatch_);
+    pendingCutBatch_.reset();
+    std::vector<GpuChunk> staging;
+    staging.reserve(batch.surfaces.size());
+    if (!uploadChunks(batch.surfaces, staging, true, batch.generation)) {
+      releaseGpuChunks(staging);
+      return;
+    }
+
+    const std::size_t previousChunks = cutGpuChunks_.size();
+    const std::size_t previousBytes = gpuBytes(cutGpuChunks_);
+    cutGpuChunks_.swap(staging);
+    releaseGpuChunks(staging);
+    displayedFirstLayer_ = batch.firstLayer;
+    displayedLastLayer_ = batch.lastLayer;
+    activeCutGeneration_ = batch.generation;
+    trace3d(
+        logging::Level::kDebug,
+        "gpu",
+        "cut_surface_swap_committed",
+        {},
+        {{"generation", text(generation_)},
+         {"cut_generation", text(activeCutGeneration_)},
+         {"first_layer", text(displayedFirstLayer_)},
+         {"last_layer", text(displayedLastLayer_)},
+         {"new_chunks", text(cutGpuChunks_.size())},
+         {"new_bytes", text(gpuBytes(cutGpuChunks_))},
+         {"released_chunks", text(previousChunks)},
+         {"released_bytes", text(previousBytes)},
+         {"cache_hits", text(batch.cacheHits)},
+         {"cache_misses", text(batch.cacheMisses)}});
   }
 
   std::unique_ptr<QOpenGLShaderProgram> program_;
   std::vector<GpuChunk> gpuChunks_;
+  std::vector<GpuChunk> cutGpuChunks_;
   std::vector<photons::MeshChunk> pendingUploads_;
+  std::optional<QmlGlItem::CutSurfaceBatch> pendingCutBatch_;
+  GpuMemoryBudget gpuBudget_;
+  QPointer<QmlGlItem> viewer_;
   std::uint64_t generation_ = 0;
+  std::uint64_t requestedCutGeneration_ = 0;
+  std::uint64_t activeCutGeneration_ = 0;
   bool clearRequested_ = false;
   bool loading_ = false;
-  int firstLayer_ = 0;
-  int lastLayer_ = 0;
+  bool gpuFailureReported_ = false;
+  bool shaderInitializationFailed_ = false;
+  int requestedFirstLayer_ = 0;
+  int requestedLastLayer_ = 0;
+  int displayedFirstLayer_ = 0;
+  int displayedLastLayer_ = 0;
+  int totalLayers_ = 0;
   float pitchZMm_ = 0.05F;
   float cameraDistance_ = 100.0F;
   QColor backgroundColor_;
@@ -391,10 +623,14 @@ QmlGlItem::QmlGlItem(QQuickItem* parent)
           kUploadQueueChunks,
           kUploadQueueBytes)) {
   setMirrorVertically(true);
+  cutWorker_ = std::jthread([this](std::stop_token stopToken) {
+    runCutWorker(stopToken);
+  });
 }
 
 QmlGlItem::~QmlGlItem() {
   stopWorker();
+  stopCutWorker();
 }
 
 QQuickFramebufferObject::Renderer* QmlGlItem::createRenderer() const {
@@ -420,7 +656,7 @@ void QmlGlItem::setFirstLayer(int layer) {
   }
   firstLayer_ = layer;
   emit visibleRangeChanged();
-  scheduleRender();
+  requestCutSurfaceRebuild();
 }
 
 void QmlGlItem::setLastLayer(int layer) {
@@ -434,7 +670,7 @@ void QmlGlItem::setLastLayer(int layer) {
   }
   lastLayer_ = layer;
   emit visibleRangeChanged();
-  scheduleRender();
+  requestCutSurfaceRebuild();
 }
 
 void QmlGlItem::setLayerStep(int step) {
@@ -497,6 +733,280 @@ void QmlGlItem::stopWorker() {
   worker_.join();
 }
 
+void QmlGlItem::stopCutWorker() {
+  if (!cutWorker_.joinable()) {
+    return;
+  }
+  cutWorker_.request_stop();
+  cutRequestChanged_.notify_all();
+  cutWorker_.join();
+  std::scoped_lock resultLock(cutResultMutex_);
+  readyCutBatch_.reset();
+}
+
+void QmlGlItem::requestCutSurfaceRebuild() {
+  std::uint64_t generation = 0;
+  {
+    // Generation publication, stale-result removal and request replacement are
+    // one transaction. The active GPU section is intentionally preserved until
+    // a complete new batch has been decoded and uploaded.
+    std::scoped_lock lock(cutRequestMutex_);
+    generation = cutGeneration_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    {
+      std::scoped_lock resultLock(cutResultMutex_);
+      readyCutBatch_.reset();
+    }
+    if (!loading_ && archiveReader_ && totalLayers_ > 0
+        && firstLayer_ > 0 && lastLayer_ >= firstLayer_) {
+      cutRequest_ = CutSurfaceRequest{
+          sceneGeneration_,
+          generation,
+          firstLayer_,
+          lastLayer_,
+          totalLayers_,
+          std::max(1, layerStep_),
+          archiveReader_,
+      };
+    } else {
+      cutRequest_.reset();
+    }
+  }
+  cutRequestChanged_.notify_all();
+  trace3d(
+      logging::Level::kDebug,
+      "cut_surface",
+      "rebuild_requested",
+      {},
+      {{"generation", text(sceneGeneration_)},
+       {"cut_generation", text(generation)},
+       {"first_layer", text(firstLayer_)},
+       {"last_layer", text(lastLayer_)},
+       {"layer_step", text(layerStep_)}});
+  scheduleRender();
+}
+
+void QmlGlItem::runCutWorker(std::stop_token stopToken) {
+  LayerSectionCache sectionCache(
+      kLayerSectionCacheBytes,
+      kLayerSectionCacheEntries);
+  std::uint64_t cachedSceneGeneration = 0;
+
+  while (!stopToken.stop_requested()) {
+    CutSurfaceRequest request;
+    {
+      std::unique_lock lock(cutRequestMutex_);
+      cutRequestChanged_.wait(
+          lock,
+          stopToken,
+          [&] { return cutRequest_.has_value(); });
+      if (stopToken.stop_requested()) {
+        break;
+      }
+      request = std::move(*cutRequest_);
+      cutRequest_.reset();
+    }
+
+    const auto stillCurrent = [&] {
+      return !stopToken.stop_requested()
+             && cutGeneration_.load(std::memory_order_acquire) == request.generation;
+    };
+    if (!request.reader || !stillCurrent()) {
+      continue;
+    }
+    if (cachedSceneGeneration != request.sceneGeneration) {
+      sectionCache.clear();
+      cachedSceneGeneration = request.sceneGeneration;
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto cacheBefore = sectionCache.stats();
+    const auto& meta = request.reader->meta();
+    MeshBuildOptions options;
+    options.pitchXMm = meta.pitchXMm.value_or(meta.pitchXYMm.value_or(1.0));
+    options.pitchYMm = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(options.pitchXMm));
+    options.pitchZMm = meta.pitchZMm.value_or(0.05);
+    options.chunkLayerCount = 1;
+    options.layerStride = 1;
+    options.workerCount = 1;
+
+    LayerStackMesher mesher;
+    std::vector<photons::MeshChunk> surfaces;
+    std::size_t decodedLayers = 0;
+    std::size_t surfaceQuads = 0;
+    std::size_t compactBytes = 0;
+    bool failed = false;
+    std::string failure;
+
+    const auto buildBoundary = [&](std::size_t maskLayer,
+                                   std::size_t planeLayer,
+                                   CutSurfaceBoundary boundary) {
+      if (!stillCurrent() || failed) {
+        return;
+      }
+
+      auto section = sectionCache.find(maskLayer);
+      bool cacheHit = static_cast<bool>(section);
+      if (!section) {
+        auto result = mesher.buildCutSurface(
+            *request.reader,
+            maskLayer,
+            0,
+            CutSurfaceBoundary::Upper,
+            options);
+        decodedLayers += result.decodedLayerCount;
+        if (!result.ok) {
+          failed = true;
+          failure = std::move(result.error);
+          return;
+        }
+        LayerSectionTemplate built;
+        if (!makeLayerSectionTemplate(result.chunk, built, failure)) {
+          failed = true;
+          return;
+        }
+        section = sectionCache.insert(maskLayer, std::move(built));
+      }
+
+      auto chunk = materializeLayerSection(
+          *section,
+          planeLayer,
+          boundary,
+          static_cast<float>(options.pitchXMm),
+          static_cast<float>(options.pitchYMm),
+          static_cast<float>(options.pitchZMm));
+      const std::size_t boundarySurfaceQuads = chunk.surfaceQuadCount();
+      const std::size_t boundaryBytes = chunk.compactByteSize();
+      if (boundaryBytes > kCutSurfaceBatchBytes - std::min(kCutSurfaceBatchBytes, compactBytes)) {
+        failed = true;
+        failure = "visible-layer section batch exceeds the bounded CPU staging budget";
+        return;
+      }
+      surfaceQuads += boundarySurfaceQuads;
+      compactBytes += boundaryBytes;
+      if (!chunk.empty()) {
+        surfaces.push_back(std::move(chunk));
+      }
+      trace3d(
+          logging::Level::kDebug,
+          "cut_surface",
+          "boundary_built",
+          {},
+          {{"generation", text(request.sceneGeneration)},
+           {"cut_generation", text(request.generation)},
+           {"boundary", boundary == CutSurfaceBoundary::Lower ? "lower" : "upper"},
+           {"mask_layer", text(maskLayer + 1)},
+           {"plane_layer", text(planeLayer)},
+           {"surface_quads", text(boundarySurfaceQuads)},
+           {"compact_bytes", text(boundaryBytes)},
+           {"cache_hit", cacheHit ? "true" : "false"}});
+    };
+
+    if (request.firstLayer > 1) {
+      const auto planeLayer = static_cast<std::size_t>(request.firstLayer - 1);
+      const auto maskLayer = sampledMaskLayer(planeLayer, request.layerStep);
+      buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Lower);
+    }
+    if (!failed && request.lastLayer < request.totalLayers) {
+      const auto planeLayer = static_cast<std::size_t>(request.lastLayer);
+      const auto materialLayer = static_cast<std::size_t>(request.lastLayer - 1);
+      const auto maskLayer = sampledMaskLayer(materialLayer, request.layerStep);
+      buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Upper);
+    }
+
+    if (!stillCurrent()) {
+      trace3d(
+          logging::Level::kDebug,
+          "cut_surface",
+          "build_discarded",
+          {},
+          {{"generation", text(request.sceneGeneration)},
+           {"cut_generation", text(request.generation)},
+           {"duration_ms", text(elapsedMilliseconds(started))}});
+      continue;
+    }
+
+    if (failed) {
+      trace3d(
+          logging::Level::kError,
+          "cut_surface",
+          "build_failed",
+          failure,
+          {{"generation", text(request.sceneGeneration)},
+           {"cut_generation", text(request.generation)},
+           {"duration_ms", text(elapsedMilliseconds(started))}});
+      QPointer<QmlGlItem> guard(this);
+      QMetaObject::invokeMethod(
+          this,
+          [guard, generation = request.generation] {
+            if (!guard
+                || guard->cutGeneration_.load(std::memory_order_acquire) != generation) {
+              return;
+            }
+            guard->errorString_ = QmlGlItem::tr(
+                "Unable to build the visible-layer section surfaces.");
+            emit guard->errorStringChanged();
+          },
+          Qt::QueuedConnection);
+      continue;
+    }
+
+    const auto cacheAfter = sectionCache.stats();
+    CutSurfaceBatch batch;
+    batch.sceneGeneration = request.sceneGeneration;
+    batch.generation = request.generation;
+    batch.firstLayer = request.firstLayer;
+    batch.lastLayer = request.lastLayer;
+    batch.totalLayers = request.totalLayers;
+    batch.surfaces = std::move(surfaces);
+    batch.compactBytes = compactBytes;
+    batch.cacheHits = cacheAfter.hits - cacheBefore.hits;
+    batch.cacheMisses = cacheAfter.misses - cacheBefore.misses;
+
+    bool published = false;
+    {
+      // Publication is serialized with request replacement. The renderer only
+      // sees complete batches; the previous clipping range remains active until
+      // this batch has also been uploaded successfully.
+      std::scoped_lock requestLock(cutRequestMutex_);
+      if (stillCurrent()) {
+        std::scoped_lock resultLock(cutResultMutex_);
+        readyCutBatch_ = std::move(batch);
+        published = true;
+      }
+    }
+    if (!published) {
+      continue;
+    }
+
+    trace3d(
+        logging::Level::kDebug,
+        "cut_surface",
+        "build_completed",
+        {},
+        {{"generation", text(request.sceneGeneration)},
+         {"cut_generation", text(request.generation)},
+         {"first_layer", text(request.firstLayer)},
+         {"last_layer", text(request.lastLayer)},
+         {"decoded_layers", text(decodedLayers)},
+         {"surface_quads", text(surfaceQuads)},
+         {"compact_bytes", text(compactBytes)},
+         {"cache_hits", text(cacheAfter.hits - cacheBefore.hits)},
+         {"cache_misses", text(cacheAfter.misses - cacheBefore.misses)},
+         {"cache_entries", text(cacheAfter.entries)},
+         {"cache_resident_bytes", text(cacheAfter.residentBytes)},
+         {"duration_ms", text(elapsedMilliseconds(started))}});
+    QPointer<QmlGlItem> guard(this);
+    QMetaObject::invokeMethod(
+        this,
+        [guard] {
+          if (guard) {
+            guard->scheduleRender();
+          }
+        },
+        Qt::QueuedConnection);
+  }
+}
+
 void QmlGlItem::resetDocumentState() {
   loading_ = true;
   progress_ = 0.0;
@@ -511,6 +1021,15 @@ void QmlGlItem::resetDocumentState() {
   camera_ = OrbitCamera{};
   cameraTouched_ = false;
   uploadQueue_->clear();
+  archiveReader_.reset();
+  {
+    std::scoped_lock lock(cutRequestMutex_);
+    cutGeneration_.fetch_add(1, std::memory_order_release);
+    cutRequest_.reset();
+    std::scoped_lock resultLock(cutResultMutex_);
+    readyCutBatch_.reset();
+  }
+  cutRequestChanged_.notify_all();
   ++sceneGeneration_;
   emit loadingChanged();
   emit progressChanged();
@@ -565,7 +1084,7 @@ void QmlGlItem::load() {
           }
         };
 
-        photons::pwsz::PwszArchiveReader reader;
+        auto reader = std::make_shared<photons::pwsz::PwszArchiveReader>();
         std::string error;
         const QByteArray pathBytes = QFile::encodeName(inputPath);
         const std::filesystem::path archivePath(pathBytes.constData());
@@ -579,7 +1098,7 @@ void QmlGlItem::load() {
             {},
             {{"generation", text(generation)},
              {"archive_bytes", fileSizeError ? "unknown" : text(archiveBytes)}});
-        if (!reader.open(archivePath, error)) {
+        if (!reader->open(archivePath, error)) {
           trace3d(
               logging::Level::kError,
               "archive",
@@ -594,8 +1113,8 @@ void QmlGlItem::load() {
           return;
         }
 
-        const auto& meta = reader.meta();
-        const int totalLayers = static_cast<int>(reader.layerCount());
+        const auto& meta = reader->meta();
+        const int totalLayers = static_cast<int>(reader->layerCount());
         const qreal pitchZ = meta.pitchZMm.value_or(0.05);
         const qreal pitchX = meta.pitchXMm.value_or(meta.pitchXYMm.value_or(1.0));
         const qreal pitchY = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(pitchX));
@@ -607,21 +1126,27 @@ void QmlGlItem::load() {
             {{"generation", text(generation)},
              {"duration_ms", text(elapsedMilliseconds(archiveOpenStarted))},
              {"layers", text(totalLayers)},
-             {"width", text(reader.width())},
-             {"height", text(reader.height())},
+             {"width", text(reader->width())},
+             {"height", text(reader->height())},
              {"pitch_x_mm", text(static_cast<double>(pitchX))},
              {"pitch_y_mm", text(static_cast<double>(pitchY))},
              {"pitch_z_mm", text(static_cast<double>(pitchZ))}});
         post([generation,
               totalLayers,
               pitchZ,
-              machine = QString::fromStdString(meta.machineName)](QmlGlItem& item) mutable {
-          item.applyDocumentMetadata(generation, totalLayers, pitchZ, std::move(machine));
+              machine = QString::fromStdString(meta.machineName),
+              reader](QmlGlItem& item) mutable {
+          item.applyDocumentMetadata(
+              generation,
+              totalLayers,
+              pitchZ,
+              std::move(machine),
+              std::move(reader));
         });
 
         if (totalLayers <= 0) {
           post([generation](QmlGlItem& item) {
-            item.finishLoad(generation, QObject::tr("The PWSZ archive contains no layers."), false);
+            item.finishLoad(generation, QmlGlItem::tr("The PWSZ archive contains no layers."), false);
           });
           return;
         }
@@ -641,15 +1166,17 @@ void QmlGlItem::load() {
 
         const auto meshStarted = std::chrono::steady_clock::now();
         std::size_t generatedChunks = 0;
+        std::size_t generatedSurfaceQuads = 0;
         std::size_t generatedTriangles = 0;
-        std::size_t generatedBytes = 0;
+        std::size_t generatedCompactBytes = 0;
+        std::size_t generatedLegacyBytes = 0;
         trace3d(
             logging::Level::kDebug,
             "mesher",
             "build_started",
             {},
             {{"generation", text(generation)},
-             {"source_layers", text(reader.layerCount())},
+             {"source_layers", text(reader->layerCount())},
              {"layer_step", text(options.layerStride)},
              {"chunk_layers", text(options.chunkLayerCount)},
              {"requested_workers", text(options.workerCount)}});
@@ -688,9 +1215,10 @@ void QmlGlItem::load() {
         callbacks.consumeChunk = [&](photons::MeshChunk&& chunk) {
           const auto bounds = chunk.bounds;
           const auto layers = chunk.layers;
+          const auto surfaceQuads = chunk.surfaceQuadCount();
           const auto triangles = chunk.triangleCount();
-          const auto vertices = chunk.vertices.size();
-          const auto bytes = UploadQueue::byteSize(chunk);
+          const auto compactBytes = UploadQueue::byteSize(chunk);
+          const auto legacyBytes = UploadQueue::legacyEquivalentByteSize(chunk);
           const auto queueWaitStarted = std::chrono::steady_clock::now();
           while (!stopToken.stop_requested() && guard
                  && !queue->tryPush(std::move(chunk))) {
@@ -702,8 +1230,10 @@ void QmlGlItem::load() {
             return false;
           }
           ++generatedChunks;
+          generatedSurfaceQuads += surfaceQuads;
           generatedTriangles += triangles;
-          generatedBytes += bytes;
+          generatedCompactBytes += compactBytes;
+          generatedLegacyBytes += legacyBytes;
           trace3d(
               logging::Level::kDebug,
               "mesher",
@@ -712,9 +1242,14 @@ void QmlGlItem::load() {
               {{"generation", text(generation)},
                {"first_layer", text(layers.first + 1)},
                {"last_layer", text(layers.last + 1)},
-               {"vertices", text(vertices)},
+               {"surface_quads", text(surfaceQuads)},
                {"triangles", text(triangles)},
-               {"bytes", text(bytes)},
+               {"compact_bytes", text(compactBytes)},
+               {"legacy_equivalent_bytes", text(legacyBytes)},
+               {"compression_ratio", text(
+                    compactBytes == 0 ? 0.0
+                                      : static_cast<double>(legacyBytes)
+                                            / static_cast<double>(compactBytes))},
                {"queue_wait_ms", text(queueWaitMs)},
                {"chunk_index", text(generatedChunks)}});
           post([generation, bounds, triangles](QmlGlItem& item) {
@@ -724,8 +1259,8 @@ void QmlGlItem::load() {
         };
 
         const auto result = mesher.build(
-            reader,
-            photons::LayerRange{0, reader.layerCount() - 1},
+            *reader,
+            photons::LayerRange{0, reader->layerCount() - 1},
             options,
             callbacks);
         const bool cancelled = result.cancelled || stopToken.stop_requested();
@@ -739,13 +1274,19 @@ void QmlGlItem::load() {
              {"duration_ms", text(elapsedMilliseconds(meshStarted))},
              {"total_duration_ms", text(elapsedMilliseconds(loadStarted))},
              {"decoded_layers", text(result.decodedLayerCount)},
-             {"source_layers", text(reader.layerCount())},
+             {"source_layers", text(reader->layerCount())},
              {"layer_step", text(options.layerStride)},
              {"requested_workers", text(options.workerCount)},
              {"effective_workers", text(result.effectiveWorkerCount)},
              {"chunks", text(generatedChunks)},
+             {"surface_quads", text(generatedSurfaceQuads)},
              {"triangles", text(generatedTriangles)},
-             {"mesh_bytes", text(generatedBytes)}});
+             {"compact_bytes", text(generatedCompactBytes)},
+             {"legacy_equivalent_bytes", text(generatedLegacyBytes)},
+             {"compression_ratio", text(
+                  generatedCompactBytes == 0 ? 0.0
+                                             : static_cast<double>(generatedLegacyBytes)
+                                                   / static_cast<double>(generatedCompactBytes))}});
         for (const auto& workerStats : result.workerStats) {
           trace3d(
               logging::Level::kDebug,
@@ -771,7 +1312,8 @@ void QmlGlItem::applyDocumentMetadata(
     std::uint64_t generation,
     int totalLayers,
     qreal pitchZMm,
-    QString machineName) {
+    QString machineName,
+    std::shared_ptr<photons::pwsz::PwszArchiveReader> reader) {
   if (generation != sceneGeneration_) {
     return;
   }
@@ -780,6 +1322,7 @@ void QmlGlItem::applyDocumentMetadata(
   lastLayer_ = totalLayers_;
   layerHeightMm_ = pitchZMm > 0.0 ? pitchZMm : 0.05;
   machineName_ = std::move(machineName);
+  archiveReader_ = std::move(reader);
   emit documentChanged();
   emit visibleRangeChanged();
 }
@@ -821,6 +1364,39 @@ void QmlGlItem::applyChunkStats(
   scheduleRender();
 }
 
+void QmlGlItem::applyGpuFailure(
+    std::uint64_t generation,
+    QString errorString) {
+  if (generation != sceneGeneration_) {
+    return;
+  }
+  if (worker_.joinable()) {
+    worker_.request_stop();
+  }
+  uploadQueue_->clear();
+  {
+    std::scoped_lock lock(cutRequestMutex_);
+    cutGeneration_.fetch_add(1, std::memory_order_release);
+    cutRequest_.reset();
+    std::scoped_lock resultLock(cutResultMutex_);
+    readyCutBatch_.reset();
+  }
+  cutRequestChanged_.notify_all();
+  loading_ = false;
+  errorString_ = std::move(errorString);
+  ++sceneGeneration_;
+  trace3d(
+      logging::Level::kError,
+      "viewer",
+      "gpu_generation_aborted",
+      errorString_.toStdString(),
+      {{"failed_generation", text(generation)},
+       {"next_generation", text(sceneGeneration_)}});
+  emit loadingChanged();
+  emit errorStringChanged();
+  scheduleRender();
+}
+
 void QmlGlItem::finishLoad(
     std::uint64_t generation,
     QString errorString,
@@ -840,7 +1416,11 @@ void QmlGlItem::finishLoad(
     emit progressChanged();
   }
   emit loadingChanged();
-  scheduleRender();
+  if (errorString_.isEmpty()) {
+    requestCutSurfaceRebuild();
+  } else {
+    scheduleRender();
+  }
 }
 
 void QmlGlItem::orbitPixels(qreal deltaX, qreal deltaY) {

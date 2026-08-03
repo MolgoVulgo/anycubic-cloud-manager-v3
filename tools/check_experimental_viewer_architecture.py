@@ -132,6 +132,7 @@ def main() -> int:
             errors.append(f"experimental source list has unexpected entries: {extra}")
 
     expected_qt_sources = {
+        "${ACCLOUD_SRC_ROOT}/render3d/qtquick/CompactShaderSources.h",
         "${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.cpp",
         "${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.h",
     }
@@ -152,6 +153,7 @@ def main() -> int:
         "NAME accloud_render_pipeline",
         "add_executable(accloud_render3d_worker_benchmark",
         "NAME accloud_render3d_worker_benchmark_selftest",
+        "NAME accloud_render3d_shader_compile",
         "Qt6::OpenGL",
         "ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES",
     )
@@ -224,7 +226,11 @@ def main() -> int:
     main_cpp = read(root / "src/accloud/app/main.cpp")
     qml_item_header = read(root / "src/accloud/render3d/qtquick/QmlGlItem.h")
     qml_item_cpp = read(root / "src/accloud/render3d/qtquick/QmlGlItem.cpp")
+    shader_sources = read(root / "src/accloud/render3d/qtquick/CompactShaderSources.h")
     mesher_header = read(root / "src/accloud/render3d/meshing/LayerStackMesher.h")
+    mesh_chunk_header = read(root / "src/accloud/domain/photons/MeshChunk.h")
+    section_cache_header = read(root / "src/accloud/render3d/core/LayerSectionCache.h")
+    section_cache_cpp = read(root / "src/accloud/render3d/core/LayerSectionCache.cpp")
     logger_test = read(root / "tests/cloud/test_jsonl_logger.cpp")
     registration_token = "qmlRegisterType<accloud::render3d::QmlGlItem>"
     if registration_token not in main_cpp:
@@ -249,7 +255,10 @@ def main() -> int:
         "kMinimumMeshWorkerCount = 1",
         "kMaximumMeshWorkerCount = 16",
         "std::size_t workerCount = 4",
+        "std::size_t chunkLayerCount = 8",
         "MeshWorkerStats",
+        "CutSurfaceBoundary",
+        "buildCutSurface",
     ):
         if token not in mesher_header:
             errors.append(f"missing parallel mesher contract token: {token}")
@@ -258,12 +267,81 @@ def main() -> int:
         "options.layerStride",
         '"chunk_ready"',
         '"build_completed"',
-        '"chunk_uploaded"',
+        '"compact_chunk_uploaded"',
+        '"cut_surface_uploaded"',
+        '"boundary_built"',
+        "u_cutSurfacePass",
+        "readyCutBatch_",
+        "cut_surface_swap_committed",
+        "displayedFirstLayer_",
+        "LayerSectionCache",
+        "glDrawArraysInstanced",
+        "glVertexAttribIPointer",
+        "glVertexAttribDivisor",
+        "shader::kCompactVertexShader",
+        "shader::kCompactFragmentShader",
+        '"u_clipEpsilon"',
+        "shaderInitializationFailed_",
+        'reportGpuFailure(QmlGlItem::tr("Unable to initialize the 3D renderer."))',
+        "kGpuBudgetBytes",
+        '"legacy_equivalent_bytes"',
         '"worker_completed"',
         "options.workerCount",
+        "kChunkLayers = 8",
     ):
         if token not in qml_item_cpp:
             errors.append(f"missing Render3D diagnostic token: {token}")
+    for obsolete in (
+        "cutUploadQueue_",
+        "clearCutRequested_",
+    ):
+        if obsolete in qml_item_cpp or obsolete in qml_item_header:
+            errors.append(f"obsolete non-transactional cut-surface token remains: {obsolete}")
+
+    for token in (
+        "struct LayerSectionRect",
+        "static_assert(sizeof(LayerSectionRect) == 8",
+        "class LayerSectionCache",
+        "maximumBytes",
+        "maximumEntries",
+        "materializeLayerSection",
+    ):
+        if token not in section_cache_header:
+            errors.append(f"missing transactional section-cache token: {token}")
+    for token in (
+        "entries_.splice",
+        "evictToFit",
+        "packZSurface",
+    ):
+        if token not in section_cache_cpp:
+            errors.append(f"missing section-cache implementation token: {token}")
+
+    for token in (
+        "layout(location = 0) in uvec2 a_packed;",
+        "uniform vec3 u_pitch;",
+        "uniform float u_clipEpsilon;",
+        "float epsilon = u_clipEpsilon;",
+    ):
+        if token not in shader_sources:
+            errors.append(f"missing compact shader source token: {token}")
+    for obsolete in (
+        "const float epsilon",
+        "u_pitch.z * 0.001",
+    ):
+        if obsolete in shader_sources:
+            errors.append(f"invalid compact fragment shader token remains: {obsolete}")
+
+    for token in (
+        "struct PackedSurfaceQuad",
+        "static_assert(sizeof(PackedSurfaceQuad) == 8",
+        "std::vector<PackedSurfaceQuad> surfaces",
+        "kLegacyBytesPerSurfaceQuad",
+    ):
+        if token not in mesh_chunk_header:
+            errors.append(f"missing compact GPU surface contract token: {token}")
+    for obsolete in ("glDrawElements", "QOpenGLBuffer::IndexBuffer", "chunk.vertices", "chunk.indices"):
+        if obsolete in qml_item_cpp:
+            errors.append(f"legacy expanded GPU mesh path remains active: {obsolete}")
     if 'logDir / "render3d.jsonl"' not in logger_test:
         errors.append("logging regression must verify the dedicated render3d.jsonl sink")
 
@@ -365,6 +443,20 @@ def main() -> int:
         if token not in qml_test:
             errors.append(f"QML regression is missing per-file viewer assertion: {token}")
 
+    shader_test = root / "tests/photons/test_render3d_shader_qt.cpp"
+    if not shader_test.is_file():
+        errors.append("missing Qt/OpenGL compact shader compilation regression")
+    else:
+        shader_test_text = read(shader_test)
+        for token in (
+            "kCompactVertexShader",
+            "kCompactFragmentShader",
+            '"u_clipEpsilon"',
+            "QOffscreenSurface",
+        ):
+            if token not in shader_test_text:
+                errors.append(f"compact shader compilation regression is missing token: {token}")
+
     smoke = root / "tests/photons/test_experimental_viewer_scaffold.cpp"
     if not smoke.is_file():
         errors.append("missing opt-in experimental viewer scaffold smoke test")
@@ -381,7 +473,9 @@ def main() -> int:
             "--chunk-layers",
             "--output-prefix",
             "--self-test",
-            "generated geometry differs between benchmark runs",
+            "workerCounts{4, 8, 16}",
+            "chunkLayerCounts{8, 16, 32}",
+            "generated geometry differs between worker runs for chunk size",
         ):
             if token not in benchmark_text:
                 errors.append(f"Render3D worker benchmark is missing token: {token}")

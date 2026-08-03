@@ -124,14 +124,16 @@ Benchmark manuel des workers sur un même PWSZ :
 ```bash
 ./build/experimental-viewer-core/accloud_render3d_worker_benchmark \
   --input /chemin/Beetle-2.pwsz \
-  --workers 1,4,8,16 \
+  --workers 4,8,16 \
   --repeats 1 \
   --layer-stride 2 \
-  --chunk-layers 32 \
+  --chunk-layers 8,16,32 \
   --output-prefix /tmp/beetle-workers
 ```
 
-Le benchmark ouvre une seule fois le même fichier, exécute séquentiellement les configurations demandées et vérifie que chaque run produit exactement le même nombre de chunks, sommets, triangles et octets de mesh. Il mesure le décodage PWSZ et le maillage CPU ; l'upload GPU et le rendu sont volontairement exclus. Les rapports `/tmp/beetle-workers.csv` et `/tmp/beetle-workers.jsonl` contiennent notamment la durée totale, la latence du premier chunk, les workers demandés/effectifs, le nombre de couches décodées et le volume géométrique. `--repeats 2` ou `3` améliore la stabilité statistique, alterne l’ordre direct/inverse des workers entre les répétitions et multiplie directement la durée du test. Le PWSZ reste externe au dépôt et ce benchmark réel n'est pas un test CTest bloquant. Le test CTest `accloud_render3d_worker_benchmark_selftest` valide uniquement l'outil sur une source synthétique courte.
+Le benchmark ouvre une seule fois le même fichier et exécute le produit cartésien complet des tailles de chunks et nombres de workers demandés. Pour une taille de chunk donnée, tous les runs workers doivent produire la même signature compacte : chunks, rectangles de surface, triangles, octets compacts et octets équivalents de l'ancien maillage. Les nombres de chunks ne sont pas comparés entre tailles différentes. Il mesure le décodage PWSZ et le maillage CPU ; l'upload GPU et le rendu sont volontairement exclus. Les rapports `/tmp/beetle-workers.csv` et `/tmp/beetle-workers.jsonl` indiquent notamment `surface_quads`, `compact_bytes`, `legacy_equivalent_bytes`, `compression_ratio`, la taille de chunk, la durée totale et la latence du premier chunk. Le ratio attendu du chemin principal est exactement `15.0` : 8 octets compacts remplacent 120 octets de vertices/index historiques par rectangle. `--repeats 2` ou `3` améliore la stabilité statistique, inverse l’ordre de la matrice complète lors des répétitions paires et multiplie directement la durée du test. Le PWSZ reste externe au dépôt et ce benchmark réel n'est pas un test CTest bloquant. Le test CTest `accloud_render3d_worker_benchmark_selftest` valide la matrice, la stabilité géométrique et le ratio compact sur une source synthétique courte.
+
+Après une modification du chemin GPU compact, la validation locale Qt doit être complétée par un essai runtime sur `Beetle-2.pwsz` en **Détail complet** (`layer_step = 1`). La génération doit atteindre 100 %, l'application doit rester active et manipulable, et `render3d.jsonl` doit contenir des événements `gpu.compact_chunk_uploaded` avec `compression_ratio = 15`, sans `gpu.budget_exceeded`, `gpu.compact_upload_failed` ni arrêt `SIGABRT`. Le champ `resident_bytes` doit rester inférieur ou égal à `budget_bytes`. Cette validation runtime réelle complète les tests synthétiques ; elle ne doit pas être remplacée par le seul benchmark CPU.
 
 
 Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local. L'exécution CTest par défaut classe `accloud_mqtt_live_broker` en **Skipped** tant que l'exécution live n'est pas explicitement activée.

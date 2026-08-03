@@ -4296,6 +4296,36 @@ Connexion cloud : </translation>
             <source>The PWSZ archive contains no layers.</source>
             <translation>L’archive PWSZ ne contient aucune couche.</translation>
         </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The 3D model contains a chunk that is too large for OpenGL.</source>
+            <translation>Le modèle 3D contient un chunk trop volumineux pour OpenGL.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The complete 3D model exceeds the safe GPU memory budget. No partial model was kept.</source>
+            <translation>Le modèle 3D complet dépasse le budget mémoire GPU sécurisé. Aucun modèle partiel n’a été conservé.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to allocate memory for the complete 3D model.</source>
+            <translation>Impossible d’allouer la mémoire du modèle 3D complet.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to build the visible-layer section surfaces.</source>
+            <translation>Impossible de construire les surfaces de section de la plage de couches visible.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to initialize the 3D renderer.</source>
+            <translation>Impossible d’initialiser le moteur de rendu 3D.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>OpenGL rejected the complete 3D model before rendering.</source>
+            <translation>OpenGL a rejeté le modèle 3D complet avant son rendu.</translation>
+        </message>
     </context>
     <context>
         <name>VolumeViewerDialog</name>

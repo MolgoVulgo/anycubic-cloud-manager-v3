@@ -3867,6 +3867,36 @@ Cloud connection: </source>
             <source>The PWSZ archive contains no layers.</source>
             <translation>The PWSZ archive contains no layers.</translation>
         </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The 3D model contains a chunk that is too large for OpenGL.</source>
+            <translation>The 3D model contains a chunk that is too large for OpenGL.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The complete 3D model exceeds the safe GPU memory budget. No partial model was kept.</source>
+            <translation>The complete 3D model exceeds the safe GPU memory budget. No partial model was kept.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to allocate memory for the complete 3D model.</source>
+            <translation>Unable to allocate memory for the complete 3D model.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to build the visible-layer section surfaces.</source>
+            <translation>Unable to build the visible-layer section surfaces.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to initialize the 3D renderer.</source>
+            <translation>Unable to initialize the 3D renderer.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>OpenGL rejected the complete 3D model before rendering.</source>
+            <translation>OpenGL rejected the complete 3D model before rendering.</translation>
+        </message>
     </context>
     <context>
         <name>VolumeViewerDialog</name>

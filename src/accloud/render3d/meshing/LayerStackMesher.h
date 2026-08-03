@@ -17,6 +17,11 @@ enum class CutSurfaceMode {
   Closed,
 };
 
+enum class CutSurfaceBoundary {
+  Lower,
+  Upper,
+};
+
 inline constexpr std::size_t kMinimumMeshWorkerCount = 1;
 inline constexpr std::size_t kMaximumMeshWorkerCount = 16;
 
@@ -24,7 +29,7 @@ struct MeshBuildOptions {
   double pitchXMm = 1.0;
   double pitchYMm = 1.0;
   double pitchZMm = 1.0;
-  std::size_t chunkLayerCount = 32;
+  std::size_t chunkLayerCount = 8;
   CutSurfaceMode cutSurfaceMode = CutSurfaceMode::Open;
   // Preview sampling along Z. A value of 2 decodes one source layer out of
   // two while preserving the first and last selected layers. The sampled mask
@@ -42,6 +47,13 @@ struct MeshWorkerStats {
   std::size_t decodedLayerCount = 0;
   std::size_t chunkCount = 0;
   std::uint64_t durationMs = 0;
+};
+
+struct CutSurfaceBuildResult {
+  bool ok = false;
+  photons::MeshChunk chunk;
+  std::size_t decodedLayerCount = 0;
+  std::string error;
 };
 
 struct MeshBuildResult {
@@ -62,6 +74,13 @@ struct MeshBuildCallbacks {
 
 class LayerStackMesher {
 public:
+  [[nodiscard]] CutSurfaceBuildResult buildCutSurface(
+      photons::LayerMaskSource& source,
+      std::size_t maskLayer,
+      std::size_t planeLayer,
+      CutSurfaceBoundary boundary,
+      const MeshBuildOptions& options) const;
+
   [[nodiscard]] MeshBuildResult build(
       photons::LayerMaskSource& source,
       photons::LayerRange range,

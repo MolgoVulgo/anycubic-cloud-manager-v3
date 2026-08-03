@@ -1,16 +1,21 @@
 #include "domain/photons/BinaryMask.h"
 #include "domain/photons/LayerMaskSource.h"
 #include "domain/photons/MeshChunk.h"
+#include "render3d/core/LayerSectionCache.h"
 #include "render3d/gl/MeshlessVolume.h"
 #include "render3d/gl/Renderer.h"
 #include "render3d/gl/UploadQueue.h"
 #include "render3d/meshing/LayerStackMesher.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <utility>
@@ -89,16 +94,51 @@ private:
   std::atomic<int> maximumConcurrentLoads_{0};
 };
 
+class UniformHeightSource final : public accloud::photons::LayerMaskSource {
+public:
+  explicit UniformHeightSource(std::size_t layers) : layers_(layers) {}
+
+  std::size_t layerCount() const noexcept override { return layers_; }
+  std::uint32_t width() const noexcept override { return 2; }
+  std::uint32_t height() const noexcept override { return 2; }
+  bool supportsConcurrentMaskLoads() const noexcept override { return true; }
+
+  std::optional<accloud::photons::BinaryMask> loadMask(
+      std::size_t layerNumber,
+      std::string& error) override {
+    if (layerNumber >= layers_) {
+      error = "layer outside uniform height source";
+      return std::nullopt;
+    }
+    accloud::photons::BinaryMask mask(2, 2);
+    mask.set(0, 0, true);
+    mask.set(1, 0, true);
+    mask.set(0, 1, true);
+    mask.set(1, 1, true);
+    return mask;
+  }
+
+private:
+  std::size_t layers_ = 0;
+};
+
 accloud::photons::MeshChunk makeChunk(std::size_t first, std::size_t last) {
   accloud::photons::MeshChunk chunk;
   chunk.layers = {first, last};
-  chunk.vertices = {
-      {0.0F, 0.0F, static_cast<float>(first), 0.0F, 0.0F, 1.0F},
-      {1.0F, 0.0F, static_cast<float>(first), 0.0F, 0.0F, 1.0F},
-      {1.0F, 1.0F, static_cast<float>(last + 1), 0.0F, 0.0F, 1.0F},
-  };
-  chunk.indices = {0, 1, 2};
-  for (const auto& vertex : chunk.vertices) {
+  chunk.rasterWidth = 1;
+  chunk.rasterHeight = 1;
+  chunk.pitchXMm = 1.0F;
+  chunk.pitchYMm = 1.0F;
+  chunk.pitchZMm = 1.0F;
+  chunk.surfaces.push_back(accloud::photons::packZSurface(
+      accloud::photons::PackedSurfaceFace::PositiveZ,
+      0,
+      0,
+      1,
+      0,
+      1));
+  for (const auto& vertex : accloud::photons::surfaceQuadCorners(
+           chunk, chunk.surfaces.front())) {
     chunk.bounds.include(vertex.x, vertex.y, vertex.z);
   }
   return chunk;
@@ -112,12 +152,111 @@ std::size_t totalTriangles(const std::vector<accloud::photons::MeshChunk>& chunk
   return total;
 }
 
+struct MeshCoverageSignature {
+  double surfaceAreaMm2 = 0.0;
+  accloud::photons::MeshBounds bounds;
+  std::size_t duplicateTriangles = 0;
+};
+
+using PointKey = std::array<std::uint32_t, 3>;
+using TriangleKey = std::array<PointKey, 3>;
+
+PointKey pointKey(const accloud::photons::MeshVertex& vertex) {
+  return {
+      std::bit_cast<std::uint32_t>(vertex.x),
+      std::bit_cast<std::uint32_t>(vertex.y),
+      std::bit_cast<std::uint32_t>(vertex.z),
+  };
+}
+
+MeshCoverageSignature meshCoverage(
+    const std::vector<accloud::photons::MeshChunk>& chunks) {
+  MeshCoverageSignature signature;
+  std::set<TriangleKey> triangles;
+  for (const auto& chunk : chunks) {
+    for (const auto& surface : chunk.surfaces) {
+      const auto expanded = accloud::photons::expandSurfaceQuad(chunk, surface);
+      for (const auto& vertex : expanded) {
+        signature.bounds.include(vertex.x, vertex.y, vertex.z);
+      }
+      for (std::size_t index = 0; index < expanded.size(); index += 3) {
+        const auto& a = expanded[index];
+        const auto& b = expanded[index + 1];
+        const auto& c = expanded[index + 2];
+        const double abX = static_cast<double>(b.x) - a.x;
+        const double abY = static_cast<double>(b.y) - a.y;
+        const double abZ = static_cast<double>(b.z) - a.z;
+        const double acX = static_cast<double>(c.x) - a.x;
+        const double acY = static_cast<double>(c.y) - a.y;
+        const double acZ = static_cast<double>(c.z) - a.z;
+        const double crossX = abY * acZ - abZ * acY;
+        const double crossY = abZ * acX - abX * acZ;
+        const double crossZ = abX * acY - abY * acX;
+        signature.surfaceAreaMm2 += 0.5 * std::sqrt(
+            crossX * crossX + crossY * crossY + crossZ * crossZ);
+
+        TriangleKey key{pointKey(a), pointKey(b), pointKey(c)};
+        std::sort(key.begin(), key.end());
+        if (!triangles.insert(key).second) {
+          ++signature.duplicateTriangles;
+        }
+      }
+    }
+  }
+  return signature;
+}
+
+bool sameBounds(
+    const accloud::photons::MeshBounds& left,
+    const accloud::photons::MeshBounds& right,
+    float epsilon = 0.0001F) {
+  return std::abs(left.minX - right.minX) <= epsilon
+         && std::abs(left.minY - right.minY) <= epsilon
+         && std::abs(left.minZ - right.minZ) <= epsilon
+         && std::abs(left.maxX - right.maxX) <= epsilon
+         && std::abs(left.maxY - right.maxY) <= epsilon
+         && std::abs(left.maxZ - right.maxZ) <= epsilon;
+}
+
 } // namespace
 
 int main() {
   bool ok = true;
   ok &= require(accloud::render3d::MeshBuildOptions{}.workerCount == 4,
                 "mesh generation must default to four workers");
+  ok &= require(accloud::render3d::MeshBuildOptions{}.chunkLayerCount == 8,
+                "mesh generation must default to eight source layers per chunk");
+
+  ok &= require(sizeof(accloud::photons::PackedSurfaceQuad) == 8,
+                "packed GPU surfaces must remain eight-byte instances");
+  const auto packedProbe = accloud::photons::packXSurface(
+      accloud::photons::PackedSurfaceFace::PositiveX, 10, 20, 30, 2, 7);
+  accloud::photons::MeshChunk packedProbeChunk;
+  packedProbeChunk.layers = {100, 107};
+  packedProbeChunk.pitchXMm = 0.05F;
+  packedProbeChunk.pitchYMm = 0.06F;
+  packedProbeChunk.pitchZMm = 0.07F;
+  const auto packedProbeCorners = accloud::photons::surfaceQuadCorners(
+      packedProbeChunk, packedProbe);
+  ok &= require(
+      accloud::photons::packedSurfaceFace(packedProbe)
+              == accloud::photons::PackedSurfaceFace::PositiveX
+          && std::abs(packedProbeCorners[0].x - 0.5F) < 0.0001F
+          && std::abs(packedProbeCorners[0].y - 1.2F) < 0.0001F
+          && std::abs(packedProbeCorners[2].z - 7.49F) < 0.0001F
+          && packedProbeCorners[0].nx == 1.0F,
+      "packed surface expansion must preserve exact grid coordinates and normals");
+
+  accloud::render3d::GpuMemoryBudget gpuBudget(100);
+  ok &= require(gpuBudget.tryReserve(60) && !gpuBudget.tryReserve(50)
+                    && gpuBudget.residentBytes() == 60,
+                "GPU budget must reject allocations before the driver is called");
+  gpuBudget.release(20);
+  ok &= require(gpuBudget.residentBytes() == 40,
+                "GPU budget release must update resident bytes");
+  gpuBudget.reset();
+  ok &= require(gpuBudget.residentBytes() == 0,
+                "GPU budget reset must release the complete generation accounting");
 
   accloud::render3d::UploadQueue queue(2, 1024 * 1024);
   ok &= require(queue.tryPush(makeChunk(0, 31)), "first upload chunk must fit");
@@ -129,6 +268,13 @@ int main() {
   ok &= require(drained.size() == 2 && queue.pendingChunks() == 0
                     && queue.pendingBytes() == 0,
                 "draining the upload queue must reset its accounting");
+
+  const auto compactProbeChunk = makeChunk(0, 7);
+  ok &= require(
+      accloud::render3d::UploadQueue::byteSize(compactProbeChunk) == 8
+          && accloud::render3d::UploadQueue::legacyEquivalentByteSize(compactProbeChunk)
+                 == 120,
+      "one packed quad must replace 120 legacy vertex/index bytes with eight bytes");
 
   accloud::render3d::Renderer renderer;
   renderer.setDocument(1247, 0.05);
@@ -147,7 +293,7 @@ int main() {
                 "render plan must expose exact Z clip planes");
   ok &= require(plan.chunkIndices.size() == 3,
                 "render plan must select only chunks intersecting the layer range");
-  ok &= require(renderer.volume().triangleCount() == 5,
+  ok &= require(renderer.volume().triangleCount() == 10,
                 "renderer volume must account for uploaded triangles");
 
   std::vector<accloud::photons::BinaryMask> masks;
@@ -211,6 +357,140 @@ int main() {
                   "sampled mesh must preserve the original Z extent");
   }
 
+  accloud::photons::BinaryMask solidSectionMask(6, 6);
+  for (std::uint32_t y = 1; y < 5; ++y) {
+    for (std::uint32_t x = 1; x < 5; ++x) {
+      solidSectionMask.set(x, y, true);
+    }
+  }
+  VectorSource solidSectionSource({solidSectionMask});
+  accloud::render3d::MeshBuildOptions sectionOptions = options;
+  sectionOptions.pitchXMm = 0.1;
+  sectionOptions.pitchYMm = 0.2;
+  sectionOptions.pitchZMm = 0.05;
+  const auto solidSection = mesher.buildCutSurface(
+      solidSectionSource,
+      0,
+      7,
+      accloud::render3d::CutSurfaceBoundary::Upper,
+      sectionOptions);
+  ok &= require(solidSection.ok && solidSection.decodedLayerCount == 1,
+                "solid visible-layer section generation must decode one exact mask");
+  if (solidSection.ok) {
+    const auto coverage = meshCoverage({solidSection.chunk});
+    bool positiveZOnly = !solidSection.chunk.surfaces.empty();
+    for (const auto& surface : solidSection.chunk.surfaces) {
+      positiveZOnly &= accloud::photons::packedSurfaceFace(surface)
+                       == accloud::photons::PackedSurfaceFace::PositiveZ;
+    }
+    ok &= require(positiveZOnly,
+                  "upper visible-layer sections must face positive Z");
+    ok &= require(solidSection.chunk.layers.first == 7
+                      && solidSection.chunk.layers.last == 7
+                      && std::abs(solidSection.chunk.bounds.minZ - 0.35F) < 0.0001F
+                      && std::abs(solidSection.chunk.bounds.maxZ - 0.35F) < 0.0001F,
+                  "cut surface plane must be independent from the decoded mask layer");
+    ok &= require(std::abs(coverage.surfaceAreaMm2 - 0.32) < 0.0001,
+                  "a solid 4x4 section must remain fully filled");
+
+    accloud::render3d::LayerSectionTemplate cachedTemplate;
+    std::string cacheError;
+    ok &= require(
+        accloud::render3d::makeLayerSectionTemplate(
+            solidSection.chunk, cachedTemplate, cacheError),
+        "horizontal cut surfaces must convert to an orientation-independent cache template");
+    ok &= require(sizeof(accloud::render3d::LayerSectionRect) == 8
+                      && cachedTemplate.compactByteSize()
+                             == solidSection.chunk.compactByteSize(),
+                  "the CPU layer-section cache must keep one eight-byte record per rectangle");
+    const auto cachedLower = accloud::render3d::materializeLayerSection(
+        cachedTemplate,
+        11,
+        accloud::render3d::CutSurfaceBoundary::Lower,
+        solidSection.chunk.pitchXMm,
+        solidSection.chunk.pitchYMm,
+        solidSection.chunk.pitchZMm);
+    ok &= require(
+        cachedLower.surfaceQuadCount() == solidSection.chunk.surfaceQuadCount()
+            && !cachedLower.surfaces.empty()
+            && accloud::photons::packedSurfaceFace(cachedLower.surfaces.front())
+                   == accloud::photons::PackedSurfaceFace::NegativeZ
+            && std::abs(cachedLower.bounds.minZ - 0.55F) < 0.0001F,
+        "a cached section must be reusable at a new plane and with the opposite orientation");
+
+    accloud::render3d::LayerSectionCache sectionCache(
+        cachedTemplate.compactByteSize() * 2, 2);
+    auto firstCached = sectionCache.insert(1, cachedTemplate);
+    auto secondCached = sectionCache.insert(2, cachedTemplate);
+    ok &= require(firstCached && secondCached && sectionCache.find(1),
+                  "the bounded layer-section cache must retain recently used entries");
+    (void)sectionCache.insert(3, cachedTemplate);
+    const auto cacheStats = sectionCache.stats();
+    ok &= require(cacheStats.entries == 2
+                      && cacheStats.residentBytes
+                             == cachedTemplate.compactByteSize() * 2
+                      && cacheStats.evictions == 1
+                      && !sectionCache.find(2),
+                  "the layer-section cache must evict the least-recently-used entry within its byte budget");
+  }
+
+  accloud::photons::BinaryMask hollowSectionMask = solidSectionMask;
+  for (std::uint32_t y = 2; y < 4; ++y) {
+    for (std::uint32_t x = 2; x < 4; ++x) {
+      hollowSectionMask.set(x, y, false);
+    }
+  }
+  VectorSource hollowSectionSource({hollowSectionMask});
+  const auto hollowSection = mesher.buildCutSurface(
+      hollowSectionSource,
+      0,
+      3,
+      accloud::render3d::CutSurfaceBoundary::Lower,
+      sectionOptions);
+  ok &= require(hollowSection.ok,
+                "hollow visible-layer section generation must succeed");
+  if (hollowSection.ok) {
+    const auto coverage = meshCoverage({hollowSection.chunk});
+    bool negativeZOnly = !hollowSection.chunk.surfaces.empty();
+    for (const auto& surface : hollowSection.chunk.surfaces) {
+      negativeZOnly &= accloud::photons::packedSurfaceFace(surface)
+                       == accloud::photons::PackedSurfaceFace::NegativeZ;
+    }
+    ok &= require(negativeZOnly,
+                  "lower visible-layer sections must face negative Z");
+    ok &= require(std::abs(coverage.surfaceAreaMm2 - 0.24) < 0.0001,
+                  "a hollow section must preserve its exact central cavity");
+    ok &= require(coverage.duplicateTriangles == 0,
+                  "cut surface greedy rectangles must not overlap");
+  }
+
+  accloud::photons::BinaryMask islandSectionMask(6, 6);
+  islandSectionMask.set(1, 1, true);
+  islandSectionMask.set(4, 4, true);
+  VectorSource islandSectionSource({islandSectionMask});
+  const auto islandSection = mesher.buildCutSurface(
+      islandSectionSource,
+      0,
+      2,
+      accloud::render3d::CutSurfaceBoundary::Upper,
+      sectionOptions);
+  ok &= require(islandSection.ok && islandSection.chunk.surfaceQuadCount() == 2,
+                "separate support islands must remain separate section surfaces");
+  if (islandSection.ok) {
+    const auto coverage = meshCoverage({islandSection.chunk});
+    ok &= require(std::abs(coverage.surfaceAreaMm2 - 0.04) < 0.0001,
+                  "section surfaces must not fill empty space between islands");
+  }
+
+  const auto invalidSection = mesher.buildCutSurface(
+      islandSectionSource,
+      1,
+      2,
+      accloud::render3d::CutSurfaceBoundary::Upper,
+      sectionOptions);
+  ok &= require(!invalidSection.ok,
+                "cut surface mask layers outside the source must fail explicitly");
+
   std::vector<accloud::photons::BinaryMask> parallelMasks;
   for (int layer = 0; layer < 16; ++layer) {
     accloud::photons::BinaryMask mask(4, 4);
@@ -258,6 +538,83 @@ int main() {
   }
   ok &= require(monotonicProgress,
                 "parallel progress callbacks must remain serialized and monotonic");
+
+  std::vector<accloud::photons::BinaryMask> coverageMasks;
+  for (int layer = 0; layer < 64; ++layer) {
+    accloud::photons::BinaryMask mask(8, 8);
+    for (std::uint32_t y = 1; y < 7; ++y) {
+      for (std::uint32_t x = 1; x < 7; ++x) {
+        mask.set(x, y, true);
+      }
+    }
+    if (layer >= 8 && layer < 56) {
+      mask.set(3, 3, false);
+      mask.set(4, 3, false);
+      mask.set(3, 4, false);
+      mask.set(4, 4, false);
+    }
+    if (layer >= 16 && layer < 48) {
+      mask.set(0, 0, true);
+    }
+    coverageMasks.push_back(std::move(mask));
+  }
+  std::optional<MeshCoverageSignature> referenceCoverage;
+  for (const std::size_t chunkLayers : {std::size_t{8}, std::size_t{16}, std::size_t{32}}) {
+    VectorSource coverageSource(coverageMasks);
+    accloud::render3d::MeshBuildOptions coverageOptions = options;
+    coverageOptions.chunkLayerCount = chunkLayers;
+    coverageOptions.workerCount = 4;
+    const auto coverageResult = mesher.build(coverageSource, {0, 63}, coverageOptions);
+    ok &= require(coverageResult.ok,
+                  "mesh coverage build must succeed for every benchmark chunk size");
+    if (!coverageResult.ok) {
+      continue;
+    }
+    const auto coverage = meshCoverage(coverageResult.chunks);
+    ok &= require(coverage.duplicateTriangles == 0,
+                  "chunk boundaries must not emit overlapping duplicate triangles");
+    if (!referenceCoverage) {
+      referenceCoverage = coverage;
+      continue;
+    }
+    ok &= require(sameBounds(referenceCoverage->bounds, coverage.bounds),
+                  "chunk sizes 8, 16 and 32 must preserve identical mesh bounds");
+    ok &= require(std::abs(referenceCoverage->surfaceAreaMm2 - coverage.surfaceAreaMm2)
+                          <= 0.0001,
+                  "chunk sizes 8, 16 and 32 must preserve identical exposed surface area");
+  }
+
+  UniformHeightSource fullHeightSource(5000);
+  accloud::render3d::MeshBuildOptions fullHeightOptions = options;
+  fullHeightOptions.pitchXMm = 0.05;
+  fullHeightOptions.pitchYMm = 0.05;
+  fullHeightOptions.pitchZMm = 0.05;
+  fullHeightOptions.chunkLayerCount = 8;
+  fullHeightOptions.workerCount = 4;
+  const auto fullHeightResult = mesher.build(
+      fullHeightSource, {0, 4999}, fullHeightOptions);
+  std::size_t fullHeightCompactBytes = 0;
+  std::size_t fullHeightLegacyBytes = 0;
+  for (const auto& chunk : fullHeightResult.chunks) {
+    fullHeightCompactBytes += chunk.compactByteSize();
+    fullHeightLegacyBytes += chunk.legacyEquivalentByteSize();
+  }
+  ok &= require(fullHeightResult.ok && !fullHeightResult.chunks.empty(),
+                "a complete 250 mm synthetic piece must be meshed without truncation");
+  if (fullHeightResult.ok && !fullHeightResult.chunks.empty()) {
+    ok &= require(
+        std::abs(fullHeightResult.chunks.back().bounds.maxZ - 250.0F) < 0.0001F,
+        "the 250 mm synthetic piece must preserve its complete Z extent");
+    ok &= require(
+        fullHeightCompactBytes > 0
+            && fullHeightLegacyBytes == fullHeightCompactBytes * 15,
+        "full-height compact geometry must keep the exact fifteen-to-one byte reduction");
+  }
+
+  accloud::render3d::MeshBuildOptions invalidPackedChunk = options;
+  invalidPackedChunk.chunkLayerCount = 64;
+  ok &= require(!mesher.build(source, {0, 3}, invalidPackedChunk).ok,
+                "chunk sizes outside the packed relative Z range must be rejected");
 
   accloud::render3d::MeshBuildOptions invalidWorkerCount = options;
   invalidWorkerCount.workerCount = 0;

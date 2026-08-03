@@ -2,7 +2,7 @@
 
 > Status: EXPERIMENTAL / PARTIAL. This appendix does not declare a production-ready viewer.
 
-Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in development presets, and `SPEC` for production integration and large-model optimisation.
+Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, compact GPU representation and dynamic closed Z sections, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in development presets, and `SPEC` for production integration and LOD.
 
 ## Product position
 
@@ -34,15 +34,18 @@ PWSZ ZIP
 -> pw0Img decode
 -> bit-packed material mask
 -> stacked-layer surface mesh
--> 32-layer chunks
+-> 8-layer chunks
+-> eight-byte axis-aligned surface instances
 -> bounded CPU-to-GPU upload queue
--> OpenGL vertex/index buffers
+-> instanced OpenGL buffers without duplicated vertices/indices
+-> GPU budget checked before allocation
 -> exact dynamic Z clipping
+-> dynamic lower/upper section surfaces derived from boundary masks
 -> Qt Quick navigation and range controls
 -> launch from the 3D button on the selected PWSZ file row
 ```
 
-The PWSZ reading and meshing work never runs on the GUI thread. A coordinator job distributes independent mesh-chunk tasks to a configurable pool of workers. The default is 4, the accepted user range is 1 to 16, and the persisted key is `render3d.workerCount`. Adjacent tasks reload one boundary sample so horizontal transitions and vertical walls remain exact. Mesh chunks are transferred through a bounded `UploadQueue`; the render thread drains that queue and creates GPU buffers.
+The PWSZ reading and meshing work never runs on the GUI thread. A coordinator job distributes independent mesh-chunk tasks to a configurable pool of workers. The default is 4, the accepted user range is 1 to 16, and the persisted key is `render3d.workerCount`. Adjacent tasks reload one boundary sample so horizontal transitions and vertical walls remain exact. Every surface rectangle is retained as an eight-byte `PackedSurfaceQuad`. Mesh chunks are transferred through a bounded `UploadQueue`; the render thread drains that queue and creates compact instance buffers only.
 
 ## Supported format families under study
 
@@ -120,7 +123,7 @@ This preserves exterior walls, interior cavity walls, through-holes, supports, r
 
 ## Layer chunks and visible ranges
 
-Meshes are split into inclusive chunks, currently 32 layers each. Each chunk carries exact `first`/`last` layer numbers and a world-space bounding box.
+Meshes are split into inclusive chunks, currently 8 layers each. The 8-layer default is based on the Beetle benchmark: it reduces first-chunk latency while keeping total build time comparable to 16- and 32-layer chunks. Each chunk carries exact `first`/`last` layer numbers and a world-space bounding box. Chunk boundaries may split one coplanar wall into more triangles, but they must not produce overlapping triangles, change the exposed surface area, or alter the volume bounds.
 
 The UI uses one-based inclusive values; the core and renderer use zero-based inclusive indices. For a 1,247-layer document:
 
@@ -133,7 +136,11 @@ user range 415..1021
 
 The OpenGL fragment shader clips every triangle against the exact lower and upper Z planes. Intersecting chunks are selected first to avoid drawing unrelated buffers. Slider movement therefore does not rebuild the full mesh.
 
-The current desktop viewer implements **open cuts**. Dynamic cap generation for closed cuts is not yet wired to the UI.
+When either bound cuts through the document, a dedicated background worker decodes only the boundary mask and builds one compact section surface at the corresponding Z plane. The lower section uses a negative-Z normal and the upper section a positive-Z normal. The section is derived from the exact material mask used by the active sampling mode: a solid part produces a filled cap, a hollow part preserves its cavity, and separate supports or islands remain separate. Existing horizontal faces on the clip plane are suppressed during the base-mesh pass to avoid overlap with the dynamic cap.
+
+Visible-range changes are transactional. The renderer keeps the currently displayed range and section buffers while the replacement request is being built. The new pair of clip planes and section surfaces is uploaded into a staging buffer and committed in one frame, so the old cap is never removed before the new one is ready. Intermediate requests superseded by rapid slider movement are discarded without changing the displayed state.
+
+Decoded XY sections are retained in a compact CPU LRU cache independent of face orientation and Z placement. Each rectangle uses 8 bytes. The cache is bounded to 64 MiB and 2,048 layers, while only the one or two active sections reside on the GPU. Returning to an already visited layer therefore avoids decoding it again and does not duplicate upper/lower copies.
 
 ## Navigation contract
 
@@ -171,14 +178,14 @@ The fast preview is an approximation for display only. A one-layer support or de
 
 ### Dedicated Render3D diagnostics
 
-The viewer writes structured JSONL events with source `render3d`. The logger therefore creates `render3d.jsonl` in the configured ACM log directory (or `ACCLOUD_LOG_DIR`). Events cover archive opening, source dimensions, sampling step, requested/effective worker counts, per-worker task/decode/chunk durations, progress deciles, chunk geometry, upload-queue wait, GPU uploads, cancellations and failures. Full temporary paths and signed URLs are not logged.
+The viewer writes structured JSONL events with source `render3d`. The logger therefore creates `render3d.jsonl` in the configured ACM log directory (or `ACCLOUD_LOG_DIR`). Events cover archive opening, source dimensions, sampling step, requested/effective worker counts, per-worker durations, surface counts, compact bytes, legacy equivalent bytes, compression ratio, upload-queue wait, resident GPU bytes, budget, cancellations and failures. `gpu.compact_chunk_uploaded`, `gpu.cut_surface_uploaded`, `gpu.budget_exceeded` and `gpu.scene_reset` expose allocation and release accounting. `cut_surface.boundary_built` and `cut_surface.build_completed` report the decoded boundary layer, plane and compact surface count. Full temporary paths and signed URLs are not logged.
 
 Known limits:
 
-- uploaded chunks are retained on the GPU for the loaded document;
+- compact chunks are retained on the GPU for the loaded document;
 - no GPU eviction, LOD or mesh simplification yet;
-- exact pixel-derived meshes can still contain many triangles on dense support structures;
-- no dynamic closed-cut caps;
+- the 2 GiB budget rejects a pathological compact model cleanly instead of allowing the driver to abort the process;
+- exact pixel-derived models can still contain many surfaces on dense support structures;
 - no semantic colour separation between model, supports and raft;
 - the desktop backend is OpenGL-only in this experimental phase.
 
@@ -196,7 +203,7 @@ accloud_render_pipeline
 accloud_viewer_controls
 ```
 
-`accloud_render_pipeline` validates bounded queue accounting, streamed chunk consumption, cancellation, renderer chunk selection and exact Z clip planes.
+`accloud_render_pipeline` validates compact queue accounting, the eight-byte format, exact geometry expansion, the 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, the eight-byte section-cache record and bounded LRU eviction.
 
 Desktop validation is mandatory on a workstation with native Qt dependencies:
 
@@ -210,4 +217,4 @@ Real PWSZ samples may be used as local validation inputs, but they are not distr
 
 ## Decision
 
-The viewer now has an end-to-end development path from each PWSZ file row to a navigable, range-filtered 3D mesh. Production remains disabled. Production readiness still requires large-file measurements, GPU memory management, LOD/simplification and closed-cut caps.
+The viewer now has an end-to-end development path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. Production remains disabled. Production readiness still requires local validation on large PWSZ files and possible LOD/eviction work.

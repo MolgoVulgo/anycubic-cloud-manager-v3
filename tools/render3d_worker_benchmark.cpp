@@ -39,11 +39,11 @@ using accloud::render3d::MeshBuildResult;
 
 struct BenchmarkOptions {
   std::filesystem::path inputPath;
-  std::vector<std::size_t> workerCounts{1, 4, 8, 16};
+  std::vector<std::size_t> workerCounts{4, 8, 16};
   std::size_t repeats = 1;
   std::size_t warmupRuns = 0;
   std::size_t layerStride = 2;
-  std::size_t chunkLayerCount = 32;
+  std::vector<std::size_t> chunkLayerCounts{8, 16, 32};
   std::optional<std::pair<std::size_t, std::size_t>> oneBasedRange;
   std::optional<std::filesystem::path> outputPrefix;
   bool selfTest = false;
@@ -52,9 +52,11 @@ struct BenchmarkOptions {
 
 struct GeometrySignature {
   std::size_t chunks = 0;
-  std::size_t vertices = 0;
+  std::size_t surfaceQuads = 0;
+  std::size_t legacyVertices = 0;
   std::size_t triangles = 0;
-  std::uint64_t meshBytes = 0;
+  std::uint64_t compactBytes = 0;
+  std::uint64_t legacyEquivalentBytes = 0;
 
   [[nodiscard]] bool operator==(const GeometrySignature&) const noexcept = default;
 };
@@ -63,6 +65,7 @@ struct BenchmarkRun {
   std::size_t requestedWorkers = 0;
   std::size_t effectiveWorkers = 0;
   std::size_t repeatIndex = 0;
+  std::size_t chunkLayerCount = 0;
   std::size_t decodedLayers = 0;
   std::size_t workerTasks = 0;
   std::uint64_t largestChunkBytes = 0;
@@ -76,6 +79,7 @@ struct BenchmarkRun {
 };
 
 struct WorkerSummary {
+  std::size_t chunkLayerCount = 0;
   std::size_t requestedWorkers = 0;
   std::size_t effectiveWorkers = 0;
   std::size_t sampleCount = 0;
@@ -93,17 +97,18 @@ void printUsage(std::ostream& output) {
       << "Usage:\n"
       << "  accloud_render3d_worker_benchmark --input <file.pwsz> [options]\n\n"
       << "Options:\n"
-      << "  --workers <list>          Worker counts, default: 1,4,8,16\n"
-      << "  --repeats <n>             Measured runs per worker count, default: 1\n"
-      << "  --warmup-runs <n>         Unreported warm-up runs per worker count, default: 0\n"
+      << "  --workers <list>          Worker counts, default: 4,8,16\n"
+      << "  --repeats <n>             Measured runs per matrix combination, default: 1\n"
+      << "  --warmup-runs <n>         Unreported warm-up runs per matrix combination, default: 0\n"
       << "  --layer-stride <n>        Z sampling stride, default: 2\n"
-      << "  --chunk-layers <n>        Source layers per mesh chunk, default: 32\n"
+      << "  --chunk-layers <list>     Chunk sizes, default: 8,16,32\n"
       << "  --range <first:last>      Inclusive one-based layer range, default: all\n"
       << "  --output-prefix <path>    Write <path>.csv and <path>.jsonl\n"
       << "  --self-test               Run a small synthetic benchmark\n"
       << "  --help                    Show this help\n\n"
-      << "The benchmark measures PWSZ decoding plus CPU mesh generation. It discards\n"
-      << "each completed chunk immediately, so GPU upload and rendering are excluded.\n";
+      << "The benchmark executes every chunk-size/worker-count combination. It measures\n"
+      << "PWSZ decoding plus CPU mesh generation and discards each completed chunk\n"
+      << "immediately, so GPU upload and rendering are excluded.\n";
 }
 
 std::optional<std::size_t> parseSize(std::string_view text) {
@@ -127,6 +132,30 @@ std::optional<std::vector<std::size_t>> parseWorkers(std::string_view text) {
     const auto value = parseSize(text.substr(start, end - start));
     if (!value || *value < accloud::render3d::kMinimumMeshWorkerCount
         || *value > accloud::render3d::kMaximumMeshWorkerCount
+        || std::find(values.begin(), values.end(), *value) != values.end()) {
+      return std::nullopt;
+    }
+    values.push_back(*value);
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    start = separator + 1;
+  }
+  if (values.empty()) {
+    return std::nullopt;
+  }
+  return values;
+}
+
+std::optional<std::vector<std::size_t>> parseChunkLayers(std::string_view text) {
+  std::vector<std::size_t> values;
+  std::size_t start = 0;
+  while (start <= text.size()) {
+    const std::size_t separator = text.find(',', start);
+    const std::size_t end = separator == std::string_view::npos ? text.size() : separator;
+    const auto value = parseSize(text.substr(start, end - start));
+    if (!value || *value == 0
+        || *value > accloud::photons::kPackedSurfaceMaximumRelativeZ
         || std::find(values.begin(), values.end(), *value) != values.end()) {
       return std::nullopt;
     }
@@ -230,12 +259,12 @@ bool parseArguments(
       if (!value) {
         return false;
       }
-      const auto parsed = parseSize(*value);
-      if (!parsed || *parsed == 0) {
-        error = "--chunk-layers must be positive";
+      const auto parsed = parseChunkLayers(*value);
+      if (!parsed) {
+        error = "--chunk-layers must contain unique values in the packed 1..63 range";
         return false;
       }
-      options.chunkLayerCount = *parsed;
+      options.chunkLayerCounts = *parsed;
     } else if (argument == "--range") {
       const auto value = requireValue(index, argument);
       if (!value) {
@@ -268,8 +297,7 @@ bool parseArguments(
 }
 
 std::uint64_t chunkBytes(const MeshChunk& chunk) {
-  return static_cast<std::uint64_t>(chunk.vertices.size()) * sizeof(accloud::photons::MeshVertex)
-         + static_cast<std::uint64_t>(chunk.indices.size()) * sizeof(std::uint32_t);
+  return static_cast<std::uint64_t>(chunk.compactByteSize());
 }
 
 BenchmarkRun runBenchmark(
@@ -281,6 +309,7 @@ BenchmarkRun runBenchmark(
   BenchmarkRun run;
   run.requestedWorkers = workerCount;
   run.repeatIndex = repeatIndex;
+  run.chunkLayerCount = commonOptions.chunkLayerCount;
 
   MeshBuildOptions options = commonOptions;
   options.workerCount = workerCount;
@@ -295,10 +324,12 @@ BenchmarkRun runBenchmark(
       run.firstChunkMs = std::chrono::duration<double, std::milli>(now - started).count();
     }
     ++run.geometry.chunks;
-    run.geometry.vertices += chunk.vertices.size();
+    run.geometry.surfaceQuads += chunk.surfaceQuadCount();
+    run.geometry.legacyVertices += chunk.legacyVertexCount();
     run.geometry.triangles += chunk.triangleCount();
     const std::uint64_t bytes = chunkBytes(chunk);
-    run.geometry.meshBytes += bytes;
+    run.geometry.compactBytes += bytes;
+    run.geometry.legacyEquivalentBytes += chunk.legacyEquivalentByteSize();
     run.largestChunkBytes = std::max(run.largestChunkBytes, bytes);
     return true;
   };
@@ -324,15 +355,16 @@ BenchmarkRun runBenchmark(
 }
 
 std::vector<WorkerSummary> summarize(const std::vector<BenchmarkRun>& runs) {
-  std::map<std::size_t, std::vector<const BenchmarkRun*>> grouped;
+  using GroupKey = std::pair<std::size_t, std::size_t>;
+  std::map<GroupKey, std::vector<const BenchmarkRun*>> grouped;
   for (const auto& run : runs) {
     if (run.ok) {
-      grouped[run.requestedWorkers].push_back(&run);
+      grouped[{run.chunkLayerCount, run.requestedWorkers}].push_back(&run);
     }
   }
 
   std::vector<WorkerSummary> summaries;
-  for (const auto& [workerCount, samples] : grouped) {
+  for (const auto& [key, samples] : grouped) {
     std::vector<double> durations;
     durations.reserve(samples.size());
     double firstChunkTotal = 0.0;
@@ -342,7 +374,8 @@ std::vector<WorkerSummary> summarize(const std::vector<BenchmarkRun>& runs) {
     }
     std::sort(durations.begin(), durations.end());
     WorkerSummary summary;
-    summary.requestedWorkers = workerCount;
+    summary.chunkLayerCount = key.first;
+    summary.requestedWorkers = key.second;
     summary.effectiveWorkers = samples.front()->effectiveWorkers;
     summary.sampleCount = samples.size();
     summary.minimumMs = durations.front();
@@ -357,19 +390,23 @@ std::vector<WorkerSummary> summarize(const std::vector<BenchmarkRun>& runs) {
     summaries.push_back(summary);
   }
 
-  if (!summaries.empty()) {
-    const double baseline = summaries.front().averageMs;
-    const std::size_t baselineWorkers = summaries.front().requestedWorkers;
-    for (auto& summary : summaries) {
-      summary.speedup = summary.averageMs > 0.0 ? baseline / summary.averageMs : 0.0;
-      const double relativeWorkers = static_cast<double>(summary.requestedWorkers)
-                                     / static_cast<double>(baselineWorkers);
-      summary.efficiency = relativeWorkers > 0.0 ? summary.speedup / relativeWorkers : 0.0;
+  std::map<std::size_t, std::pair<double, std::size_t>> baselines;
+  for (const auto& summary : summaries) {
+    if (!baselines.contains(summary.chunkLayerCount)) {
+      baselines.emplace(
+          summary.chunkLayerCount,
+          std::pair{summary.averageMs, summary.requestedWorkers});
     }
+  }
+  for (auto& summary : summaries) {
+    const auto baseline = baselines.at(summary.chunkLayerCount);
+    summary.speedup = summary.averageMs > 0.0 ? baseline.first / summary.averageMs : 0.0;
+    const double relativeWorkers = static_cast<double>(summary.requestedWorkers)
+                                   / static_cast<double>(baseline.second);
+    summary.efficiency = relativeWorkers > 0.0 ? summary.speedup / relativeWorkers : 0.0;
   }
   return summaries;
 }
-
 
 std::string csvEscape(std::string_view value) {
   std::string escaped;
@@ -413,7 +450,7 @@ bool writeReports(
     std::string_view inputName,
     double archiveOpenMs,
     LayerRange range,
-    const MeshBuildOptions& options,
+    const BenchmarkOptions& command,
     const std::vector<BenchmarkRun>& runs,
     const std::vector<WorkerSummary>& summaries,
     std::string& error) {
@@ -438,40 +475,68 @@ bool writeReports(
 
   csv << "input,archive_open_ms,range_first,range_last,layer_stride,chunk_layers,repeat,"
          "requested_workers,effective_workers,duration_ms,first_chunk_ms,decoded_layers,chunks,"
-         "vertices,triangles,mesh_bytes,largest_chunk_bytes,worker_tasks,min_worker_ms,"
+         "surface_quads,legacy_vertices,triangles,compact_bytes,legacy_equivalent_bytes,compression_ratio,largest_chunk_bytes,worker_tasks,min_worker_ms,"
          "max_worker_ms,status,error\n";
   csv << std::fixed << std::setprecision(3);
   for (const auto& run : runs) {
     csv << csvEscape(inputName) << ',' << archiveOpenMs << ',' << (range.first + 1) << ','
-        << (range.last + 1) << ',' << options.layerStride << ',' << options.chunkLayerCount << ','
-        << run.repeatIndex
-        << ',' << run.requestedWorkers << ',' << run.effectiveWorkers << ',' << run.durationMs
-        << ',' << run.firstChunkMs << ',' << run.decodedLayers << ',' << run.geometry.chunks
-        << ',' << run.geometry.vertices << ',' << run.geometry.triangles << ','
-        << run.geometry.meshBytes << ',' << run.largestChunkBytes << ',' << run.workerTasks
-        << ',' << run.minimumWorkerDurationMs << ',' << run.maximumWorkerDurationMs << ','
-        << (run.ok ? "ok" : "error") << ',' << csvEscape(run.error) << '\n';
+        << (range.last + 1) << ',' << command.layerStride << ',' << run.chunkLayerCount << ','
+        << run.repeatIndex << ',' << run.requestedWorkers << ',' << run.effectiveWorkers << ','
+        << run.durationMs << ',' << run.firstChunkMs << ',' << run.decodedLayers << ','
+        << run.geometry.chunks << ',' << run.geometry.surfaceQuads << ','
+        << run.geometry.legacyVertices << ',' << run.geometry.triangles << ','
+        << run.geometry.compactBytes << ',' << run.geometry.legacyEquivalentBytes << ','
+        << (run.geometry.compactBytes == 0 ? 0.0
+                                          : static_cast<double>(run.geometry.legacyEquivalentBytes)
+                                                / static_cast<double>(run.geometry.compactBytes))
+        << ',' << run.largestChunkBytes << ','
+        << run.workerTasks << ',' << run.minimumWorkerDurationMs << ','
+        << run.maximumWorkerDurationMs << ',' << (run.ok ? "ok" : "error") << ','
+        << csvEscape(run.error) << '\n';
   }
+
+  const auto writeArray = [](std::ostream& output, const std::vector<std::size_t>& values) {
+    output << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index != 0) {
+        output << ',';
+      }
+      output << values[index];
+    }
+    output << ']';
+  };
 
   jsonl << std::fixed << std::setprecision(3);
   jsonl << "{\"type\":\"metadata\",\"input\":\"" << jsonEscape(inputName)
         << "\",\"archive_open_ms\":" << archiveOpenMs
         << ",\"range_first\":" << (range.first + 1)
         << ",\"range_last\":" << (range.last + 1)
-        << ",\"layer_stride\":" << options.layerStride
-        << ",\"chunk_layers\":" << options.chunkLayerCount << "}\n";
+        << ",\"layer_stride\":" << command.layerStride
+        << ",\"chunk_layers\":";
+  writeArray(jsonl, command.chunkLayerCounts);
+  jsonl << ",\"workers\":";
+  writeArray(jsonl, command.workerCounts);
+  jsonl << "}\n";
+
   for (const auto& run : runs) {
     jsonl << "{\"type\":\"run\",\"input\":\"" << jsonEscape(inputName)
-          << "\",\"repeat\":" << run.repeatIndex
+          << "\",\"chunk_layers\":" << run.chunkLayerCount
+          << ",\"repeat\":" << run.repeatIndex
           << ",\"requested_workers\":" << run.requestedWorkers
           << ",\"effective_workers\":" << run.effectiveWorkers
           << ",\"duration_ms\":" << run.durationMs
           << ",\"first_chunk_ms\":" << run.firstChunkMs
           << ",\"decoded_layers\":" << run.decodedLayers
           << ",\"chunks\":" << run.geometry.chunks
-          << ",\"vertices\":" << run.geometry.vertices
+          << ",\"surface_quads\":" << run.geometry.surfaceQuads
+          << ",\"legacy_vertices\":" << run.geometry.legacyVertices
           << ",\"triangles\":" << run.geometry.triangles
-          << ",\"mesh_bytes\":" << run.geometry.meshBytes
+          << ",\"compact_bytes\":" << run.geometry.compactBytes
+          << ",\"legacy_equivalent_bytes\":" << run.geometry.legacyEquivalentBytes
+          << ",\"compression_ratio\":"
+          << (run.geometry.compactBytes == 0 ? 0.0
+                                             : static_cast<double>(run.geometry.legacyEquivalentBytes)
+                                                   / static_cast<double>(run.geometry.compactBytes))
           << ",\"largest_chunk_bytes\":" << run.largestChunkBytes
           << ",\"worker_tasks\":" << run.workerTasks
           << ",\"min_worker_ms\":" << run.minimumWorkerDurationMs
@@ -480,7 +545,8 @@ bool writeReports(
           << ",\"error\":\"" << jsonEscape(run.error) << "\"}\n";
   }
   for (const auto& summary : summaries) {
-    jsonl << "{\"type\":\"summary\",\"requested_workers\":"
+    jsonl << "{\"type\":\"summary\",\"chunk_layers\":"
+          << summary.chunkLayerCount << ",\"requested_workers\":"
           << summary.requestedWorkers << ",\"effective_workers\":"
           << summary.effectiveWorkers << ",\"samples\":" << summary.sampleCount
           << ",\"min_ms\":" << summary.minimumMs << ",\"median_ms\":"
@@ -495,23 +561,29 @@ bool writeReports(
 
 void printRun(const BenchmarkRun& run) {
   std::cout << std::fixed << std::setprecision(1)
-            << "workers=" << run.requestedWorkers
+            << "chunk_layers=" << run.chunkLayerCount
+            << " workers=" << run.requestedWorkers
             << " effective=" << run.effectiveWorkers
             << " repeat=" << run.repeatIndex
             << " duration_ms=" << run.durationMs
             << " first_chunk_ms=" << run.firstChunkMs
             << " triangles=" << run.geometry.triangles
-            << " mesh_mib=" << (static_cast<double>(run.geometry.meshBytes) / (1024.0 * 1024.0))
+            << " compact_mib=" << (static_cast<double>(run.geometry.compactBytes) / (1024.0 * 1024.0))
+            << " compression="
+            << (run.geometry.compactBytes == 0 ? 0.0
+                                               : static_cast<double>(run.geometry.legacyEquivalentBytes)
+                                                     / static_cast<double>(run.geometry.compactBytes))
             << " status=" << (run.ok ? "ok" : "error") << '\n';
   std::cout.flush();
 }
 
 void printSummary(const std::vector<WorkerSummary>& summaries) {
-  std::cout << "\nSummary (baseline = lowest requested worker count):\n";
-  std::cout << "workers effective samples average_ms median_ms first_chunk_ms speedup efficiency\n";
+  std::cout << "\nSummary (baseline = lowest requested worker count for each chunk size):\n";
+  std::cout << "chunks workers effective samples average_ms median_ms first_chunk_ms speedup efficiency\n";
   std::cout << std::fixed << std::setprecision(2);
   for (const auto& summary : summaries) {
-    std::cout << std::setw(7) << summary.requestedWorkers << ' '
+    std::cout << std::setw(6) << summary.chunkLayerCount << ' '
+              << std::setw(7) << summary.requestedWorkers << ' '
               << std::setw(9) << summary.effectiveWorkers << ' '
               << std::setw(7) << summary.sampleCount << ' '
               << std::setw(10) << summary.averageMs << ' '
@@ -563,33 +635,70 @@ private:
 };
 
 int runSelfTest() {
+  const BenchmarkOptions defaults;
+  if (defaults.workerCounts != std::vector<std::size_t>{4, 8, 16}
+      || defaults.chunkLayerCounts != std::vector<std::size_t>{8, 16, 32}
+      || MeshBuildOptions{}.chunkLayerCount != 8) {
+    std::cerr << "self-test benchmark defaults are inconsistent\n";
+    return 1;
+  }
+
   SyntheticSource source(64, 64, 64);
   MeshBuildOptions options;
   options.pitchXMm = 0.05;
   options.pitchYMm = 0.05;
   options.pitchZMm = 0.05;
-  options.chunkLayerCount = 4;
   options.layerStride = 1;
   options.cutSurfaceMode = CutSurfaceMode::Open;
 
   std::vector<BenchmarkRun> runs;
-  for (const std::size_t workers : {std::size_t{1}, std::size_t{4}, std::size_t{8}, std::size_t{16}}) {
-    auto run = runBenchmark(source, {0, 63}, options, workers, 1);
-    printRun(run);
-    if (!run.ok) {
-      std::cerr << "self-test benchmark failed: " << run.error << '\n';
-      return 1;
+  std::map<std::size_t, GeometrySignature> expectedGeometryByChunkSize;
+  for (const std::size_t chunkLayers : defaults.chunkLayerCounts) {
+    options.chunkLayerCount = chunkLayers;
+    for (const std::size_t workers : defaults.workerCounts) {
+      auto run = runBenchmark(source, {0, 63}, options, workers, 1);
+      printRun(run);
+      if (!run.ok) {
+        std::cerr << "self-test benchmark failed: " << run.error << '\n';
+        return 1;
+      }
+      const auto [expected, inserted] = expectedGeometryByChunkSize.emplace(
+          chunkLayers, run.geometry);
+      if (!inserted && run.geometry != expected->second) {
+        std::cerr << "self-test geometry differs between worker counts for chunk size "
+                  << chunkLayers << '\n';
+        return 1;
+      }
+      runs.push_back(std::move(run));
     }
-    runs.push_back(std::move(run));
   }
-  const GeometrySignature expected = runs.front().geometry;
-  const bool sameGeometry = std::all_of(
-      runs.begin(), runs.end(), [&](const BenchmarkRun& run) { return run.geometry == expected; });
-  if (!sameGeometry || expected.chunks != 16 || expected.triangles == 0) {
-    std::cerr << "self-test geometry differs between worker counts\n";
+
+  if (runs.size() != 9 || expectedGeometryByChunkSize.size() != 3
+      || expectedGeometryByChunkSize.at(8).chunks != 8
+      || expectedGeometryByChunkSize.at(16).chunks != 4
+      || expectedGeometryByChunkSize.at(32).chunks != 2) {
+    std::cerr << "self-test benchmark matrix is incomplete\n";
     return 1;
   }
-  printSummary(summarize(runs));
+  for (const auto& [chunkLayers, signature] : expectedGeometryByChunkSize) {
+    if (signature.triangles == 0) {
+      std::cerr << "self-test generated no triangles for chunk size " << chunkLayers << '\n';
+      return 1;
+    }
+    if (signature.compactBytes == 0
+        || signature.legacyEquivalentBytes != signature.compactBytes * 15u) {
+      std::cerr << "self-test compact ratio differs from 15:1 for chunk size "
+                << chunkLayers << '\n';
+      return 1;
+    }
+  }
+
+  const auto summaries = summarize(runs);
+  if (summaries.size() != 9) {
+    std::cerr << "self-test summary does not cover the full benchmark matrix\n";
+    return 1;
+  }
+  printSummary(summaries);
   return 0;
 }
 
@@ -654,9 +763,19 @@ int main(int argc, char** argv) {
   meshOptions.pitchXMm = pitchX;
   meshOptions.pitchYMm = pitchY;
   meshOptions.pitchZMm = pitchZ;
-  meshOptions.chunkLayerCount = command.chunkLayerCount;
   meshOptions.layerStride = command.layerStride;
   meshOptions.cutSurfaceMode = CutSurfaceMode::Open;
+
+  const auto formatList = [](const std::vector<std::size_t>& values) {
+    std::ostringstream output;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index != 0) {
+        output << ',';
+      }
+      output << values[index];
+    }
+    return output.str();
+  };
 
   const std::string inputName = command.inputPath.filename().string();
   std::cout << "input=" << inputName
@@ -664,42 +783,58 @@ int main(int argc, char** argv) {
             << " range=" << (range.first + 1) << ':' << (range.last + 1)
             << " resolution=" << reader.width() << 'x' << reader.height()
             << " stride=" << meshOptions.layerStride
-            << " chunk_layers=" << meshOptions.chunkLayerCount
+            << " chunk_layers=" << formatList(command.chunkLayerCounts)
+            << " workers=" << formatList(command.workerCounts)
             << " archive_open_ms=" << std::fixed << std::setprecision(1) << archiveOpenMs
             << '\n';
 
-  for (const std::size_t workers : command.workerCounts) {
+  using Combination = std::pair<std::size_t, std::size_t>;
+  std::vector<Combination> matrix;
+  matrix.reserve(command.chunkLayerCounts.size() * command.workerCounts.size());
+  for (const std::size_t chunkLayers : command.chunkLayerCounts) {
+    for (const std::size_t workers : command.workerCounts) {
+      matrix.emplace_back(chunkLayers, workers);
+    }
+  }
+
+  for (const auto [chunkLayers, workers] : matrix) {
+    MeshBuildOptions runOptions = meshOptions;
+    runOptions.chunkLayerCount = chunkLayers;
     for (std::size_t warmup = 0; warmup < command.warmupRuns; ++warmup) {
-      std::cout << "warmup workers=" << workers << " run=" << (warmup + 1) << '\n';
-      const auto warmupRun = runBenchmark(reader, range, meshOptions, workers, 0);
+      std::cout << "warmup chunk_layers=" << chunkLayers << " workers=" << workers
+                << " run=" << (warmup + 1) << '\n';
+      const auto warmupRun = runBenchmark(reader, range, runOptions, workers, 0);
       if (!warmupRun.ok) {
-        std::cerr << "error: warm-up failed for " << workers << " workers: "
-                  << warmupRun.error << '\n';
+        std::cerr << "error: warm-up failed for chunk_layers=" << chunkLayers
+                  << " workers=" << workers << ": " << warmupRun.error << '\n';
         return 1;
       }
     }
   }
 
   std::vector<BenchmarkRun> runs;
-  runs.reserve(command.workerCounts.size() * command.repeats);
-  std::optional<GeometrySignature> expectedGeometry;
+  runs.reserve(matrix.size() * command.repeats);
+  std::map<std::size_t, GeometrySignature> expectedGeometryByChunkSize;
   for (std::size_t repeat = 1; repeat <= command.repeats; ++repeat) {
-    std::vector<std::size_t> executionOrder = command.workerCounts;
+    std::vector<Combination> executionOrder = matrix;
     if (repeat % 2 == 0) {
       std::reverse(executionOrder.begin(), executionOrder.end());
     }
-    for (const std::size_t workers : executionOrder) {
-      auto run = runBenchmark(reader, range, meshOptions, workers, repeat);
+    for (const auto [chunkLayers, workers] : executionOrder) {
+      MeshBuildOptions runOptions = meshOptions;
+      runOptions.chunkLayerCount = chunkLayers;
+      auto run = runBenchmark(reader, range, runOptions, workers, repeat);
       printRun(run);
       if (!run.ok) {
-        std::cerr << "error: benchmark failed for " << workers << " workers: "
-                  << run.error << '\n';
+        std::cerr << "error: benchmark failed for chunk_layers=" << chunkLayers
+                  << " workers=" << workers << ": " << run.error << '\n';
         return 1;
       }
-      if (!expectedGeometry) {
-        expectedGeometry = run.geometry;
-      } else if (run.geometry != *expectedGeometry) {
-        std::cerr << "error: generated geometry differs between benchmark runs\n";
+      const auto [expected, inserted] = expectedGeometryByChunkSize.emplace(
+          chunkLayers, run.geometry);
+      if (!inserted && run.geometry != expected->second) {
+        std::cerr << "error: generated geometry differs between worker runs for chunk size "
+                  << chunkLayers << '\n';
         return 1;
       }
       runs.push_back(std::move(run));
@@ -715,7 +850,7 @@ int main(int argc, char** argv) {
             inputName,
             archiveOpenMs,
             range,
-            meshOptions,
+            command,
             runs,
             summaries,
             error)) {

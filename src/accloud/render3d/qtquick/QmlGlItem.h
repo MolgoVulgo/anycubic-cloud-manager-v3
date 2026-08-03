@@ -8,10 +8,19 @@
 #include <QQuickFramebufferObject>
 #include <QString>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <thread>
+#include <vector>
+
+namespace accloud::photons::pwsz {
+class PwszArchiveReader;
+}
 
 namespace accloud::render3d {
 
@@ -88,18 +97,45 @@ signals:
 private:
   friend class GlFramebufferRenderer;
 
+  struct CutSurfaceBatch {
+    std::uint64_t sceneGeneration = 0;
+    std::uint64_t generation = 0;
+    int firstLayer = 0;
+    int lastLayer = 0;
+    int totalLayers = 0;
+    std::vector<photons::MeshChunk> surfaces;
+    std::size_t compactBytes = 0;
+    std::size_t cacheHits = 0;
+    std::size_t cacheMisses = 0;
+  };
+
+  struct CutSurfaceRequest {
+    std::uint64_t sceneGeneration = 0;
+    std::uint64_t generation = 0;
+    int firstLayer = 0;
+    int lastLayer = 0;
+    int totalLayers = 0;
+    int layerStep = 1;
+    std::shared_ptr<photons::pwsz::PwszArchiveReader> reader;
+  };
+
   void stopWorker();
+  void stopCutWorker();
+  void runCutWorker(std::stop_token stopToken);
+  void requestCutSurfaceRebuild();
   void resetDocumentState();
   void applyDocumentMetadata(
       std::uint64_t generation,
       int totalLayers,
       qreal pitchZMm,
-      QString machineName);
+      QString machineName,
+      std::shared_ptr<photons::pwsz::PwszArchiveReader> reader);
   void applyProgress(std::uint64_t generation, qreal progress);
   void applyChunkStats(
       std::uint64_t generation,
       const photons::MeshBounds& bounds,
       std::size_t triangles);
+  void applyGpuFailure(std::uint64_t generation, QString errorString);
   void finishLoad(std::uint64_t generation, QString errorString, bool cancelled);
   void includeBounds(const photons::MeshBounds& bounds) noexcept;
   void scheduleRender();
@@ -124,7 +160,15 @@ private:
   bool cameraTouched_ = false;
   std::uint64_t sceneGeneration_ = 0;
   std::shared_ptr<UploadQueue> uploadQueue_;
+  std::shared_ptr<photons::pwsz::PwszArchiveReader> archiveReader_;
+  std::atomic<std::uint64_t> cutGeneration_{0};
+  std::mutex cutRequestMutex_;
+  std::mutex cutResultMutex_;
+  std::condition_variable_any cutRequestChanged_;
+  std::optional<CutSurfaceRequest> cutRequest_;
+  std::optional<CutSurfaceBatch> readyCutBatch_;
   std::jthread worker_;
+  std::jthread cutWorker_;
 };
 
 } // namespace accloud::render3d

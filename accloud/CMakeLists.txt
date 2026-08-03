@@ -129,6 +129,7 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
     render3d/core/LayerVisibility.cpp
+    render3d/core/LayerSectionCache.cpp
     render3d/core/OrbitCamera.cpp
     render3d/meshing/LayerStackMesher.cpp
     render3d/gl/Renderer.cpp
@@ -137,6 +138,7 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
 )
 
 set(ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES
+    ${ACCLOUD_SRC_ROOT}/render3d/qtquick/CompactShaderSources.h
     ${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.cpp
     ${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.h
 )
@@ -538,6 +540,17 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       PROPERTIES LABELS "core;experimental;viewer")
   set_tests_properties(accloud_render3d_worker_benchmark_selftest PROPERTIES
       LABELS "core;experimental;viewer;benchmark")
+
+  if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui AND TARGET Qt6::OpenGL)
+    add_executable(accloud_render3d_shader_tests
+        ${ACCLOUD_TESTS_ROOT}/photons/test_render3d_shader_qt.cpp)
+    target_include_directories(accloud_render3d_shader_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+    target_link_libraries(accloud_render3d_shader_tests PRIVATE Qt6::Gui Qt6::OpenGL)
+    add_test(NAME accloud_render3d_shader_compile COMMAND accloud_render3d_shader_tests)
+    set_tests_properties(accloud_render3d_shader_compile PROPERTIES
+        LABELS "qt;opengl;experimental;viewer"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  endif()
 endif()
 
 add_executable(accloud_har_tests
