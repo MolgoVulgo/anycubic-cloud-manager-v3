@@ -2,14 +2,47 @@
 
 > Status: EXPERIMENTAL / PARTIAL. This appendix does not declare a production-ready viewer.
 
-
-Status: `PARTIAL` for implementation, `SPEC` for the target viewer contract.
+Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in development presets, and `SPEC` for production integration and large-model optimisation.
 
 ## Product position
 
-The Photon/PWMB viewer is a project trajectory, not the main finished workflow. The repository contains domain contracts plus placeholder format drivers, decode components, jobs, future RAM/disk cache components and a `render3d` skeleton. These scaffold `.cpp` files are excluded from normal builds and from `accloud_cli`.
+The viewer remains isolated from `accloud_infra`. The `default` preset enables it, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
 
-The only supported opt-in is `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=ON`, exposed by the `experimental-viewer-core` preset. It builds the isolated `accloud_experimental_viewer` object target and a compile smoke test. It does not expose viewer controls in production QML, decode real files or provide a render/navigation/export workflow.
+Two dedicated validation presets also exist:
+
+```text
+experimental-viewer-core
+-> no Qt
+-> PWSZ decode, masks, mesh, chunks, range and camera tests
+
+experimental-viewer-qt
+-> inherits local-full
+-> Qt Quick + Qt OpenGL
+-> conditional 3D button on each PWSZ file row
+-> temporary download followed by a viewer dialog
+-> asynchronous PWSZ decode/mesh and GPU upload
+```
+
+`VolumeViewerPage.qml` and `VolumeViewerDialog.qml` are present in the normal resource bundle so the same QML source is tested and packaged consistently. The 3D action is present on every PWSZ row. When the feature flag is off, the action is disabled, the dialog is not loaded and the `Accloud.Render3D` type is not registered.
+
+## Implemented pipeline
+
+```text
+PWSZ ZIP
+-> machine/layer metadata
+-> numeric layer index
+-> pw0Img decode
+-> bit-packed material mask
+-> stacked-layer surface mesh
+-> 32-layer chunks
+-> bounded CPU-to-GPU upload queue
+-> OpenGL vertex/index buffers
+-> exact dynamic Z clipping
+-> Qt Quick navigation and range controls
+-> launch from the 3D button on the selected PWSZ file row
+```
+
+The PWSZ reading and meshing work never runs on the GUI thread. A coordinator job distributes independent mesh-chunk tasks to a configurable pool of workers. The default is 4, the accepted user range is 1 to 16, and the persisted key is `render3d.workerCount`. Adjacent tasks reload one boundary sample so horizontal transitions and vertical walls remain exact. Mesh chunks are transferred through a bounded `UploadQueue`; the render thread drains that queue and creates GPU buffers.
 
 ## Supported format families under study
 
@@ -19,109 +52,162 @@ The only supported opt-in is `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=ON`, exposed by
 - `PHOTONS`;
 - `PWSZ`.
 
-Each format must be handled by a driver. The driver contract should expose metadata, previews, layer index, decode levels and diagnostics without forcing full decode at open time.
+PWSZ is the current pilot format. Other drivers remain scaffold or partial until their parsing and tests are closed independently.
 
-## PWMB parsing rule
+## PWSZ container contract
 
-PWMB must be parsed tables-first:
+The reader supports ordinary single-disk ZIP archives with stored or Deflate entries. It rejects ZIP64, encrypted entries, unsupported compression methods, duplicate names and unsafe paths.
+
+Required entries for the current pilot path are:
 
 ```text
-FileMark -> table addresses -> section table -> sections -> layer index -> layer decode
+anycubic_photon_resins.pwsp
+layers_controller.conf
+layer_images/layer_<numeric-index>.pw0Img
 ```
 
-Requirements:
+Layer files are sorted by numeric index, never lexicographically. The count must match `layers_controller.conf`, and numbering must be contiguous from zero. Independent X/Y pixel pitches are retained when the metadata provides them.
 
-- validate signature such as `ANYCUBIC` and version;
-- support section versions;
-- tolerate unknown sections;
-- never assume table addresses are sorted;
-- bound every read;
-- support legacy fallback only when the table path is incomplete.
+## `pw0Img` decode contract
 
-## Versioned sections
+The observed stream is mixed-width RLE:
 
-Observed version gates include:
+```text
+color index 0 or 15:
+  two bytes, big-endian 16-bit word
+  high nibble = color index
+  low 12 bits = run length
 
-| Version | Section family |
-| --- | --- |
-| `>=515` | `LayerImageColorTable` |
-| `>=516` | `Extra`, `Machine` |
-| `>=517` | `Software`, `Model` |
-| `>=518` | `SubLayerDefinition`, `Preview2` |
+color index 1 through 14:
+  one byte
+  high nibble = color index
+  low nibble = run length
+```
 
-Missing optional sections must produce warnings, not crashes.
+Rules:
 
-## Layer decode contract
-
-Decode selection uses `Machine.LayerImageFormat`.
-
-### `pw0Img`
-
-- stream is read as 16-bit big-endian words;
-- high nibble is `color_index`;
-- low 12 bits are `run_len`;
 - `run_len == 0` is invalid;
-- final run can be clamped when it exceeds `W*H`;
-- trailing data after image completion is ignored with diagnostics.
+- truncated two-byte runs are invalid;
+- the final run may be clamped if it exceeds the remaining raster;
+- trailing bytes after raster completion are ignored with diagnostics;
+- intermediate grey levels are detected from layer data, not inferred from slicer metadata;
+- antialiasing is optional: a valid file may contain only levels `0` and `15`.
 
-### `pwsImg`
-
-- byte RLE;
-- bit 7 indicates exposed state;
-- bits 0..6 encode repetition count;
-- both `run_len = reps` and `run_len = reps + 1` conventions must be handled by deterministic dry-run selection;
-- anti-aliasing passes accumulate exposed counts and project to `uint8`.
+The exact 4-bit exposure values are retained only when requested. Geometry decode can omit the dense grey raster and keep only a bit-packed material mask.
 
 ## Geometry truth
-
-The viewer’s geometry rule is non-negotiable:
 
 ```text
 material truth = every non-black pixel
 ```
 
-This means threshold 0. Anti-aliased grey pixels are still material for geometry, measurement and future exports.
+Model, supports and raft use the same exposure mask and must all be preserved. The primary mesh must not keep only the largest component, discard support tips, fill internal voids, reduce a layer to one exterior contour, merge disconnected components or require antialiasing.
 
-Two masks must remain separate:
+The CPU mesher emits only material/void interfaces:
 
-| Mask | Rule | Allowed use |
-| --- | --- | --- |
-| `mask_truth` | threshold 0 / non-black | viewer geometry, dimensions, area, volume, exports, goldens. |
-| `mask_analysis` | configurable heuristic | issue analysis only, such as islands, traps or overhang heuristics. |
+```text
+XY neighbour transition within one layer
+-> vertical wall
 
-The viewer must not build primary geometry from contour vectorization. Contours can be optional analysis/export material, but they are not the source of truth for the main 3D representation.
+previous layer void, current layer material
+-> lower horizontal face
 
-## Raster and world mapping
+current layer material, next layer void
+-> upper horizontal face
+```
 
-- decoded raster is flat row-major `W*H`;
-- `x = i % W`, `y = i // W`;
-- image origin is top-left;
-- XY pitch is `PixelSizeUm / 1000` in mm;
-- Z pitch is `LayerHeight`;
-- world-space Y is inverted to represent Y-up.
+This preserves exterior walls, interior cavity walls, through-holes, supports, raft and disconnected islands without creating one voxel cube per exposed pixel. Coplanar runs and identical vertical spans are merged where possible.
 
-## Performance model
+## Layer chunks and visible ranges
 
-The viewer must be asynchronous and cache-aware:
+Meshes are split into inclusive chunks, currently 32 layers each. Each chunk carries exact `first`/`last` layer numbers and a world-space bounding box.
 
-- open metadata/previews quickly;
-- build layer index before full decode;
-- decode and mask layers in batches;
-- use a RAM sliding window for active layers/masks;
-- use disk LRU for downloads, previews and derived data;
-- support cancellation;
-- expose progress stages such as `read`, `decode`, `mask`, `build`, `upload`, `draw`, `cache`, `done`.
+The UI uses one-based inclusive values; the core and renderer use zero-based inclusive indices. For a 1,247-layer document:
 
-## Golden tests
+```text
+user range 415..1021
+-> internal range 414..1020
+-> Z clip 20.70..51.05 mm at 0.05 mm/layer
+-> 607 visible layers
+```
 
-For real files, maintain golden values computed before binarization:
+The OpenGL fragment shader clips every triangle against the exact lower and upper Z planes. Intersecting chunks are selected first to avoid drawing unrelated buffers. Slider movement therefore does not rebuild the full mesh.
 
-- nonzero pixel count;
-- bounding box in pixels;
-- deterministic sample checksum;
-- layer count and dimensions;
-- orientation checks for flip/mirror regressions.
+The current desktop viewer implements **open cuts**. Dynamic cap generation for closed cuts is not yet wired to the UI.
+
+## Navigation contract
+
+The Qt Quick page maps input to the shared orbit-camera state:
+
+- left drag: orbit;
+- right, middle or Shift-drag: pan;
+- wheel: zoom;
+- reset action: fit the complete loaded bounding box.
+
+The camera can inspect the piece from every side. The OpenGL shader applies simple two-sided directional lighting so interior walls remain readable when the selected Z range opens the volume.
+
+## Backend decision
+
+The first desktop backend uses `QQuickFramebufferObject` and Qt OpenGL because it is public, stable across the Qt 6 versions targeted by the existing project and matches the current `render3d/gl` boundary. The bootstrap forces the Qt Quick scene graph to OpenGL whenever `ACCLOUD_EXPERIMENTAL_VIEWER` is enabled.
+
+This is not a global production rendering policy. A later QRhi backend may replace it after the supported Qt minor version is fixed and validated. Cloud, MQTT and normal QML builds remain independent of the viewer backend.
+
+## Performance and limitations
+
+Implemented safeguards:
+
+- bit-packed masks;
+- sequential neighbouring-layer meshing;
+- default fast preview with `layerStride=2`, decoding one source layer out of two;
+- exact first/last selected layers and original Z extent preserved when sampling;
+- optional full-detail rebuild with `layerStride=1`;
+- streamed chunk callbacks;
+- bounded upload queue: 8 chunks / 256 MiB pending by default;
+- no dense grey-raster retention by default;
+- GUI-thread isolation;
+- cancellation when the viewer is reloaded or destroyed.
+
+The fast preview is an approximation for display only. A one-layer support or detail located exclusively on a skipped source layer can be absent until full-detail mode is selected. It never changes the PWSZ source or print data.
+
+### Dedicated Render3D diagnostics
+
+The viewer writes structured JSONL events with source `render3d`. The logger therefore creates `render3d.jsonl` in the configured ACM log directory (or `ACCLOUD_LOG_DIR`). Events cover archive opening, source dimensions, sampling step, requested/effective worker counts, per-worker task/decode/chunk durations, progress deciles, chunk geometry, upload-queue wait, GPU uploads, cancellations and failures. Full temporary paths and signed URLs are not logged.
+
+Known limits:
+
+- uploaded chunks are retained on the GPU for the loaded document;
+- no GPU eviction, LOD or mesh simplification yet;
+- exact pixel-derived meshes can still contain many triangles on dense support structures;
+- no dynamic closed-cut caps;
+- no semantic colour separation between model, supports and raft;
+- the desktop backend is OpenGL-only in this experimental phase.
+
+## Validation
+
+The offline core gate includes:
+
+```text
+accloud_experimental_viewer_architecture
+accloud_experimental_viewer_scaffold
+accloud_pw0_decode
+accloud_pwsz_reader
+accloud_layer_stack_mesher
+accloud_render_pipeline
+accloud_viewer_controls
+```
+
+`accloud_render_pipeline` validates bounded queue accounting, streamed chunk consumption, cancellation, renderer chunk selection and exact Z clip planes.
+
+Desktop validation is mandatory on a workstation with native Qt dependencies:
+
+```bash
+cmake --preset experimental-viewer-qt
+cmake --build --preset experimental-viewer-qt --clean-first
+ctest --preset experimental-viewer-qt --output-on-failure
+```
+
+Real PWSZ samples may be used as local validation inputs, but they are not distributable fixtures unless their redistribution rights are established.
 
 ## Decision
 
-The cloud manager must not depend on the viewer being complete. Default, local-full and production presets keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`; production QML contains no viewer settings or actions. The viewer path advances only through the isolated target, strict format contracts and diagnostic tests, and remains experimental until decode, render, navigation and export workflows are closed.
+The viewer now has an end-to-end development path from each PWSZ file row to a navigable, range-filtered 3D mesh. Production remains disabled. Production readiness still requires large-file measurements, GPU memory management, LOD/simplification and closed-cut caps.

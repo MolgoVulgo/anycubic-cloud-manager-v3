@@ -104,11 +104,35 @@ Isolation du viewer expérimental :
 cmake --preset experimental-viewer-core
 cmake --build --preset experimental-viewer-core --clean-first
 ctest --preset experimental-viewer-core \
-  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold)$' \
+  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold|accloud_pw0_decode|accloud_pwsz_reader|accloud_layer_stack_mesher|accloud_render_pipeline|accloud_viewer_controls|accloud_render3d_worker_benchmark_selftest)$' \
   --output-on-failure
 ```
 
-Les presets normaux imposent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. Le preset d'opt-in compile le scaffold formats/jobs/cache/rendu séparé dans `accloud_experimental_viewer` et son smoke test, sans le lier à `accloud_cli` ni exposer de contrôles viewer dans le QML de production. La garde d'architecture rejette également toute source marquée `Scaffold placeholder` dans `accloud_infra`.
+Le preset `default` active le viewer ; `dev-debug` et `local-full` héritent de cette valeur. `prod` et `protected-core` conservent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. Le preset `experimental-viewer-core` valide sans Qt le lecteur PWSZ, le décodage, le meshing, la file d'upload bornée, le plan de rendu par plage et les contrôles de caméra. La garde d'architecture vérifie que les sources Qt/OpenGL restent derrière l'option de build, que l'action PWSZ par fichier est visible et que la production reste désactivée.
+Validation locale Qt/OpenGL obligatoire pour toute modification du viewer desktop :
+
+```bash
+cmake --preset experimental-viewer-qt
+cmake --build --preset experimental-viewer-qt --clean-first
+ctest --preset experimental-viewer-qt --output-on-failure
+```
+
+Ce preset hérite de `local-full`, exige les dépendances Qt natives, conserve `Qt6::OpenGL`, lie le viewer à `accloud_cli` et exécute également les tests QML. `accloud-build-deps.zip` ne doit pas être imposé sur le poste local lorsque `nlohmann_json` est déjà installé.
+
+Benchmark manuel des workers sur un même PWSZ :
+
+```bash
+./build/experimental-viewer-core/accloud_render3d_worker_benchmark \
+  --input /chemin/Beetle-2.pwsz \
+  --workers 1,4,8,16 \
+  --repeats 1 \
+  --layer-stride 2 \
+  --chunk-layers 32 \
+  --output-prefix /tmp/beetle-workers
+```
+
+Le benchmark ouvre une seule fois le même fichier, exécute séquentiellement les configurations demandées et vérifie que chaque run produit exactement le même nombre de chunks, sommets, triangles et octets de mesh. Il mesure le décodage PWSZ et le maillage CPU ; l'upload GPU et le rendu sont volontairement exclus. Les rapports `/tmp/beetle-workers.csv` et `/tmp/beetle-workers.jsonl` contiennent notamment la durée totale, la latence du premier chunk, les workers demandés/effectifs, le nombre de couches décodées et le volume géométrique. `--repeats 2` ou `3` améliore la stabilité statistique, alterne l’ordre direct/inverse des workers entre les répétitions et multiplie directement la durée du test. Le PWSZ reste externe au dépôt et ce benchmark réel n'est pas un test CTest bloquant. Le test CTest `accloud_render3d_worker_benchmark_selftest` valide uniquement l'outil sur une source synthétique courte.
+
 
 Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local. L'exécution CTest par défaut classe `accloud_mqtt_live_broker` en **Skipped** tant que l'exécution live n'est pas explicitement activée.
 

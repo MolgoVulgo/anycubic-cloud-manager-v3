@@ -12,7 +12,7 @@ option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
 option(ACCLOUD_ENABLE_LIVE_TESTS "Enable tests requiring controlled external services" ON)
 option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
 option(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER
-       "Build the isolated Photon/PWMB viewer scaffold (not linked to the production runtime)"
+       "Build the isolated Photon/PWMB viewer core (not linked to the production runtime)"
        OFF)
 
 if(ACCLOUD_ENABLE_QT)
@@ -116,6 +116,7 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     infra/photons/drivers/phz/preview/PhzPreviewDecoder.cpp
     infra/photons/drivers/photons/PhotonsDriver.cpp
     infra/photons/drivers/photons/preview/Rgb565Decoder.cpp
+    infra/photons/drivers/pwsz/PwszArchiveReader.cpp
     infra/photons/drivers/pwsz/PwszLinesDriver.cpp
     infra/photons/drivers/pwsz/PwszSceneDriver.cpp
     infra/jobs/JobManager.cpp
@@ -127,10 +128,17 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     infra/cache/RamWindowCache.cpp
     infra/cache/DiskLruCache.cpp
     infra/cache/CacheIndex.cpp
+    render3d/core/LayerVisibility.cpp
+    render3d/core/OrbitCamera.cpp
+    render3d/meshing/LayerStackMesher.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
     render3d/gl/MeshlessVolume.cpp
-    render3d/qtquick/QmlGlItem.cpp
+)
+
+set(ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES
+    ${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.cpp
+    ${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.h
 )
 
 set(ACCLOUD_INFRA_SOURCES
@@ -203,9 +211,14 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
   set(_accloud_experimental_viewer_sources ${ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES})
   list(TRANSFORM _accloud_experimental_viewer_sources PREPEND "${ACCLOUD_SRC_ROOT}/")
 
+  find_package(ZLIB REQUIRED)
+
   add_library(accloud_experimental_viewer OBJECT ${_accloud_experimental_viewer_sources})
   target_include_directories(accloud_experimental_viewer PRIVATE ${ACCLOUD_SRC_ROOT})
-  target_link_libraries(accloud_experimental_viewer PRIVATE accloud_domain)
+  target_link_libraries(accloud_experimental_viewer PRIVATE
+      accloud_domain
+      nlohmann_json::nlohmann_json
+      ZLIB::ZLIB)
   target_compile_definitions(accloud_experimental_viewer PRIVATE
       ACCLOUD_EXPERIMENTAL_VIEWER=1)
 endif()
@@ -308,6 +321,19 @@ if(ACCLOUD_ENABLE_QT)
           ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.cpp
           ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.h
       )
+    endif()
+
+    if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
+      find_package(Qt6 QUIET COMPONENTS OpenGL)
+      if(TARGET Qt6::OpenGL)
+        list(APPEND ACCLOUD_APP_QT_SOURCES ${ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES})
+        target_link_libraries(accloud_cli PRIVATE accloud_experimental_viewer Qt6::OpenGL)
+        target_compile_definitions(accloud_cli PRIVATE ACCLOUD_EXPERIMENTAL_VIEWER=1)
+      elseif(ACCLOUD_REQUIRE_QT)
+        message(FATAL_ERROR "Qt6::OpenGL is required by the experimental Qt Quick viewer")
+      else()
+        message(WARNING "Qt6::OpenGL not found: experimental Qt Quick viewer is unavailable")
+      endif()
     endif()
 
     target_sources(accloud_cli PRIVATE ${ACCLOUD_APP_QT_SOURCES})
@@ -449,8 +475,69 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_experimental_viewer)
   add_test(NAME accloud_experimental_viewer_scaffold
            COMMAND accloud_experimental_viewer_scaffold_tests)
-  set_tests_properties(accloud_experimental_viewer_scaffold PROPERTIES
-      LABELS "core;experimental;viewer")
+
+  add_executable(accloud_pw0_decode_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_decode_pw0.cpp)
+  target_include_directories(accloud_pw0_decode_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_pw0_decode_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_pw0_decode COMMAND accloud_pw0_decode_tests)
+
+  add_executable(accloud_pwsz_reader_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_driver_pwsz.cpp)
+  target_include_directories(accloud_pwsz_reader_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_pwsz_reader_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer
+      ZLIB::ZLIB)
+  add_test(NAME accloud_pwsz_reader COMMAND accloud_pwsz_reader_tests)
+
+  add_executable(accloud_layer_stack_mesher_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_goldens.cpp)
+  target_include_directories(accloud_layer_stack_mesher_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_layer_stack_mesher_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_layer_stack_mesher COMMAND accloud_layer_stack_mesher_tests)
+
+  add_executable(accloud_render_pipeline_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_render_pipeline.cpp)
+  target_include_directories(accloud_render_pipeline_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_render_pipeline_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_render_pipeline COMMAND accloud_render_pipeline_tests)
+
+  add_executable(accloud_viewer_controls_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_viewer_controls.cpp)
+  target_include_directories(accloud_viewer_controls_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_viewer_controls_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_viewer_controls COMMAND accloud_viewer_controls_tests)
+
+  add_executable(accloud_render3d_worker_benchmark
+      ${ACCLOUD_TOOLS_ROOT}/render3d_worker_benchmark.cpp)
+  target_include_directories(accloud_render3d_worker_benchmark PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_render3d_worker_benchmark PRIVATE
+      accloud_domain
+      accloud_experimental_viewer
+      ZLIB::ZLIB)
+  add_test(NAME accloud_render3d_worker_benchmark_selftest
+           COMMAND accloud_render3d_worker_benchmark --self-test)
+
+  set_tests_properties(
+      accloud_experimental_viewer_scaffold
+      accloud_pw0_decode
+      accloud_pwsz_reader
+      accloud_layer_stack_mesher
+      accloud_render_pipeline
+      accloud_viewer_controls
+      accloud_render3d_worker_benchmark_selftest
+      PROPERTIES LABELS "core;experimental;viewer")
+  set_tests_properties(accloud_render3d_worker_benchmark_selftest PROPERTIES
+      LABELS "core;experimental;viewer;benchmark")
 endif()
 
 add_executable(accloud_har_tests

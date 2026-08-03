@@ -27,6 +27,9 @@ Status: `IMPLEMENTED` for recorded decisions, `PARTIAL` for open work.
 | D-016 | URLs are reduced to a safe log representation before thumbnail logging. | Query strings, fragments and userinfo may expose signed access or credentials. |
 | D-017 | Repository-local MQTT TLS fallback is explicit and resolves `<repo>/resources/mqtt/tls`. | Silent fallback hid configuration errors, and the previous `accloud/resources/...` path did not match the repository layout. |
 | D-018 | Public reference data is synthetic-only and mechanically guarded. | Raw MQTT histories expose persistent operational identifiers and do not belong in the distributable archive. |
+| D-019 | PWSZ `pw0Img` decoding uses mixed one/two-byte RLE and detects antialiasing from raster data. | Valid binary files contain only levels 0/15, while intermediate levels 1..14 are optional. |
+| D-020 | Viewer mesh is generated from material/void transitions between stacked layers and split into layer chunks. | This preserves exterior/interior surfaces, supports and holes while enabling dynamic Z-range selection. |
+| D-021 | The first desktop viewer backend uses `QQuickFramebufferObject` with Qt OpenGL and exact shader Z clipping. | It uses public Qt 6 APIs, matches the existing `render3d/gl` boundary, is enabled in development desktop presets and remains disabled in production. |
 
 ## Open items
 
@@ -39,7 +42,7 @@ Status: `IMPLEMENTED` for recorded decisions, `PARTIAL` for open work.
 | UI | Remove or hide draft dialogs from production paths until wired. | High |
 | UI | Finish lazy loading and stream visibility rules. | High |
 | i18n | Complete classification and migration of visible strings. | Medium |
-| Viewer | Close PWMB decode -> mask -> render pipeline. | Medium |
+| Viewer | Validate the per-file Qt/OpenGL path locally, then add GPU eviction, LOD/simplification and dynamic cut caps. | High |
 | Viewer | Add golden tests for real files and orientation regressions. | Medium |
 | Operations | Formalize debug bundle export with redaction. | Medium |
 

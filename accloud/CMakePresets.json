@@ -15,7 +15,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "ACCLOUD_ENABLE_QT": "ON",
         "ACCLOUD_DEBUG": "OFF",
-        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "OFF"
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "ON"
       }
     },
     {
@@ -58,7 +58,7 @@
     },
     {
       "name": "experimental-viewer-core",
-      "displayName": "Experimental Viewer Scaffold (no Qt, offline)",
+      "displayName": "Experimental Viewer Core (no Qt, offline)",
       "inherits": "protected-core",
       "binaryDir": "${sourceDir}/build/experimental-viewer-core",
       "cacheVariables": {
@@ -75,6 +75,15 @@
         "ACCLOUD_ENABLE_QML_TESTS": "ON",
         "ACCLOUD_ENABLE_LIVE_TESTS": "ON",
         "ACCLOUD_REQUIRE_QT": "ON"
+      }
+    },
+    {
+      "name": "experimental-viewer-qt",
+      "displayName": "Experimental Viewer Qt/OpenGL Validation",
+      "inherits": "local-full",
+      "binaryDir": "${sourceDir}/build/experimental-viewer-qt",
+      "cacheVariables": {
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "ON"
       }
     }
   ],
@@ -102,6 +111,10 @@
     {
       "name": "local-full",
       "configurePreset": "local-full"
+    },
+    {
+      "name": "experimental-viewer-qt",
+      "configurePreset": "experimental-viewer-qt"
     }
   ],
   "testPresets": [
@@ -128,6 +141,10 @@
     {
       "name": "local-full",
       "configurePreset": "local-full"
+    },
+    {
+      "name": "experimental-viewer-qt",
+      "configurePreset": "experimental-viewer-qt"
     }
   ]
 }
