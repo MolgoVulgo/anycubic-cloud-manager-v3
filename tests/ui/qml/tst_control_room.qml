@@ -56,6 +56,13 @@ TestCase {
         return object
     }
 
+    function normalizedColor(value) {
+        var text = String(value || "").toLowerCase()
+        if (text.length === 9 && text.slice(0, 3) === "#ff")
+            return "#" + text.slice(3)
+        return text
+    }
+
     function findObjectByName(root, name, visited) {
         if (root === null || root === undefined) {
             return null
@@ -245,6 +252,9 @@ TestCase {
         compare(tabs.count, 4)
         compare(filesPage.viewerEnabled, true)
         compare(filesPage.render3dWorkerCount, 4)
+        compare(filesPage.render3dPalettePreset, "technical_cyan")
+        compare(normalizedColor(filesPage.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(filesPage.render3dBackgroundColor), "#171a1f")
         compare(dialogLoader.active, false)
         verify(findObjectByName(window, "viewerTabButton") === null)
         verify(findObjectByName(window, "viewerPageHost") === null)
@@ -311,6 +321,93 @@ TestCase {
         var restoredFilesPage = findObjectByName(restoredWindow, "cloudFilesPage")
         verify(restoredFilesPage !== null)
         compare(restoredFilesPage.render3dWorkerCount, 7)
+        restoredWindow.close()
+        restoredWindow.destroy()
+    }
+
+    function test_render3d_palette_setting_persists_and_propagates_color_pair() {
+        uiSettingsBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                               'property var values: ({});' +
+                                               'function getString(key, fallback) {' +
+                                               '  return values[key] !== undefined ? values[key] : fallback' +
+                                               '}' +
+                                               'function setString(key, value) { values[key] = value }' +
+                                               'function sync() {}' +
+                                               '}', this, "render3dPaletteSettingsMock")
+
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true
+        })
+        wait(0)
+
+        compare(window.render3dPalettePreset, "technical_cyan")
+        compare(normalizedColor(window.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(window.render3dBackgroundColor), "#171a1f")
+        compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "technical_cyan")
+
+        var filesPage = findObjectByName(window, "cloudFilesPage")
+        var settingsMenu = findObjectByName(window, "menuParametre")
+        var menuItem = findObjectByName(window, "menuSettingsRender3dPalette")
+        var dialog = findObjectByName(window, "render3dPaletteDialog")
+        var combo = findObjectByName(window, "render3dPaletteCombo")
+        var previewPart = findObjectByName(window, "render3dPalettePreviewPart")
+        var previewBackground = findObjectByName(window, "render3dPalettePreviewBackground")
+        verify(filesPage !== null)
+        verify(settingsMenu !== null)
+        verify(menuItem !== null)
+        verify(dialog !== null)
+        verify(combo !== null)
+        verify(previewPart !== null)
+        verify(previewBackground !== null)
+        compare(filesPage.render3dPalettePreset, "technical_cyan")
+        compare(normalizedColor(filesPage.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(filesPage.render3dBackgroundColor), "#171a1f")
+
+        settingsMenu.open()
+        tryCompare(settingsMenu, "visible", true, 1000)
+        tryCompare(menuItem, "visible", true, 1000)
+        settingsMenu.close()
+
+        dialog.prepare()
+        wait(0)
+        compare(combo.count, 5)
+        compare(dialog.pendingIndex, 0)
+        compare(normalizedColor(previewPart.color), "#55b7c6")
+        compare(normalizedColor(previewBackground.color), "#171a1f")
+
+        dialog.pendingIndex = 3
+        wait(0)
+        compare(normalizedColor(previewPart.color), "#ff7a66")
+        compare(normalizedColor(previewBackground.color), "#111827")
+
+        window.persistRender3dPalettePreset("night_coral")
+        compare(window.render3dPalettePreset, "night_coral")
+        compare(normalizedColor(window.render3dPartColor), "#ff7a66")
+        compare(normalizedColor(window.render3dBackgroundColor), "#111827")
+        compare(filesPage.render3dPalettePreset, "night_coral")
+        compare(normalizedColor(filesPage.render3dPartColor), "#ff7a66")
+        compare(normalizedColor(filesPage.render3dBackgroundColor), "#111827")
+        compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "night_coral")
+
+        window.persistRender3dPalettePreset("invalid_palette")
+        compare(window.render3dPalettePreset, "technical_cyan")
+        compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "technical_cyan")
+        window.close()
+        window.destroy()
+
+        uiSettingsBridge.values["render3d.palettePreset"] = "light_graphite"
+        var restoredWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true
+        })
+        wait(0)
+        compare(restoredWindow.render3dPalettePreset, "light_graphite")
+        compare(normalizedColor(restoredWindow.render3dPartColor), "#334155")
+        compare(normalizedColor(restoredWindow.render3dBackgroundColor), "#f4f1ea")
+        var restoredFilesPage = findObjectByName(restoredWindow, "cloudFilesPage")
+        verify(restoredFilesPage !== null)
+        compare(restoredFilesPage.render3dPalettePreset, "light_graphite")
+        compare(normalizedColor(restoredFilesPage.render3dPartColor), "#334155")
+        compare(normalizedColor(restoredFilesPage.render3dBackgroundColor), "#f4f1ea")
         restoredWindow.close()
         restoredWindow.destroy()
     }
@@ -2559,6 +2656,163 @@ TestCase {
         compare(String(page.statusSev), "warn")
 
         page.destroy()
+    }
+
+    function test_viewer_build_modal_tracks_progress_and_hides_when_complete() {
+        var modal = createQmlObject("../../../ui/qml/components/ViewerBuildModal.qml", {
+            "width": 800,
+            "height": 500,
+            "running": true,
+            "progress": 0.42
+        })
+
+        var blocker = findObjectByName(modal, "viewerBuildInputBlocker")
+        var card = findObjectByName(modal, "viewerBuildProgressCard")
+        var progressBar = findObjectByName(modal, "viewerBuildProgressBar")
+        var percent = findObjectByName(modal, "viewerBuildProgressPercent")
+        verify(blocker !== null)
+        verify(card !== null)
+        verify(progressBar !== null)
+        verify(percent !== null)
+        compare(modal.visible, true)
+        verify(Math.abs(progressBar.value - 0.42) < 0.001)
+        compare(percent.text, "42%")
+
+        modal.progress = 2.0
+        compare(progressBar.value, 1.0)
+        compare(percent.text, "100%")
+
+        modal.progress = -1.0
+        compare(progressBar.value, 0.0)
+        compare(percent.text, "0%")
+
+        modal.running = false
+        compare(modal.visible, false)
+        modal.destroy()
+    }
+
+    function test_volume_viewer_dialog_print_closes_and_forwards_cloud_file() {
+        var host = Qt.createQmlObject('import QtQuick 2.15; import QtQuick.Controls 2.15; ' +
+                                      'ApplicationWindow { width: 1000; height: 760; visible: true }',
+                                      this, "viewerPrintDialogHost")
+        wait(0)
+
+        var dialog = createQmlObject("../../../ui/qml/pages/VolumeViewerDialog.qml", {
+            "sourceFileId": "cloud-file-42",
+            "displayFileName": "Beetle.pwsz"
+        }, host.contentItem)
+        var requestedFileId = ""
+        var requestedFileName = ""
+        dialog.printRequested.connect(function(fileId, fileName) {
+            requestedFileId = fileId
+            requestedFileName = fileName
+        })
+        dialog.open()
+        tryCompare(dialog, "visible", true)
+
+        var resetButton = findObjectByName(dialog, "viewerDialogResetButton")
+        var fullscreenButton = findObjectByName(dialog, "viewerDialogFullscreenButton")
+        var printButton = findObjectByName(dialog, "viewerDialogPrintButton")
+        var closeButton = findObjectByName(dialog, "viewerDialogCloseButton")
+        verify(resetButton !== null)
+        verify(fullscreenButton !== null)
+        verify(printButton !== null)
+        verify(closeButton !== null)
+        compare(printButton.enabled, true)
+
+        mouseClick(printButton)
+        tryCompare(dialog, "visible", false)
+        compare(requestedFileId, "cloud-file-42")
+        compare(requestedFileName, "Beetle.pwsz")
+
+        dialog.destroy()
+        host.close()
+        host.destroy()
+    }
+
+    function test_app_dialog_frame_full_screen_mode_fills_overlay() {
+        var host = Qt.createQmlObject('import QtQuick 2.15; import QtQuick.Controls 2.15; ' +
+                                      'ApplicationWindow { width: 800; height: 600; visible: true }',
+                                      this, "fullScreenDialogHost")
+        wait(0)
+
+        var dialog = createQmlObject("../../../ui/qml/components/AppDialogFrame.qml", {
+            "dialogSize": "small",
+            "minimumWidth": 320,
+            "maximumWidth": 700,
+            "minimumHeight": 240,
+            "maximumHeight": 520
+        }, host.contentItem)
+        dialog.open()
+        tryVerify(function() { return dialog.overlayItem !== null }, 250)
+
+        var normalWidth = dialog.width
+        var normalHeight = dialog.height
+        verify(normalWidth < dialog.overlayWidth)
+        verify(normalHeight < dialog.overlayHeight)
+        verify(dialog.background.radius > 0)
+
+        dialog.fullScreen = true
+        tryCompare(dialog, "width", dialog.overlayWidth)
+        tryCompare(dialog, "height", dialog.overlayHeight)
+        compare(dialog.background.radius, 0)
+
+        dialog.fullScreen = false
+        tryCompare(dialog, "width", normalWidth)
+        tryCompare(dialog, "height", normalHeight)
+        verify(dialog.background.radius > 0)
+
+        dialog.close()
+        dialog.destroy()
+        host.close()
+        host.destroy()
+    }
+
+    function test_vertical_layer_range_wheel_moves_only_upper_handle() {
+        var control = createQmlObject("../../../ui/qml/components/VerticalLayerRangeSlider.qml", {
+            "minimumLayer": 1,
+            "maximumLayer": 10,
+            "lowerLayer": 3,
+            "upperLayer": 7,
+            "width": 64,
+            "height": 320
+        })
+
+        var upperEvents = []
+        var lowerEvents = []
+        control.upperLayerMoved.connect(function(layer) { upperEvents.push(layer) })
+        control.lowerLayerMoved.connect(function(layer) { lowerEvents.push(layer) })
+
+        var slider = findObjectByName(control, "viewerLayerRangeSlider")
+        verify(slider !== null)
+        compare(slider.orientation, Qt.Vertical)
+        verify(findObjectByName(control, "viewerLayerMaximumLabel") !== null)
+        verify(findObjectByName(control, "viewerLayerMinimumLabel") !== null)
+        verify(findObjectByName(control, "viewerLowerLayerHandle") !== null)
+        verify(findObjectByName(control, "viewerUpperLayerHandle") !== null)
+
+        control.applyWheel(120)
+        compare(upperEvents.length, 1)
+        compare(upperEvents[0], 8)
+        compare(lowerEvents.length, 0)
+
+        control.upperLayer = 8
+        control.applyWheel(-240)
+        compare(upperEvents.length, 2)
+        compare(upperEvents[1], 6)
+        compare(lowerEvents.length, 0)
+
+        control.upperLayer = 3
+        control.applyWheel(-120)
+        compare(upperEvents.length, 2)
+        compare(lowerEvents.length, 0)
+
+        control.upperLayer = 10
+        control.applyWheel(120)
+        compare(upperEvents.length, 2)
+        compare(lowerEvents.length, 0)
+
+        control.destroy()
     }
 
 }

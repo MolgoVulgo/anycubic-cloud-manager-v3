@@ -394,6 +394,17 @@ if(ACCLOUD_ENABLE_QT)
       target_compile_definitions(accloud_qml_tests PRIVATE
           QUICK_TEST_SOURCE_DIR="${ACCLOUD_TESTS_ROOT}/ui/qml"
       )
+
+      if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER AND TARGET Qt6::OpenGL)
+        target_sources(accloud_qml_tests PRIVATE
+            ${ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES})
+        target_link_libraries(accloud_qml_tests PRIVATE
+            accloud_infra
+            accloud_experimental_viewer
+            Qt6::OpenGL)
+        target_compile_definitions(accloud_qml_tests PRIVATE
+            ACCLOUD_EXPERIMENTAL_VIEWER=1)
+      endif()
       add_test(
         NAME accloud_ui_qml
         COMMAND accloud_qml_tests -platform offscreen

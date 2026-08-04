@@ -37,7 +37,6 @@ class QmlGlItem : public QQuickFramebufferObject {
   Q_PROPERTY(int firstLayer READ firstLayer WRITE setFirstLayer NOTIFY visibleRangeChanged)
   Q_PROPERTY(int lastLayer READ lastLayer WRITE setLastLayer NOTIFY visibleRangeChanged)
   Q_PROPERTY(qreal layerHeightMm READ layerHeightMm NOTIFY documentChanged)
-  Q_PROPERTY(int layerStep READ layerStep WRITE setLayerStep NOTIFY layerStepChanged)
   Q_PROPERTY(int workerCount READ workerCount WRITE setWorkerCount NOTIFY workerCountChanged)
   Q_PROPERTY(int loadedChunkCount READ loadedChunkCount NOTIFY meshStatsChanged)
   Q_PROPERTY(qulonglong triangleCount READ triangleCount NOTIFY meshStatsChanged)
@@ -61,7 +60,6 @@ public:
   [[nodiscard]] int firstLayer() const noexcept { return firstLayer_; }
   [[nodiscard]] int lastLayer() const noexcept { return lastLayer_; }
   [[nodiscard]] qreal layerHeightMm() const noexcept { return layerHeightMm_; }
-  [[nodiscard]] int layerStep() const noexcept { return layerStep_; }
   [[nodiscard]] int workerCount() const noexcept { return workerCount_; }
   [[nodiscard]] int loadedChunkCount() const noexcept { return loadedChunkCount_; }
   [[nodiscard]] qulonglong triangleCount() const noexcept { return triangleCount_; }
@@ -70,7 +68,6 @@ public:
 
   void setFirstLayer(int layer);
   void setLastLayer(int layer);
-  void setLayerStep(int step);
   void setWorkerCount(int count);
   void setBackgroundColor(const QColor& color);
   void setMeshColor(const QColor& color);
@@ -88,7 +85,6 @@ signals:
   void errorStringChanged();
   void documentChanged();
   void visibleRangeChanged();
-  void layerStepChanged();
   void workerCountChanged();
   void meshStatsChanged();
   void backgroundColorChanged();
@@ -115,7 +111,6 @@ private:
     int firstLayer = 0;
     int lastLayer = 0;
     int totalLayers = 0;
-    int layerStep = 1;
     std::shared_ptr<photons::pwsz::PwszArchiveReader> reader;
   };
 
@@ -149,7 +144,6 @@ private:
   int firstLayer_ = 0;
   int lastLayer_ = 0;
   qreal layerHeightMm_ = 0.05;
-  int layerStep_ = 2;
   int workerCount_ = 4;
   int loadedChunkCount_ = 0;
   qulonglong triangleCount_ = 0;

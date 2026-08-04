@@ -87,10 +87,32 @@ int main() {
   ok &= require(camera.pitch() < 1.5707963267948966,
                 "camera pitch must remain below the pole singularity");
   const auto beforePan = camera.target();
+  const auto beforePanPosition = camera.position();
+  const accloud::render3d::Vec3 viewAxis{
+      beforePanPosition.x - beforePan.x,
+      beforePanPosition.y - beforePan.y,
+      beforePanPosition.z - beforePan.z,
+  };
   camera.pan(2.0, 3.0);
   const auto afterPan = camera.target();
-  ok &= require(beforePan.x != afterPan.x || beforePan.y != afterPan.y || beforePan.z != afterPan.z,
+  const accloud::render3d::Vec3 panDelta{
+      afterPan.x - beforePan.x,
+      afterPan.y - beforePan.y,
+      afterPan.z - beforePan.z,
+  };
+  ok &= require(panDelta.x != 0.0 || panDelta.y != 0.0 || panDelta.z != 0.0,
                 "camera pan must move the orbit target");
+  const double depthDelta = panDelta.x * viewAxis.x
+                          + panDelta.y * viewAxis.y
+                          + panDelta.z * viewAxis.z;
+  ok &= require(std::abs(depthDelta) < 0.000001,
+                "camera pan must remain in the image plane without depth movement");
+
+  const auto beforeHorizontalPan = camera.target();
+  camera.pan(4.0, 0.0);
+  const auto afterHorizontalPan = camera.target();
+  ok &= require(std::abs(afterHorizontalPan.z - beforeHorizontalPan.z) < 0.000001,
+                "horizontal camera pan must not change world height");
 
   return ok ? 0 : 1;
 }

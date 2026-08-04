@@ -136,7 +136,12 @@ user range 415..1021
 
 The OpenGL fragment shader clips every triangle against the exact lower and upper Z planes. Intersecting chunks are selected first to avoid drawing unrelated buffers. Slider movement therefore does not rebuild the full mesh.
 
-When either bound cuts through the document, a dedicated background worker decodes only the boundary mask and builds one compact section surface at the corresponding Z plane. The lower section uses a negative-Z normal and the upper section a positive-Z normal. The section is derived from the exact material mask used by the active sampling mode: a solid part produces a filled cap, a hollow part preserves its cavity, and separate supports or islands remain separate. Existing horizontal faces on the clip plane are suppressed during the base-mesh pass to avoid overlap with the dynamic cap.
+The visible range is controlled by a vertical dual-handle slider fixed to the right edge of the viewport. The maximum layer is shown above it and layer `1` below it. Hovering either handle displays its current layer number in a tooltip. Wheel input over the control changes only the upper bound; the lower bound remains mouse-drag only. The previous numeric bound inputs are no longer exposed.
+
+The viewer dialog title remains generic (`3D view`). The viewport overlay displays, in order, the machine name, then `name.pwsz · N layers`, then the navigation hint. It does not show worker count, sampling mode, chunk/triangle counts, visible-range bounds or Z values. In the header, **Reset view** is placed immediately to the left of **Full screen**; **Exit full screen** restores the workspace size. The dialog footer places **Print** immediately to the left of **Close**. **Print** closes the viewer and triggers exactly the same remote-print configuration flow as the **Print** action in the cloud-file listing.
+During the whole initial reconstruction, a modal limited to the viewport covers only the viewer area and blocks its interactions. A determinate progress bar is centred in that modal and follows `viewer.progress` from 0 to 100%. The modal remains visible while `viewer.loading` is true, even when partial chunks are already available, then disappears when construction finishes or fails. The dialog header and footer remain outside this modal.
+
+When either bound cuts through the document, a dedicated background worker decodes only the boundary mask and builds one compact section surface at the corresponding Z plane. The lower section uses a negative-Z normal and the upper section a positive-Z normal. The section is derived from the exact material mask corresponding to the fixed `layerStride=2` preview: a solid part produces a filled cap, a hollow part preserves its cavity, and separate supports or islands remain separate. Existing horizontal faces on the clip plane are suppressed during the base-mesh pass to avoid overlap with the dynamic cap.
 
 Visible-range changes are transactional. The renderer keeps the currently displayed range and section buffers while the replacement request is being built. The new pair of clip planes and section surfaces is uploaded into a staging buffer and committed in one frame, so the old cap is never removed before the new one is ready. Intermediate requests superseded by rapid slider movement are discarded without changing the displayed state.
 
@@ -147,9 +152,11 @@ Decoded XY sections are retained in a compact CPU LRU cache independent of face 
 The Qt Quick page maps input to the shared orbit-camera state:
 
 - left drag: orbit;
-- right, middle or Shift-drag: pan;
+- right, middle or Shift-drag: pan in the screen plane;
 - wheel: zoom;
 - reset action: fit the complete loaded bounding box.
+
+Pan uses the camera's actual right/up axes. Its displacement remains orthogonal to the view direction, so horizontal or vertical dragging cannot move the piece forward or backward at the same time.
 
 The camera can inspect the piece from every side. The OpenGL shader applies simple two-sided directional lighting so interior walls remain readable when the selected Z range opens the volume.
 
@@ -165,16 +172,15 @@ Implemented safeguards:
 
 - bit-packed masks;
 - sequential neighbouring-layer meshing;
-- default fast preview with `layerStride=2`, decoding one source layer out of two;
+- single rendering mode with `layerStride=2`, decoding one source layer out of two;
 - exact first/last selected layers and original Z extent preserved when sampling;
-- optional full-detail rebuild with `layerStride=1`;
 - streamed chunk callbacks;
 - bounded upload queue: 8 chunks / 256 MiB pending by default;
 - no dense grey-raster retention by default;
 - GUI-thread isolation;
 - cancellation when the viewer is reloaded or destroyed.
 
-The fast preview is an approximation for display only. A one-layer support or detail located exclusively on a skipped source layer can be absent until full-detail mode is selected. It never changes the PWSZ source or print data.
+The one-layer-out-of-two rendering is an intentional display approximation: the viewer is meant to identify and inspect a part quickly, including third-party files. A support or detail located only on a skipped source layer may be absent. No full-detail mode is exposed, and the PWSZ source and print data are never changed.
 
 ### Dedicated Render3D diagnostics
 

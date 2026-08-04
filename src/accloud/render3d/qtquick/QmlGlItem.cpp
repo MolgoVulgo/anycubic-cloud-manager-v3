@@ -93,9 +93,10 @@ QVector3D toVector(const Vec3& value) {
       static_cast<float>(value.z));
 }
 
-std::size_t sampledMaskLayer(std::size_t layer, int layerStep) {
-  const auto stride = static_cast<std::size_t>(std::max(1, layerStep));
-  return (layer / stride) * stride;
+constexpr std::size_t kViewerLayerStride = 2;
+
+std::size_t sampledMaskLayer(std::size_t layer) {
+  return (layer / kViewerLayerStride) * kViewerLayerStride;
 }
 
 bool intersects(const photons::LayerRange& left, int firstLayer, int lastLayer) {
@@ -673,21 +674,6 @@ void QmlGlItem::setLastLayer(int layer) {
   requestCutSurfaceRebuild();
 }
 
-void QmlGlItem::setLayerStep(int step) {
-  step = std::clamp(step, 1, 8);
-  if (layerStep_ == step) {
-    return;
-  }
-  layerStep_ = step;
-  emit layerStepChanged();
-  trace3d(
-      logging::Level::kDebug,
-      "viewer",
-      "sampling_changed",
-      {},
-      {{"generation", text(sceneGeneration_)}, {"layer_step", text(layerStep_)}});
-}
-
 void QmlGlItem::setWorkerCount(int count) {
   count = std::clamp(
       count,
@@ -764,7 +750,6 @@ void QmlGlItem::requestCutSurfaceRebuild() {
           firstLayer_,
           lastLayer_,
           totalLayers_,
-          std::max(1, layerStep_),
           archiveReader_,
       };
     } else {
@@ -781,7 +766,7 @@ void QmlGlItem::requestCutSurfaceRebuild() {
        {"cut_generation", text(generation)},
        {"first_layer", text(firstLayer_)},
        {"last_layer", text(lastLayer_)},
-       {"layer_step", text(layerStep_)}});
+       {"layer_step", text(kViewerLayerStride)}});
   scheduleRender();
 }
 
@@ -903,13 +888,13 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
 
     if (request.firstLayer > 1) {
       const auto planeLayer = static_cast<std::size_t>(request.firstLayer - 1);
-      const auto maskLayer = sampledMaskLayer(planeLayer, request.layerStep);
+      const auto maskLayer = sampledMaskLayer(planeLayer);
       buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Lower);
     }
     if (!failed && request.lastLayer < request.totalLayers) {
       const auto planeLayer = static_cast<std::size_t>(request.lastLayer);
       const auto materialLayer = static_cast<std::size_t>(request.lastLayer - 1);
-      const auto maskLayer = sampledMaskLayer(materialLayer, request.layerStep);
+      const auto maskLayer = sampledMaskLayer(materialLayer);
       buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Upper);
     }
 
@@ -1044,7 +1029,6 @@ void QmlGlItem::load() {
   stopWorker();
   resetDocumentState();
   const std::uint64_t generation = sceneGeneration_;
-  const int layerStep = layerStep_;
   const int workerCount = workerCount_;
   const QString inputPath = localPathFromInput(sourcePath_).trimmed();
   trace3d(
@@ -1053,7 +1037,7 @@ void QmlGlItem::load() {
       "load_requested",
       {},
       {{"generation", text(generation)},
-       {"layer_step", text(layerStep)},
+       {"layer_step", text(kViewerLayerStride)},
        {"worker_count", text(workerCount)}});
   if (inputPath.isEmpty()) {
     trace3d(
@@ -1069,7 +1053,7 @@ void QmlGlItem::load() {
   const auto queue = uploadQueue_;
   QPointer<QmlGlItem> guard(this);
   worker_ = std::jthread(
-      [guard, queue, generation, inputPath, layerStep, workerCount](std::stop_token stopToken) {
+      [guard, queue, generation, inputPath, workerCount](std::stop_token stopToken) {
         const auto loadStarted = std::chrono::steady_clock::now();
         const auto post = [&](auto callback) {
           if (guard) {
@@ -1157,7 +1141,7 @@ void QmlGlItem::load() {
         options.pitchYMm = pitchY;
         options.pitchZMm = pitchZ;
         options.chunkLayerCount = kChunkLayers;
-        options.layerStride = static_cast<std::size_t>(std::max(1, layerStep));
+        options.layerStride = kViewerLayerStride;
         options.workerCount = static_cast<std::size_t>(std::clamp(
             workerCount,
             static_cast<int>(kMinimumMeshWorkerCount),

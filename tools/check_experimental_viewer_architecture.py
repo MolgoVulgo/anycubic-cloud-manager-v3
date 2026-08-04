@@ -224,6 +224,7 @@ def main() -> int:
             errors.append(f"obsolete production viewer QML remains: {relative}")
 
     main_cpp = read(root / "src/accloud/app/main.cpp")
+    qml_test_main = read(root / "tests/ui/tst_ui_main.cpp")
     qml_item_header = read(root / "src/accloud/render3d/qtquick/QmlGlItem.h")
     qml_item_cpp = read(root / "src/accloud/render3d/qtquick/QmlGlItem.cpp")
     shader_sources = read(root / "src/accloud/render3d/qtquick/CompactShaderSources.h")
@@ -235,6 +236,51 @@ def main() -> int:
     registration_token = "qmlRegisterType<accloud::render3d::QmlGlItem>"
     if registration_token not in main_cpp:
         errors.append("QmlGlItem must remain registered with qmlRegisterType")
+
+    qml_test_source_pattern = re.compile(
+        r"target_sources\(accloud_qml_tests\s+PRIVATE\s+"
+        r"\$\{ACCLOUD_EXPERIMENTAL_VIEWER_QT_SOURCES\}\s*\)",
+        flags=re.DOTALL,
+    )
+    if not qml_test_source_pattern.search(cmake):
+        errors.append("QML tests must compile the experimental Qt viewer sources")
+
+    qml_test_link_bodies = re.findall(
+        r"target_link_libraries\(accloud_qml_tests\s+PRIVATE(?P<body>.*?)\)",
+        cmake,
+        flags=re.DOTALL,
+    )
+    required_qml_test_links = (
+        "accloud_infra",
+        "accloud_experimental_viewer",
+        "Qt6::OpenGL",
+    )
+    if not any(
+        all(token in body for token in required_qml_test_links)
+        for body in qml_test_link_bodies
+    ):
+        errors.append(
+            "QML tests must link the runtime viewer, infrastructure logger and Qt OpenGL"
+        )
+
+    qml_test_definition_bodies = re.findall(
+        r"target_compile_definitions\(accloud_qml_tests\s+PRIVATE(?P<body>.*?)\)",
+        cmake,
+        flags=re.DOTALL,
+    )
+    if not any(
+        "ACCLOUD_EXPERIMENTAL_VIEWER=1" in body
+        for body in qml_test_definition_bodies
+    ):
+        errors.append("QML tests must enable ACCLOUD_EXPERIMENTAL_VIEWER")
+
+    for token in (
+        '#include "render3d/qtquick/QmlGlItem.h"',
+        registration_token,
+        '"Accloud.Render3D", 1, 0, "VolumeViewer"',
+    ):
+        if token not in qml_test_main:
+            errors.append(f"QML test bootstrap is missing viewer registration token: {token}")
     if re.search(r"class\s+QmlGlItem\s+final\s*:", qml_item_header):
         errors.append(
             "QmlGlItem registered with qmlRegisterType must not be final because "
@@ -245,8 +291,15 @@ def main() -> int:
         qml_item_header,
     ):
         errors.append("QmlGlItem must derive from QQuickFramebufferObject")
-    if "Q_PROPERTY(int layerStep" not in qml_item_header:
-        errors.append("QmlGlItem must expose the preview layer sampling step")
+    if "Q_PROPERTY(int layerStep" in qml_item_header or "setLayerStep" in qml_item_header:
+        errors.append("QmlGlItem must not expose a runtime sampling-mode API")
+    for token in (
+        "constexpr std::size_t kViewerLayerStride = 2",
+        "options.layerStride = kViewerLayerStride",
+        "sampledMaskLayer(std::size_t layer)",
+    ):
+        if token not in qml_item_cpp:
+            errors.append(f"missing fixed quick-preview contract token: {token}")
     if "Q_PROPERTY(int workerCount" not in qml_item_header or "int workerCount_ = 4" not in qml_item_header:
         errors.append("QmlGlItem must expose four mesh workers by default")
     if "std::size_t layerStride = 1" not in mesher_header:
@@ -349,7 +402,10 @@ def main() -> int:
     cloud_files_qml = read(root / "src/accloud/ui/qml/pages/CloudFilesPage.qml")
     cloud_row_qml = read(root / "src/accloud/ui/qml/pages/CloudFilesTableRow.qml")
     resources_qrc = read(root / "src/accloud/app/resources.qrc")
+    app_dialog_frame = root / "src/accloud/ui/qml/components/AppDialogFrame.qml"
     viewer_page = root / "src/accloud/ui/qml/pages/VolumeViewerPage.qml"
+    layer_range_control = root / "src/accloud/ui/qml/components/VerticalLayerRangeSlider.qml"
+    viewer_build_modal = root / "src/accloud/ui/qml/components/ViewerBuildModal.qml"
     viewer_dialog = root / "src/accloud/ui/qml/pages/VolumeViewerDialog.qml"
 
     for token in (
@@ -391,9 +447,35 @@ def main() -> int:
         if token not in cloud_row_qml:
             errors.append(f"missing per-file PWSZ viewer action token: {token}")
 
+    if not app_dialog_frame.is_file():
+        errors.append("missing AppDialogFrame.qml")
+    else:
+        app_dialog_frame_text = read(app_dialog_frame)
+        for token in (
+            "property bool fullScreen: false",
+            "width: fullScreen",
+            "height: fullScreen",
+            "radius: root.fullScreen ? 0 : Theme.radiusDialog",
+        ):
+            if token not in app_dialog_frame_text:
+                errors.append(f"missing reusable dialog fullscreen token: {token}")
+
+    for token in (
+        'property string pendingViewerOpenFileId: ""',
+        'function openViewerDialog(localPath, fileName, fileId)',
+        'dialog.openFile(root.pendingViewerOpenPath,',
+        'root.pendingViewerOpenFileId)',
+        'function onPrintRequested(fileId, fileName)',
+        'root.requestPrint(fileId, fileName)',
+    ):
+        if token not in cloud_files_qml:
+            errors.append(f"missing viewer-to-print routing token: {token}")
+
     for resource in (
         "qml/pages/VolumeViewerPage.qml",
         "qml/pages/VolumeViewerDialog.qml",
+        "qml/components/VerticalLayerRangeSlider.qml",
+        "qml/components/ViewerBuildModal.qml",
     ):
         if resource not in resources_qrc:
             errors.append(f"{resource} is not packaged in resources.qrc")
@@ -404,20 +486,147 @@ def main() -> int:
         if "import Accloud.Render3D 1.0" not in viewer_page_text:
             errors.append("VolumeViewerPage.qml must use the registered Render3D item")
         for token in (
-            'objectName: "viewerSamplingModeCombo"',
-            "viewer.layerStep = nextStep",
-            'qsTr("Fast preview · 1 layer out of 2")',
-            'qsTr("Full detail · every layer")',
             "property int workerCount: 4",
             "workerCount: root.workerCount",
-            'qsTr("Mesh workers: %1")',
+            "readonly property int totalLayers: viewer.totalLayers",
+            "readonly property int loadedChunkCount: viewer.loadedChunkCount",
+            'objectName: "viewerStatusOverlay"',
+            'objectName: "viewerFileSummaryLabel"',
+            'qsTr("%1 · %2 layers")',
+            'objectName: "viewerMachineLabel"',
+            'objectName: "viewerNavigationHint"',
+            'VerticalLayerRangeSlider {',
+            'objectName: "viewerLayerRangeControl"',
+            'onLowerLayerMoved: function(layer)',
+            'onUpperLayerMoved: function(layer)',
+            'ViewerBuildModal {',
+            'objectName: "viewerBuildModal"',
+            'running: viewer.loading',
+            'progress: viewer.progress',
         ):
             if token not in viewer_page_text:
                 errors.append(f"missing viewer sampling UI token: {token}")
+        machine_index = viewer_page_text.find('objectName: "viewerMachineLabel"')
+        summary_index = viewer_page_text.find('objectName: "viewerFileSummaryLabel"')
+        hint_index = viewer_page_text.find('objectName: "viewerNavigationHint"')
+        if (machine_index < 0 or summary_index < 0 or hint_index < 0
+                or not (machine_index < summary_index < hint_index)):
+            errors.append("viewer overlay order must be machine, file/layers, navigation help")
+        for obsolete in (
+            'objectName: "viewerFirstLayerSpin"',
+            'objectName: "viewerLastLayerSpin"',
+            'text: root.displayFileName.length > 0 ? root.displayFileName',
+            'objectName: "viewerVisibleRangeLabel"',
+            'objectName: "viewerSamplingModeCombo"',
+            'objectName: "viewerResetCameraButton"',
+            'objectName: "viewerTotalLayerLabel"',
+            "viewer.layerStep",
+            'qsTr("Fast preview · 1 layer out of 2")',
+            'qsTr("Full detail · every layer")',
+            'qsTr("%1 layers · %2 chunks · %3 triangles")',
+            'qsTr("%1 to %2 · %3 layers · Z %4–%5 mm")',
+            'qsTr("Mesh sampling: every layer")',
+            'qsTr("Mesh sampling: 1 layer out of %1")',
+            'qsTr("Mesh workers: %1")',
+            'Decoding layers and building mesh… %1%',
+            'BusyIndicator {',
+        ):
+            if obsolete in viewer_page_text:
+                errors.append(f"obsolete or redundant viewer UI token remains: {obsolete}")
+    if not viewer_build_modal.is_file():
+        errors.append("missing ViewerBuildModal.qml")
+    else:
+        viewer_build_modal_text = read(viewer_build_modal)
+        for token in (
+            'objectName: "viewerBuildModal"',
+            'property bool running: false',
+            'property real progress: 0.0',
+            'readonly property real boundedProgress:',
+            'objectName: "viewerBuildInputBlocker"',
+            'acceptedButtons: Qt.AllButtons',
+            'onWheel: function(wheel) { wheel.accepted = true }',
+            'objectName: "viewerBuildProgressCard"',
+            'objectName: "viewerBuildProgressBar"',
+            'from: 0.0',
+            'to: 1.0',
+            'value: root.boundedProgress',
+            'anchors.centerIn: parent',
+            'qsTr("Creating 3D view…")',
+            'objectName: "viewerBuildProgressPercent"',
+        ):
+            if token not in viewer_build_modal_text:
+                errors.append(f"missing viewer build modal token: {token}")
+
+    if not layer_range_control.is_file():
+        errors.append("missing VerticalLayerRangeSlider.qml")
+    else:
+        layer_range_text = read(layer_range_control)
+        for token in (
+            'orientation: Qt.Vertical',
+            'objectName: "viewerLayerMaximumLabel"',
+            'objectName: "viewerLayerMinimumLabel"',
+            'objectName: "viewerLowerLayerHandle"',
+            'objectName: "viewerUpperLayerHandle"',
+            'ToolTip.visible: lowerLayerHover.hovered',
+            'ToolTip.visible: upperLayerHover.hovered',
+            'objectName: "viewerUpperLayerWheelArea"',
+            'acceptedButtons: Qt.NoButton',
+            'root.applyWheel(wheel.angleDelta.y)',
+            'root.upperLayerMoved(nextLayer)',
+        ):
+            if token not in layer_range_text:
+                errors.append(f"missing vertical layer-range control token: {token}")
+        wheel_body = re.search(
+            r"function applyWheel\(angleDeltaY\)\s*\{(?P<body>.*?)\n    \}",
+            layer_range_text,
+            flags=re.DOTALL,
+        )
+        if wheel_body is None:
+            errors.append("VerticalLayerRangeSlider must expose applyWheel")
+        elif "lowerLayerMoved" in wheel_body.group("body"):
+            errors.append("mouse wheel must not move the lower layer handle")
     if not viewer_dialog.is_file():
         errors.append("missing experimental VolumeViewerDialog.qml")
-    elif "VolumeViewerPage" not in read(viewer_dialog):
-        errors.append("VolumeViewerDialog.qml must host VolumeViewerPage")
+    else:
+        viewer_dialog_text = read(viewer_dialog)
+        if "VolumeViewerPage" not in viewer_dialog_text:
+            errors.append("VolumeViewerDialog.qml must host VolumeViewerPage")
+        for token in (
+            'title: qsTr("3D view")',
+            'property string sourceFileId: ""',
+            'signal printRequested(string fileId, string fileName)',
+            'function openFile(localPath, fileName, fileId)',
+            'objectName: "viewerDialogResetButton"',
+            'enabled: viewerPage.loadedChunkCount > 0',
+            'onClicked: viewerPage.resetView()',
+            'objectName: "viewerDialogFullscreenButton"',
+            'root.fullScreen ? qsTr("Exit full screen") : qsTr("Full screen")',
+            'onClicked: root.toggleFullScreen()',
+            'onClosed: root.fullScreen = false',
+            'objectName: "viewerDialogPrintButton"',
+            'text: qsTr("Print")',
+            'enabled: root.sourceFileId.trim().length > 0',
+            'root.printRequested(fileId, fileName)',
+            'objectName: "viewerDialogCloseButton"',
+        ):
+            if token not in viewer_dialog_text:
+                errors.append(f"missing viewer dialog title/fullscreen/footer token: {token}")
+        for obsolete in (
+            'qsTr("3D view — %1 · %2 layers")',
+            'qsTr("3D view — %1")',
+        ):
+            if obsolete in viewer_dialog_text:
+                errors.append(f"file summary must not remain in viewer dialog title: {obsolete}")
+        reset_index = viewer_dialog_text.find('objectName: "viewerDialogResetButton"')
+        fullscreen_index = viewer_dialog_text.find('objectName: "viewerDialogFullscreenButton"')
+        print_index = viewer_dialog_text.find('objectName: "viewerDialogPrintButton"')
+        close_index = viewer_dialog_text.find('objectName: "viewerDialogCloseButton"')
+        if reset_index < 0 or fullscreen_index < 0 or reset_index > fullscreen_index:
+            errors.append("viewer reset action must be immediately before the fullscreen action")
+        if print_index < 0 or close_index < 0 or print_index > close_index:
+            errors.append("viewer print action must be immediately before the close action")
+        if "footerLeadingData:" in viewer_dialog_text:
+            errors.append("viewer dialog actions must remain in header/trailing footer groups")
 
     qml_test = read(root / "tests/ui/qml/tst_control_room.qml")
     for object_name in (
@@ -439,6 +648,17 @@ def main() -> int:
         'findObjectByName(row, "fileRowViewerButton")',
         'compare(disabledRowButton.visible, true)',
         'compare(disabledRowButton.enabled, false)',
+        'test_vertical_layer_range_wheel_moves_only_upper_handle',
+        'test_viewer_build_modal_tracks_progress_and_hides_when_complete',
+        'ViewerBuildModal.qml',
+        'findObjectByName(modal, "viewerBuildProgressBar")',
+        'compare(percent.text, "42%")',
+        'test_volume_viewer_dialog_print_closes_and_forwards_cloud_file',
+        'findObjectByName(dialog, "viewerDialogPrintButton")',
+        'compare(requestedFileId, "cloud-file-42")',
+        'test_app_dialog_frame_full_screen_mode_fills_overlay',
+        'VerticalLayerRangeSlider.qml',
+        'compare(lowerEvents.length, 0)',
     ):
         if token not in qml_test:
             errors.append(f"QML regression is missing per-file viewer assertion: {token}")

@@ -14,6 +14,9 @@ Item {
     property bool embeddedInTabsContainer: false
     property bool viewerEnabled: false
     property int render3dWorkerCount: 4
+    property string render3dPalettePreset: "technical_cyan"
+    property color render3dPartColor: "#55B7C6"
+    property color render3dBackgroundColor: "#171A1F"
     readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
@@ -50,6 +53,7 @@ Item {
     property bool viewerDialogRequested: false
     property string pendingViewerOpenPath: ""
     property string pendingViewerOpenName: ""
+    property string pendingViewerOpenFileId: ""
     readonly property bool viewerBusy: downloadPurpose === "viewer" || (viewerDialogLoader.item && viewerDialogLoader.item.visible)
     readonly property int visibleFilesCount: cloudFilesModel.visibleCount
     readonly property int pageTotal: cloudFilesModel.totalPages
@@ -86,10 +90,20 @@ Item {
 
     onStatusMsgChanged: root.emitStatusToShell()
     onStatusSevChanged: root.emitStatusToShell()
-    onRender3dWorkerCountChanged: {
-        if (viewerDialogLoader.item)
-            viewerDialogLoader.item.workerCount = root.render3dWorkerCount
+    function updateViewerDialogSettings() {
+        var dialog = viewerDialogLoader.item
+        if (!dialog)
+            return
+        dialog.workerCount = root.render3dWorkerCount
+        dialog.palettePreset = root.render3dPalettePreset
+        dialog.partColor = root.render3dPartColor
+        dialog.viewportColor = root.render3dBackgroundColor
     }
+
+    onRender3dWorkerCountChanged: root.updateViewerDialogSettings()
+    onRender3dPalettePresetChanged: root.updateViewerDialogSettings()
+    onRender3dPartColorChanged: root.updateViewerDialogSettings()
+    onRender3dBackgroundColorChanged: root.updateViewerDialogSettings()
 
     // Table column widths
     property int colSelectWidth: 30
@@ -668,17 +682,21 @@ Item {
         root.requestDownloadUrl("viewer", fileId, fileName)
     }
 
-    function openViewerDialog(localPath, fileName) {
+    function openViewerDialog(localPath, fileName, fileId) {
         root.viewerDialogRequested = true
         root.pendingViewerOpenPath = String(localPath || "")
         root.pendingViewerOpenName = String(fileName || "")
+        root.pendingViewerOpenFileId = String(fileId || "")
         var dialog = viewerDialogLoader.item
         if (dialog === null || dialog === undefined || typeof dialog.openFile !== "function")
             return
-        dialog.workerCount = root.render3dWorkerCount
-        dialog.openFile(root.pendingViewerOpenPath, root.pendingViewerOpenName)
+        root.updateViewerDialogSettings()
+        dialog.openFile(root.pendingViewerOpenPath,
+                        root.pendingViewerOpenName,
+                        root.pendingViewerOpenFileId)
         root.pendingViewerOpenPath = ""
         root.pendingViewerOpenName = ""
+        root.pendingViewerOpenFileId = ""
     }
 
     function applyDownloadUrlResult(fileId, r) {
@@ -1137,9 +1155,12 @@ Item {
         function onDownloadFinished(ok, message, savedPath) {
             downloadOverlay.visible = false
             var purpose = root.downloadPurpose
+            var viewerFileId = root.pendingDownloadFileId
             var viewerName = root.pendingDownloadFileName
             if (ok && purpose === "viewer") {
-                root.openViewerDialog(String(savedPath || root.pendingViewerSavePath), viewerName)
+                root.openViewerDialog(String(savedPath || root.pendingViewerSavePath),
+                                      viewerName,
+                                      viewerFileId)
                 root.statusMsg = qsTr("3D view ready: %1").arg(viewerName)
                 root.statusSev = "success"
             } else if (ok) {
@@ -1727,10 +1748,20 @@ Item {
         active: root.viewerEnabled && root.viewerDialogRequested
         source: "VolumeViewerDialog.qml"
         onLoaded: {
-            if (viewerDialogLoader.item)
-                viewerDialogLoader.item.workerCount = root.render3dWorkerCount
+            root.updateViewerDialogSettings()
             if (root.pendingViewerOpenPath.length > 0)
-                root.openViewerDialog(root.pendingViewerOpenPath, root.pendingViewerOpenName)
+                root.openViewerDialog(root.pendingViewerOpenPath,
+                                      root.pendingViewerOpenName,
+                                      root.pendingViewerOpenFileId)
+        }
+    }
+
+    Connections {
+        target: viewerDialogLoader.item
+        ignoreUnknownSignals: true
+
+        function onPrintRequested(fileId, fileName) {
+            root.requestPrint(fileId, fileName)
         }
     }
 
