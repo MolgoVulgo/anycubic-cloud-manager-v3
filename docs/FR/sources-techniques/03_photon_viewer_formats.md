@@ -56,7 +56,7 @@ isCancelled()
 
 Le mode callback évite de conserver une seconde copie de tous les chunks dans le résultat.
 
-`MeshBuildOptions::layerStride` contrôle l’échantillonnage Z de l’aperçu. Le viewer utilise `2` par défaut : couches `0, 2, 4, ...` plus la dernière couche exacte. Chaque masque échantillonné est extrudé jusqu’au prochain échantillon, ce qui conserve la hauteur Z totale et les bornes de plage. Le mode détaillé remet `layerStride=1`. Cet échantillonnage est une approximation visuelle : un détail présent uniquement sur une couche ignorée peut disparaître en mode rapide.
+`MeshBuildOptions::layerStride` contrôle l’échantillonnage Z. Le viewer fixe cette valeur à `2` : couches `0, 2, 4, ...` plus la dernière couche exacte. Chaque masque échantillonné est extrudé jusqu’au prochain échantillon, ce qui conserve la hauteur Z totale et les bornes de plage. Aucun sélecteur ni mode détaillé n’est exposé. Cet échantillonnage est une approximation visuelle : un détail présent uniquement sur une couche ignorée peut disparaître.
 
 ## 4. Upload et rendu
 
@@ -105,7 +105,7 @@ Le mode UI actuel est une coupe ouverte. Les bouchons dynamiques pour une coupe 
 - pan par glisser droit/milieu ou Maj ;
 - zoom molette ;
 - reset/cadrage ;
-- choix entre aperçu rapide « 1 couche sur 2 » et détail complet ;
+- rendu unique « 1 couche sur 2 » ;
 - `RangeSlider` à deux poignées ;
 - SpinBox début/fin et valeurs Z calculées.
 
@@ -131,7 +131,7 @@ Les chemins temporaires complets et les URL signées ne sont pas journalisés.
 - pas de bouchons de coupe dynamiques ;
 - pas de séparation sémantique modèle/support ;
 - risque de volume de triangles élevé sur supports complexes ;
-- l’aperçu rapide peut ignorer un détail limité à une seule couche source ; le mode détaillé reste disponible.
+- le rendu peut ignorer un détail limité à une seule couche source ; aucun mode détaillé n’est exposé.
 
 ## 9. Tests
 

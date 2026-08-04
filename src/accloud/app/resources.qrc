@@ -31,6 +31,8 @@
     <file alias="qml/components/AppCheckBox.qml">../ui/qml/components/AppCheckBox.qml</file>
     <file alias="qml/components/AppSpinBox.qml">../ui/qml/components/AppSpinBox.qml</file>
     <file alias="qml/components/AppSlider.qml">../ui/qml/components/AppSlider.qml</file>
+    <file alias="qml/components/VerticalLayerRangeSlider.qml">../ui/qml/components/VerticalLayerRangeSlider.qml</file>
+    <file alias="qml/components/ViewerBuildModal.qml">../ui/qml/components/ViewerBuildModal.qml</file>
     <file alias="qml/components/FormLabel.qml">../ui/qml/components/FormLabel.qml</file>
     <file alias="qml/components/FormRow.qml">../ui/qml/components/FormRow.qml</file>
     <file alias="qml/components/AppTabBar.qml">../ui/qml/components/AppTabBar.qml</file>

@@ -2181,7 +2181,72 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <source>3D generation workers updated: %1</source>
             <translation>Nombre de workers de génération 3D mis à jour : %1</translation>
         </message>
-    </context>
+            <message>
+            <location filename="../ui/qml/MainWindow.qml" line="189" />
+            <source>Technical cyan</source>
+            <translation>Cyan technique</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="195" />
+            <source>Industrial amber</source>
+            <translation>Ambre industriel</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="201" />
+            <source>Mineral ivory</source>
+            <translation>Ivoire minéral</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="207" />
+            <source>Night coral</source>
+            <translation>Corail nocturne</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="213" />
+            <source>Light graphite</source>
+            <translation>Graphite clair</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="503" />
+            <source>3D colors: %1</source>
+            <translation>Couleurs 3D : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="768" />
+            <source>3D color settings</source>
+            <translation>Paramètres des couleurs 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="769" />
+            <source>Choose a color pair for the printed part and the viewport background.</source>
+            <translation>Choisissez un couple de couleurs pour la pièce imprimée et le fond de la vue.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="791" />
+            <source>Color preset</source>
+            <translation>Préréglage de couleurs</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="840" />
+            <source>Part: %1</source>
+            <translation>Pièce : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="849" />
+            <source>Background: %1</source>
+            <translation>Fond : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="857" />
+            <source>The colors are applied immediately without rebuilding the 3D mesh.</source>
+            <translation>Les couleurs sont appliquées immédiatement sans reconstruire le maillage 3D.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="877" />
+            <source>3D colors updated: %1</source>
+            <translation>Couleurs 3D mises à jour : %1</translation>
+        </message>
+</context>
     <context>
         <name>MqttPage</name>
         <message>
@@ -4210,18 +4275,8 @@ Connexion cloud : </translation>
         </message>
         <message>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Reset view</source>
-            <translation>Réinitialiser la vue</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
             <source>No PWSZ loaded</source>
             <translation>Aucun PWSZ chargé</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>%1 layers · %2 chunks · %3 triangles</source>
-            <translation>%1 couches · %2 blocs · %3 triangles</translation>
         </message>
         <message>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
@@ -4229,59 +4284,14 @@ Connexion cloud : </translation>
             <translation>Glisser gauche : orbite · Glisser droit/Maj : déplacement · Molette : zoom</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Decoding layers and building mesh… %1%</source>
-            <translation>Décodage des couches et construction du maillage… %1 %</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Visible layers</source>
-            <translation>Couches visibles</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>%1 to %2 · %3 layers · Z %4–%5 mm</source>
-            <translation>%1 à %2 · %3 couches · Z %4–%5 mm</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>to</source>
-            <translation>à</translation>
-        </message>
-        <message>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="19" />
             <source>3D view — %1</source>
             <translation>Vue 3D — %1</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="42" />
-            <source>PWSZ file</source>
-            <translation>Fichier PWSZ</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Fast preview · 1 layer out of 2</source>
-            <translation>Aperçu rapide · 1 couche sur 2</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Full detail · every layer</source>
-            <translation>Détail complet · toutes les couches</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Mesh sampling: every layer</source>
-            <translation>Échantillonnage du maillage : toutes les couches</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Mesh sampling: 1 layer out of %1</source>
-            <translation>Échantillonnage du maillage : 1 couche sur %1</translation>
-        </message>
-        <message>
-            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Mesh workers: %1</source>
-            <translation>Workers du maillage : %1</translation>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="149" />
+            <source>%1 · %2 layers</source>
+            <translation>%1 · %2 couches</translation>
         </message>
     </context>
     <context>
@@ -4328,12 +4338,15 @@ Connexion cloud : </translation>
         </message>
     </context>
     <context>
-        <name>VolumeViewerDialog</name>
+        <name>ViewerBuildModal</name>
         <message>
-            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="14" />
-            <source>3D view — %1</source>
-            <translation>Vue 3D — %1</translation>
+            <location filename="../ui/qml/components/ViewerBuildModal.qml" />
+            <source>Creating 3D view…</source>
+            <translation>Création de la vue 3D…</translation>
         </message>
+    </context>
+    <context>
+        <name>VolumeViewerDialog</name>
         <message>
             <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="14" />
             <source>3D view</source>
@@ -4350,9 +4363,24 @@ Connexion cloud : </translation>
             <translation>Réinitialiser la vue</translation>
         </message>
         <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" />
+            <source>Print</source>
+            <translation>Imprimer</translation>
+        </message>
+        <message>
             <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="22" />
             <source>Close</source>
             <translation>Fermer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
+            <source>Full screen</source>
+            <translation>Plein écran</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
+            <source>Exit full screen</source>
+            <translation>Quitter le plein écran</translation>
         </message>
     </context>
 </TS>

@@ -38,9 +38,13 @@ ApplicationWindow {
     property bool cloudFileAdvancedDetailsEnabled: false
     property bool directDeleteLocalOnFailureEnabled: false
     property int render3dWorkerCount: 4
+    property string render3dPalettePreset: "technical_cyan"
+    readonly property color render3dPartColor: root.render3dPaletteFor(root.render3dPalettePreset).partColor
+    readonly property color render3dBackgroundColor: root.render3dPaletteFor(root.render3dPalettePreset).backgroundColor
     readonly property string directDeleteLocalOnFailureSettingsKey: "printing.directDeleteLocalOnFailure"
     readonly property string cloudFileAdvancedDetailsSettingsKey: "ui.cloudFiles.showAdvancedDetails"
     readonly property string render3dWorkerCountSettingsKey: "render3d.workerCount"
+    readonly property string render3dPalettePresetSettingsKey: "render3d.palettePreset"
 
     function hasUiSettingsBridge() {
         return (typeof uiSettingsBridge !== "undefined")
@@ -178,16 +182,86 @@ ApplicationWindow {
         return Math.max(1, Math.min(16, Math.round(parsed)))
     }
 
+    function render3dPaletteOptions() {
+        return [
+            {
+                "id": "technical_cyan",
+                "label": qsTr("Technical cyan"),
+                "partColor": "#55B7C6",
+                "backgroundColor": "#171A1F"
+            },
+            {
+                "id": "industrial_amber",
+                "label": qsTr("Industrial amber"),
+                "partColor": "#F2B84B",
+                "backgroundColor": "#20242B"
+            },
+            {
+                "id": "mineral_ivory",
+                "label": qsTr("Mineral ivory"),
+                "partColor": "#E8E2D6",
+                "backgroundColor": "#243447"
+            },
+            {
+                "id": "night_coral",
+                "label": qsTr("Night coral"),
+                "partColor": "#FF7A66",
+                "backgroundColor": "#111827"
+            },
+            {
+                "id": "light_graphite",
+                "label": qsTr("Light graphite"),
+                "partColor": "#334155",
+                "backgroundColor": "#F4F1EA"
+            }
+        ]
+    }
+
+    function normalizeRender3dPalettePreset(value) {
+        var requested = String(value || "").trim()
+        var options = root.render3dPaletteOptions()
+        for (var i = 0; i < options.length; ++i) {
+            if (String(options[i].id) === requested)
+                return requested
+        }
+        return "technical_cyan"
+    }
+
+    function render3dPaletteFor(value) {
+        var normalized = root.normalizeRender3dPalettePreset(value)
+        var options = root.render3dPaletteOptions()
+        for (var i = 0; i < options.length; ++i) {
+            if (String(options[i].id) === normalized)
+                return options[i]
+        }
+        return options[0]
+    }
+
+    function render3dPaletteIndex(value) {
+        var normalized = root.normalizeRender3dPalettePreset(value)
+        var options = root.render3dPaletteOptions()
+        for (var i = 0; i < options.length; ++i) {
+            if (String(options[i].id) === normalized)
+                return i
+        }
+        return 0
+    }
+
     function loadRender3dSettings() {
         var configured = 4
+        var palettePreset = "technical_cyan"
         if (root.hasUiSettingsBridge()) {
             configured = root.normalizeRender3dWorkerCount(uiSettingsBridge.getString(
                     root.render3dWorkerCountSettingsKey, "4"))
+            palettePreset = root.normalizeRender3dPalettePreset(uiSettingsBridge.getString(
+                    root.render3dPalettePresetSettingsKey, "technical_cyan"))
             uiSettingsBridge.setString(root.render3dWorkerCountSettingsKey, String(configured))
+            uiSettingsBridge.setString(root.render3dPalettePresetSettingsKey, palettePreset)
             if (typeof uiSettingsBridge.sync === "function")
                 uiSettingsBridge.sync()
         }
         root.render3dWorkerCount = configured
+        root.render3dPalettePreset = palettePreset
     }
 
     function persistRender3dWorkerCount(value) {
@@ -196,6 +270,16 @@ ApplicationWindow {
             return
         uiSettingsBridge.setString(root.render3dWorkerCountSettingsKey,
                                    String(root.render3dWorkerCount))
+        if (typeof uiSettingsBridge.sync === "function")
+            uiSettingsBridge.sync()
+    }
+
+    function persistRender3dPalettePreset(value) {
+        root.render3dPalettePreset = root.normalizeRender3dPalettePreset(value)
+        if (!root.hasUiSettingsBridge())
+            return
+        uiSettingsBridge.setString(root.render3dPalettePresetSettingsKey,
+                                   root.render3dPalettePreset)
         if (typeof uiSettingsBridge.sync === "function")
             uiSettingsBridge.sync()
     }
@@ -411,6 +495,18 @@ ApplicationWindow {
                 onTriggered: {
                     render3dWorkersSpin.value = root.render3dWorkerCount
                     render3dWorkersDialog.open()
+                }
+            }
+
+            MenuItem {
+                objectName: "menuSettingsRender3dPalette"
+                text: qsTr("3D colors: %1").arg(
+                          root.render3dPaletteFor(root.render3dPalettePreset).label)
+                visible: root.experimentalViewerEnabled
+                enabled: root.experimentalViewerEnabled
+                onTriggered: {
+                    render3dPaletteDialog.prepare()
+                    render3dPaletteDialog.open()
                 }
             }
 
@@ -661,6 +757,125 @@ ApplicationWindow {
                     root.persistRender3dWorkerCount(render3dWorkersSpin.value)
                     root.statusText = qsTr("3D generation workers updated: %1").arg(root.render3dWorkerCount)
                     render3dWorkersDialog.close()
+                }
+            }
+        ]
+    }
+
+    AppDialogFrame {
+        id: render3dPaletteDialog
+        objectName: "render3dPaletteDialog"
+        title: qsTr("3D color settings")
+        subtitle: qsTr("Choose a color pair for the printed part and the viewport background.")
+        minimumWidth: 520
+        maximumWidth: 620
+        property var paletteOptions: []
+        property int pendingIndex: 0
+        readonly property var pendingPalette: paletteOptions.length > 0
+                                               ? paletteOptions[Math.max(0, Math.min(
+                                                     pendingIndex, paletteOptions.length - 1))]
+                                               : root.render3dPaletteFor("technical_cyan")
+
+        function prepare() {
+            paletteOptions = root.render3dPaletteOptions()
+            pendingIndex = root.render3dPaletteIndex(root.render3dPalettePreset)
+        }
+
+        bodyData: [
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Color preset")
+                    color: Theme.fgPrimary
+                    font.pixelSize: Theme.fontBodyPx
+                }
+
+                AppComboBox {
+                    id: render3dPaletteCombo
+                    objectName: "render3dPaletteCombo"
+                    Layout.fillWidth: true
+                    model: render3dPaletteDialog.paletteOptions
+                    textRole: "label"
+                    currentIndex: render3dPaletteDialog.pendingIndex
+                    onActivated: function(index) {
+                        render3dPaletteDialog.pendingIndex = index
+                    }
+                }
+            },
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Preview")
+                color: Theme.fgPrimary
+                font.pixelSize: Theme.fontBodyPx
+                font.bold: true
+            },
+            Rectangle {
+                objectName: "render3dPalettePreviewBackground"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 130
+                radius: Theme.radiusControl
+                color: render3dPaletteDialog.pendingPalette.backgroundColor
+                border.width: Theme.borderWidth
+                border.color: Theme.borderDefault
+
+                Rectangle {
+                    objectName: "render3dPalettePreviewPart"
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width * 0.48, 240)
+                    height: 62
+                    radius: Theme.radiusControl
+                    color: render3dPaletteDialog.pendingPalette.partColor
+                    border.width: 1
+                    border.color: Qt.darker(color, 1.25)
+                }
+            },
+            RowLayout {
+                Layout.fillWidth: true
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Part: %1").arg(
+                              render3dPaletteDialog.pendingPalette.partColor)
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignRight
+                    text: qsTr("Background: %1").arg(
+                              render3dPaletteDialog.pendingPalette.backgroundColor)
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                }
+            },
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("The colors are applied immediately without rebuilding the 3D mesh.")
+                color: Theme.fgSecondary
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontCaptionPx
+            }
+        ]
+
+        footerTrailingData: [
+            AppButton {
+                text: qsTr("Cancel")
+                variant: "secondary"
+                onClicked: render3dPaletteDialog.close()
+            },
+            AppButton {
+                objectName: "render3dPaletteApplyButton"
+                text: qsTr("Apply")
+                variant: "primary"
+                onClicked: {
+                    var selected = render3dPaletteDialog.pendingPalette
+                    root.persistRender3dPalettePreset(selected.id)
+                    root.statusText = qsTr("3D colors updated: %1").arg(selected.label)
+                    render3dPaletteDialog.close()
                 }
             }
         ]
@@ -1163,6 +1378,9 @@ ApplicationWindow {
                             embeddedInTabsContainer: true
                             viewerEnabled: root.experimentalViewerEnabled
                             render3dWorkerCount: root.render3dWorkerCount
+                            render3dPalettePreset: root.render3dPalettePreset
+                            render3dPartColor: root.render3dPartColor
+                            render3dBackgroundColor: root.render3dBackgroundColor
                             showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled
                             onStatusBroadcast: function(message, severity, operationId) {
                                 if (root !== null && root !== undefined

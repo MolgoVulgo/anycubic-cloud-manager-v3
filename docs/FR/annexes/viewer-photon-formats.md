@@ -150,7 +150,12 @@ plage utilisateur 415..1021
 
 Le fragment shader OpenGL clippe chaque triangle sur les plans Z exacts. Le renderer sélectionne d’abord les chunks intersectés. Le déplacement du curseur ne reconstruit donc pas le mesh complet.
 
-Lorsqu’une borne coupe le document, un worker dédié décode uniquement le masque de la couche frontière et construit une surface compacte sur le plan Z correspondant. La section basse porte une normale Z négative et la section haute une normale Z positive. La matière vient exactement du masque utilisé par le mode d’échantillonnage actif : une pièce pleine produit une section pleine, une coque conserve sa cavité, et des supports ou îlots séparés restent séparés. Les faces horizontales déjà présentes sur le plan de clipping sont supprimées pendant la passe du mesh principal afin d’éviter leur superposition avec le bouchon dynamique.
+La plage visible est contrôlée par un double curseur vertical fixé au bord droit du viewport. La couche maximale est indiquée au-dessus et la couche `1` au-dessous. Chaque poignée affiche dans un tooltip le numéro de couche courant au survol. La molette utilisée au-dessus du contrôle déplace uniquement la borne haute ; la borne basse reste modifiable exclusivement par glisser-déposer avec la souris. Les anciens champs numériques de saisie des bornes ne sont plus exposés.
+
+Le titre du dialogue reste générique (`Vue 3D`). L’overlay du viewport affiche, dans cet ordre, le nom de la machine, puis `nom.pwsz · N couches`, puis le rappel des commandes. Il n’affiche ni nombre de workers, ni mode d’échantillonnage, ni nombre de chunks ou de triangles, ni bornes de couches visibles, ni valeurs Z. Dans l’en-tête, **Réinitialiser la vue** est placé immédiatement à gauche de **Plein écran** ; **Quitter le plein écran** restaure la taille de travail. Le pied du dialogue place **Imprimer** immédiatement à gauche de **Fermer**. **Imprimer** ferme le viewer puis déclenche exactement le même flux de configuration d’impression distante que l’action **Imprimer** du listing des fichiers cloud.
+Pendant toute la reconstruction initiale, une modal limitée au viewport couvre uniquement la zone du viewer et bloque ses interactions. Une barre de progression déterminée est centrée dans cette modal et suit `viewer.progress` de 0 à 100 %. La modal reste affichée tant que `viewer.loading` est vrai, même si des chunks partiels sont déjà disponibles, puis disparaît à la fin de la construction ou en cas d’erreur. L’en-tête et le pied du dialogue restent hors de cette modal.
+
+Lorsqu’une borne coupe le document, un worker dédié décode uniquement le masque de la couche frontière et construit une surface compacte sur le plan Z correspondant. La section basse porte une normale Z négative et la section haute une normale Z positive. La matière vient exactement du masque correspondant à l’aperçu fixe `layerStride=2` : une pièce pleine produit une section pleine, une coque conserve sa cavité, et des supports ou îlots séparés restent séparés. Les faces horizontales déjà présentes sur le plan de clipping sont supprimées pendant la passe du mesh principal afin d’éviter leur superposition avec le bouchon dynamique.
 
 Le changement de plage est transactionnel. Le renderer conserve la plage et les sections actuellement affichées pendant la construction de la nouvelle demande. La nouvelle paire « plans de clipping + surfaces de section » est uploadée dans un buffer de préparation, puis remplacée dans une même frame. Une section ne peut donc jamais disparaître avant que sa remplaçante soit prête. Les demandes intermédiaires rendues obsolètes par un déplacement rapide du curseur sont abandonnées sans modifier l’état affiché.
 
@@ -161,9 +166,11 @@ Les sections XY décodées sont conservées dans un cache CPU LRU compact, indé
 La page Qt Quick mappe :
 
 - glisser gauche : orbite ;
-- glisser droit, milieu ou Maj : pan ;
+- glisser droit, milieu ou Maj : pan dans le plan de l’écran ;
 - molette : zoom ;
 - action de reset : cadrage sur la bounding box complète chargée.
+
+Le pan utilise les axes droite/haut réels de la caméra. Le déplacement reste orthogonal à la direction de vue : un glisser horizontal ou vertical ne peut donc pas déplacer simultanément la pièce en profondeur.
 
 La caméra permet d’inspecter la pièce sur toutes ses faces. Le shader applique un éclairage directionnel double face simple pour rendre lisibles les parois internes lors d’une coupe Z.
 
@@ -179,9 +186,8 @@ Garde-fous implémentés :
 
 - masques bit-packed ;
 - maillage séquentiel avec couches voisines ;
-- aperçu rapide par défaut avec `layerStride=2`, soit une couche source décodée sur deux ;
+- rendu unique avec `layerStride=2`, soit une couche source décodée sur deux ;
 - conservation des bornes première/dernière exactes et de l’étendue Z d’origine malgré l’échantillonnage ;
-- reconstruction détaillée optionnelle avec `layerStride=1` ;
 - callbacks de chunks streaming ;
 - file d’upload bornée : 8 chunks / 256 Mio en attente par défaut ;
 - représentation GPU de 8 octets par surface au lieu de 120 octets équivalents ;
@@ -192,7 +198,7 @@ Garde-fous implémentés :
 - isolation du thread GUI ;
 - annulation lors d’un rechargement ou de la destruction du viewer.
 
-L’aperçu rapide est une approximation d’affichage uniquement. Un support ou détail présent sur une seule couche ignorée peut ne pas apparaître avant la sélection du mode détaillé. Le PWSZ et les données d’impression ne sont jamais modifiés.
+Le rendu à une couche sur deux est une approximation d’affichage assumée : le viewer sert à reconnaître et inspecter rapidement une pièce, notamment lorsqu’un fichier tiers est récupéré. Un support ou détail présent uniquement sur une couche source ignorée peut ne pas apparaître. Aucun mode détaillé n’est exposé et le PWSZ comme les données d’impression ne sont jamais modifiés.
 
 ### Diagnostics Render3D dédiés
 

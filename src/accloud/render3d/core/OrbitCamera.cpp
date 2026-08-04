@@ -26,9 +26,18 @@ void OrbitCamera::zoom(double wheelSteps) noexcept {
 void OrbitCamera::pan(double rightMm, double upMm) noexcept {
   const double sinYaw = std::sin(yaw_);
   const double cosYaw = std::cos(yaw_);
-  target_.x += cosYaw * rightMm - sinYaw * std::sin(pitch_) * upMm;
-  target_.y += sinYaw * rightMm + cosYaw * std::sin(pitch_) * upMm;
-  target_.z += std::cos(pitch_) * upMm;
+  const double sinPitch = std::sin(pitch_);
+  const double cosPitch = std::cos(pitch_);
+
+  // Pan strictly in the camera image plane. Both basis vectors are
+  // orthogonal to the view direction, so a screen-space drag cannot inject
+  // an unintended forward/backward movement.
+  const Vec3 screenRight{-sinYaw, cosYaw, 0.0};
+  const Vec3 screenUp{-cosYaw * sinPitch, -sinYaw * sinPitch, cosPitch};
+
+  target_.x += screenRight.x * rightMm + screenUp.x * upMm;
+  target_.y += screenRight.y * rightMm + screenUp.y * upMm;
+  target_.z += screenRight.z * rightMm + screenUp.z * upMm;
 }
 
 void OrbitCamera::fit(

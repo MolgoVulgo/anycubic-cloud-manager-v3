@@ -8,12 +8,15 @@ AppDialogFrame {
     id: root
     objectName: "volumeViewerDialog"
     property string sourcePath: ""
+    property string sourceFileId: ""
     property string displayFileName: ""
+    signal printRequested(string fileId, string fileName)
     property int workerCount: 4
+    property string palettePreset: "technical_cyan"
+    property color partColor: "#55B7C6"
+    property color viewportColor: "#171A1F"
 
-    title: displayFileName.length > 0
-           ? qsTr("3D view — %1").arg(displayFileName)
-           : qsTr("3D view")
+    title: qsTr("3D view")
     subtitle: qsTr("Layer-based reconstruction of the selected cloud file")
     dialogSize: "workspace"
     minimumWidth: 900
@@ -22,8 +25,13 @@ AppDialogFrame {
     maximumHeight: 1200
     allowScrimClose: false
 
-    function openFile(localPath, fileName) {
+    function toggleFullScreen() {
+        root.fullScreen = !root.fullScreen
+    }
+
+    function openFile(localPath, fileName, fileId) {
         sourcePath = String(localPath || "")
+        sourceFileId = String(fileId || "")
         displayFileName = String(fileName || "")
         if (!visible) {
             open()
@@ -35,6 +43,25 @@ AppDialogFrame {
     onOpened: Qt.callLater(function() {
         viewerPage.loadSource(root.sourcePath, root.displayFileName)
     })
+    onClosed: root.fullScreen = false
+
+    headerActionsData: [
+        AppButton {
+            objectName: "viewerDialogResetButton"
+            text: qsTr("Reset view")
+            variant: "secondary"
+            compact: true
+            enabled: viewerPage.loadedChunkCount > 0
+            onClicked: viewerPage.resetView()
+        },
+        AppButton {
+            objectName: "viewerDialogFullscreenButton"
+            text: root.fullScreen ? qsTr("Exit full screen") : qsTr("Full screen")
+            variant: "secondary"
+            compact: true
+            onClicked: root.toggleFullScreen()
+        }
+    ]
 
     VolumeViewerPage {
         id: viewerPage
@@ -46,18 +73,24 @@ AppDialogFrame {
         showViewerHeader: false
         embeddedViewerInTabsContainer: false
         workerCount: root.workerCount
+        palettePreset: root.palettePreset
+        partColor: root.partColor
+        viewportColor: root.viewportColor
     }
 
-    footerLeadingData: [
-        AppButton {
-            objectName: "viewerDialogResetButton"
-            text: qsTr("Reset view")
-            variant: "secondary"
-            onClicked: viewerPage.resetView()
-        }
-    ]
-
     footerTrailingData: [
+        AppButton {
+            objectName: "viewerDialogPrintButton"
+            text: qsTr("Print")
+            variant: "primary"
+            enabled: root.sourceFileId.trim().length > 0
+            onClicked: {
+                var fileId = root.sourceFileId
+                var fileName = root.displayFileName
+                root.close()
+                root.printRequested(fileId, fileName)
+            }
+        },
         AppButton {
             objectName: "viewerDialogCloseButton"
             text: qsTr("Close")

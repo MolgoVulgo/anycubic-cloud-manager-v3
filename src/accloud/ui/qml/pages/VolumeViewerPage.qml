@@ -14,6 +14,11 @@ AppPageFrame {
     property bool showViewerHeader: true
     property bool embeddedViewerInTabsContainer: false
     property int workerCount: 4
+    property string palettePreset: "technical_cyan"
+    property color partColor: "#55B7C6"
+    property color viewportColor: "#171A1F"
+    readonly property int totalLayers: viewer.totalLayers
+    readonly property int loadedChunkCount: viewer.loadedChunkCount
     embeddedInTabsContainer: root.embeddedViewerInTabsContainer
     showSectionHeader: root.showViewerHeader
     sectionTitle: root.displayFileName.length > 0
@@ -34,23 +39,13 @@ AppPageFrame {
     }
 
     RowLayout {
+        visible: root.showSourceControls
         Layout.fillWidth: true
         spacing: Theme.gapRow
-
-        Text {
-            visible: !root.showSourceControls
-            Layout.fillWidth: true
-            text: root.displayFileName.length > 0 ? root.displayFileName : qsTr("PWSZ file")
-            color: Theme.fgPrimary
-            font.pixelSize: Theme.fontBodyPx
-            font.bold: true
-            elide: Text.ElideMiddle
-        }
 
         AppTextField {
             id: pathField
             objectName: "viewerPathField"
-            visible: root.showSourceControls
             Layout.fillWidth: true
             placeholderText: qsTr("Absolute path or file:/// URL to a .pwsz file")
             onAccepted: viewer.load()
@@ -58,38 +53,10 @@ AppPageFrame {
 
         AppButton {
             objectName: "viewerLoadButton"
-            visible: root.showSourceControls
             text: viewer.loading ? qsTr("Loading…") : qsTr("Load PWSZ")
             variant: "primary"
             enabled: !viewer.loading && pathField.text.trim().length > 0
             onClicked: viewer.load()
-        }
-
-        ComboBox {
-            id: samplingModeCombo
-            objectName: "viewerSamplingModeCombo"
-            Layout.preferredWidth: 230
-            enabled: !viewer.loading
-            model: [
-                qsTr("Fast preview · 1 layer out of 2"),
-                qsTr("Full detail · every layer")
-            ]
-            currentIndex: viewer.layerStep === 1 ? 1 : 0
-            onActivated: function(index) {
-                var nextStep = index === 1 ? 1 : 2
-                if (viewer.layerStep === nextStep)
-                    return
-                viewer.layerStep = nextStep
-                if (pathField.text.trim().length > 0)
-                    viewer.load()
-            }
-        }
-
-        AppButton {
-            objectName: "viewerResetCameraButton"
-            text: qsTr("Reset view")
-            enabled: viewer.loadedChunkCount > 0
-            onClicked: viewer.resetView()
         }
     }
 
@@ -108,7 +75,7 @@ AppPageFrame {
         Layout.fillHeight: true
         Layout.minimumHeight: 360
         radius: Theme.radiusDialog
-        color: Theme.viewportBg
+        color: root.viewportColor
         border.width: Theme.borderWidth
         border.color: Theme.viewportBorder
         clip: true
@@ -118,8 +85,8 @@ AppPageFrame {
             objectName: "volumeViewerItem"
             anchors.fill: parent
             sourcePath: pathField.text
-            backgroundColor: Theme.viewportBg
-            meshColor: Theme.accent
+            backgroundColor: root.viewportColor
+            meshColor: root.partColor
             workerCount: root.workerCount
         }
 
@@ -160,6 +127,7 @@ AppPageFrame {
         }
 
         Rectangle {
+            objectName: "viewerStatusOverlay"
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: 12
@@ -176,6 +144,7 @@ AppPageFrame {
                 spacing: 4
 
                 Text {
+                    objectName: "viewerMachineLabel"
                     text: viewer.machineName.length > 0
                           ? viewer.machineName
                           : qsTr("No PWSZ loaded")
@@ -185,32 +154,18 @@ AppPageFrame {
                 }
 
                 Text {
-                    visible: viewer.totalLayers > 0
-                    text: qsTr("%1 layers · %2 chunks · %3 triangles")
-                          .arg(viewer.totalLayers)
-                          .arg(viewer.loadedChunkCount)
-                          .arg(viewer.triangleCount)
+                    objectName: "viewerFileSummaryLabel"
+                    visible: root.displayFileName.length > 0
+                    text: viewer.totalLayers > 0
+                          ? qsTr("%1 · %2 layers").arg(root.displayFileName).arg(viewer.totalLayers)
+                          : root.displayFileName
                     color: Theme.viewportFg
-                    font.pixelSize: Theme.fontCaptionPx
+                    font.pixelSize: Theme.fontBodyPx
+                    font.bold: true
                 }
 
                 Text {
-                    visible: viewer.totalLayers > 0
-                    text: viewer.layerStep === 1
-                          ? qsTr("Mesh sampling: every layer")
-                          : qsTr("Mesh sampling: 1 layer out of %1").arg(viewer.layerStep)
-                    color: Theme.viewportFg
-                    font.pixelSize: Theme.fontCaptionPx
-                }
-
-                Text {
-                    visible: viewer.totalLayers > 0
-                    text: qsTr("Mesh workers: %1").arg(viewer.workerCount)
-                    color: Theme.viewportFg
-                    font.pixelSize: Theme.fontCaptionPx
-                }
-
-                Text {
+                    objectName: "viewerNavigationHint"
                     text: qsTr("Left drag: orbit · Right/Shift drag: pan · Wheel: zoom")
                     color: Theme.viewportFg
                     font.pixelSize: Theme.fontCaptionPx
@@ -218,114 +173,36 @@ AppPageFrame {
             }
         }
 
-        Rectangle {
+        VerticalLayerRangeSlider {
+            id: layerRangeControl
+            objectName: "viewerLayerRangeControl"
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 12
+            width: 64
+            visible: viewer.totalLayers > 0
+            minimumLayer: 1
+            maximumLayer: Math.max(1, viewer.totalLayers)
+            lowerLayer: Math.max(1, viewer.firstLayer)
+            upperLayer: Math.max(lowerLayer, viewer.lastLayer)
+            z: 3
+
+            onLowerLayerMoved: function(layer) {
+                viewer.firstLayer = layer
+            }
+
+            onUpperLayerMoved: function(layer) {
+                viewer.lastLayer = layer
+            }
+        }
+
+        ViewerBuildModal {
+            objectName: "viewerBuildModal"
             anchors.fill: parent
-            visible: viewer.loading && viewer.loadedChunkCount === 0
-            color: "#66000000"
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 12
-
-                BusyIndicator {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    running: parent.parent.visible
-                }
-
-                Text {
-                    text: qsTr("Decoding layers and building mesh… %1%").arg(Math.round(viewer.progress * 100))
-                    color: Theme.viewportFg
-                    font.pixelSize: Theme.fontBodyPx
-                }
-            }
+            running: viewer.loading
+            progress: viewer.progress
         }
     }
 
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: 6
-        visible: viewer.totalLayers > 0
-
-        RowLayout {
-            Layout.fillWidth: true
-
-            Text {
-                text: qsTr("Visible layers")
-                color: Theme.fgPrimary
-                font.pixelSize: Theme.fontBodyPx
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
-
-            Text {
-                objectName: "viewerVisibleRangeLabel"
-                text: qsTr("%1 to %2 · %3 layers · Z %4–%5 mm")
-                      .arg(viewer.firstLayer)
-                      .arg(viewer.lastLayer)
-                      .arg(Math.max(0, viewer.lastLayer - viewer.firstLayer + 1))
-                      .arg(((viewer.firstLayer - 1) * viewer.layerHeightMm).toFixed(2))
-                      .arg((viewer.lastLayer * viewer.layerHeightMm).toFixed(2))
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontCaptionPx
-            }
-        }
-
-        RangeSlider {
-            id: layerRangeSlider
-            objectName: "viewerLayerRangeSlider"
-            Layout.fillWidth: true
-            from: 1
-            to: Math.max(1, viewer.totalLayers)
-            stepSize: 1
-            snapMode: RangeSlider.SnapAlways
-            enabled: viewer.totalLayers > 0
-
-            first.value: Math.max(1, viewer.firstLayer)
-            second.value: Math.max(first.value, viewer.lastLayer)
-
-            first.onMoved: viewer.firstLayer = Math.round(first.value)
-            second.onMoved: viewer.lastLayer = Math.round(second.value)
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-
-            SpinBox {
-                id: firstLayerSpin
-                objectName: "viewerFirstLayerSpin"
-                from: 1
-                to: Math.max(1, viewer.lastLayer)
-                value: Math.max(1, viewer.firstLayer)
-                editable: true
-                onValueModified: viewer.firstLayer = value
-            }
-
-            Text {
-                text: qsTr("to")
-                color: Theme.fgSecondary
-                font.pixelSize: Theme.fontBodyPx
-            }
-
-            SpinBox {
-                id: lastLayerSpin
-                objectName: "viewerLastLayerSpin"
-                from: Math.max(1, viewer.firstLayer)
-                to: Math.max(1, viewer.totalLayers)
-                value: Math.max(1, viewer.lastLayer)
-                editable: true
-                onValueModified: viewer.lastLayer = value
-            }
-
-            Item { Layout.fillWidth: true }
-
-            ProgressBar {
-                Layout.preferredWidth: 220
-                visible: viewer.loading
-                from: 0
-                to: 1
-                value: viewer.progress
-            }
-        }
-    }
 }
