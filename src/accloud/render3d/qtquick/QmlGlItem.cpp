@@ -189,6 +189,8 @@ public:
     pitchZMm_ = static_cast<float>(viewer->layerHeightMm_);
     backgroundColor_ = viewer->backgroundColor_;
     meshColor_ = viewer->meshColor_;
+    supportColor_ = viewer->supportColor_;
+    supportColoringEnabled_ = viewer->supportColoringEnabled_;
     cameraPosition_ = toVector(viewer->camera_.position());
     cameraTarget_ = toVector(viewer->camera_.target());
     cameraDistance_ = static_cast<float>(viewer->camera_.distance());
@@ -262,6 +264,9 @@ public:
     program_->setUniformValue("u_mvp", mvp);
     program_->setUniformValue("u_meshColor", QVector4D(
         meshColor_.redF(), meshColor_.greenF(), meshColor_.blueF(), meshColor_.alphaF()));
+    program_->setUniformValue("u_supportColor", QVector4D(
+        supportColor_.redF(), supportColor_.greenF(), supportColor_.blueF(), supportColor_.alphaF()));
+    program_->setUniformValue("u_supportColoringEnabled", supportColoringEnabled_);
     program_->setUniformValue("u_lightDirection", QVector3D(-0.4F, -0.6F, -0.7F).normalized());
     program_->setUniformValue("u_clipZ", QVector2D(minimumZ, maximumZ));
     program_->setUniformValue("u_hasLowerCut", displayedFirstLayer_ > 1);
@@ -614,6 +619,8 @@ private:
   float cameraDistance_ = 100.0F;
   QColor backgroundColor_;
   QColor meshColor_;
+  QColor supportColor_;
+  bool supportColoringEnabled_ = true;
   QVector3D cameraPosition_;
   QVector3D cameraTarget_;
 };
@@ -707,6 +714,24 @@ void QmlGlItem::setMeshColor(const QColor& color) {
   }
   meshColor_ = color;
   emit meshColorChanged();
+  scheduleRender();
+}
+
+void QmlGlItem::setSupportColor(const QColor& color) {
+  if (supportColor_ == color) {
+    return;
+  }
+  supportColor_ = color;
+  emit supportColorChanged();
+  scheduleRender();
+}
+
+void QmlGlItem::setSupportColoringEnabled(bool enabled) {
+  if (supportColoringEnabled_ == enabled) {
+    return;
+  }
+  supportColoringEnabled_ = enabled;
+  emit supportColoringEnabledChanged();
   scheduleRender();
 }
 
@@ -811,8 +836,9 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
     options.pitchYMm = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(options.pitchXMm));
     options.pitchZMm = meta.pitchZMm.value_or(0.05);
     options.chunkLayerCount = 1;
-    options.layerStride = 1;
+    options.layerStride = kViewerLayerStride;
     options.workerCount = 1;
+    options.classifySupports = true;
 
     LayerStackMesher mesher;
     std::vector<photons::MeshChunk> surfaces;
@@ -1147,6 +1173,7 @@ void QmlGlItem::load() {
             static_cast<int>(kMinimumMeshWorkerCount),
             static_cast<int>(kMaximumMeshWorkerCount)));
         options.cutSurfaceMode = CutSurfaceMode::Open;
+        options.classifySupports = true;
 
         const auto meshStarted = std::chrono::steady_clock::now();
         std::size_t generatedChunks = 0;

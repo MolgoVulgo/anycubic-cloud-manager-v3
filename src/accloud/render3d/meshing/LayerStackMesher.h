@@ -39,6 +39,13 @@ struct MeshBuildOptions {
   // Number of chunk workers. Four is the application and core default; callers
   // may persist any value in the supported 1..16 range.
   std::size_t workerCount = 4;
+  // PWSZ masks contain no exact model/support labels. When enabled, the mesher
+  // tags only conservative support-like components; ambiguous material remains
+  // Model. The tag uses the otherwise free bit 60 of PackedSurfaceQuad.
+  bool classifySupports = false;
+  double supportMaximumSpanMm = 3.0;
+  double supportMaximumAreaMm2 = 7.0;
+  double supportRaftMaximumHeightMm = 0.75;
 };
 
 struct MeshWorkerStats {

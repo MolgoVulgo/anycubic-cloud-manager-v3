@@ -36,6 +36,7 @@ PWSZ ZIP
 -> stacked-layer surface mesh
 -> 8-layer chunks
 -> eight-byte axis-aligned surface instances
+-> conservative model/support semantic bit derived from layer geometry
 -> bounded CPU-to-GPU upload queue
 -> instanced OpenGL buffers without duplicated vertices/indices
 -> GPU budget checked before allocation
@@ -121,6 +122,16 @@ current layer material, next layer void
 
 This preserves exterior walls, interior cavity walls, through-holes, supports, raft and disconnected islands without creating one voxel cube per exposed pixel. Coplanar runs and identical vertical spans are merged where possible.
 
+## Estimated support semantics
+
+PWSZ raster layers do not contain exact slicer labels for model, supports or raft. The viewer therefore keeps the exposure mask as the only geometry truth and derives an optional semantic colour tag without deleting or rewriting material.
+
+For every sampled layer, the mesher builds connected material components and compares their footprint with the neighbouring sampled masks. A component is tagged as estimated support only when it is narrow, small, persistent through the adjacent layers and clearly separated from the dominant component, or when an early broad footprint contracts sharply into narrow material above and matches the conservative raft-transition rule. Any ambiguous or fused component remains `Model`.
+
+The semantic tag is stored in bit 60 of `PackedSurfaceQuad`; face orientation remains in bits 61..63. The instance size therefore stays at 8 bytes and the structural 15× reduction is unchanged. Horizontal rectangles and vertical wall spans are split only where the estimated semantic changes. Dynamic section surfaces and their 8-byte CPU cache records preserve the same tag.
+
+The **Supports** checkbox changes only shader colour selection. It does not reload the PWSZ, rebuild the mesh, hide material or alter printing data. The tooltip states that the separation is estimated.
+
 ## Layer chunks and visible ranges
 
 Meshes are split into inclusive chunks, currently 8 layers each. The 8-layer default is based on the Beetle benchmark: it reduces first-chunk latency while keeping total build time comparable to 16- and 32-layer chunks. Each chunk carries exact `first`/`last` layer numbers and a world-space bounding box. Chunk boundaries may split one coplanar wall into more triangles, but they must not produce overlapping triangles, change the exposed surface area, or alter the volume bounds.
@@ -138,7 +149,7 @@ The OpenGL fragment shader clips every triangle against the exact lower and uppe
 
 The visible range is controlled by a vertical dual-handle slider fixed to the right edge of the viewport. The maximum layer is shown above it and layer `1` below it. Hovering either handle displays its current layer number in a tooltip. Wheel input over the control changes only the upper bound; the lower bound remains mouse-drag only. The previous numeric bound inputs are no longer exposed.
 
-The viewer dialog title remains generic (`3D view`). The viewport overlay displays, in order, the machine name, then `name.pwsz · N layers`, then the navigation hint. It does not show worker count, sampling mode, chunk/triangle counts, visible-range bounds or Z values. In the header, **Reset view** is placed immediately to the left of **Full screen**; **Exit full screen** restores the workspace size. The dialog footer places **Print** immediately to the left of **Close**. **Print** closes the viewer and triggers exactly the same remote-print configuration flow as the **Print** action in the cloud-file listing.
+The viewer dialog title remains generic (`3D view`). The viewport overlay displays, in order, the machine name, then `name.pwsz · N layers`, then the navigation hint. It does not show worker count, sampling mode, chunk/triangle counts, visible-range bounds or Z values. A compact **Supports** checkbox is anchored to the lower-left corner of the viewport and enables the estimated support colour. In the header, **Reset view** is placed immediately to the left of **Full screen**; **Exit full screen** restores the workspace size. The dialog footer places **Print** immediately to the left of **Close**. **Print** closes the viewer and triggers exactly the same remote-print configuration flow as the **Print** action in the cloud-file listing.
 During the whole initial reconstruction, a modal limited to the viewport covers only the viewer area and blocks its interactions. A determinate progress bar is centred in that modal and follows `viewer.progress` from 0 to 100%. The modal remains visible while `viewer.loading` is true, even when partial chunks are already available, then disappears when construction finishes or fails. The dialog header and footer remain outside this modal.
 
 When either bound cuts through the document, a dedicated background worker decodes only the boundary mask and builds one compact section surface at the corresponding Z plane. The lower section uses a negative-Z normal and the upper section a positive-Z normal. The section is derived from the exact material mask corresponding to the fixed `layerStride=2` preview: a solid part produces a filled cap, a hollow part preserves its cavity, and separate supports or islands remain separate. Existing horizontal faces on the clip plane are suppressed during the base-mesh pass to avoid overlap with the dynamic cap.
@@ -192,7 +203,7 @@ Known limits:
 - no GPU eviction, LOD or mesh simplification yet;
 - the 2 GiB budget rejects a pathological compact model cleanly instead of allowing the driver to abort the process;
 - exact pixel-derived models can still contain many surfaces on dense support structures;
-- no semantic colour separation between model, supports and raft;
+- support colouring is heuristic because the PWSZ exposure mask contains no exact slicer semantic labels; fused or ambiguous material deliberately keeps the model colour;
 - the desktop backend is OpenGL-only in this experimental phase.
 
 ## Validation
@@ -209,7 +220,7 @@ accloud_render_pipeline
 accloud_viewer_controls
 ```
 
-`accloud_render_pipeline` validates compact queue accounting, the eight-byte format, exact geometry expansion, the 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, the eight-byte section-cache record and bounded LRU eviction.
+`accloud_render_pipeline` validates compact queue accounting, the eight-byte format, semantic bit encoding, exact geometry expansion, the unchanged 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, conservative support/fusion/raft classification, semantic preservation through the eight-byte section cache and bounded LRU eviction.
 
 Desktop validation is mandatory on a workstation with native Qt dependencies:
 

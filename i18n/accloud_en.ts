@@ -2059,8 +2059,8 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="769" />
-            <source>Choose a color pair for the printed part and the viewport background.</source>
-            <translation>Choose a color pair for the printed part and the viewport background.</translation>
+            <source>Choose colors for the printed part, estimated supports and viewport background.</source>
+            <translation>Choose colors for the printed part, estimated supports and viewport background.</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="791" />
@@ -2071,6 +2071,11 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
             <location filename="../ui/qml/MainWindow.qml" line="840" />
             <source>Part: %1</source>
             <translation>Part: %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Supports: %1</source>
+            <translation>Supports: %1</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="849" />
@@ -3863,6 +3868,16 @@ Cloud connection: </source>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="149" />
             <source>%1 · %2 layers</source>
             <translation>%1 · %2 layers</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Supports</source>
+            <translation>Supports</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Estimated from layer geometry; ambiguous material keeps the part color.</source>
+            <translation>Estimated from layer geometry; ambiguous material keeps the part color.</translation>
         </message>
     </context>
     <context>

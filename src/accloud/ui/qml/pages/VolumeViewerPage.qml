@@ -16,7 +16,9 @@ AppPageFrame {
     property int workerCount: 4
     property string palettePreset: "technical_cyan"
     property color partColor: "#55B7C6"
+    property color supportColor: "#F28C28"
     property color viewportColor: "#171A1F"
+    property bool supportColoringEnabled: true
     readonly property int totalLayers: viewer.totalLayers
     readonly property int loadedChunkCount: viewer.loadedChunkCount
     embeddedInTabsContainer: root.embeddedViewerInTabsContainer
@@ -87,6 +89,8 @@ AppPageFrame {
             sourcePath: pathField.text
             backgroundColor: root.viewportColor
             meshColor: root.partColor
+            supportColor: root.supportColor
+            supportColoringEnabled: root.supportColoringEnabled
             workerCount: root.workerCount
         }
 
@@ -194,6 +198,34 @@ AppPageFrame {
 
             onUpperLayerMoved: function(layer) {
                 viewer.lastLayer = layer
+            }
+        }
+
+        Rectangle {
+            objectName: "viewerSupportsControl"
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 12
+            radius: Theme.radiusControl
+            color: "#99000000"
+            border.width: 1
+            border.color: "#55777777"
+            implicitWidth: supportsCheckBox.implicitWidth + 20
+            implicitHeight: supportsCheckBox.implicitHeight + 12
+            z: 3
+
+            AppCheckBox {
+                id: supportsCheckBox
+                objectName: "viewerSupportsCheckBox"
+                anchors.centerIn: parent
+                text: qsTr("Supports")
+                checked: root.supportColoringEnabled
+                enabled: viewer.loadedChunkCount > 0 && !viewer.loading
+                onToggled: root.supportColoringEnabled = checked
+
+                ToolTip.visible: hovered
+                ToolTip.delay: 350
+                ToolTip.text: qsTr("Estimated from layer geometry; ambiguous material keeps the part color.")
             }
         }
 

@@ -14,6 +14,7 @@ AppDialogFrame {
     property int workerCount: 4
     property string palettePreset: "technical_cyan"
     property color partColor: "#55B7C6"
+    property color supportColor: "#F28C28"
     property color viewportColor: "#171A1F"
 
     title: qsTr("3D view")
@@ -75,6 +76,7 @@ AppDialogFrame {
         workerCount: root.workerCount
         palettePreset: root.palettePreset
         partColor: root.partColor
+        supportColor: root.supportColor
         viewportColor: root.viewportColor
     }
 

@@ -42,6 +42,8 @@ class QmlGlItem : public QQuickFramebufferObject {
   Q_PROPERTY(qulonglong triangleCount READ triangleCount NOTIFY meshStatsChanged)
   Q_PROPERTY(QColor backgroundColor READ backgroundColor WRITE setBackgroundColor NOTIFY backgroundColorChanged)
   Q_PROPERTY(QColor meshColor READ meshColor WRITE setMeshColor NOTIFY meshColorChanged)
+  Q_PROPERTY(QColor supportColor READ supportColor WRITE setSupportColor NOTIFY supportColorChanged)
+  Q_PROPERTY(bool supportColoringEnabled READ supportColoringEnabled WRITE setSupportColoringEnabled NOTIFY supportColoringEnabledChanged)
 
 public:
   explicit QmlGlItem(QQuickItem* parent = nullptr);
@@ -65,12 +67,18 @@ public:
   [[nodiscard]] qulonglong triangleCount() const noexcept { return triangleCount_; }
   [[nodiscard]] QColor backgroundColor() const { return backgroundColor_; }
   [[nodiscard]] QColor meshColor() const { return meshColor_; }
+  [[nodiscard]] QColor supportColor() const { return supportColor_; }
+  [[nodiscard]] bool supportColoringEnabled() const noexcept {
+    return supportColoringEnabled_;
+  }
 
   void setFirstLayer(int layer);
   void setLastLayer(int layer);
   void setWorkerCount(int count);
   void setBackgroundColor(const QColor& color);
   void setMeshColor(const QColor& color);
+  void setSupportColor(const QColor& color);
+  void setSupportColoringEnabled(bool enabled);
 
   Q_INVOKABLE void load();
   Q_INVOKABLE void orbitPixels(qreal deltaX, qreal deltaY);
@@ -89,6 +97,8 @@ signals:
   void meshStatsChanged();
   void backgroundColorChanged();
   void meshColorChanged();
+  void supportColorChanged();
+  void supportColoringEnabledChanged();
 
 private:
   friend class GlFramebufferRenderer;
@@ -149,6 +159,8 @@ private:
   qulonglong triangleCount_ = 0;
   QColor backgroundColor_{QStringLiteral("#171a1f")};
   QColor meshColor_{QStringLiteral("#55b7c6")};
+  QColor supportColor_{QStringLiteral("#f28c28")};
+  bool supportColoringEnabled_ = true;
   photons::MeshBounds bounds_;
   OrbitCamera camera_;
   bool cameraTouched_ = false;

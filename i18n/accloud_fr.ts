@@ -2218,8 +2218,8 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="769" />
-            <source>Choose a color pair for the printed part and the viewport background.</source>
-            <translation>Choisissez un couple de couleurs pour la pièce imprimée et le fond de la vue.</translation>
+            <source>Choose colors for the printed part, estimated supports and viewport background.</source>
+            <translation>Choisissez les couleurs de la pièce imprimée, des supports estimés et du fond de la vue.</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="791" />
@@ -2230,6 +2230,11 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/MainWindow.qml" line="840" />
             <source>Part: %1</source>
             <translation>Pièce : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Supports: %1</source>
+            <translation>Supports : %1</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="849" />
@@ -4292,6 +4297,16 @@ Connexion cloud : </translation>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="149" />
             <source>%1 · %2 layers</source>
             <translation>%1 · %2 couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Supports</source>
+            <translation>Supports</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Estimated from layer geometry; ambiguous material keeps the part color.</source>
+            <translation>Estimation dérivée de la géométrie des couches ; la matière ambiguë conserve la couleur de la pièce.</translation>
         </message>
     </context>
     <context>

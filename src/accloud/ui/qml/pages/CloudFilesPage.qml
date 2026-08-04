@@ -16,6 +16,7 @@ Item {
     property int render3dWorkerCount: 4
     property string render3dPalettePreset: "technical_cyan"
     property color render3dPartColor: "#55B7C6"
+    property color render3dSupportColor: "#F28C28"
     property color render3dBackgroundColor: "#171A1F"
     readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                              && accloudBuildDebugEnabled === true
@@ -97,12 +98,14 @@ Item {
         dialog.workerCount = root.render3dWorkerCount
         dialog.palettePreset = root.render3dPalettePreset
         dialog.partColor = root.render3dPartColor
+        dialog.supportColor = root.render3dSupportColor
         dialog.viewportColor = root.render3dBackgroundColor
     }
 
     onRender3dWorkerCountChanged: root.updateViewerDialogSettings()
     onRender3dPalettePresetChanged: root.updateViewerDialogSettings()
     onRender3dPartColorChanged: root.updateViewerDialogSettings()
+    onRender3dSupportColorChanged: root.updateViewerDialogSettings()
     onRender3dBackgroundColorChanged: root.updateViewerDialogSettings()
 
     // Table column widths

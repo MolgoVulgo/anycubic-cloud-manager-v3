@@ -36,6 +36,7 @@ ZIP PWSZ
 -> mesh par empilement
 -> chunks de 8 couches
 -> surfaces axis-alignées compactées sur 8 octets
+-> bit sémantique conservateur pièce/support dérivé de la géométrie des couches
 -> file CPU-vers-GPU bornée
 -> buffers d'instances OpenGL sans vertices/index dupliqués
 -> budget GPU vérifié avant allocation
@@ -121,6 +122,16 @@ couche courante matière, couche suivante vide
 
 La méthode conserve surfaces externes, parois internes, trous, supports, radeau et îlots indépendants sans générer un cube par pixel. Les runs coplanaires et spans verticaux identiques sont fusionnés lorsque possible.
 
+## Sémantique estimée des supports
+
+Les couches raster PWSZ ne contiennent pas d'étiquettes exactes du slicer pour la pièce, les supports ou le radeau. Le viewer conserve donc le masque d'exposition comme unique vérité géométrique et dérive uniquement une étiquette de couleur facultative, sans supprimer ni réécrire de matière.
+
+Pour chaque couche échantillonnée, le mesher construit les composants connexes de matière et compare leur empreinte aux masques échantillonnés voisins. Un composant n'est étiqueté comme support estimé que lorsqu'il est étroit, de faible surface, persistant dans les couches adjacentes et nettement séparé du composant dominant, ou lorsqu'une empreinte large des premières couches se contracte fortement vers une matière étroite au-dessus et satisfait la règle conservatrice de transition du radeau. Tout composant ambigu ou fusionné reste classé `Model`.
+
+L'étiquette sémantique utilise le bit 60 de `PackedSurfaceQuad` ; l'orientation de face reste dans les bits 61..63. La taille d'instance reste donc de 8 octets et la réduction structurelle de 15× est inchangée. Les rectangles horizontaux et les spans de parois verticales ne sont séparés que lorsque la sémantique estimée change. Les surfaces de section dynamiques et leurs enregistrements de cache CPU de 8 octets conservent la même étiquette.
+
+La case **Supports** modifie uniquement la sélection de couleur dans le shader. Elle ne recharge pas le PWSZ, ne reconstruit pas le mesh, ne masque aucune matière et ne modifie aucune donnée d'impression. Son tooltip indique que la séparation est estimée.
+
 ### Représentation GPU compacte
 
 Le chemin actif n'envoie plus quatre `MeshVertex` et six indices par rectangle. Un `PackedSurfaceQuad` encode l'orientation, le plan fixe, les deux bornes du rectangle et les coordonnées Z relatives au chunk dans deux mots 32 bits :
@@ -152,7 +163,7 @@ Le fragment shader OpenGL clippe chaque triangle sur les plans Z exacts. Le rend
 
 La plage visible est contrôlée par un double curseur vertical fixé au bord droit du viewport. La couche maximale est indiquée au-dessus et la couche `1` au-dessous. Chaque poignée affiche dans un tooltip le numéro de couche courant au survol. La molette utilisée au-dessus du contrôle déplace uniquement la borne haute ; la borne basse reste modifiable exclusivement par glisser-déposer avec la souris. Les anciens champs numériques de saisie des bornes ne sont plus exposés.
 
-Le titre du dialogue reste générique (`Vue 3D`). L’overlay du viewport affiche, dans cet ordre, le nom de la machine, puis `nom.pwsz · N couches`, puis le rappel des commandes. Il n’affiche ni nombre de workers, ni mode d’échantillonnage, ni nombre de chunks ou de triangles, ni bornes de couches visibles, ni valeurs Z. Dans l’en-tête, **Réinitialiser la vue** est placé immédiatement à gauche de **Plein écran** ; **Quitter le plein écran** restaure la taille de travail. Le pied du dialogue place **Imprimer** immédiatement à gauche de **Fermer**. **Imprimer** ferme le viewer puis déclenche exactement le même flux de configuration d’impression distante que l’action **Imprimer** du listing des fichiers cloud.
+Le titre du dialogue reste générique (`Vue 3D`). L’overlay du viewport affiche, dans cet ordre, le nom de la machine, puis `nom.pwsz · N couches`, puis le rappel des commandes. Il n’affiche ni nombre de workers, ni mode d’échantillonnage, ni nombre de chunks ou de triangles, ni bornes de couches visibles, ni valeurs Z. Une case compacte **Supports** est ancrée dans l'angle inférieur gauche du viewport et active la couleur estimée des supports. Dans l’en-tête, **Réinitialiser la vue** est placé immédiatement à gauche de **Plein écran** ; **Quitter le plein écran** restaure la taille de travail. Le pied du dialogue place **Imprimer** immédiatement à gauche de **Fermer**. **Imprimer** ferme le viewer puis déclenche exactement le même flux de configuration d’impression distante que l’action **Imprimer** du listing des fichiers cloud.
 Pendant toute la reconstruction initiale, une modal limitée au viewport couvre uniquement la zone du viewer et bloque ses interactions. Une barre de progression déterminée est centrée dans cette modal et suit `viewer.progress` de 0 à 100 %. La modal reste affichée tant que `viewer.loading` est vrai, même si des chunks partiels sont déjà disponibles, puis disparaît à la fin de la construction ou en cas d’erreur. L’en-tête et le pied du dialogue restent hors de cette modal.
 
 Lorsqu’une borne coupe le document, un worker dédié décode uniquement le masque de la couche frontière et construit une surface compacte sur le plan Z correspondant. La section basse porte une normale Z négative et la section haute une normale Z positive. La matière vient exactement du masque correspondant à l’aperçu fixe `layerStride=2` : une pièce pleine produit une section pleine, une coque conserve sa cavité, et des supports ou îlots séparés restent séparés. Les faces horizontales déjà présentes sur le plan de clipping sont supprimées pendant la passe du mesh principal afin d’éviter leur superposition avec le bouchon dynamique.
@@ -210,7 +221,7 @@ Limites connues :
 - pas encore d’éviction GPU, LOD ou simplification ;
 - le budget de 2 Gio refuse proprement un modèle compact pathologique au lieu de laisser le pilote interrompre le processus ;
 - les modèles exacts peuvent conserver un très grand nombre de surfaces sur des supports denses ;
-- pas de couleur sémantique modèle/support/radeau ;
+- la couleur des supports reste heuristique, car le masque d'exposition PWSZ ne contient aucune étiquette sémantique exacte du slicer ; la matière fusionnée ou ambiguë conserve volontairement la couleur de la pièce ;
 - backend desktop OpenGL uniquement à cette étape expérimentale.
 
 ## Validation
@@ -227,7 +238,7 @@ accloud_render_pipeline
 accloud_viewer_controls
 ```
 
-`accloud_render_pipeline` valide la comptabilité compacte de la file bornée, le format 8 octets, l'expansion géométrique exacte, le ratio 15×, le budget GPU simulé, une pièce synthétique complète de 250 mm, la consommation streaming, l’annulation, la sélection des chunks, les plans Z exacts, les sections pleines, les cavités conservées, les îlots de supports séparés, le format 8 octets du cache de sections et son éviction LRU bornée.
+`accloud_render_pipeline` valide la comptabilité compacte de la file bornée, le format 8 octets, l'encodage du bit sémantique, l'expansion géométrique exacte, le ratio 15× inchangé, le budget GPU simulé, une pièce synthétique complète de 250 mm, la consommation streaming, l’annulation, la sélection des chunks, les plans Z exacts, les sections pleines, les cavités conservées, les îlots de supports séparés, la classification conservatrice support/fusion/radeau, la conservation de la sémantique dans le cache de sections de 8 octets et son éviction LRU bornée.
 
 Validation desktop obligatoire sur un poste avec dépendances Qt natives :
 
