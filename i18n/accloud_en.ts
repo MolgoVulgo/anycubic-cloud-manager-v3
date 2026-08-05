@@ -3876,8 +3876,8 @@ Cloud connection: </source>
         </message>
         <message>
             <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
-            <source>Estimated from layer geometry; ambiguous material keeps the part color.</source>
-            <translation>Estimated from layer geometry; ambiguous material keeps the part color.</translation>
+            <source>Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.</source>
+            <translation>Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.</translation>
         </message>
     </context>
     <context>
@@ -3922,7 +3922,17 @@ Cloud connection: </source>
             <source>OpenGL rejected the complete 3D model before rendering.</source>
             <translation>OpenGL rejected the complete 3D model before rendering.</translation>
         </message>
-    </context>
+            <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Analyzing supports…</source>
+            <translation>Analyzing supports…</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Creating 3D view…</source>
+            <translation>Creating 3D view…</translation>
+        </message>
+</context>
     <context>
         <name>ViewerBuildModal</name>
         <message>

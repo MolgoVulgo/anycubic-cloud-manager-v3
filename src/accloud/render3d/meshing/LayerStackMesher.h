@@ -25,6 +25,12 @@ enum class CutSurfaceBoundary {
 inline constexpr std::size_t kMinimumMeshWorkerCount = 1;
 inline constexpr std::size_t kMaximumMeshWorkerCount = 16;
 
+using SupportMaskProvider = std::function<bool(
+    std::size_t layer,
+    const photons::BinaryMask& material,
+    photons::BinaryMask& supportMask,
+    std::string& error)>;
+
 struct MeshBuildOptions {
   double pitchXMm = 1.0;
   double pitchYMm = 1.0;
@@ -39,13 +45,19 @@ struct MeshBuildOptions {
   // Number of chunk workers. Four is the application and core default; callers
   // may persist any value in the supported 1..16 range.
   std::size_t workerCount = 4;
-  // PWSZ masks contain no exact model/support labels. When enabled, the mesher
-  // tags only conservative support-like components; ambiguous material remains
-  // Model. The tag uses the otherwise free bit 60 of PackedSurfaceQuad.
+  // PWSZ masks contain no exact model/support labels. When enabled with a
+  // supportMaskProvider, the mesher consumes the compact global first-pass
+  // index. Callers without a provider retain the legacy conservative local
+  // heuristic for isolated core tests. The Qt viewer never uses that fallback.
+  // The tag uses the otherwise free bit 60 of PackedSurfaceQuad.
   bool classifySupports = false;
   double supportMaximumSpanMm = 3.0;
   double supportMaximumAreaMm2 = 7.0;
   double supportRaftMaximumHeightMm = 0.75;
+  // Optional semantic source produced by the global first-pass analyzer. When
+  // present, the mesher must use it instead of the legacy local heuristic.
+  // The provider is read-only and may be called concurrently by mesh workers.
+  SupportMaskProvider supportMaskProvider;
 };
 
 struct MeshWorkerStats {

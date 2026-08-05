@@ -8,6 +8,7 @@ Rectangle {
     objectName: "viewerBuildModal"
     property bool running: false
     property real progress: 0.0
+    property string phaseText: ""
     readonly property real boundedProgress: Math.max(0.0, Math.min(1.0, root.progress))
 
     visible: root.running
@@ -43,7 +44,9 @@ Rectangle {
 
             Text {
                 objectName: "viewerBuildProgressTitle"
-                text: qsTr("Creating 3D view…")
+                text: root.phaseText.length > 0
+                      ? root.phaseText
+                      : qsTr("Creating 3D view…")
                 color: Theme.fgPrimary
                 font.pixelSize: Theme.fontBodyPx
                 font.bold: true

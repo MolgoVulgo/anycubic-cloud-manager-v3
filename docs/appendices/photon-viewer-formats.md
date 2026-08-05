@@ -124,13 +124,45 @@ This preserves exterior walls, interior cavity walls, through-holes, supports, r
 
 ## Estimated support semantics
 
-PWSZ raster layers do not contain exact slicer labels for model, supports or raft. The viewer therefore keeps the exposure mask as the only geometry truth and derives an optional semantic colour tag without deleting or rewriting material.
+PWSZ raster layers do not contain exact slicer labels for model, supports or raft. The exposure mask therefore remains the only geometry truth: non-black pixels define material, and semantic analysis may only attach a visual category to that existing material.
 
-For every sampled layer, the mesher builds connected material components and compares their footprint with the neighbouring sampled masks. A component is tagged as estimated support only when it is narrow, small, persistent through the adjacent layers and clearly separated from the dominant component, or when an early broad footprint contracts sharply into narrow material above and matches the conservative raft-transition rule. Any ambiguous or fused component remains `Model`.
+The Qt viewer now has two distinct runtime paths:
 
-The semantic tag is stored in bit 60 of `PackedSurfaceQuad`; face orientation remains in bits 61..63. The instance size therefore stays at 8 bytes and the structural 15× reduction is unchanged. Horizontal rectangles and vertical wall spans are split only where the estimated semantic changes. Dynamic section surfaces and their 8-byte CPU cache records preserve the same tag.
+```text
+Supports disabled
+-> open the PWSZ
+-> decode only the layers required by the fixed stride-two preview
+-> build the classic chunked mesh with no semantic analysis
 
-The **Supports** checkbox changes only shader colour selection. It does not reload the PWSZ, rebuild the mesh, hide material or alter printing data. The tooltip states that the separation is estimated.
+Supports enabled
+-> pass 1: analyze every native PWSZ layer sequentially
+-> retain a compact per-layer semantic index
+-> pass 2: rebuild the usual stride-two chunked mesh from the original masks
+   while materializing raft/support tags from that index
+```
+
+The disabled path does not invoke `SupportAnalyzer`, does not decode contextual layers for support classification, and passes no support-mask provider to `LayerStackMesher`. Its geometry, chunking and GPU representation remain the classic viewer contract.
+
+The enabled path requires non-empty raft matter on layer 1, determines the end of the raft, and assigns the global phases `Raft`, `SupportsOnly`, `ModelAndSupports` and `ModelMostly`. Matter between the raft and the first detected model layer is support by construction. During mixed phases, candidate components are tracked in a rooted directed forest: one structural parent is retained, branches may split, structural branch merges are not created, and secondary contacts become braces only when their trajectory is approximately diagonal at 45 degrees. A terminal contact becomes `Head` only after a validated local taper. Supports starting on an already established model are accepted only through that tapered-head rule.
+
+The analysis result stays compact. Each layer stores its phase plus sorted unique identifiers for support components; decoded masks and full semantic bitmaps are not retained. During mesh construction, `materializeLayerSemantics()` re-extracts only the current sampled layer and a `SupportMaskProvider` maps `Raft` and `Support` runs to the existing support bit. The result is independent from render chunk size and worker count. Dynamic lower/upper cut surfaces use the same index, so their colours remain consistent with the main mesh.
+
+The semantic tag remains in bit 60 of `PackedSurfaceQuad`; face orientation remains in bits 61..63. The instance size stays at 8 bytes and the structural 15× reduction is unchanged. The semantic provider is validated before meshing: its dimensions must match the material mask and it cannot introduce pixels outside native PWSZ matter.
+
+The **Supports** checkbox controls this optional path. A file initially loaded with the option disabled uses the classic path without analysis. Enabling it on such a scene launches a complete two-pass reload. Disabling it after an analyzed build immediately restores the classic colour in the shader; the already computed index may remain attached to that scene, but later loads made while the option is disabled skip analysis entirely. No mode hides, adds or removes material.
+
+The viewport modal exposes the active phase through `viewer.loadingPhase`. Progress is weighted by actual decoding work: all native layers analyzed in pass 1 plus all sampled layers meshed in pass 2. Runtime diagnostics are written to `render3d.jsonl` with the `support_analysis` component and the events `started`, `progress`, `phase_detected`, `completed`, `skipped`, `cancelled`, `failed` and `materialization_failed`. Logs contain aggregate counts and phase boundaries, never per-component or per-run payloads.
+
+The diagnostic executable is available only with the experimental viewer core:
+
+```bash
+accloud_support_analysis_probe input.pwsz --output analysis.json
+accloud_support_analysis_probe input.pwsz --verify-materialization
+accloud_support_analysis_probe input.pwsz \
+  --dump-layer 101 --dump-ppm layer-101.ppm --downsample 8
+```
+
+`--verify-materialization` rereads every native layer and checks that the compact index recreates exactly the recorded raft/support run totals. PPM dumps are diagnostics only and are not runtime assets.
 
 ## Layer chunks and visible ranges
 
@@ -216,9 +248,12 @@ accloud_experimental_viewer_scaffold
 accloud_pw0_decode
 accloud_pwsz_reader
 accloud_layer_stack_mesher
+accloud_support_analyzer
 accloud_render_pipeline
 accloud_viewer_controls
 ```
+
+`accloud_support_analyzer` validates the mandatory raft, support-only and mixed phases, a rooted non-merging support forest, branch splits, approximately-45-degree braces, model-rooted supports, terminal tapering, hollow-model rejection, deterministic compact component indices, cancellation and exact per-layer rematerialization.
 
 `accloud_render_pipeline` validates compact queue accounting, the eight-byte format, semantic bit encoding, exact geometry expansion, the unchanged 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, conservative support/fusion/raft classification, semantic preservation through the eight-byte section cache and bounded LRU eviction.
 

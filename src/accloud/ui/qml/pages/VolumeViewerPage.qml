@@ -220,12 +220,12 @@ AppPageFrame {
                 anchors.centerIn: parent
                 text: qsTr("Supports")
                 checked: root.supportColoringEnabled
-                enabled: viewer.loadedChunkCount > 0 && !viewer.loading
+                enabled: !viewer.loading
                 onToggled: root.supportColoringEnabled = checked
 
                 ToolTip.visible: hovered
                 ToolTip.delay: 350
-                ToolTip.text: qsTr("Estimated from layer geometry; ambiguous material keeps the part color.")
+                ToolTip.text: qsTr("Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.")
             }
         }
 
@@ -234,6 +234,7 @@ AppPageFrame {
             anchors.fill: parent
             running: viewer.loading
             progress: viewer.progress
+            phaseText: viewer.loadingPhase
         }
     }
 

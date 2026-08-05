@@ -312,6 +312,8 @@ def main() -> int:
         "MeshWorkerStats",
         "CutSurfaceBoundary",
         "buildCutSurface",
+        "SupportMaskProvider",
+        "supportMaskProvider",
     ):
         if token not in mesher_header:
             errors.append(f"missing parallel mesher contract token: {token}")
@@ -341,12 +343,21 @@ def main() -> int:
         '"worker_completed"',
         "options.workerCount",
         "kChunkLayers = 8",
+        "SupportAnalyzer{}.analyze",
+        '"support_analysis"',
+        '"materialization_failed"',
+        '"support_analysis_enabled"',
+        '"support_semantics"',
+        "options.supportMaskProvider",
+        "sceneHasSupportSemantics_",
+        "applyLoadingPhase",
     ):
         if token not in qml_item_cpp:
             errors.append(f"missing Render3D diagnostic token: {token}")
     for obsolete in (
         "cutUploadQueue_",
         "clearCutRequested_",
+        "options.classifySupports = true",
     ):
         if obsolete in qml_item_cpp or obsolete in qml_item_header:
             errors.append(f"obsolete non-transactional cut-surface token remains: {obsolete}")
@@ -503,6 +514,8 @@ def main() -> int:
             'objectName: "viewerBuildModal"',
             'running: viewer.loading',
             'progress: viewer.progress',
+            'phaseText: viewer.loadingPhase',
+            'Analyze all native layers before building the 3D view.',
         ):
             if token not in viewer_page_text:
                 errors.append(f"missing viewer sampling UI token: {token}")
@@ -541,6 +554,7 @@ def main() -> int:
             'objectName: "viewerBuildModal"',
             'property bool running: false',
             'property real progress: 0.0',
+            'property string phaseText: ""',
             'readonly property real boundedProgress:',
             'objectName: "viewerBuildInputBlocker"',
             'acceptedButtons: Qt.AllButtons',

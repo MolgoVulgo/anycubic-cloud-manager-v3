@@ -438,6 +438,41 @@ BinaryMask classifySupportPixels(
   return support;
 }
 
+bool buildSupportMask(
+    const BinaryMask& material,
+    const BinaryMask* previous,
+    const BinaryMask* next,
+    std::size_t layer,
+    const MeshBuildOptions& options,
+    BinaryMask& support,
+    std::string& error) {
+  support = BinaryMask(material.width(), material.height());
+  if (!options.classifySupports) {
+    return true;
+  }
+  if (options.supportMaskProvider) {
+    if (!options.supportMaskProvider(layer, material, support, error)) {
+      return false;
+    }
+    if (support.width() != material.width()
+        || support.height() != material.height()) {
+      error = "support semantic mask dimensions differ from the material mask";
+      return false;
+    }
+    for (std::uint32_t y = 0; y < material.height(); ++y) {
+      for (std::size_t word = 0; word < material.wordsPerRow(); ++word) {
+        if ((support.rowWord(y, word) & ~material.rowWord(y, word)) != 0u) {
+          error = "support semantic mask contains pixels outside material";
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  support = classifySupportPixels(material, previous, next, layer, options);
+  return true;
+}
+
 std::set<WallSpan> collectXWalls(
     const BinaryMask& material,
     const BinaryMask* supportMask) {
@@ -804,8 +839,21 @@ TaskBuildResult buildTask(
       nextMask = nullptr;
     }
 
-    const BinaryMask support = classifySupportPixels(
-        *current, previousMask, nextMask, layer, options);
+    BinaryMask support;
+    std::string supportError;
+    if (!buildSupportMask(
+            *current,
+            previousMask,
+            nextMask,
+            layer,
+            options,
+            support,
+            supportError)) {
+      result.error = supportError.empty()
+                         ? "support semantic materialization failed"
+                         : std::move(supportError);
+      return result;
+    }
     const BinaryMask* supportMask = options.classifySupports ? &support : nullptr;
 
     emitHorizontalSurface(
@@ -907,7 +955,7 @@ CutSurfaceBuildResult LayerStackMesher::buildCutSurface(
   result.chunk.pitchZMm = static_cast<float>(options.pitchZMm);
   std::optional<BinaryMask> previous;
   std::optional<BinaryMask> next;
-  if (options.classifySupports) {
+  if (options.classifySupports && !options.supportMaskProvider) {
     if (maskLayer >= options.layerStride) {
       previous = source.loadMask(maskLayer - options.layerStride, loadError);
       if (!previous) {
@@ -925,12 +973,21 @@ CutSurfaceBuildResult LayerStackMesher::buildCutSurface(
       ++result.decodedLayerCount;
     }
   }
-  const BinaryMask support = classifySupportPixels(
-      *mask,
-      previous ? &*previous : nullptr,
-      next ? &*next : nullptr,
-      maskLayer,
-      options);
+  BinaryMask support;
+  std::string supportError;
+  if (!buildSupportMask(
+          *mask,
+          previous ? &*previous : nullptr,
+          next ? &*next : nullptr,
+          maskLayer,
+          options,
+          support,
+          supportError)) {
+    result.error = supportError.empty()
+                       ? "support semantic materialization failed"
+                       : std::move(supportError);
+    return result;
+  }
   emitHorizontalSurface(
       result.chunk,
       *mask,

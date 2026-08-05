@@ -2674,18 +2674,22 @@ TestCase {
             "width": 800,
             "height": 500,
             "running": true,
-            "progress": 0.42
+            "progress": 0.42,
+            "phaseText": "Analyzing supports…"
         })
 
         var blocker = findObjectByName(modal, "viewerBuildInputBlocker")
         var card = findObjectByName(modal, "viewerBuildProgressCard")
+        var title = findObjectByName(modal, "viewerBuildProgressTitle")
         var progressBar = findObjectByName(modal, "viewerBuildProgressBar")
         var percent = findObjectByName(modal, "viewerBuildProgressPercent")
         verify(blocker !== null)
         verify(card !== null)
+        verify(title !== null)
         verify(progressBar !== null)
         verify(percent !== null)
         compare(modal.visible, true)
+        compare(title.text, "Analyzing supports…")
         verify(Math.abs(progressBar.value - 0.42) < 0.001)
         compare(percent.text, "42%")
 

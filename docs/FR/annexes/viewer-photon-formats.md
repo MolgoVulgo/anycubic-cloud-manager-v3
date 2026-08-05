@@ -124,13 +124,45 @@ La méthode conserve surfaces externes, parois internes, trous, supports, radeau
 
 ## Sémantique estimée des supports
 
-Les couches raster PWSZ ne contiennent pas d'étiquettes exactes du slicer pour la pièce, les supports ou le radeau. Le viewer conserve donc le masque d'exposition comme unique vérité géométrique et dérive uniquement une étiquette de couleur facultative, sans supprimer ni réécrire de matière.
+Les couches raster PWSZ ne contiennent pas d'étiquettes exactes du slicer pour la pièce, les supports ou le radeau. Le masque d'exposition reste donc l'unique vérité géométrique : les pixels non noirs définissent la matière et l'analyse sémantique peut seulement associer une catégorie visuelle à cette matière existante.
 
-Pour chaque couche échantillonnée, le mesher construit les composants connexes de matière et compare leur empreinte aux masques échantillonnés voisins. Un composant n'est étiqueté comme support estimé que lorsqu'il est étroit, de faible surface, persistant dans les couches adjacentes et nettement séparé du composant dominant, ou lorsqu'une empreinte large des premières couches se contracte fortement vers une matière étroite au-dessus et satisfait la règle conservatrice de transition du radeau. Tout composant ambigu ou fusionné reste classé `Model`.
+Le viewer Qt possède désormais deux chemins runtime distincts :
 
-L'étiquette sémantique utilise le bit 60 de `PackedSurfaceQuad` ; l'orientation de face reste dans les bits 61..63. La taille d'instance reste donc de 8 octets et la réduction structurelle de 15× est inchangée. Les rectangles horizontaux et les spans de parois verticales ne sont séparés que lorsque la sémantique estimée change. Les surfaces de section dynamiques et leurs enregistrements de cache CPU de 8 octets conservent la même étiquette.
+```text
+Supports désactivés
+-> ouverture du PWSZ
+-> décodage uniquement des couches nécessaires à l'aperçu fixe une couche sur deux
+-> construction du mesh classique par chunks, sans analyse sémantique
 
-La case **Supports** modifie uniquement la sélection de couleur dans le shader. Elle ne recharge pas le PWSZ, ne reconstruit pas le mesh, ne masque aucune matière et ne modifie aucune donnée d'impression. Son tooltip indique que la séparation est estimée.
+Supports activés
+-> passe 1 : analyse séquentielle de toutes les couches natives du PWSZ
+-> conservation d'un index sémantique compact par couche
+-> passe 2 : reconstruction du mesh habituel une couche sur deux depuis les masques originaux
+   avec matérialisation des étiquettes radeau/support depuis cet index
+```
+
+Le chemin désactivé ne lance pas `SupportAnalyzer`, ne décode aucune couche de contexte pour classifier les supports et ne transmet aucun provider de masque support à `LayerStackMesher`. Sa géométrie, son découpage en chunks et sa représentation GPU restent ceux du viewer classique.
+
+Le chemin activé exige de la matière de radeau dès la couche 1, détermine la fin du radeau et attribue les phases globales `Raft`, `SupportsOnly`, `ModelAndSupports` et `ModelMostly`. Toute matière comprise entre le radeau et la première couche de pièce détectée appartient par construction aux supports. Pendant les phases mixtes, les composants candidats sont suivis dans une forêt orientée enracinée : un seul parent structurel est conservé, une branche peut se diviser, aucune fusion structurelle de branches n'est créée et les contacts secondaires ne deviennent des croisillons que lorsque leur trajectoire est approximativement diagonale à 45 degrés. Un contact terminal ne devient `Head` qu'après validation d'un rétrécissement local. Un support qui démarre sur une pièce déjà établie n'est accepté que par cette règle de tête rétrécie.
+
+Le résultat d'analyse reste compact. Chaque couche conserve sa phase et des identifiants triés et uniques de composants support ; les masques décodés et les bitmaps sémantiques complets ne sont pas retenus. Pendant la construction du mesh, `materializeLayerSemantics()` réextrait uniquement la couche échantillonnée courante et un `SupportMaskProvider` traduit les runs `Raft` et `Support` vers le bit support existant. Le résultat ne dépend ni de la taille des chunks de rendu ni du nombre de workers. Les sections dynamiques basse et haute utilisent le même index et conservent donc les couleurs du mesh principal.
+
+L'étiquette sémantique reste dans le bit 60 de `PackedSurfaceQuad` ; l'orientation de face reste dans les bits 61..63. La taille d'instance reste de 8 octets et la réduction structurelle de 15× est inchangée. Le provider sémantique est contrôlé avant maillage : ses dimensions doivent correspondre au masque matière et il ne peut introduire aucun pixel hors de la matière PWSZ native.
+
+La case **Supports** commande ce chemin optionnel. Un fichier chargé initialement avec l'option désactivée utilise le chemin classique sans analyse. Son activation sur une telle scène relance un chargement complet en deux passes. Sa désactivation après une construction analysée restaure immédiatement la couleur classique dans le shader ; l'index déjà calculé peut rester attaché à cette scène, mais les chargements suivants effectués avec l'option désactivée ignorent totalement l'analyse. Aucun mode ne masque, n'ajoute ou ne retire de matière.
+
+La modal du viewport expose la phase active via `viewer.loadingPhase`. La progression est pondérée par le travail de décodage réel : toutes les couches natives analysées pendant la passe 1, puis toutes les couches échantillonnées maillées pendant la passe 2. Les diagnostics runtime sont écrits dans `render3d.jsonl` avec le composant `support_analysis` et les événements `started`, `progress`, `phase_detected`, `completed`, `cancelled`, `failed` et `materialization_failed`. Les logs contiennent uniquement des compteurs agrégés et les bornes de phases, jamais les composants ou runs individuels.
+
+L'exécutable de diagnostic est disponible uniquement avec le core expérimental du viewer :
+
+```bash
+accloud_support_analysis_probe entree.pwsz --output analyse.json
+accloud_support_analysis_probe entree.pwsz --verify-materialization
+accloud_support_analysis_probe entree.pwsz \
+  --dump-layer 101 --dump-ppm couche-101.ppm --downsample 8
+```
+
+`--verify-materialization` relit toutes les couches natives et vérifie que l'index compact recrée exactement les totaux de runs radeau/support enregistrés. Les dumps PPM sont uniquement des diagnostics et ne constituent pas des ressources runtime.
 
 ### Représentation GPU compacte
 
@@ -234,9 +266,12 @@ accloud_experimental_viewer_scaffold
 accloud_pw0_decode
 accloud_pwsz_reader
 accloud_layer_stack_mesher
+accloud_support_analyzer
 accloud_render_pipeline
 accloud_viewer_controls
 ```
+
+`accloud_support_analyzer` valide le radeau obligatoire, les phases supports seuls et mixtes, une forêt de supports enracinée sans fusion structurelle, les divisions de branches, les croisillons approximativement à 45 degrés, les supports démarrant sur la pièce, le rétrécissement terminal, le rejet des coques creuses, les index compacts déterministes, l'annulation et la rematérialisation exacte couche par couche.
 
 `accloud_render_pipeline` valide la comptabilité compacte de la file bornée, le format 8 octets, l'encodage du bit sémantique, l'expansion géométrique exacte, le ratio 15× inchangé, le budget GPU simulé, une pièce synthétique complète de 250 mm, la consommation streaming, l’annulation, la sélection des chunks, les plans Z exacts, les sections pleines, les cavités conservées, les îlots de supports séparés, la classification conservatrice support/fusion/radeau, la conservation de la sémantique dans le cache de sections de 8 octets et son éviction LRU bornée.
 

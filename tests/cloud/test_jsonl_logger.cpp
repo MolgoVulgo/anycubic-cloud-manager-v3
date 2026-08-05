@@ -66,6 +66,15 @@ bool test_render3d_events_have_a_dedicated_sink() {
       "build_started",
       {},
       {{"generation", "7"}, {"layer_step", "2"}});
+  accloud::logging::log(
+      accloud::logging::Level::kDebug,
+      "render3d",
+      "support_analysis",
+      "completed",
+      {},
+      {{"generation", "7"},
+       {"raft_last_layer", "10"},
+       {"support_runs", "42"}});
   accloud::logging::shutdown();
 
   const std::filesystem::path dedicatedPath = logDir / "render3d.jsonl";
@@ -80,7 +89,16 @@ bool test_render3d_events_have_a_dedicated_sink() {
       && expect(line.find("\"event\":\"build_started\"") != std::string::npos,
                 "Dedicated Render3D log must preserve generation events")
       && expect(line.find("\"layer_step\":\"2\"") != std::string::npos,
-                "Dedicated Render3D log must preserve sampling diagnostics");
+                "Dedicated Render3D log must preserve sampling diagnostics")
+      && expect(line.find("\"component\":\"support_analysis\"")
+                    != std::string::npos,
+                "Dedicated Render3D log must preserve support-analysis events")
+      && expect(line.find("\"raft_last_layer\":\"10\"")
+                    != std::string::npos,
+                "Support-analysis logs must preserve phase diagnostics")
+      && expect(line.find("\"support_runs\":\"42\"")
+                    != std::string::npos,
+                "Support-analysis logs must preserve semantic summaries");
 
   std::filesystem::remove_all(logDir, ec);
   return ok;
