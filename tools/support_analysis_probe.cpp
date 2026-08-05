@@ -181,26 +181,64 @@ bool writeLayerPpm(
   std::vector<std::uint8_t> pixels(
       static_cast<std::size_t>(outputWidth) * outputHeight, 0u);
 
-  const auto mark = [&](std::uint32_t x, std::uint32_t y, std::uint8_t value) {
-    if (x < bounds.minX || x >= bounds.maxX || y < bounds.minY || y >= bounds.maxY) {
+  const auto markRange = [&](std::uint32_t y,
+                             std::uint32_t firstX,
+                             std::uint32_t lastX,
+                             std::uint8_t value) {
+    if (y < bounds.minY || y >= bounds.maxY
+        || lastX <= bounds.minX || firstX >= bounds.maxX) {
       return;
     }
-    const auto outputX = (x - bounds.minX) / downsample;
+    const auto first = std::max(firstX, bounds.minX);
+    const auto last = std::min(lastX, bounds.maxX);
+    if (first >= last) {
+      return;
+    }
+    const auto firstBlock = (first - bounds.minX) / downsample;
+    const auto lastBlock = (last - 1u - bounds.minX) / downsample;
     const auto outputY = (y - bounds.minY) / downsample;
-    auto& destination = pixels[static_cast<std::size_t>(outputY) * outputWidth + outputX];
-    destination = std::max(destination, value);
+    for (std::uint32_t outputX = firstBlock; outputX <= lastBlock; ++outputX) {
+      auto& destination = pixels[static_cast<std::size_t>(outputY) * outputWidth + outputX];
+      destination = std::max(destination, value);
+    }
   };
 
+  // Rasterise contiguous material runs directly into downsampled output cells.
+  // This avoids one mark operation per exposed pixel on dense real-world layers.
   for (std::uint32_t y = bounds.minY; y < bounds.maxY; ++y) {
     const auto firstWord = bounds.minX / 64u;
     const auto lastWord = (bounds.maxX + 63u) / 64u;
     for (std::size_t wordIndex = firstWord; wordIndex < lastWord; ++wordIndex) {
+      const auto wordFirstX = static_cast<std::uint32_t>(wordIndex * 64u);
+      const auto clippedFirstX = std::max(bounds.minX, wordFirstX);
+      const auto clippedLastX = std::min(bounds.maxX, wordFirstX + 64u);
+      if (clippedFirstX >= clippedLastX) {
+        continue;
+      }
+
       std::uint64_t word = material->rowWord(y, wordIndex);
+      const auto firstBit = clippedFirstX - wordFirstX;
+      const auto lastBit = clippedLastX - wordFirstX;
+      const auto lowerMask = firstBit == 0u
+                                 ? std::numeric_limits<std::uint64_t>::max()
+                                 : std::numeric_limits<std::uint64_t>::max() << firstBit;
+      const auto upperMask = lastBit == 64u
+                                 ? std::numeric_limits<std::uint64_t>::max()
+                                 : (std::uint64_t{1} << lastBit) - 1u;
+      word &= lowerMask & upperMask;
+
       while (word != 0u) {
-        const auto bit = static_cast<std::uint32_t>(std::countr_zero(word));
-        const auto x = static_cast<std::uint32_t>(wordIndex * 64u) + bit;
-        mark(x, y, 1u);
-        word &= word - 1u;
+        const auto firstSet = static_cast<std::uint32_t>(std::countr_zero(word));
+        const auto shifted = word >> firstSet;
+        const auto runLength = static_cast<std::uint32_t>(std::countr_one(shifted));
+        markRange(y, wordFirstX + firstSet,
+                  wordFirstX + firstSet + runLength, 1u);
+        if (runLength == 64u - firstSet) {
+          word = 0u;
+        } else {
+          const auto runMask = ((std::uint64_t{1} << runLength) - 1u) << firstSet;
+          word &= ~runMask;
+        }
       }
     }
   }
@@ -213,15 +251,7 @@ bool writeLayerPpm(
         || run.lastX <= bounds.minX || run.firstX >= bounds.maxX) {
       continue;
     }
-    const auto first = std::max(run.firstX, bounds.minX);
-    const auto last = std::min(run.lastX, bounds.maxX);
-    const auto firstBlock = (first - bounds.minX) / downsample;
-    const auto lastBlock = (last - 1u - bounds.minX) / downsample;
-    const auto outputY = (run.y - bounds.minY) / downsample;
-    for (std::uint32_t outputX = firstBlock; outputX <= lastBlock; ++outputX) {
-      auto& destination = pixels[static_cast<std::size_t>(outputY) * outputWidth + outputX];
-      destination = std::max(destination, value);
-    }
+    markRange(run.y, run.firstX, run.lastX, value);
   }
 
   std::ofstream file(path, std::ios::binary);
@@ -327,11 +357,29 @@ int main(int argc, char** argv) {
       {"accepted_nodes", result.summary.acceptedNodeCount},
       {"raft_runs", result.summary.raftRunCount},
       {"support_runs", result.summary.supportRunCount},
+      {"free_support_runs", result.summary.freeSupportRunCount},
+      {"projected_support_runs", result.summary.projectedSupportRunCount},
+      {"projected_contact_pixels", result.summary.projectedContactPixelCount},
+      {"rejected_projection_runs", result.summary.rejectedProjectionRunCount},
+      {"rejected_growth_pixels", result.summary.rejectedGrowthPixelCount},
+      {"untapered_model_contacts", result.summary.untaperedModelContactCount},
+      {"contacts_without_valid_projection",
+       result.summary.contactsWithoutValidProjectionCount},
+      {"maximum_contact_growth_ratio", result.summary.maximumContactGrowthRatio},
+      {"terminal_support_stops", result.summary.terminalSupportStopCount},
+      {"expanding_model_contacts", result.summary.expandingModelContactCount},
+      {"maximum_model_expansion_ratio", result.summary.maximumModelExpansionRatio},
       {"continuations", result.summary.continuationEdgeCount},
       {"splits", result.summary.splitEdgeCount},
       {"braces", result.summary.braceEdgeCount},
       {"model_contacts", result.summary.modelContactEdgeCount},
+      {"forced_semantic_samples", result.summary.forcedSemanticSampleCount},
   };
+
+  output["forced_sample_layers"] = nlohmann::json::array();
+  for (const auto layer : result.forcedSampleLayers) {
+    output["forced_sample_layers"].push_back(layer + 1u);
+  }
 
   output["node_kinds"] = nlohmann::json::object();
   for (const auto& node : result.nodes) {
@@ -345,6 +393,7 @@ int main(int argc, char** argv) {
         {"layer", layer.layer + 1u},
         {"phase", phaseName(layer.phase)},
         {"support_components", layer.supportComponentIds.size()},
+        {"projected_support_runs", layer.projectedSupportRuns.size()},
     });
   }
 

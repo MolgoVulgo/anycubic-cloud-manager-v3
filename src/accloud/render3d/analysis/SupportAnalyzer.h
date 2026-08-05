@@ -50,6 +50,7 @@ struct LayerSemanticIndex {
   std::size_t layer = 0;
   PrintPhase phase = PrintPhase::ModelMostly;
   std::vector<std::uint32_t> supportComponentIds;
+  std::vector<SemanticRun> projectedSupportRuns;
 };
 
 struct SupportGraphNode {
@@ -87,6 +88,7 @@ struct SupportAnalysisOptions {
   double braceMinimumSlope = 0.55;
   double braceMaximumSlope = 1.65;
   double terminalTaperRatio = 0.72;
+  double modelRootTaperRatio = 0.72;
 };
 
 struct SupportAnalysisCallbacks {
@@ -102,11 +104,23 @@ struct SupportAnalysisSummary {
   std::size_t candidateNodeCount = 0;
   std::size_t acceptedNodeCount = 0;
   std::size_t supportRunCount = 0;
+  std::size_t freeSupportRunCount = 0;
+  std::size_t projectedSupportRunCount = 0;
+  std::size_t projectedContactPixelCount = 0;
+  std::size_t rejectedProjectionRunCount = 0;
+  std::size_t rejectedGrowthPixelCount = 0;
+  std::size_t untaperedModelContactCount = 0;
+  std::size_t contactsWithoutValidProjectionCount = 0;
+  double maximumContactGrowthRatio = 0.0;
+  std::size_t terminalSupportStopCount = 0;
+  std::size_t expandingModelContactCount = 0;
+  double maximumModelExpansionRatio = 0.0;
   std::size_t raftRunCount = 0;
   std::size_t continuationEdgeCount = 0;
   std::size_t splitEdgeCount = 0;
   std::size_t braceEdgeCount = 0;
   std::size_t modelContactEdgeCount = 0;
+  std::size_t forcedSemanticSampleCount = 0;
 };
 
 struct SupportAnalysisResult {
@@ -117,6 +131,11 @@ struct SupportAnalysisResult {
   std::vector<LayerSemanticIndex> layers;
   std::vector<SupportGraphNode> nodes;
   std::vector<SupportGraphEdge> edges;
+  // Exact source layers that the second-pass mesher must retain in addition
+  // to its regular preview stride. Each terminal head contributes its last
+  // free layer and its first model-contact layer, preventing support matter
+  // from being extruded across a skipped semantic transition.
+  std::vector<std::size_t> forcedSampleLayers;
 };
 
 class SupportAnalyzer {

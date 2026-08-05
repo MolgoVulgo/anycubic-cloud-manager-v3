@@ -113,13 +113,32 @@ bool compactIndexIsCanonical(
   return std::all_of(
       result.layers.begin(), result.layers.end(),
       [](const auto& layer) {
-        return std::is_sorted(
+        const bool componentIdsCanonical = std::is_sorted(
+            layer.supportComponentIds.begin(), layer.supportComponentIds.end())
+            && std::adjacent_find(
                    layer.supportComponentIds.begin(),
                    layer.supportComponentIds.end())
-               && std::adjacent_find(
-                      layer.supportComponentIds.begin(),
-                      layer.supportComponentIds.end())
-                      == layer.supportComponentIds.end();
+                   == layer.supportComponentIds.end();
+        const bool projectedCanonical = std::is_sorted(
+            layer.projectedSupportRuns.begin(),
+            layer.projectedSupportRuns.end(),
+            [](const auto& left, const auto& right) {
+              if (left.y != right.y) {
+                return left.y < right.y;
+              }
+              if (left.firstX != right.firstX) {
+                return left.firstX < right.firstX;
+              }
+              return left.lastX < right.lastX;
+            })
+            && std::adjacent_find(
+                   layer.projectedSupportRuns.begin(),
+                   layer.projectedSupportRuns.end(),
+                   [](const auto& left, const auto& right) {
+                     return left.y == right.y && right.firstX <= left.lastX;
+                   })
+                   == layer.projectedSupportRuns.end();
+        return componentIdsCanonical && projectedCanonical;
       });
 }
 
@@ -148,6 +167,23 @@ bool materializationMatchesSummary(
          && raftRuns == result.summary.raftRunCount;
 }
 
+bool forcedSamplesAreCanonical(
+    const accloud::render3d::SupportAnalysisResult& result) {
+  return std::is_sorted(
+             result.forcedSampleLayers.begin(),
+             result.forcedSampleLayers.end())
+         && std::adjacent_find(
+                result.forcedSampleLayers.begin(),
+                result.forcedSampleLayers.end())
+                == result.forcedSampleLayers.end()
+         && std::all_of(
+                result.forcedSampleLayers.begin(),
+                result.forcedSampleLayers.end(),
+                [&](std::size_t layer) { return layer < result.layers.size(); })
+         && result.summary.forcedSemanticSampleCount
+                == result.forcedSampleLayers.size();
+}
+
 accloud::render3d::SupportAnalysisOptions testOptions() {
   accloud::render3d::SupportAnalysisOptions options;
   options.pitchXMillimetres = 0.1;
@@ -163,6 +199,7 @@ accloud::render3d::SupportAnalysisOptions testOptions() {
   options.braceMinimumSlope = 0.55;
   options.braceMaximumSlope = 1.65;
   options.terminalTaperRatio = 0.72;
+  options.modelRootTaperRatio = 0.72;
   return options;
 }
 
@@ -250,6 +287,37 @@ std::vector<accloud::photons::BinaryMask> makeMixedPhaseContinuationScene() {
   return layers;
 }
 
+std::vector<accloud::photons::BinaryMask> makeDelayedTerminalContactScene() {
+  constexpr std::uint32_t width = 40;
+  constexpr std::uint32_t height = 30;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 11; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 24, 37, 29);
+  fillRect(layers[1], 3, 24, 37, 29);
+  for (int layer = 2; layer <= 5; ++layer) {
+    addSquare(layers[layer], 20, 21, 1);
+  }
+
+  // The part appears close to the support while the branch continues and
+  // narrows for several more layers. Proximity alone must not project the
+  // still-wide pillar into the part.
+  for (int layer = 5; layer <= 8; ++layer) {
+    fillRect(layers[layer], 8, 4, 32, 17);
+  }
+  addSquare(layers[6], 20, 20, 1);
+  addSquare(layers[7], 20, 19, 0);
+  addSquare(layers[8], 20, 18, 0);
+
+  // The first real contact occurs only after the terminal one-pixel head has
+  // no continuation on the next layer.
+  fillRect(layers[9], 8, 4, 32, 19);
+  fillRect(layers[10], 7, 3, 33, 19);
+  return layers;
+}
+
 std::vector<accloud::photons::BinaryMask> makeModelRootedSupportScene() {
   constexpr std::uint32_t width = 44;
   constexpr std::uint32_t height = 32;
@@ -275,6 +343,33 @@ std::vector<accloud::photons::BinaryMask> makeModelRootedSupportScene() {
   // Upper model island contacted by the narrowed head.
   fillRect(layers[11], 24, 4, 39, 14);
   fillRect(layers[12], 23, 3, 40, 14);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeUntaperedModelRootScene() {
+  constexpr std::uint32_t width = 44;
+  constexpr std::uint32_t height = 32;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 13; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 3, 25, 41, 31);
+  fillRect(layers[1], 3, 25, 41, 31);
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 25, 1);
+  }
+  for (int layer = 5; layer < 13; ++layer) {
+    fillRect(layers[layer], 4, 8, 16, 25);
+  }
+  // This protrusion starts with its maximum section. It may taper at the
+  // upper contact, but it is a model feature rather than a support born on
+  // the part because the required narrow root is absent.
+  for (int layer = 6; layer <= 9; ++layer) {
+    addSquare(layers[layer], 20 + static_cast<std::uint32_t>(layer - 6), 18, 1);
+  }
+  addSquare(layers[10], 24, 18, 0);
+  fillRect(layers[11], 23, 4, 39, 18);
+  fillRect(layers[12], 22, 3, 40, 18);
   return layers;
 }
 
@@ -337,6 +432,9 @@ int main() {
                 "every support head must carry a validated terminal taper");
   ok &= require(compactIndexIsCanonical(branched),
                 "the compact semantic index must keep sorted unique component ids");
+  ok &= require(forcedSamplesAreCanonical(branched)
+                    && branched.summary.forcedSemanticSampleCount > 0,
+                "terminal heads must expose sorted unique mandatory mesh samples");
   ok &= require(countSemanticRuns(branched, accloud::render3d::MaterialSemantic::Support) > 0,
                 "accepted graph nodes must produce support semantic runs");
   ok &= require(countSemanticRuns(branched, accloud::render3d::MaterialSemantic::Raft) > 0,
@@ -354,6 +452,29 @@ int main() {
                                  == accloud::render3d::MaterialSemantic::Support;
                         }),
                 "mixed-phase materialization must expose only classified support runs");
+  std::vector<accloud::render3d::SemanticRun> contactLayerSemantics;
+  ok &= require(analyzer.materializeLayerSemantics(
+                    branchedLayers[10],
+                    branched.layers[10],
+                    contactLayerSemantics,
+                    materializeError),
+                "the first model-contact layer must rematerialize successfully");
+  ok &= require(contactLayerSemantics.empty()
+                    && branched.layers[10].projectedSupportRuns.empty(),
+                "a larger model component must never inherit support semantics at contact");
+  ok &= require(branched.summary.projectedSupportRunCount == 0u
+                    && branched.summary.projectedContactPixelCount == 0u
+                    && branched.summary.maximumContactGrowthRatio == 0.0,
+                "support semantics must stop on the last free head layer");
+  ok &= require(branched.summary.terminalSupportStopCount >= 2u
+                    && branched.summary.expandingModelContactCount >= 2u
+                    && branched.summary.maximumModelExpansionRatio > 1.0
+                    && branched.summary.rejectedGrowthPixelCount > 0u,
+                "small tapered heads followed by larger sections must terminate before the model");
+  ok &= require(branched.summary.freeSupportRunCount > 0
+                    && branched.summary.supportRunCount
+                           == branched.summary.freeSupportRunCount,
+                "support summaries must contain only free support matter");
   ok &= require(materializationMatchesSummary(analyzer, branchedLayers, branched),
                 "all compact layer indices must rematerialize the recorded run totals");
 
@@ -371,8 +492,10 @@ int main() {
     untaperedSupportInsideModel = untaperedSupportInsideModel
                                   || layerHasSupport(untapered.layers[layer]);
   }
-  ok &= require(!untaperedSupportInsideModel,
-                "an untapered contact must not project support semantics into the part");
+  ok &= require(!untaperedSupportInsideModel
+                    && untapered.summary.untaperedModelContactCount > 0
+                    && untapered.summary.projectedSupportRunCount == 0u,
+                "an untapered contact must be rejected without entering the model");
 
   auto mixedLayers = makeMixedPhaseContinuationScene();
   VectorSource mixedSource(mixedLayers);
@@ -389,6 +512,33 @@ int main() {
   ok &= require(countNodeKind(mixed, accloud::render3d::SupportNodeKind::Head) >= 1,
                 "a narrowed mixed-phase branch must expose a terminal head");
 
+  auto delayedContactLayers = makeDelayedTerminalContactScene();
+  VectorSource delayedContactSource(delayedContactLayers);
+  const auto delayedContact = analyzer.analyze(delayedContactSource, testOptions());
+  ok &= require(delayedContact.ok,
+                "delayed terminal-contact analysis must succeed");
+  bool prematureProjection = false;
+  for (std::size_t layer = delayedContact.summary.firstModelLayer;
+       layer < 9u && layer < delayedContact.layers.size(); ++layer) {
+    prematureProjection = prematureProjection
+                          || !delayedContact.layers[layer].projectedSupportRuns.empty();
+  }
+  ok &= require(!prematureProjection,
+                "a branch that still continues must not project into a nearby part");
+  ok &= require(delayedContact.layers[9].projectedSupportRuns.empty()
+                    && delayedContact.summary.projectedContactPixelCount == 0u
+                    && delayedContact.summary.terminalSupportStopCount == 1u
+                    && delayedContact.summary.expandingModelContactCount == 1u
+                    && delayedContact.summary.maximumModelExpansionRatio > 1.0,
+                "the final one-pixel head must stop before the larger model section");
+  ok &= require(std::binary_search(
+                    delayedContact.forcedSampleLayers.begin(),
+                    delayedContact.forcedSampleLayers.end(), 8u)
+                    && std::binary_search(
+                        delayedContact.forcedSampleLayers.begin(),
+                        delayedContact.forcedSampleLayers.end(), 9u),
+                "the last free head and first contact layer must both be mandatory samples");
+
   auto modelRootedLayers = makeModelRootedSupportScene();
   VectorSource modelRootedSource(modelRootedLayers);
   const auto modelRooted = analyzer.analyze(modelRootedSource, testOptions());
@@ -401,6 +551,21 @@ int main() {
                              && node.terminalTaper;
                     }),
                 "a support starting on the model must begin independently and taper at contact");
+
+  auto untaperedModelRootLayers = makeUntaperedModelRootScene();
+  VectorSource untaperedModelRootSource(untaperedModelRootLayers);
+  const auto untaperedModelRoot = analyzer.analyze(
+      untaperedModelRootSource, testOptions());
+  ok &= require(untaperedModelRoot.ok,
+                "untapered model-root analysis must succeed");
+  ok &= require(std::none_of(
+                    untaperedModelRoot.nodes.begin(),
+                    untaperedModelRoot.nodes.end(),
+                    [](const auto& node) {
+                      return node.rootedInModel
+                             && node.kind == accloud::render3d::SupportNodeKind::Head;
+                    }),
+                "a model protrusion without a narrow root must never become a support");
 
   auto hollowLayers = makeHollowModelScene();
   VectorSource hollowSource(hollowLayers);
@@ -423,7 +588,19 @@ int main() {
   const auto second = analyzer.analyze(deterministicSourceB, testOptions());
   ok &= require(first.summary.acceptedNodeCount == second.summary.acceptedNodeCount
                     && first.summary.supportRunCount == second.summary.supportRunCount
-                    && first.summary.braceEdgeCount == second.summary.braceEdgeCount,
+                    && first.summary.braceEdgeCount == second.summary.braceEdgeCount
+                    && first.summary.projectedContactPixelCount
+                           == second.summary.projectedContactPixelCount
+                    && first.summary.rejectedGrowthPixelCount
+                           == second.summary.rejectedGrowthPixelCount
+                    && first.summary.maximumContactGrowthRatio
+                           == second.summary.maximumContactGrowthRatio
+                    && first.summary.terminalSupportStopCount
+                           == second.summary.terminalSupportStopCount
+                    && first.summary.expandingModelContactCount
+                           == second.summary.expandingModelContactCount
+                    && first.summary.maximumModelExpansionRatio
+                           == second.summary.maximumModelExpansionRatio,
                 "support graph analysis must be deterministic");
 
   std::vector<accloud::photons::BinaryMask> emptyRaftLayers;

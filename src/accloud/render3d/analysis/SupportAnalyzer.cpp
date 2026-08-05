@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <limits>
 #include <map>
-#include <numeric>
 #include <numbers>
 #include <optional>
 #include <queue>
@@ -256,6 +255,9 @@ struct NodeState {
   bool supportContact = false;
   std::size_t contactNode = std::numeric_limits<std::size_t>::max();
   std::size_t branchOrigin = std::numeric_limits<std::size_t>::max();
+  std::size_t contactLayer = std::numeric_limits<std::size_t>::max();
+  std::size_t contactModelPixelCount = 0;
+  double contactModelExpansionRatio = 0.0;
 };
 
 struct Match {
@@ -321,6 +323,29 @@ std::vector<Match> matchingPreviousNodes(
     return left.previousNode < right.previousNode;
   });
   return matches;
+}
+
+bool hasModelRootTaper(
+    std::size_t nodeId,
+    const std::vector<NodeState>& states,
+    const SupportAnalysisOptions& options) {
+  std::size_t cursor = nodeId;
+  std::size_t root = nodeId;
+  std::size_t maximumArea = states[nodeId].component.area;
+  std::size_t observed = 0;
+  while (cursor != std::numeric_limits<std::size_t>::max()) {
+    root = cursor;
+    maximumArea = std::max(maximumArea, states[cursor].component.area);
+    cursor = states[cursor].parent;
+    ++observed;
+  }
+  if (observed < options.minimumTrackLayers || maximumArea == 0) {
+    return false;
+  }
+  const auto rootArea = states[root].component.area;
+  return maximumArea > rootArea
+         && static_cast<double>(rootArea)
+                <= static_cast<double>(maximumArea) * options.modelRootTaperRatio;
 }
 
 bool hasTerminalTaper(
@@ -402,7 +427,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       || !(options.pitchYMillimetres > 0.0)
       || !(options.pitchZMillimetres > 0.0)
       || options.maximumRaftLayers == 0
-      || options.minimumTrackLayers == 0) {
+      || options.minimumTrackLayers == 0
+      || !(options.terminalTaperRatio > 0.0 && options.terminalTaperRatio <= 1.0)
+      || !(options.modelRootTaperRatio > 0.0 && options.modelRootTaperRatio <= 1.0)) {
     result.error = "support analysis options are invalid";
     return result;
   }
@@ -481,6 +508,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
     std::vector<std::size_t> currentCandidateNodes;
     std::vector<bool> currentIsCandidate(current.components.size(), false);
+    const auto previousStateCount = states.size();
+    std::vector<bool> previousHasStructuralChild(previousStateCount, false);
     for (std::size_t index = 0; index < current.components.size(); ++index) {
       currentIsCandidate[index] = supportOnlyLayer
                                   || candidateShape(current.components[index], options);
@@ -546,6 +575,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       lastLayerWithCandidate = layer;
 
       if (parent != std::numeric_limits<std::size_t>::max()) {
+        if (parent < previousHasStructuralChild.size()) {
+          previousHasStructuralChild[parent] = true;
+        }
         std::size_t siblingCount = 0;
         for (const auto candidateNode : currentCandidateNodes) {
           if (states[candidateNode].parent == parent) {
@@ -592,9 +624,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
 
     // A compact branch that reaches a non-compact component has touched the
-    // part. The branch remains independent; the part is not absorbed into the
-    // support graph.
+    // part. The branch remains independent and stops on its last free layer.
+    // The larger connected component on the contact layer is model matter in
+    // full: support semantics are never projected into it.
     for (const auto previousNode : previousCandidateNodes) {
+      // A branch that still has a continuation or a split on this layer has
+      // not reached its terminal head yet. Proximity to a large model
+      // component must not create an early contact projection while the
+      // branch is still narrowing beside the part.
+      if (previousNode < previousHasStructuralChild.size()
+          && previousHasStructuralChild[previousNode]) {
+        continue;
+      }
       const auto& previousComponent = states[previousNode].component;
       for (std::size_t index = 0; index < current.components.size(); ++index) {
         if (currentIsCandidate[index]) {
@@ -604,6 +645,12 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           continue;
         }
         states[previousNode].modelContact = true;
+        states[previousNode].contactLayer = layer;
+        states[previousNode].contactModelPixelCount = current.components[index].area;
+        states[previousNode].contactModelExpansionRatio = previousComponent.area == 0u
+            ? 0.0
+            : static_cast<double>(current.components[index].area)
+                  / static_cast<double>(previousComponent.area);
         result.edges.push_back(SupportGraphEdge{
             previousNode, previousNode, SupportEdgeKind::ModelContact});
         ++result.summary.modelContactEdgeCount;
@@ -658,9 +705,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     if (!state.modelContact || state.depth < options.minimumTrackLayers) {
       continue;
     }
-    const bool rooted = result.nodes[state.nodeId].rootedInRaft
-                        || result.nodes[state.nodeId].rootedInModel;
-    if (!rooted || !hasTerminalTaper(state.nodeId, states, options)) {
+    const bool rootedInRaft = result.nodes[state.nodeId].rootedInRaft;
+    const bool rootedInModel = result.nodes[state.nodeId].rootedInModel;
+    const bool validModelRoot = !rootedInModel
+                                || rootedInRaft
+                                || hasModelRootTaper(state.nodeId, states, options);
+    if ((!rootedInRaft && !rootedInModel)
+        || !validModelRoot
+        || !hasTerminalTaper(state.nodeId, states, options)) {
       continue;
     }
     state.accepted = true;
@@ -748,11 +800,46 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     auto& layer = result.layers[result.nodes[state.nodeId].layer];
     layer.supportComponentIds.push_back(
         static_cast<std::uint32_t>(state.component.localId));
-    result.summary.supportRunCount += state.runCount;
+    result.summary.freeSupportRunCount += state.runCount;
     result.summary.lastSupportLayer = std::max(
         result.summary.lastSupportLayer, result.nodes[state.nodeId].layer);
+
+    if (state.modelContact && state.contactLayer < result.layers.size()) {
+      result.forcedSampleLayers.push_back(result.nodes[state.nodeId].layer);
+      result.forcedSampleLayers.push_back(state.contactLayer);
+    }
+
+    if (state.modelContact
+        && result.nodes[state.nodeId].terminalTaper
+        && state.contactLayer < result.layers.size()) {
+      ++result.summary.terminalSupportStopCount;
+      result.summary.maximumModelExpansionRatio = std::max(
+          result.summary.maximumModelExpansionRatio,
+          state.contactModelExpansionRatio);
+      if (state.contactModelExpansionRatio > 1.0) {
+        ++result.summary.expandingModelContactCount;
+      }
+      const auto terminalPixels = states[state.nodeId].component.area;
+      if (state.contactModelPixelCount > terminalPixels) {
+        result.summary.rejectedGrowthPixelCount +=
+            state.contactModelPixelCount - terminalPixels;
+      }
+      // The contact component is the model. Deliberately keep the projected
+      // support run list empty: the terminal support ends on the preceding
+      // free layer and no pixel of the larger component inherits Support.
+    } else if (state.modelContact) {
+      if (!result.nodes[state.nodeId].terminalTaper) {
+        ++result.summary.untaperedModelContactCount;
+      }
+    }
   }
 
+
+  std::sort(result.forcedSampleLayers.begin(), result.forcedSampleLayers.end());
+  result.forcedSampleLayers.erase(
+      std::unique(result.forcedSampleLayers.begin(), result.forcedSampleLayers.end()),
+      result.forcedSampleLayers.end());
+  result.summary.forcedSemanticSampleCount = result.forcedSampleLayers.size();
 
   for (std::size_t layer = result.summary.raftLastLayer + 1;
        layer < result.layers.size(); ++layer) {
@@ -767,8 +854,34 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     std::sort(componentIds.begin(), componentIds.end());
     componentIds.erase(
         std::unique(componentIds.begin(), componentIds.end()), componentIds.end());
+
+    auto& projected = result.layers[layer].projectedSupportRuns;
+    std::sort(projected.begin(), projected.end(), [](const SemanticRun& left,
+                                                     const SemanticRun& right) {
+      if (left.y != right.y) {
+        return left.y < right.y;
+      }
+      if (left.firstX != right.firstX) {
+        return left.firstX < right.firstX;
+      }
+      return left.lastX < right.lastX;
+    });
+    std::vector<SemanticRun> merged;
+    for (const auto& run : projected) {
+      if (!merged.empty()
+          && merged.back().y == run.y
+          && run.firstX <= merged.back().lastX) {
+        merged.back().lastX = std::max(merged.back().lastX, run.lastX);
+      } else {
+        merged.push_back(run);
+      }
+    }
+    projected = std::move(merged);
+    result.summary.projectedSupportRunCount += projected.size();
   }
 
+  result.summary.supportRunCount = result.summary.freeSupportRunCount
+                                   + result.summary.projectedSupportRunCount;
   result.ok = true;
   return result;
 }
@@ -806,6 +919,10 @@ bool SupportAnalyzer::materializeLayerSemantics(
       runs.push_back(run);
     }
   }
+  runs.insert(
+      runs.end(),
+      index.projectedSupportRuns.begin(),
+      index.projectedSupportRuns.end());
   std::sort(runs.begin(), runs.end(), [](const SemanticRun& left, const SemanticRun& right) {
     if (left.y != right.y) {
       return left.y < right.y;
@@ -815,6 +932,18 @@ bool SupportAnalyzer::materializeLayerSemantics(
     }
     return left.lastX < right.lastX;
   });
+  std::vector<SemanticRun> merged;
+  for (const auto& run : runs) {
+    if (!merged.empty()
+        && merged.back().semantic == run.semantic
+        && merged.back().y == run.y
+        && run.firstX <= merged.back().lastX) {
+      merged.back().lastX = std::max(merged.back().lastX, run.lastX);
+    } else {
+      merged.push_back(run);
+    }
+  }
+  runs = std::move(merged);
   error.clear();
   return true;
 }

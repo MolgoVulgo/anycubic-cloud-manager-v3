@@ -296,10 +296,25 @@ def main() -> int:
     for token in (
         "constexpr std::size_t kViewerLayerStride = 2",
         "options.layerStride = kViewerLayerStride",
-        "sampledMaskLayer(std::size_t layer)",
     ):
         if token not in qml_item_cpp:
             errors.append(f"missing fixed quick-preview contract token: {token}")
+    if not re.search(
+        r"sampledMaskLayer\(\s*std::size_t\s+layer,\s*"
+        r"const\s+SupportAnalysisResult\*\s+supportAnalysis\s*=\s*nullptr\s*\)",
+        qml_item_cpp,
+        flags=re.DOTALL,
+    ):
+        errors.append(
+            "dynamic cut surfaces must retain the fixed stride and accept "
+            "support-analysis forced samples"
+        )
+    for token in (
+        "supportAnalysis->forcedSampleLayers",
+        "options.forcedSampleLayers = analysis->forcedSampleLayers",
+    ):
+        if token not in qml_item_cpp:
+            errors.append(f"missing adaptive semantic-sampling contract token: {token}")
     if "Q_PROPERTY(int workerCount" not in qml_item_header or "int workerCount_ = 4" not in qml_item_header:
         errors.append("QmlGlItem must expose four mesh workers by default")
     if "std::size_t layerStride = 1" not in mesher_header:
@@ -317,6 +332,21 @@ def main() -> int:
     ):
         if token not in mesher_header:
             errors.append(f"missing parallel mesher contract token: {token}")
+    if "QString::number(summary.maximumContactGrowthRatio" in qml_item_cpp:
+        errors.append(
+            "Render3D FieldMap values must remain std::string; "
+            "maximum_contact_growth_ratio must use text(...)"
+        )
+    if not re.search(
+        r'\{"maximum_contact_growth_ratio",\s*'
+        r'text\(summary\.maximumContactGrowthRatio\)\}',
+        qml_item_cpp,
+    ):
+        errors.append(
+            "support-analysis completion log must serialize "
+            "maximum_contact_growth_ratio through text(...)"
+        )
+
     for token in (
         'kRender3dLogSource = "render3d"',
         "options.layerStride",

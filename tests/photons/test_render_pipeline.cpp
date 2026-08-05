@@ -410,6 +410,79 @@ int main() {
                   "sampled mesh must preserve the original Z extent");
   }
 
+  accloud::photons::BinaryMask transitionMaterial(1, 1);
+  transitionMaterial.set(0, 0, true);
+  const std::vector<accloud::photons::BinaryMask> transitionMasks = {
+      transitionMaterial, transitionMaterial, transitionMaterial};
+  const auto transitionProvider = [](
+      std::size_t layer,
+      const accloud::photons::BinaryMask& material,
+      accloud::photons::BinaryMask& supportMask,
+      std::string&) {
+    supportMask = accloud::photons::BinaryMask(material.width(), material.height());
+    if (layer == 0u) {
+      supportMask = material;
+    }
+    return true;
+  };
+
+  accloud::render3d::MeshBuildOptions skippedTransitionOptions = options;
+  skippedTransitionOptions.pitchXMm = 1.0;
+  skippedTransitionOptions.pitchYMm = 1.0;
+  skippedTransitionOptions.pitchZMm = 1.0;
+  skippedTransitionOptions.layerStride = 2;
+  skippedTransitionOptions.chunkLayerCount = 4;
+  skippedTransitionOptions.classifySupports = true;
+  skippedTransitionOptions.supportMaskProvider = transitionProvider;
+  VectorSource skippedTransitionSource(transitionMasks);
+  const auto skippedTransition = mesher.build(
+      skippedTransitionSource, {0, 2}, skippedTransitionOptions);
+
+  accloud::render3d::MeshBuildOptions forcedTransitionOptions = skippedTransitionOptions;
+  forcedTransitionOptions.forcedSampleLayers = {0u, 1u};
+  std::size_t forcedCompleted = 0;
+  std::size_t forcedTotal = 0;
+  accloud::render3d::MeshBuildCallbacks forcedCallbacks;
+  forcedCallbacks.progress = [&](std::size_t completed, std::size_t total) {
+    forcedCompleted = completed;
+    forcedTotal = total;
+  };
+  VectorSource forcedTransitionSource(transitionMasks);
+  const auto forcedTransition = mesher.build(
+      forcedTransitionSource, {0, 2}, forcedTransitionOptions, forcedCallbacks);
+
+  ok &= require(skippedTransition.ok && forcedTransition.ok,
+                "regular and semantic-transition sampling must both build");
+  ok &= require(forcedTransition.baseSampleCount == 2u
+                    && forcedTransition.forcedSemanticSampleCount == 1u
+                    && forcedTransition.effectiveSampleCount == 3u
+                    && forcedCompleted == 3u && forcedTotal == 3u,
+                "one skipped semantic transition must add exactly one effective sample");
+  const double skippedSupportArea = semanticSurfaceAreaMm2(
+      skippedTransition.chunks,
+      accloud::photons::PackedSurfaceSemantic::Support);
+  const double forcedSupportArea = semanticSurfaceAreaMm2(
+      forcedTransition.chunks,
+      accloud::photons::PackedSurfaceSemantic::Support);
+  ok &= require(forcedSupportArea < skippedSupportArea,
+                "forcing the contact layer must stop support extrusion at the transition");
+  const auto skippedCoverage = meshCoverage(skippedTransition.chunks);
+  const auto forcedCoverage = meshCoverage(forcedTransition.chunks);
+  ok &= require(std::abs(skippedCoverage.surfaceAreaMm2
+                         - forcedCoverage.surfaceAreaMm2) < 0.000001,
+                "adaptive semantic samples must not alter the printed geometry");
+
+  accloud::render3d::MeshBuildOptions classicForcedOptions = sampledOptions;
+  classicForcedOptions.forcedSampleLayers = {1u};
+  VectorSource classicForcedSource(transitionMasks);
+  const auto classicForced = mesher.build(
+      classicForcedSource, {0, 2}, classicForcedOptions);
+  ok &= require(classicForced.ok
+                    && classicForced.forcedSemanticSampleCount == 0u
+                    && classicForced.effectiveSampleCount
+                           == classicForced.baseSampleCount,
+                "forced semantic samples must be ignored by the classic pipeline");
+
   accloud::render3d::MeshBuildOptions semanticOptions;
   semanticOptions.pitchXMm = 1.0;
   semanticOptions.pitchYMm = 1.0;

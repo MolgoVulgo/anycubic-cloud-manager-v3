@@ -686,22 +686,43 @@ struct TaskBuildResult {
   std::string error;
 };
 
-std::vector<std::size_t> makeSampledLayers(
+struct SampledLayerPlan {
+  std::vector<std::size_t> layers;
+  std::size_t baseSampleCount = 0;
+  std::size_t forcedSemanticSampleCount = 0;
+};
+
+SampledLayerPlan makeSampledLayerPlan(
     photons::LayerRange range,
-    std::size_t layerStride) {
-  std::vector<std::size_t> sampledLayers;
-  sampledLayers.reserve((range.count() + layerStride - 1) / layerStride + 1);
+    std::size_t layerStride,
+    const std::vector<std::size_t>& forcedSampleLayers) {
+  SampledLayerPlan plan;
+  plan.layers.reserve(
+      (range.count() + layerStride - 1) / layerStride
+      + forcedSampleLayers.size() + 1);
   for (std::size_t layer = range.first;;) {
-    sampledLayers.push_back(layer);
+    plan.layers.push_back(layer);
     if (range.last - layer < layerStride) {
       break;
     }
     layer += layerStride;
   }
-  if (sampledLayers.back() != range.last) {
-    sampledLayers.push_back(range.last);
+  if (plan.layers.back() != range.last) {
+    plan.layers.push_back(range.last);
   }
-  return sampledLayers;
+  plan.baseSampleCount = plan.layers.size();
+
+  for (const auto layer : forcedSampleLayers) {
+    if (layer >= range.first && layer <= range.last) {
+      plan.layers.push_back(layer);
+    }
+  }
+  std::sort(plan.layers.begin(), plan.layers.end());
+  plan.layers.erase(
+      std::unique(plan.layers.begin(), plan.layers.end()),
+      plan.layers.end());
+  plan.forcedSemanticSampleCount = plan.layers.size() - plan.baseSampleCount;
+  return plan;
 }
 
 std::vector<MeshTask> makeTasks(
@@ -1035,7 +1056,16 @@ MeshBuildResult LayerStackMesher::build(
     return result;
   }
 
-  const auto sampledLayers = makeSampledLayers(range, options.layerStride);
+  const std::vector<std::size_t> noForcedSampleLayers;
+  const auto& forcedSampleLayers = options.classifySupports
+                                       ? options.forcedSampleLayers
+                                       : noForcedSampleLayers;
+  const auto samplePlan = makeSampledLayerPlan(
+      range, options.layerStride, forcedSampleLayers);
+  const auto& sampledLayers = samplePlan.layers;
+  result.baseSampleCount = samplePlan.baseSampleCount;
+  result.forcedSemanticSampleCount = samplePlan.forcedSemanticSampleCount;
+  result.effectiveSampleCount = sampledLayers.size();
   const auto tasks = makeTasks(sampledLayers, range, options.chunkLayerCount);
   result.effectiveWorkerCount = std::min(options.workerCount, tasks.size());
   result.workerStats.resize(result.effectiveWorkerCount);

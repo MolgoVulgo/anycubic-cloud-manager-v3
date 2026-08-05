@@ -58,6 +58,10 @@ struct MeshBuildOptions {
   // present, the mesher must use it instead of the legacy local heuristic.
   // The provider is read-only and may be called concurrently by mesh workers.
   SupportMaskProvider supportMaskProvider;
+  // Exact source layers that must supplement the regular preview stride.
+  // This is used only by the support-aware second pass so semantic
+  // transitions are never crossed by extrusion from a skipped layer.
+  std::vector<std::size_t> forcedSampleLayers;
 };
 
 struct MeshWorkerStats {
@@ -81,6 +85,9 @@ struct MeshBuildResult {
   std::vector<photons::MeshChunk> chunks;
   std::size_t decodedLayerCount = 0;
   std::size_t effectiveWorkerCount = 1;
+  std::size_t baseSampleCount = 0;
+  std::size_t forcedSemanticSampleCount = 0;
+  std::size_t effectiveSampleCount = 0;
   std::vector<MeshWorkerStats> workerStats;
   std::string error;
 };
