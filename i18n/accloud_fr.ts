@@ -2251,6 +2251,11 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <source>3D colors updated: %1</source>
             <translation>Couleurs 3D mises à jour : %1</translation>
         </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/MainWindow.qml" />
+            <source>Support analysis</source>
+            <translation>Analyse des supports</translation>
+        </message>
 </context>
     <context>
         <name>MqttPage</name>
@@ -4406,6 +4411,172 @@ Connexion cloud : </translation>
             <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
             <source>Exit full screen</source>
             <translation>Quitter le plein écran</translation>
+        </message>
+    </context>
+    <context>
+        <name>SupportAnalysisPage</name>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select the PWSZ part to analyze</source>
+            <translation>Sélectionner la pièce PWSZ à analyser</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>PWSZ files (*.pwsz)</source>
+            <translation>Fichiers PWSZ (*.pwsz)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>All files (*)</source>
+            <translation>Tous les fichiers (*)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select a local .pwsz file</source>
+            <translation>Sélectionner un fichier .pwsz local</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select part</source>
+            <translation>Sélectionner la pièce</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Analyzing…</source>
+            <translation>Analyse…</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Analyze</source>
+            <translation>Analyser</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Cancel</source>
+            <translation>Annuler</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Previous</source>
+            <translation>Précédente</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Layer %1 / %2</source>
+            <translation>Couche %1 / %2</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>No analysis</source>
+            <translation>Aucune analyse</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Next</source>
+            <translation>Suivante</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Diagnostic: raw mask | semantic result | decisions. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</source>
+            <translation>Diagnostic : masque brut | résultat sémantique | décisions. Rouge = pièce, cyan = support, ambre = radeau ; jaune = contact candidat, magenta = contact confirmé, violet = composant mixte.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions</source>
+            <translation>Décisions</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Layer</source>
+            <translation>Couche</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Global summary</source>
+            <translation>Résumé global</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Surface comparisons and decision reasons for layer %1</source>
+            <translation>Comparaisons de surfaces et raisons des décisions pour la couche %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>No JSON loaded</source>
+            <translation>Aucun JSON chargé</translation>
+        </message>
+    </context>
+    <context>
+        <name>SupportAnalysisBridge</name>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Cannot open JSON file: %1</source>
+            <translation>Impossible d’ouvrir le fichier JSON : %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Invalid JSON file %1: %2</source>
+            <translation>Fichier JSON invalide %1 : %2</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Select an existing .pwsz file.</source>
+            <translation>Sélectionner un fichier .pwsz existant.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Support-analysis probe not found: %1</source>
+            <translation>Probe d’analyse des supports introuvable : %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analyzing native layers</source>
+            <translation>Analyse des couches natives</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis bundle directory does not exist.</source>
+            <translation>Le répertoire du bundle d’analyse n’existe pas.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis bundle ready</source>
+            <translation>Bundle d’analyse prêt</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis cancelled</source>
+            <translation>Analyse annulée</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Generating diagnostic images</source>
+            <translation>Génération des images diagnostiques</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Support analysis failed with exit code %1.</source>
+            <translation>L’analyse des supports a échoué avec le code de sortie %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis failed</source>
+            <translation>Échec de l’analyse</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Bundle loading failed</source>
+            <translation>Échec du chargement du bundle</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Selected layer is outside the bundle.</source>
+            <translation>La couche sélectionnée est hors du bundle.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Layer JSON reference is missing.</source>
+            <translation>La référence JSON de la couche est absente.</translation>
         </message>
     </context>
 </TS>

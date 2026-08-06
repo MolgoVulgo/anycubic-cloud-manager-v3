@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,25 @@ enum class SupportEdgeKind : std::uint8_t {
   Split,
   Brace,
   ModelContact,
+};
+
+enum class SupportDecisionReason : std::uint8_t {
+  RaftPrefix,
+  FirstSupportLayer,
+  SupportContinuation,
+  SupportMotionContinuation,
+  SupportFusionContinuation,
+  SupportBornBeforeModel,
+  ModelRootCandidate,
+  ModelDominantMerge,
+  RelativeExpansionBeforeFirstModel,
+  UnrelatedAfterModel,
+  ContactCandidateOpened,
+  ContactCandidateContinued,
+  ContactConfirmedAbrupt,
+  ContactConfirmedProgressive,
+  MixedSemanticProjection,
+  RejectedSupportPath,
 };
 
 struct SemanticRun {
@@ -89,17 +109,87 @@ struct SupportAnalysisOptions {
   // across consecutive layer indexes. The PWSZ layer height is metadata for Z
   // placement and must not change semantic classification for identical masks.
   double maximumLayerMotionPixels = 4.0;
+  // After compensating the current centre translation, this fraction of the
+  // smaller section must still overlap for the change to remain explainable as
+  // the same support profile. A translated support is continuity, not evidence
+  // that model matter has appeared.
+  double minimumSupportShapeOverlapRatio = 0.85;
+  // A terminal taper must contain either a direct final collapse or several
+  // meaningful reductions in the recent branch history. A single old merge
+  // followed by a stable smaller pillar is not a support tip.
+  std::size_t minimumTerminalTaperSteps = 2;
+  double terminalTaperStepRatio = 0.98;
+  // Several previous support sections may temporarily merge into one raster
+  // component. They are considered a support fusion only when they preserve
+  // most of their own section and collectively explain a material part of the
+  // current component.
+  double minimumSupportParentCoverageRatio = 0.90;
+  double minimumSupportFusionCoverageRatio = 0.40;
   double braceMinimumDriftPixelsPerLayer = 0.5;
   double braceMaximumDriftPixelsPerLayer = 4.0;
   double minimumModelExpansionRatio = 1.2;
   double abruptModelExpansionRatio = 4.0;
   double terminalTaperRatio = 0.72;
   double modelRootTaperRatio = 0.72;
+  // Diagnostics are intentionally opt-in: the normal viewer does not retain a
+  // per-component decision history. The dev probe enables it when producing an
+  // auditable analysis bundle.
+  bool captureDecisionTrace = false;
 };
 
 struct SupportAnalysisCallbacks {
   std::function<bool()> isCancelled;
   std::function<void(std::size_t completedLayers, std::size_t totalLayers)> progress;
+};
+
+struct SupportDecisionTrace {
+  std::size_t layer = 0;
+  std::size_t componentId = 0;
+  std::size_t nodeId = std::numeric_limits<std::size_t>::max();
+  std::size_t parentNodeId = std::numeric_limits<std::size_t>::max();
+  std::size_t currentAreaPixels = 0;
+  std::size_t parentAreaPixels = 0;
+  std::size_t recentSupportMaximumAreaPixels = 0;
+  std::size_t overlapPixels = 0;
+  std::size_t matchedSupportParentCount = 0;
+  std::size_t preservedSupportParentCount = 0;
+  std::size_t terminalTaperDecreaseSteps = 0;
+  std::vector<std::size_t> matchedSupportParentNodeIds;
+  std::vector<std::size_t> matchedSupportParentOverlapPixels;
+  std::size_t alignedOverlapPixels = 0;
+  std::size_t addedPixelsAfterAlignment = 0;
+  std::size_t removedPixelsAfterAlignment = 0;
+  double centreDistancePixels = 0.0;
+  double materialDistancePixels = 0.0;
+  double primaryParentCoverageRatio = 0.0;
+  double supportFusionCoverageRatio = 0.0;
+  double predictedMotionXPixels = 0.0;
+  double predictedMotionYPixels = 0.0;
+  double motionResidualPixels = 0.0;
+  double alignedOverlapRatio = 0.0;
+  double alignedIntersectionOverUnion = 0.0;
+  double parentAreaRatio = 0.0;
+  double pendingStartAreaRatio = 0.0;
+  std::size_t pendingContactLength = 0;
+  std::uint32_t minX = 0;
+  std::uint32_t minY = 0;
+  std::uint32_t maxX = 0;
+  std::uint32_t maxY = 0;
+  bool overlapsPreviousModel = false;
+  bool nearPreviousModel = false;
+  bool terminalTaperOnParent = false;
+  bool immediateTerminalTaperOnParent = false;
+  bool terminalTaperReboundOnParent = false;
+  bool supportFusionContinuation = false;
+  bool supportMotionContinuation = false;
+  bool contactCandidate = false;
+  bool contactConfirmed = false;
+  bool rootedInRaft = false;
+  bool rootedInModel = false;
+  bool accepted = false;
+  bool mixedSemanticProjection = false;
+  MaterialSemantic decision = MaterialSemantic::Model;
+  SupportDecisionReason reason = SupportDecisionReason::UnrelatedAfterModel;
 };
 
 struct SupportAnalysisSummary {
@@ -137,6 +227,7 @@ struct SupportAnalysisResult {
   std::vector<LayerSemanticIndex> layers;
   std::vector<SupportGraphNode> nodes;
   std::vector<SupportGraphEdge> edges;
+  std::vector<SupportDecisionTrace> decisions;
   // Exact source layers that the second-pass mesher must retain in addition
   // to its regular preview stride. Each terminal head contributes its last
   // free layer and its first model-contact layer, preventing support matter

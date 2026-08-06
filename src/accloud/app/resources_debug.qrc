@@ -2,5 +2,6 @@
   <qresource prefix="/">
     <file alias="qml/pages/LogPage.qml">../ui/qml/pages/LogPage.qml</file>
     <file alias="qml/pages/DebugPage.qml">../ui/qml/pages/DebugPage.qml</file>
+    <file alias="qml/pages/SupportAnalysisPage.qml">../ui/qml/pages/SupportAnalysisPage.qml</file>
   </qresource>
 </RCC>

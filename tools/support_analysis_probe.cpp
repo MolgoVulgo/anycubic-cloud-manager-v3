@@ -1,6 +1,7 @@
 #include "domain/photons/BinaryMask.h"
 #include "infra/photons/drivers/pwsz/PwszArchiveReader.h"
 #include "render3d/analysis/SupportAnalyzer.h"
+#include "render3d/analysis/SupportAnalysisDiagnostics.h"
 
 #include <nlohmann/json.hpp>
 
@@ -49,8 +50,9 @@ struct DumpRequest {
 struct Arguments {
   std::filesystem::path input;
   std::optional<std::filesystem::path> outputJson;
+  std::optional<std::filesystem::path> bundleDirectory;
   std::vector<DumpRequest> dumps;
-  std::uint32_t downsample = 8;
+  std::uint32_t downsample = 16;
   bool verifyMaterialization = false;
 };
 
@@ -79,6 +81,8 @@ std::optional<Arguments> parseArguments(int argc, char** argv) {
     const std::string option = argv[index];
     if (option == "--output" && index + 1 < argc) {
       args.outputJson = argv[++index];
+    } else if (option == "--bundle" && index + 1 < argc) {
+      args.bundleDirectory = argv[++index];
     } else if (option == "--dump-layer" && index + 1 < argc) {
       if (pendingDumpLayer != 0
           || !parseUnsigned(argv[++index], pendingDumpLayer)
@@ -280,8 +284,9 @@ int main(int argc, char** argv) {
   const auto arguments = parseArguments(argc, argv);
   if (!arguments) {
     std::cerr << "usage: accloud_support_analysis_probe input.pwsz [output.json] "
-                 "[--output file.json] [--dump-layer N --dump-ppm file.ppm "
-                 "[--downsample N]] [--verify-materialization]\n";
+                 "[--output file.json] [--bundle output-directory] "
+                 "[--dump-layer N --dump-ppm file.ppm [--downsample N]] "
+                 "[--verify-materialization]\n";
     return 2;
   }
 
@@ -298,9 +303,14 @@ int main(int argc, char** argv) {
   options.pitchYMillimetres = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(
       options.pitchXMillimetres));
   options.pitchZMillimetres = meta.pitchZMm.value_or(1.0);
+  options.captureDecisionTrace = arguments->bundleDirectory.has_value();
 
   accloud::render3d::SupportAnalyzer analyzer;
-  const auto result = analyzer.analyze(reader, options);
+  accloud::render3d::SupportAnalysisCallbacks analysisCallbacks;
+  analysisCallbacks.progress = [](std::size_t completed, std::size_t total) {
+    std::cerr << "ANALYZE_PROGRESS " << completed << ' ' << total << '\n';
+  };
+  const auto result = analyzer.analyze(reader, options, analysisCallbacks);
   if (!result.ok) {
     std::cerr << (result.error.empty() ? "support analysis failed" : result.error) << '\n';
     return result.cancelled ? 3 : 1;
@@ -334,6 +344,28 @@ int main(int argc, char** argv) {
                               && raftRuns == result.summary.raftRunCount;
     if (!materializationVerified) {
       std::cerr << "semantic materialization count mismatch" << '\n';
+      return 1;
+    }
+  }
+
+  if (arguments->bundleDirectory) {
+    accloud::render3d::SupportAnalysisBundleWriter bundleWriter;
+    accloud::render3d::SupportAnalysisBundleMetadata bundleMetadata;
+    bundleMetadata.inputFileName = arguments->input.string();
+    bundleMetadata.pitchXMillimetres = options.pitchXMillimetres;
+    bundleMetadata.pitchYMillimetres = options.pitchYMillimetres;
+    bundleMetadata.pitchZMillimetres = options.pitchZMillimetres;
+    accloud::render3d::SupportAnalysisBundleOptions bundleOptions;
+    bundleOptions.downsample = arguments->downsample;
+    bundleOptions.writeImages = true;
+    accloud::render3d::SupportAnalysisBundleCallbacks bundleCallbacks;
+    bundleCallbacks.progress = [](std::size_t completed, std::size_t total) {
+      std::cerr << "IMAGE_PROGRESS " << completed << ' ' << total << '\n';
+    };
+    if (!bundleWriter.write(
+            reader, analyzer, result, options, bundleMetadata,
+            *arguments->bundleDirectory, bundleOptions, bundleCallbacks, error)) {
+      std::cerr << error << '\n';
       return 1;
     }
   }

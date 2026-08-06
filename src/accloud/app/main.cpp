@@ -24,6 +24,9 @@
 #endif
 #if defined(ACCLOUD_DEBUG)
 #include "LogBridge.h"
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+#include "SupportAnalysisBridge.h"
+#endif
 #include "UiClickTracer.h"
 #endif
 
@@ -384,6 +387,9 @@ ApplicationWindow {
                      });
 #if defined(ACCLOUD_DEBUG)
     accloud::LogBridge logBridge;
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+    accloud::SupportAnalysisBridge supportAnalysisBridge;
+#endif
 #endif
     accloud::UiSettingsBridge uiSettingsBridge;
     accloud::AppI18nBridge appI18nBridge(&app, &engine);
@@ -404,6 +410,10 @@ ApplicationWindow {
     engine.rootContext()->setContextProperty("mqttBridge", &mqttBridge);
 #if defined(ACCLOUD_DEBUG)
     engine.rootContext()->setContextProperty("logBridge", &logBridge);
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+    engine.rootContext()->setContextProperty(
+        "supportAnalysisBridge", &supportAnalysisBridge);
+#endif
 #endif
     engine.rootContext()->setContextProperty("uiSettingsBridge", &uiSettingsBridge);
     engine.rootContext()->setContextProperty("appI18nBridge", &appI18nBridge);

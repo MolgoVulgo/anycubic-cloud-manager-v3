@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -291,6 +292,7 @@ accloud::render3d::SupportAnalysisOptions testOptions() {
   options.modelContactConfirmationLayers = 2;
   options.raftMaximumChangedPixelRatio = 0.001;
   options.maximumLayerMotionPixels = 2.2;
+  options.minimumSupportShapeOverlapRatio = 0.85;
   options.braceMinimumDriftPixelsPerLayer = 0.55;
   options.braceMaximumDriftPixelsPerLayer = 1.65;
   options.minimumModelExpansionRatio = 1.2;
@@ -431,6 +433,34 @@ std::vector<accloud::photons::BinaryMask> makeGradualMixedContactScene() {
   return layers;
 }
 
+std::vector<accloud::photons::BinaryMask> makeTranslatedTaperContinuationScene() {
+  constexpr std::uint32_t width = 80;
+  constexpr std::uint32_t height = 32;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 12; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 2, 26, 78, 31);
+  fillRect(layers[1], 2, 26, 78, 31);
+
+  // A raft-rooted support narrows persistently, then continues diagonally while
+  // its raster section grows gradually. The centre moves farther than the old
+  // absolute four-pixel heuristic, but centre-aligned shapes remain the same
+  // support profile. This models Torus node 143 -> 169.
+  fillRect(layers[2], 20, 24, 40, 25); // 20 pixels.
+  fillRect(layers[3], 21, 23, 39, 24); // 18 pixels.
+  fillRect(layers[4], 22, 22, 38, 23); // 16 pixels.
+  fillRect(layers[5], 23, 21, 37, 22); // 14 pixels.
+  fillRect(layers[6], 27, 20, 39, 21); // 12-pixel local minimum.
+  fillRect(layers[7], 30, 19, 43, 20); // 13 pixels, translated continuation.
+  fillRect(layers[8], 34, 18, 48, 19); // 14 pixels.
+  fillRect(layers[9], 39, 17, 54, 18); // 15 pixels.
+  fillRect(layers[10], 45, 16, 61, 17); // 16 pixels: cumulative > 1.2.
+  fillRect(layers[11], 52, 15, 69, 16); // 17 pixels.
+  return layers;
+}
+
 std::vector<accloud::photons::BinaryMask> makeDelayedTerminalContactScene() {
   constexpr std::uint32_t width = 48;
   constexpr std::uint32_t height = 36;
@@ -475,6 +505,94 @@ std::vector<accloud::photons::BinaryMask> makeDelayedTerminalContactScene() {
   fillRect(layers[12], 24, 8, 41, 24);
   fillRect(layers[13], 23, 7, 42, 24);
   fillRect(layers[14], 22, 6, 43, 24);
+  return layers;
+}
+
+
+std::vector<accloud::photons::BinaryMask> makeStaleTaperPlateauScene() {
+  constexpr std::uint32_t width = 64;
+  constexpr std::uint32_t height = 36;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 12; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 3, 30, 61, 35);
+  fillRect(layers[1], 3, 30, 61, 35);
+
+  // A support arm grows laterally, then returns abruptly to its regular pillar
+  // section and stays stable. The old large section must not be reused as a
+  // terminal taper after that stable plateau.
+  fillRect(layers[2], 24, 27, 36, 28); // 12
+  fillRect(layers[3], 23, 26, 37, 27); // 14
+  fillRect(layers[4], 22, 25, 38, 26); // 16
+  fillRect(layers[5], 21, 24, 39, 25); // 18
+  fillRect(layers[6], 26, 23, 34, 24); // abrupt return to 8
+  fillRect(layers[7], 26, 22, 34, 23); // stable 8
+  fillRect(layers[8], 26, 21, 34, 22); // stable 8
+
+  // A following support enlargement persists and exceeds the old cumulative
+  // growth threshold. It remains support because the parent had only one old
+  // abrupt decrease, not a real multi-step terminal taper.
+  fillRect(layers[9], 24, 20, 37, 21);  // 13
+  fillRect(layers[10], 22, 19, 40, 20); // 18
+  fillRect(layers[11], 20, 18, 41, 19); // 21
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeSupportFusionScene() {
+  constexpr std::uint32_t width = 56;
+  constexpr std::uint32_t height = 36;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 10; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 3, 30, 53, 35);
+  fillRect(layers[1], 3, 30, 53, 35);
+  for (int layer = 2; layer <= 6; ++layer) {
+    addSquare(layers[layer], 21, 27 - static_cast<std::uint32_t>(layer - 2), 1);
+    addSquare(layers[layer], 29, 27 - static_cast<std::uint32_t>(layer - 2), 1);
+  }
+  // Both previous support sections are fully preserved and linked by a new
+  // bridge. The merged component is a support fusion, not model matter.
+  fillRect(layers[7], 20, 21, 31, 25);
+  fillRect(layers[8], 20, 20, 31, 24);
+  fillRect(layers[9], 20, 19, 31, 23);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeBoundingBoxHoleScene() {
+  constexpr std::uint32_t width = 64;
+  constexpr std::uint32_t height = 44;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 11; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 3, 38, 61, 43);
+  fillRect(layers[1], 3, 38, 61, 43);
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 37, 1);
+    addSquare(layers[layer], 32, 37, 1);
+  }
+  addSquare(layers[5], 10, 36, 0);
+  addSquare(layers[5], 32, 35, 1);
+  for (int layer = 6; layer < 11; ++layer) {
+    fillRect(layers[layer], 4, 7, 17, 36); // established model island
+  }
+  addSquare(layers[6], 32, 33, 1);
+  addSquare(layers[7], 32, 31, 1);
+  addSquare(layers[8], 32, 29, 1);
+  addSquare(layers[9], 32, 27, 1);
+  addSquare(layers[10], 32, 25, 1);
+
+  // A large model ring has a bounding box around the support but no material
+  // within the layer-motion tolerance. Bounding-box overlap alone must not
+  // create a support parent for this component.
+  for (int layer = 8; layer < 11; ++layer) {
+    fillRect(layers[layer], 21, 10, 44, 13);
+    fillRect(layers[layer], 21, 32, 44, 35);
+    fillRect(layers[layer], 21, 10, 24, 35);
+    fillRect(layers[layer], 41, 10, 44, 35);
+  }
   return layers;
 }
 
@@ -989,6 +1107,94 @@ int main() {
                         gradualContact.forcedSampleLayers.begin(),
                         gradualContact.forcedSampleLayers.end(), 8u),
                 "gradual contact must retain the support tip and first part layer as mandatory samples");
+
+  auto translatedContinuationLayers = makeTranslatedTaperContinuationScene();
+  VectorSource translatedContinuationSource(translatedContinuationLayers);
+  auto translatedContinuationOptions = testOptions();
+  translatedContinuationOptions.captureDecisionTrace = true;
+  const auto translatedContinuation = analyzer.analyze(
+      translatedContinuationSource, translatedContinuationOptions);
+  ok &= require(translatedContinuation.ok,
+                "translated tapered support analysis must succeed");
+  ok &= require(translatedContinuation.summary.firstModelLayer == 0u
+                    && translatedContinuation.summary.lastSupportLayer == 11u
+                    && translatedContinuation.summary.modelContactEdgeCount == 0u,
+                "a translated support profile must not become model after cumulative growth");
+  const auto translatedDecision = std::find_if(
+      translatedContinuation.decisions.begin(),
+      translatedContinuation.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 7u && decision.componentId == 0u;
+      });
+  ok &= require(translatedDecision != translatedContinuation.decisions.end()
+                    && translatedDecision->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && translatedDecision->reason
+                           == accloud::render3d::SupportDecisionReason::SupportMotionContinuation
+                    && translatedDecision->terminalTaperOnParent
+                    && translatedDecision->supportMotionContinuation
+                    && translatedDecision->alignedOverlapRatio >= 0.85
+                    && translatedDecision->motionResidualPixels
+                           <= translatedContinuationOptions.maximumLayerMotionPixels,
+                "Torus-like motion must preserve support semantics and expose its diagnostic reason");
+
+  auto staleTaperLayers = makeStaleTaperPlateauScene();
+  VectorSource staleTaperSource(staleTaperLayers);
+  auto staleTaperOptions = testOptions();
+  staleTaperOptions.captureDecisionTrace = true;
+  const auto staleTaper = analyzer.analyze(staleTaperSource, staleTaperOptions);
+  ok &= require(staleTaper.ok, "stale taper plateau analysis must succeed");
+  ok &= require(staleTaper.summary.firstModelLayer == 0u
+                    && staleTaper.summary.modelContactEdgeCount == 0u
+                    && staleTaper.summary.lastSupportLayer == 11u,
+                "an old abrupt reduction followed by a stable pillar must not become a terminal contact");
+  const auto staleExpansion = std::find_if(
+      staleTaper.decisions.begin(), staleTaper.decisions.end(),
+      [](const auto& decision) { return decision.layer == 9u; });
+  ok &= require(staleExpansion != staleTaper.decisions.end()
+                    && staleExpansion->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && !staleExpansion->terminalTaperOnParent
+                    && staleExpansion->terminalTaperDecreaseSteps == 1u,
+                "the stale single-step reduction must remain an ordinary support continuation");
+
+  auto fusionLayers = makeSupportFusionScene();
+  VectorSource fusionSource(fusionLayers);
+  auto fusionOptions = testOptions();
+  fusionOptions.captureDecisionTrace = true;
+  const auto fusion = analyzer.analyze(fusionSource, fusionOptions);
+  ok &= require(fusion.ok, "support fusion analysis must succeed");
+  const auto fusionDecision = std::find_if(
+      fusion.decisions.begin(), fusion.decisions.end(),
+      [](const auto& decision) { return decision.layer == 7u; });
+  ok &= require(fusionDecision != fusion.decisions.end()
+                    && fusionDecision->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && fusionDecision->reason
+                           == accloud::render3d::SupportDecisionReason::SupportFusionContinuation
+                    && fusionDecision->supportFusionContinuation
+                    && fusionDecision->preservedSupportParentCount >= 2u
+                    && fusionDecision->supportFusionCoverageRatio >= 0.4,
+                "a component explained by several preserved support parents must remain support");
+
+  auto holeLayers = makeBoundingBoxHoleScene();
+  VectorSource holeSource(holeLayers);
+  auto holeOptions = testOptions();
+  holeOptions.captureDecisionTrace = true;
+  const auto hole = analyzer.analyze(holeSource, holeOptions);
+  ok &= require(hole.ok, "bounding-box hole analysis must succeed");
+  const auto ringDecision = std::find_if(
+      hole.decisions.begin(), hole.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 8u && decision.currentAreaPixels > 200u;
+      });
+  ok &= require(ringDecision != hole.decisions.end()
+                    && ringDecision->decision
+                           == accloud::render3d::MaterialSemantic::Model
+                    && ringDecision->parentNodeId
+                           == std::numeric_limits<std::size_t>::max()
+                    && ringDecision->matchedSupportParentCount == 0u,
+                "a support inside a model bounding-box hole must not become its geometric parent");
 
   auto delayedContactLayers = makeDelayedTerminalContactScene();
   VectorSource delayedContactSource(delayedContactLayers);

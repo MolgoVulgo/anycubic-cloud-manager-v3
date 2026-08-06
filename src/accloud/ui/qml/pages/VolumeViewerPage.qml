@@ -21,6 +21,8 @@ AppPageFrame {
     property bool supportColoringEnabled: true
     readonly property int totalLayers: viewer.totalLayers
     readonly property int loadedChunkCount: viewer.loadedChunkCount
+    property alias firstLayer: viewer.firstLayer
+    property alias lastLayer: viewer.lastLayer
     embeddedInTabsContainer: root.embeddedViewerInTabsContainer
     showSectionHeader: root.showViewerHeader
     sectionTitle: root.displayFileName.length > 0
@@ -38,6 +40,14 @@ AppPageFrame {
 
     function resetView() {
         viewer.resetView()
+    }
+
+    function showThroughLayer(layer) {
+        if (viewer.totalLayers <= 0)
+            return
+        var normalized = Math.max(1, Math.min(viewer.totalLayers, Math.round(layer)))
+        viewer.firstLayer = 1
+        viewer.lastLayer = normalized
     }
 
     RowLayout {

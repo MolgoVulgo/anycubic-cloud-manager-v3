@@ -10,6 +10,7 @@ TestCase {
     property var mqttBridge: undefined
     property var sessionImportBridge: undefined
     property var uiSettingsBridge: undefined
+    property var supportAnalysisBridge: undefined
     property bool accloudProdUi: false
 
     function cleanup() {
@@ -41,6 +42,11 @@ TestCase {
             uiSettingsBridge.destroy()
         }
         uiSettingsBridge = undefined
+        if (supportAnalysisBridge !== undefined && supportAnalysisBridge !== null
+                && supportAnalysisBridge.destroy !== undefined) {
+            supportAnalysisBridge.destroy()
+        }
+        supportAnalysisBridge = undefined
         accloudProdUi = false
     }
 
@@ -216,8 +222,11 @@ TestCase {
 
         var tabs = findObjectByName(window, "controlRoomTabs")
         verify(tabs !== null)
-        compare(tabs.count, 4)
+        compare(tabs.count, 5)
         verify(findObjectByName(window, "mqttTabButton") !== null)
+        var supportAnalysisTab = findObjectByName(window, "supportAnalysisTabButton")
+        verify(supportAnalysisTab !== null)
+        compare(supportAnalysisTab.visible, false)
 
         var uploadButton = findObjectByName(window, "uploadDialogButton")
         verify(uploadButton !== null)
@@ -249,7 +258,10 @@ TestCase {
         verify(tabs !== null)
         verify(filesPage !== null)
         verify(dialogLoader !== null)
-        compare(tabs.count, 4)
+        compare(tabs.count, 5)
+        var supportAnalysisTab = findObjectByName(window, "supportAnalysisTabButton")
+        verify(supportAnalysisTab !== null)
+        compare(supportAnalysisTab.visible, false)
         compare(filesPage.viewerEnabled, true)
         compare(filesPage.render3dWorkerCount, 4)
         compare(filesPage.render3dPalettePreset, "technical_cyan")
@@ -2788,6 +2800,99 @@ TestCase {
         dialog.destroy()
         host.close()
         host.destroy()
+    }
+
+
+    function test_support_analysis_tab_is_dev_only() {
+        var normalWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true,
+            "buildDebugEnabled": false,
+            "debugUi": false
+        })
+        wait(0)
+        var normalTab = findObjectByName(normalWindow, "supportAnalysisTabButton")
+        verify(normalTab !== null)
+        compare(normalTab.visible, false)
+        normalWindow.close()
+        normalWindow.destroy()
+
+        supportAnalysisBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                                    'property bool running: false;' +
+                                                    'property real progress: 0;' +
+                                                    'property string phase: "";' +
+                                                    'property string errorString: "";' +
+                                                    'property string sourcePath: "";' +
+                                                    'property string bundlePath: "";' +
+                                                    'property int layerCount: 0;' +
+                                                    'property int currentLayer: 1;' +
+                                                    'property url currentImageUrl: "";' +
+                                                    'property string currentLayerJson: "{}";' +
+                                                    'property string currentDecisionJson: "[]";' +
+                                                    'property string analysisJson: "{}";' +
+                                                    'function analyze(path) {} ' +
+                                                    'function cancel() {} ' +
+                                                    'function setCurrentLayer(layer) { currentLayer = layer } ' +
+                                                    '}', this, "supportAnalysisBridgeMock")
+        var debugWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true,
+            "buildDebugEnabled": true,
+            "debugUi": true
+        })
+        wait(0)
+        var debugTab = findObjectByName(debugWindow, "supportAnalysisTabButton")
+        verify(debugTab !== null)
+        compare(debugTab.visible, true)
+        debugWindow.close()
+        debugWindow.destroy()
+    }
+
+    function test_support_analysis_page_selects_piece_and_synchronizes_layer() {
+        supportAnalysisBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                                    'property bool running: false;' +
+                                                    'property real progress: 1;' +
+                                                    'property string phase: "ready";' +
+                                                    'property string errorString: "";' +
+                                                    'property string sourcePath: "";' +
+                                                    'property string bundlePath: "/tmp/bundle";' +
+                                                    'property int layerCount: 12;' +
+                                                    'property int currentLayer: 4;' +
+                                                    'property url currentImageUrl: "";' +
+                                                    'property string currentLayerJson: "{}";' +
+                                                    'property string currentDecisionJson: "[]";' +
+                                                    'property string analysisJson: "{}";' +
+                                                    'property string analyzedPath: "";' +
+                                                    'function analyze(path) { analyzedPath = String(path) } ' +
+                                                    'function cancel() {} ' +
+                                                    'function setCurrentLayer(layer) { currentLayer = Math.max(1, Math.min(layerCount, layer)) } ' +
+                                                    '}', this, "supportAnalysisPageBridgeMock")
+        supportAnalysisBridge.currentLayerJson = JSON.stringify({"layer": 4})
+        supportAnalysisBridge.analysisJson = JSON.stringify({"layer_count": 12})
+        var page = createQmlObject("../../../ui/qml/pages/SupportAnalysisPage.qml", {
+            "width": 1280,
+            "height": 820,
+            "analysisBridge": supportAnalysisBridge
+        })
+        wait(0)
+        verify(findObjectByName(page, "supportAnalysisSelectButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisRunButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisViewer") !== null)
+        verify(findObjectByName(page, "supportAnalysisDiagnosticImage") !== null)
+        verify(findObjectByName(page, "supportAnalysisJsonText") !== null)
+
+        var field = findObjectByName(page, "supportAnalysisSourceField")
+        var runButton = findObjectByName(page, "supportAnalysisRunButton")
+        verify(field !== null)
+        verify(runButton !== null)
+        field.text = "/tmp/selected.pwsz"
+        runButton.clicked()
+        compare(supportAnalysisBridge.analyzedPath, "/tmp/selected.pwsz")
+
+        var nextButton = findObjectByName(page, "supportAnalysisNextLayerButton")
+        verify(nextButton !== null)
+        nextButton.clicked()
+        compare(supportAnalysisBridge.currentLayer, 5)
+
+        page.destroy()
     }
 
     function test_vertical_layer_range_wheel_moves_only_upper_handle() {

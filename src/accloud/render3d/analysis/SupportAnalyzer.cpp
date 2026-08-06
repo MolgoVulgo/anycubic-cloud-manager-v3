@@ -345,6 +345,46 @@ double centreDistancePixels(
   return std::hypot(dx, dy);
 }
 
+std::size_t translatedOverlapPixels(
+    const Component& source,
+    const Component& target,
+    std::int64_t shiftX,
+    std::int64_t shiftY) {
+  std::size_t result = 0u;
+  std::size_t sourceIndex = 0u;
+  std::size_t targetIndex = 0u;
+  while (sourceIndex < source.runs.size() && targetIndex < target.runs.size()) {
+    const auto& sourceRun = source.runs[sourceIndex];
+    const auto& targetRun = target.runs[targetIndex];
+    const auto shiftedY = static_cast<std::int64_t>(sourceRun.y) + shiftY;
+    const auto targetY = static_cast<std::int64_t>(targetRun.y);
+    if (shiftedY < targetY) {
+      ++sourceIndex;
+      continue;
+    }
+    if (targetY < shiftedY) {
+      ++targetIndex;
+      continue;
+    }
+
+    const auto shiftedFirst = static_cast<std::int64_t>(sourceRun.firstX) + shiftX;
+    const auto shiftedLast = static_cast<std::int64_t>(sourceRun.lastX) + shiftX;
+    const auto first = std::max(
+        shiftedFirst, static_cast<std::int64_t>(targetRun.firstX));
+    const auto last = std::min(
+        shiftedLast, static_cast<std::int64_t>(targetRun.lastX));
+    if (first < last) {
+      result += static_cast<std::size_t>(last - first);
+    }
+    if (shiftedLast < static_cast<std::int64_t>(targetRun.lastX)) {
+      ++sourceIndex;
+    } else {
+      ++targetIndex;
+    }
+  }
+  return result;
+}
+
 void canonicalizeSemanticRuns(
     std::vector<SemanticRun>& runs,
     MaterialSemantic semantic) {
@@ -601,6 +641,78 @@ struct NodeState {
   std::vector<SemanticRun> projectedSupportRuns;
 };
 
+struct SupportMotionComparison {
+  std::size_t alignedOverlapPixels = 0u;
+  std::size_t addedPixels = 0u;
+  std::size_t removedPixels = 0u;
+  double predictedMotionX = 0.0;
+  double predictedMotionY = 0.0;
+  double motionResidual = 0.0;
+  double alignedOverlapRatio = 0.0;
+  double alignedIntersectionOverUnion = 0.0;
+  bool hasMotionPrediction = false;
+  bool explainedBySupportMotion = false;
+};
+
+SupportMotionComparison compareSupportMotion(
+    std::size_t parentNode,
+    const Component& current,
+    const std::vector<NodeState>& states,
+    const SupportAnalysisOptions& options) {
+  SupportMotionComparison comparison;
+  if (parentNode >= states.size()) {
+    return comparison;
+  }
+
+  const auto& parentState = states[parentNode];
+  const auto& parent = parentState.component;
+  const double actualMotionX = current.centerX - parent.centerX;
+  const double actualMotionY = current.centerY - parent.centerY;
+  const auto alignmentX = static_cast<std::int64_t>(std::llround(actualMotionX));
+  const auto alignmentY = static_cast<std::int64_t>(std::llround(actualMotionY));
+  comparison.alignedOverlapPixels = translatedOverlapPixels(
+      parent, current, alignmentX, alignmentY);
+  comparison.addedPixels = current.area > comparison.alignedOverlapPixels
+      ? current.area - comparison.alignedOverlapPixels
+      : 0u;
+  comparison.removedPixels = parent.area > comparison.alignedOverlapPixels
+      ? parent.area - comparison.alignedOverlapPixels
+      : 0u;
+  const auto smallerArea = std::min(parent.area, current.area);
+  if (smallerArea != 0u) {
+    comparison.alignedOverlapRatio =
+        static_cast<double>(comparison.alignedOverlapPixels)
+        / static_cast<double>(smallerArea);
+  }
+  const auto unionArea = parent.area + current.area
+                         - comparison.alignedOverlapPixels;
+  if (unionArea != 0u) {
+    comparison.alignedIntersectionOverUnion =
+        static_cast<double>(comparison.alignedOverlapPixels)
+        / static_cast<double>(unionArea);
+  }
+
+  if (parentState.parent != std::numeric_limits<std::size_t>::max()) {
+    const auto& grandParent = states[parentState.parent].component;
+    comparison.hasMotionPrediction = true;
+    comparison.predictedMotionX = parent.centerX - grandParent.centerX;
+    comparison.predictedMotionY = parent.centerY - grandParent.centerY;
+    comparison.motionResidual = std::hypot(
+        actualMotionX - comparison.predictedMotionX,
+        actualMotionY - comparison.predictedMotionY);
+  } else {
+    comparison.motionResidual = std::hypot(actualMotionX, actualMotionY);
+  }
+
+  const bool shapePreserved = comparison.alignedOverlapRatio
+                              >= options.minimumSupportShapeOverlapRatio;
+  const bool trajectoryPreserved = !comparison.hasMotionPrediction
+                                   || comparison.motionResidual
+                                          <= options.maximumLayerMotionPixels;
+  comparison.explainedBySupportMotion = shapePreserved && trajectoryPreserved;
+  return comparison;
+}
+
 class NodeGridIndex {
 public:
   NodeGridIndex(
@@ -697,33 +809,70 @@ private:
 struct Match {
   std::size_t previousNode = 0;
   std::size_t overlap = 0;
-  double distance = 0.0;
+  double centreDistance = 0.0;
+  double materialDistance = std::numeric_limits<double>::infinity();
 };
+
+double minimumMaterialDistancePixels(
+    const Component& left,
+    const Component& right,
+    double maximumDistance) {
+  const auto overlap = overlapPixels(left, right);
+  if (overlap != 0u) {
+    return 0.0;
+  }
+  if (left.runs.empty() || right.runs.empty()) {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  const auto margin = static_cast<std::uint32_t>(
+      std::max(0.0, std::ceil(maximumDistance)));
+  const auto horizontalGap = [](const SemanticRun& a, const SemanticRun& b) {
+    if (a.lastX < b.firstX) {
+      return b.firstX - a.lastX;
+    }
+    if (b.lastX < a.firstX) {
+      return a.firstX - b.lastX;
+    }
+    return 0u;
+  };
+
+  const auto* smaller = &left;
+  const auto* larger = &right;
+  if (left.runs.size() > right.runs.size()) {
+    std::swap(smaller, larger);
+  }
+
+  double best = std::numeric_limits<double>::infinity();
+  for (const auto& run : smaller->runs) {
+    const auto firstY = run.y > margin ? run.y - margin : 0u;
+    const auto lastY = run.y + margin;
+    auto iterator = std::lower_bound(
+        larger->runs.begin(), larger->runs.end(), firstY,
+        [](const SemanticRun& candidate, std::uint32_t y) {
+          return candidate.y < y;
+        });
+    for (; iterator != larger->runs.end() && iterator->y <= lastY; ++iterator) {
+      const double dx = static_cast<double>(horizontalGap(run, *iterator));
+      const double dy = static_cast<double>(
+          run.y > iterator->y ? run.y - iterator->y : iterator->y - run.y);
+      const double distance = std::hypot(dx, dy);
+      best = std::min(best, distance);
+      if (best == 0.0) {
+        return 0.0;
+      }
+    }
+  }
+  return best;
+}
 
 bool nearEnough(
     const Component& previous,
     const Component& current,
     const SupportAnalysisOptions& options) {
-  if (overlapPixels(previous, current) != 0) {
-    return true;
-  }
-  const auto axisGap = [](std::uint32_t firstMin,
-                          std::uint32_t firstMax,
-                          std::uint32_t secondMin,
-                          std::uint32_t secondMax) {
-    if (firstMax < secondMin) {
-      return secondMin - firstMax;
-    }
-    if (secondMax < firstMin) {
-      return firstMin - secondMax;
-    }
-    return 0u;
-  };
-  const double gapX = static_cast<double>(axisGap(
-      previous.minX, previous.maxX, current.minX, current.maxX));
-  const double gapY = static_cast<double>(axisGap(
-      previous.minY, previous.maxY, current.minY, current.maxY));
-  return std::hypot(gapX, gapY) <= options.maximumLayerMotionPixels;
+  return minimumMaterialDistancePixels(
+             previous, current, options.maximumLayerMotionPixels)
+         <= options.maximumLayerMotionPixels;
 }
 
 std::vector<Match> matchingPreviousNodes(
@@ -737,18 +886,26 @@ std::vector<Match> matchingPreviousNodes(
     if (!nearEnough(previous, current, options)) {
       continue;
     }
+    const auto overlap = overlapPixels(previous, current);
     matches.push_back(Match{
         nodeId,
-        overlapPixels(previous, current),
+        overlap,
         centreDistancePixels(previous, current),
+        overlap == 0u
+            ? minimumMaterialDistancePixels(
+                  previous, current, options.maximumLayerMotionPixels)
+            : 0.0,
     });
   }
   std::sort(matches.begin(), matches.end(), [](const Match& left, const Match& right) {
     if (left.overlap != right.overlap) {
       return left.overlap > right.overlap;
     }
-    if (left.distance != right.distance) {
-      return left.distance < right.distance;
+    if (left.materialDistance != right.materialDistance) {
+      return left.materialDistance < right.materialDistance;
+    }
+    if (left.centreDistance != right.centreDistance) {
+      return left.centreDistance < right.centreDistance;
     }
     return left.previousNode < right.previousNode;
   });
@@ -778,26 +935,79 @@ bool hasModelRootTaper(
                 <= static_cast<double>(maximumArea) * options.modelRootTaperRatio;
 }
 
+struct TerminalTaperEvidence {
+  bool tapered = false;
+  bool immediate = false;
+  bool reboundAfterTaper = false;
+  std::size_t meaningfulDecreaseSteps = 0u;
+  std::size_t maximumEarlierArea = 0u;
+};
+
+TerminalTaperEvidence terminalTaperEvidence(
+    std::size_t nodeId,
+    const std::vector<NodeState>& states,
+    const SupportAnalysisOptions& options) {
+  TerminalTaperEvidence evidence;
+  if (nodeId >= states.size()) {
+    return evidence;
+  }
+  const auto finalArea = states[nodeId].component.area;
+  if (finalArea == 0u) {
+    return evidence;
+  }
+
+  std::vector<std::size_t> newestToOldest;
+  newestToOldest.reserve(options.taperLookbackLayers);
+  std::size_t cursor = nodeId;
+  while (cursor != std::numeric_limits<std::size_t>::max()
+         && newestToOldest.size() < options.taperLookbackLayers) {
+    newestToOldest.push_back(states[cursor].component.area);
+    cursor = states[cursor].parent;
+  }
+  if (newestToOldest.size() < 2u) {
+    return evidence;
+  }
+
+  evidence.maximumEarlierArea = *std::max_element(
+      newestToOldest.begin(), newestToOldest.end());
+  evidence.immediate = static_cast<double>(newestToOldest[0])
+      <= static_cast<double>(newestToOldest[1]) * options.terminalTaperRatio;
+
+  bool taperObservedChronologically = false;
+  for (std::size_t reverse = newestToOldest.size() - 1u; reverse > 0u; --reverse) {
+    const auto older = newestToOldest[reverse];
+    const auto newer = newestToOldest[reverse - 1u];
+    if (older != 0u
+        && static_cast<double>(newer)
+               <= static_cast<double>(older) * options.terminalTaperStepRatio) {
+      ++evidence.meaningfulDecreaseSteps;
+      taperObservedChronologically = true;
+      continue;
+    }
+    if (taperObservedChronologically && older != 0u
+        && static_cast<double>(newer)
+               >= static_cast<double>(older) / options.terminalTaperRatio) {
+      evidence.reboundAfterTaper = true;
+    }
+  }
+
+  const bool relativeReduction = evidence.maximumEarlierArea > finalArea
+      && static_cast<double>(finalArea)
+             <= static_cast<double>(evidence.maximumEarlierArea)
+                    * options.terminalTaperRatio;
+  evidence.tapered = relativeReduction
+      && (evidence.immediate
+          || evidence.reboundAfterTaper
+          || evidence.meaningfulDecreaseSteps
+                 >= options.minimumTerminalTaperSteps);
+  return evidence;
+}
+
 bool hasTerminalTaper(
     std::size_t nodeId,
     const std::vector<NodeState>& states,
     const SupportAnalysisOptions& options) {
-  const auto finalArea = states[nodeId].component.area;
-  if (finalArea == 0) {
-    return false;
-  }
-  std::size_t cursor = nodeId;
-  std::size_t observed = 0;
-  std::size_t maximumEarlierArea = finalArea;
-  while (cursor != std::numeric_limits<std::size_t>::max()
-         && observed < options.taperLookbackLayers) {
-    maximumEarlierArea = std::max(maximumEarlierArea, states[cursor].component.area);
-    cursor = states[cursor].parent;
-    ++observed;
-  }
-  return observed >= 2
-         && static_cast<double>(finalArea)
-                <= static_cast<double>(maximumEarlierArea) * options.terminalTaperRatio;
+  return terminalTaperEvidence(nodeId, states, options).tapered;
 }
 
 std::size_t recentMaximumArea(
@@ -873,6 +1083,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       || !(options.raftMaximumChangedPixelRatio >= 0.0
            && options.raftMaximumChangedPixelRatio < 1.0)
       || !(options.maximumLayerMotionPixels >= 0.0)
+      || !(options.minimumSupportShapeOverlapRatio > 0.0
+           && options.minimumSupportShapeOverlapRatio <= 1.0)
       || !(options.braceMinimumDriftPixelsPerLayer >= 0.0)
       || !(options.braceMaximumDriftPixelsPerLayer
            >= options.braceMinimumDriftPixelsPerLayer)
@@ -888,6 +1100,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
   result.layers.resize(source.layerCount());
   std::vector<NodeState> states;
+  std::vector<std::size_t> nodeDecisionIndices;
+  const auto invalidDecision = std::numeric_limits<std::size_t>::max();
   std::vector<std::size_t> previousCandidateNodes;
   std::optional<LayerDescription> previousLayer;
   std::vector<bool> previousModelComponents;
@@ -944,6 +1158,20 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         result.layers[layer].phase = PrintPhase::Raft;
         for (const auto& component : current.components) {
           result.summary.raftRunCount += component.runs.size();
+          if (options.captureDecisionTrace) {
+            SupportDecisionTrace trace;
+            trace.layer = layer;
+            trace.componentId = component.localId;
+            trace.currentAreaPixels = component.area;
+            trace.minX = component.minX;
+            trace.minY = component.minY;
+            trace.maxX = component.maxX;
+            trace.maxY = component.maxY;
+            trace.accepted = true;
+            trace.decision = MaterialSemantic::Raft;
+            trace.reason = SupportDecisionReason::RaftPrefix;
+            result.decisions.push_back(trace);
+          }
         }
         previousLayer = std::move(current);
         previousModelComponents.assign(previousLayer->components.size(), false);
@@ -985,6 +1213,31 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       const auto matches = matchingPreviousNodes(
           current.components[index], nearbySupportNodes, states, options);
 
+      SupportDecisionTrace decisionTrace;
+      decisionTrace.layer = layer;
+      decisionTrace.componentId = current.components[index].localId;
+      decisionTrace.currentAreaPixels = current.components[index].area;
+      decisionTrace.minX = current.components[index].minX;
+      decisionTrace.minY = current.components[index].minY;
+      decisionTrace.maxX = current.components[index].maxX;
+      decisionTrace.maxY = current.components[index].maxY;
+      if (!matches.empty()) {
+        decisionTrace.parentNodeId = matches.front().previousNode;
+        decisionTrace.parentAreaPixels =
+            states[matches.front().previousNode].component.area;
+        decisionTrace.overlapPixels = matches.front().overlap;
+        decisionTrace.centreDistancePixels = matches.front().centreDistance;
+        decisionTrace.materialDistancePixels = matches.front().materialDistance;
+        if (decisionTrace.parentAreaPixels != 0u) {
+          decisionTrace.parentAreaRatio =
+              static_cast<double>(decisionTrace.currentAreaPixels)
+              / static_cast<double>(decisionTrace.parentAreaPixels);
+          decisionTrace.primaryParentCoverageRatio =
+              static_cast<double>(decisionTrace.overlapPixels)
+              / static_cast<double>(decisionTrace.parentAreaPixels);
+        }
+      }
+
       bool overlapsPreviousModel = false;
       bool nearPreviousModel = false;
       if (previousLayer) {
@@ -1004,13 +1257,40 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         }
       }
 
+      std::size_t preservedSupportParentCount = 0u;
+      std::size_t preservedSupportPixels = 0u;
+      for (const auto& match : matches) {
+        const auto parentArea = states[match.previousNode].component.area;
+        if (parentArea == 0u || match.overlap == 0u) {
+          continue;
+        }
+        const double parentCoverage = static_cast<double>(match.overlap)
+                                      / static_cast<double>(parentArea);
+        if (parentCoverage >= options.minimumSupportParentCoverageRatio) {
+          ++preservedSupportParentCount;
+          preservedSupportPixels += match.overlap;
+        }
+      }
+      const double supportFusionCoverage = current.components[index].area == 0u
+          ? 0.0
+          : static_cast<double>(std::min(
+                current.components[index].area, preservedSupportPixels))
+                / static_cast<double>(current.components[index].area);
+      const bool supportFusionContinuation =
+          preservedSupportParentCount >= 2u
+          && supportFusionCoverage >= options.minimumSupportFusionCoverageRatio;
+
+      SupportMotionComparison supportMotion;
+      TerminalTaperEvidence parentTaperEvidence;
+      bool terminalTaperOnParent = false;
+      bool supportMotionContinuation = false;
       bool taperedExpansion = false;
       if (!matches.empty()) {
         // Only the best structural parent may open a support-to-model contact
-        // candidate. Secondary matches remain brace relations. More
-        // importantly, an already tracked support keeps its semantic identity:
-        // overlap with an earlier model layer or a local area increase cannot
-        // cut the branch by itself.
+        // candidate. Secondary matches remain brace relations. A lateral move
+        // is never evidence of model matter by itself: the parent section is
+        // translated onto the current centre and its shape continuity is
+        // measured before a progressive contact may be opened.
         const auto& match = matches.front();
         const auto& previousState = states[match.previousNode];
         if (previousState.component.area != 0u
@@ -1023,18 +1303,29 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           const bool validModelRoot = !rootedOnlyInModel
                                       || hasModelRootTaper(
                                           match.previousNode, states, options);
-          const bool displacedGrowth = expansion > 1.0
-              && centreDistancePixels(
-                     previousState.component, current.components[index])
-                     > options.maximumLayerMotionPixels;
-          const bool growthMayOpenContact =
-              expansion >= options.minimumModelExpansionRatio
-              || displacedGrowth;
-          taperedExpansion = previousState.depth >= options.minimumTrackLayers
-                             && validModelRoot
-                             && growthMayOpenContact
-                             && hasTerminalTaper(
-                                 match.previousNode, states, options);
+          parentTaperEvidence = terminalTaperEvidence(
+              match.previousNode, states, options);
+          terminalTaperOnParent =
+              previousState.depth >= options.minimumTrackLayers
+              && validModelRoot
+              && parentTaperEvidence.tapered;
+          if (terminalTaperOnParent && !supportFusionContinuation) {
+            supportMotion = compareSupportMotion(
+                match.previousNode, current.components[index], states, options);
+            const bool displacedGrowth = expansion > 1.0
+                && centreDistancePixels(
+                       previousState.component, current.components[index])
+                       > options.maximumLayerMotionPixels;
+            const bool unexplainedDisplacedGrowth = displacedGrowth
+                && !supportMotion.explainedBySupportMotion;
+            const bool growthMayOpenContact =
+                expansion >= options.minimumModelExpansionRatio
+                || unexplainedDisplacedGrowth;
+            taperedExpansion = growthMayOpenContact;
+            supportMotionContinuation = displacedGrowth
+                && !growthMayOpenContact
+                && supportMotion.explainedBySupportMotion;
+          }
         }
       }
 
@@ -1058,6 +1349,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       const bool modelDominantMerge = overlapsPreviousModel
           && !plausibleSupportContinuation;
       bool isModel = modelDominantMerge;
+      SupportDecisionReason decisionReason = modelDominantMerge
+          ? SupportDecisionReason::ModelDominantMerge
+          : SupportDecisionReason::UnrelatedAfterModel;
 
       bool rootedInModel = false;
       bool isSupportCandidate = false;
@@ -1066,12 +1360,20 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         if (!matches.empty() || firstSupportLayer) {
           isSupportCandidate = true;
           unparentedRaftSupport = firstSupportLayer && matches.empty();
+          decisionReason = unparentedRaftSupport
+              ? SupportDecisionReason::FirstSupportLayer
+              : (supportFusionContinuation
+                     ? SupportDecisionReason::SupportFusionContinuation
+                     : (supportMotionContinuation
+                            ? SupportDecisionReason::SupportMotionContinuation
+                            : SupportDecisionReason::SupportContinuation));
         } else if (modelExistedBeforeLayer && nearPreviousModel) {
           // A separate component born beside established model matter can be a
           // model-rooted support. It remains only a candidate until both its
           // narrow root and terminal taper are validated.
           isSupportCandidate = true;
           rootedInModel = true;
+          decisionReason = SupportDecisionReason::ModelRootCandidate;
         } else if (!modelExistedBeforeLayer) {
           const bool relativeModelExpansion = maximumPreviousSupportArea != 0u
               && static_cast<double>(current.components[index].area)
@@ -1079,12 +1381,15 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                             * options.abruptModelExpansionRatio;
           if (relativeModelExpansion) {
             isModel = true;
+            decisionReason =
+                SupportDecisionReason::RelativeExpansionBeforeFirstModel;
           } else {
             // Before the first part contact, small disconnected components are
             // still part of the support network (for example a discretised
             // diagonal brace whose previous raster does not overlap).
             isSupportCandidate = true;
             unparentedRaftSupport = true;
+            decisionReason = SupportDecisionReason::SupportBornBeforeModel;
           }
         } else {
           // Once model matter exists, an unrelated component is model unless it
@@ -1093,11 +1398,53 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         }
       }
 
+      decisionTrace.matchedSupportParentCount = matches.size();
+      decisionTrace.preservedSupportParentCount = preservedSupportParentCount;
+      decisionTrace.supportFusionCoverageRatio = supportFusionCoverage;
+      decisionTrace.supportFusionContinuation = supportFusionContinuation;
+      decisionTrace.terminalTaperDecreaseSteps =
+          parentTaperEvidence.meaningfulDecreaseSteps;
+      decisionTrace.immediateTerminalTaperOnParent = parentTaperEvidence.immediate;
+      decisionTrace.terminalTaperReboundOnParent =
+          parentTaperEvidence.reboundAfterTaper;
+      if (options.captureDecisionTrace) {
+        decisionTrace.matchedSupportParentNodeIds.reserve(matches.size());
+        decisionTrace.matchedSupportParentOverlapPixels.reserve(matches.size());
+        for (const auto& match : matches) {
+          decisionTrace.matchedSupportParentNodeIds.push_back(match.previousNode);
+          decisionTrace.matchedSupportParentOverlapPixels.push_back(match.overlap);
+        }
+      }
+      decisionTrace.overlapsPreviousModel = overlapsPreviousModel;
+      decisionTrace.nearPreviousModel = nearPreviousModel;
+      decisionTrace.alignedOverlapPixels = supportMotion.alignedOverlapPixels;
+      decisionTrace.addedPixelsAfterAlignment = supportMotion.addedPixels;
+      decisionTrace.removedPixelsAfterAlignment = supportMotion.removedPixels;
+      decisionTrace.predictedMotionXPixels = supportMotion.predictedMotionX;
+      decisionTrace.predictedMotionYPixels = supportMotion.predictedMotionY;
+      decisionTrace.motionResidualPixels = supportMotion.motionResidual;
+      decisionTrace.alignedOverlapRatio = supportMotion.alignedOverlapRatio;
+      decisionTrace.alignedIntersectionOverUnion =
+          supportMotion.alignedIntersectionOverUnion;
+      decisionTrace.terminalTaperOnParent = terminalTaperOnParent;
+      decisionTrace.supportMotionContinuation = supportMotionContinuation;
+      decisionTrace.recentSupportMaximumAreaPixels = supportReferenceArea;
+
       if (isModel) {
         currentIsModel[index] = true;
+        if (options.captureDecisionTrace) {
+          decisionTrace.decision = MaterialSemantic::Model;
+          decisionTrace.reason = decisionReason;
+          result.decisions.push_back(decisionTrace);
+        }
         continue;
       }
       if (!isSupportCandidate) {
+        if (options.captureDecisionTrace) {
+          decisionTrace.decision = MaterialSemantic::Model;
+          decisionTrace.reason = decisionReason;
+          result.decisions.push_back(decisionTrace);
+        }
         continue;
       }
 
@@ -1141,6 +1488,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                                      : SupportNodeKind::Pillar)
                       : SupportNodeKind::Pillar;
       result.nodes.push_back(node);
+      std::size_t decisionIndex = invalidDecision;
+      if (options.captureDecisionTrace) {
+        decisionTrace.nodeId = nodeId;
+        decisionTrace.parentNodeId = parent;
+        decisionTrace.rootedInRaft = rootedInRaft;
+        decisionTrace.rootedInModel = rootedInModel;
+        decisionTrace.decision = MaterialSemantic::Support;
+        decisionTrace.reason = decisionReason;
+        decisionIndex = result.decisions.size();
+        result.decisions.push_back(decisionTrace);
+      }
+      nodeDecisionIndices.push_back(decisionIndex);
       currentCandidateNodes.push_back(nodeId);
       ++result.summary.candidateNodeCount;
 
@@ -1238,6 +1597,24 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           }
         }
 
+        if (options.captureDecisionTrace
+            && decisionIndex != invalidDecision
+            && currentState.pendingContactTip != invalidNode) {
+          auto& trace = result.decisions[decisionIndex];
+          trace.contactCandidate = true;
+          trace.pendingContactLength = currentState.pendingContactLength;
+          trace.reason = currentState.pendingContactLength == 1u
+              ? SupportDecisionReason::ContactCandidateOpened
+              : SupportDecisionReason::ContactCandidateContinued;
+          const auto startArea =
+              states[currentState.pendingContactStart].component.area;
+          if (startArea != 0u) {
+            trace.pendingStartAreaRatio =
+                static_cast<double>(currentState.component.area)
+                / static_cast<double>(startArea);
+          }
+        }
+
         const auto pendingTipArea = currentState.pendingContactTip == invalidNode
             ? 0u
             : states[currentState.pendingContactTip].component.area;
@@ -1264,6 +1641,23 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           while (cursor != invalidNode) {
             states[cursor].classifiedAsModel = true;
             states[cursor].accepted = false;
+            if (options.captureDecisionTrace
+                && cursor < nodeDecisionIndices.size()
+                && nodeDecisionIndices[cursor] != invalidDecision) {
+              auto& trace = result.decisions[nodeDecisionIndices[cursor]];
+              trace.contactCandidate = true;
+              trace.contactConfirmed = true;
+              trace.decision = MaterialSemantic::Model;
+              trace.reason = abruptLocalContact
+                  ? SupportDecisionReason::ContactConfirmedAbrupt
+                  : SupportDecisionReason::ContactConfirmedProgressive;
+              trace.pendingContactLength = currentState.pendingContactLength;
+              if (pendingStartArea != 0u) {
+                trace.pendingStartAreaRatio =
+                    static_cast<double>(currentState.component.area)
+                    / static_cast<double>(pendingStartArea);
+              }
+            }
             if (cursor == startNode) {
               break;
             }
@@ -1312,6 +1706,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             // No cumulative model growth was established. Keep the complete
             // sequence as support and allow a later terminal growth to open a
             // new local candidate.
+            if (options.captureDecisionTrace
+                && decisionIndex != invalidDecision) {
+              auto& trace = result.decisions[decisionIndex];
+              trace.contactCandidate = false;
+              trace.decision = MaterialSemantic::Support;
+              trace.reason = SupportDecisionReason::RejectedSupportPath;
+            }
             currentState.pendingContactTip = invalidNode;
             currentState.pendingContactStart = invalidNode;
             currentState.pendingContactLength = 0u;
@@ -1389,6 +1790,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           current.components[index].runs, previousStableSemanticModel);
       auto& state = states[nodeId];
       state.hasSemanticProjection = true;
+      if (options.captureDecisionTrace
+          && nodeId < nodeDecisionIndices.size()
+          && nodeDecisionIndices[nodeId] != invalidDecision) {
+        auto& trace = result.decisions[nodeDecisionIndices[nodeId]];
+        trace.mixedSemanticProjection = true;
+        trace.reason = SupportDecisionReason::MixedSemanticProjection;
+      }
       state.projectedSupportRuns.clear();
       previousStableSemanticModel.appendClearRuns(
           current.components[index].runs,
@@ -1553,7 +1961,25 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   for (auto& state : states) {
     if (state.classifiedAsModel || !state.accepted) {
       result.nodes[state.nodeId].kind = SupportNodeKind::Rejected;
+      if (options.captureDecisionTrace
+          && state.nodeId < nodeDecisionIndices.size()
+          && nodeDecisionIndices[state.nodeId] != invalidDecision) {
+        auto& trace = result.decisions[nodeDecisionIndices[state.nodeId]];
+        trace.accepted = false;
+        if (state.classifiedAsModel) {
+          trace.decision = MaterialSemantic::Model;
+        } else {
+          trace.reason = SupportDecisionReason::RejectedSupportPath;
+        }
+      }
       continue;
+    }
+    if (options.captureDecisionTrace
+        && state.nodeId < nodeDecisionIndices.size()
+        && nodeDecisionIndices[state.nodeId] != invalidDecision) {
+      auto& trace = result.decisions[nodeDecisionIndices[state.nodeId]];
+      trace.accepted = true;
+      trace.decision = MaterialSemantic::Support;
     }
     ++result.summary.acceptedNodeCount;
     auto& layer = result.layers[result.nodes[state.nodeId].layer];

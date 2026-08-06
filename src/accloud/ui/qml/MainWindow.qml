@@ -1382,6 +1382,12 @@ ApplicationWindow {
                             visible: !root.prodUi
                         }
 
+                        AppTabButton {
+                            objectName: "supportAnalysisTabButton"
+                            text: qsTr("Support analysis")
+                            visible: root.debugUi && root.experimentalViewerEnabled
+                        }
+
                         onCurrentIndexChanged: {
                             if (currentIndex === 1
                                     && printerPage
@@ -1509,6 +1515,35 @@ ApplicationWindow {
                                         wrapMode: Text.WordWrap
                                         Layout.fillWidth: true
                                     }
+                                }
+                            }
+                        }
+
+                        Item {
+                            objectName: "supportAnalysisPageHost"
+                            visible: root.debugUi && root.experimentalViewerEnabled
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Loader {
+                                id: supportAnalysisPageLoader
+                                anchors.fill: parent
+                                active: root.debugUi
+                                        && root.experimentalViewerEnabled
+                                        && controlTabs.currentIndex === 4
+                                source: "pages/SupportAnalysisPage.qml"
+                                onLoaded: {
+                                    if (!item)
+                                        return
+                                    item.analysisBridge = (typeof supportAnalysisBridge !== "undefined")
+                                                          ? supportAnalysisBridge
+                                                          : null
+                                    item.embeddedAnalysisInTabsContainer = true
+                                    item.workerCount = root.render3dWorkerCount
+                                    item.palettePreset = root.render3dPalettePreset
+                                    item.partColor = root.render3dPartColor
+                                    item.supportColor = root.render3dSupportColor
+                                    item.viewportColor = root.render3dBackgroundColor
                                 }
                             }
                         }
