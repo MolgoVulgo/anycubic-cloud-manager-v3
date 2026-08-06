@@ -118,6 +118,104 @@ struct LayerDescription {
   std::vector<Component> components;
 };
 
+class ComponentGridIndex {
+public:
+  ComponentGridIndex(
+      const LayerDescription* layer,
+      const std::vector<bool>& selected,
+      double marginPixels)
+      : componentCount_(layer == nullptr ? 0u : layer->components.size()),
+        stamps_(componentCount_, 0u) {
+    if (layer == nullptr) {
+      return;
+    }
+    const auto margin = static_cast<std::uint32_t>(
+        std::max(0.0, std::ceil(marginPixels)));
+    for (std::size_t index = 0; index < layer->components.size(); ++index) {
+      if (index >= selected.size() || !selected[index]) {
+        continue;
+      }
+      const auto& component = layer->components[index];
+      const auto minX = component.minX > margin ? component.minX - margin : 0u;
+      const auto minY = component.minY > margin ? component.minY - margin : 0u;
+      const auto maxX = component.maxX + margin;
+      const auto maxY = component.maxY + margin;
+      add(index, minX, minY, maxX, maxY);
+    }
+  }
+
+  [[nodiscard]] std::vector<std::size_t> query(const Component& component) {
+    std::vector<std::size_t> result;
+    if (componentCount_ == 0u) {
+      return result;
+    }
+    if (++generation_ == 0u) {
+      std::fill(stamps_.begin(), stamps_.end(), 0u);
+      generation_ = 1u;
+    }
+    forEachCell(
+        component.minX, component.minY, component.maxX, component.maxY,
+        [&](std::uint64_t key) {
+          const auto iterator = cells_.find(key);
+          if (iterator == cells_.end()) {
+            return;
+          }
+          for (const auto index : iterator->second) {
+            if (stamps_[index] == generation_) {
+              continue;
+            }
+            stamps_[index] = generation_;
+            result.push_back(index);
+          }
+        });
+    return result;
+  }
+
+private:
+  static constexpr std::uint32_t kCellSize = 128u;
+
+  static std::uint64_t cellKey(std::uint32_t x, std::uint32_t y) {
+    return (static_cast<std::uint64_t>(x) << 32u) | y;
+  }
+
+  template <typename Visitor>
+  static void forEachCell(
+      std::uint32_t minX,
+      std::uint32_t minY,
+      std::uint32_t maxX,
+      std::uint32_t maxY,
+      Visitor visitor) {
+    if (maxX <= minX || maxY <= minY) {
+      return;
+    }
+    const auto firstCellX = minX / kCellSize;
+    const auto firstCellY = minY / kCellSize;
+    const auto lastCellX = (maxX - 1u) / kCellSize;
+    const auto lastCellY = (maxY - 1u) / kCellSize;
+    for (std::uint32_t cellY = firstCellY; cellY <= lastCellY; ++cellY) {
+      for (std::uint32_t cellX = firstCellX; cellX <= lastCellX; ++cellX) {
+        visitor(cellKey(cellX, cellY));
+      }
+    }
+  }
+
+  void add(
+      std::size_t component,
+      std::uint32_t minX,
+      std::uint32_t minY,
+      std::uint32_t maxX,
+      std::uint32_t maxY) {
+    forEachCell(minX, minY, maxX, maxY, [&](std::uint64_t key) {
+      cells_[key].push_back(component);
+    });
+  }
+
+  std::size_t componentCount_ = 0;
+  std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells_;
+  std::vector<std::uint32_t> stamps_;
+  std::uint32_t generation_ = 0u;
+};
+
 LayerDescription describeLayer(const BinaryMask& mask, std::size_t layer) {
   LayerDescription description;
   description.layer = layer;
@@ -194,12 +292,16 @@ double equivalentDiameterMillimetres(
   return 2.0 * std::sqrt(area / std::numbers::pi);
 }
 
-bool candidateShape(const Component& component, const SupportAnalysisOptions& options) {
-  const double area = static_cast<double>(component.area)
-                      * options.pitchXMillimetres * options.pitchYMillimetres;
-  return area <= options.maximumSupportAreaMillimetres2
-         && equivalentDiameterMillimetres(component, options)
-                <= options.maximumSupportDiameterMillimetres;
+std::size_t changedPixelCount(const BinaryMask& left, const BinaryMask& right) {
+  if (left.width() != right.width() || left.height() != right.height()) {
+    return std::numeric_limits<std::size_t>::max();
+  }
+  std::size_t changed = 0u;
+  for (std::size_t index = 0; index < left.words().size(); ++index) {
+    changed += static_cast<std::size_t>(
+        std::popcount(left.words()[index] ^ right.words()[index]));
+  }
+  return changed;
 }
 
 std::size_t overlapPixels(const Component& left, const Component& right) {
@@ -235,14 +337,246 @@ std::size_t overlapPixels(const Component& left, const Component& right) {
   return result;
 }
 
-double centreDistanceMillimetres(
+double centreDistancePixels(
     const Component& left,
-    const Component& right,
-    const SupportAnalysisOptions& options) {
-  const double dx = (left.centerX - right.centerX) * options.pitchXMillimetres;
-  const double dy = (left.centerY - right.centerY) * options.pitchYMillimetres;
+    const Component& right) {
+  const double dx = left.centerX - right.centerX;
+  const double dy = left.centerY - right.centerY;
   return std::hypot(dx, dy);
 }
+
+void canonicalizeSemanticRuns(
+    std::vector<SemanticRun>& runs,
+    MaterialSemantic semantic) {
+  for (auto& run : runs) {
+    run.semantic = semantic;
+  }
+  std::sort(runs.begin(), runs.end(), [](const SemanticRun& left,
+                                         const SemanticRun& right) {
+    if (left.y != right.y) {
+      return left.y < right.y;
+    }
+    if (left.firstX != right.firstX) {
+      return left.firstX < right.firstX;
+    }
+    return left.lastX < right.lastX;
+  });
+  std::vector<SemanticRun> merged;
+  merged.reserve(runs.size());
+  for (const auto& run : runs) {
+    if (run.firstX >= run.lastX) {
+      continue;
+    }
+    if (!merged.empty()
+        && merged.back().y == run.y
+        && run.firstX <= merged.back().lastX) {
+      merged.back().lastX = std::max(merged.back().lastX, run.lastX);
+    } else {
+      merged.push_back(run);
+    }
+  }
+  runs = std::move(merged);
+}
+
+class SparseRunMask {
+public:
+  explicit SparseRunMask(std::uint32_t height = 0u)
+      : rows_(height) {}
+
+  void clear() {
+    for (const auto y : touchedRows_) {
+      rows_[y].clear();
+    }
+    touchedRows_.clear();
+  }
+
+  void swap(SparseRunMask& other) noexcept {
+    rows_.swap(other.rows_);
+    touchedRows_.swap(other.touchedRows_);
+  }
+
+  void addRuns(const std::vector<SemanticRun>& runs) {
+    for (const auto& run : runs) {
+      addInterval(run.y, run.firstX, run.lastX);
+    }
+  }
+
+  void addIntersection(
+      const std::vector<SemanticRun>& source,
+      const SparseRunMask& selected) {
+    for (const auto& run : source) {
+      if (run.y >= rows_.size() || run.firstX >= run.lastX) {
+        continue;
+      }
+      const auto& selectedRow = selected.rows_[run.y];
+      auto iterator = std::lower_bound(
+          selectedRow.begin(), selectedRow.end(), run.firstX,
+          [](const PixelRun& interval, std::uint32_t firstX) {
+            return interval.second <= firstX;
+          });
+      for (; iterator != selectedRow.end() && iterator->first < run.lastX;
+           ++iterator) {
+        addInterval(
+            run.y,
+            std::max(run.firstX, iterator->first),
+            std::min(run.lastX, iterator->second));
+      }
+    }
+  }
+
+  void normalize() {
+    for (const auto y : touchedRows_) {
+      auto& row = rows_[y];
+      std::sort(row.begin(), row.end());
+      std::vector<PixelRun> merged;
+      merged.reserve(row.size());
+      for (const auto& interval : row) {
+        if (!merged.empty() && interval.first <= merged.back().second) {
+          merged.back().second = std::max(merged.back().second, interval.second);
+        } else {
+          merged.push_back(interval);
+        }
+      }
+      row = std::move(merged);
+    }
+    std::sort(touchedRows_.begin(), touchedRows_.end());
+    touchedRows_.erase(
+        std::unique(touchedRows_.begin(), touchedRows_.end()),
+        touchedRows_.end());
+  }
+
+  void assignFrom(const SparseRunMask& source) {
+    clear();
+    for (const auto y : source.touchedRows_) {
+      rows_[y] = source.rows_[y];
+      touchedRows_.push_back(y);
+    }
+  }
+
+  void assignUnion(
+      const SparseRunMask& first,
+      const SparseRunMask& second) {
+    clear();
+    addMask(first);
+    addMask(second);
+    normalize();
+  }
+
+  void assignIntersection(
+      const SparseRunMask& left,
+      const SparseRunMask& right) {
+    clear();
+    const auto height = static_cast<std::uint32_t>(rows_.size());
+    for (std::uint32_t y = 0; y < height; ++y) {
+      const auto& a = left.rows_[y];
+      const auto& b = right.rows_[y];
+      if (a.empty() || b.empty()) {
+        continue;
+      }
+      auto& output = rows_[y];
+      std::size_t ai = 0u;
+      std::size_t bi = 0u;
+      while (ai < a.size() && bi < b.size()) {
+        const auto first = std::max(a[ai].first, b[bi].first);
+        const auto last = std::min(a[ai].second, b[bi].second);
+        if (first < last) {
+          output.emplace_back(first, last);
+        }
+        if (a[ai].second < b[bi].second) {
+          ++ai;
+        } else {
+          ++bi;
+        }
+      }
+      if (!output.empty()) {
+        touchedRows_.push_back(y);
+      }
+    }
+  }
+
+  [[nodiscard]] std::size_t countSet(
+      const std::vector<SemanticRun>& runs) const {
+    std::size_t result = 0u;
+    for (const auto& run : runs) {
+      if (run.y >= rows_.size() || run.firstX >= run.lastX) {
+        continue;
+      }
+      const auto& row = rows_[run.y];
+      auto iterator = std::lower_bound(
+          row.begin(), row.end(), run.firstX,
+          [](const PixelRun& interval, std::uint32_t firstX) {
+            return interval.second <= firstX;
+          });
+      for (; iterator != row.end() && iterator->first < run.lastX; ++iterator) {
+        const auto first = std::max(run.firstX, iterator->first);
+        const auto last = std::min(run.lastX, iterator->second);
+        if (first < last) {
+          result += static_cast<std::size_t>(last - first);
+        }
+      }
+    }
+    return result;
+  }
+
+  void appendClearRuns(
+      const std::vector<SemanticRun>& matterRuns,
+      MaterialSemantic semantic,
+      std::vector<SemanticRun>& output) const {
+    for (const auto& run : matterRuns) {
+      if (run.y >= rows_.size() || run.firstX >= run.lastX) {
+        continue;
+      }
+      const auto& row = rows_[run.y];
+      auto iterator = std::lower_bound(
+          row.begin(), row.end(), run.firstX,
+          [](const PixelRun& interval, std::uint32_t firstX) {
+            return interval.second <= firstX;
+          });
+      auto cursor = run.firstX;
+      for (; iterator != row.end() && iterator->first < run.lastX; ++iterator) {
+        if (iterator->first > cursor) {
+          output.push_back(SemanticRun{
+              run.y, cursor, std::min(iterator->first, run.lastX), semantic});
+        }
+        cursor = std::max(cursor, iterator->second);
+        if (cursor >= run.lastX) {
+          break;
+        }
+      }
+      if (cursor < run.lastX) {
+        output.push_back(SemanticRun{run.y, cursor, run.lastX, semantic});
+      }
+    }
+  }
+
+private:
+  void addInterval(
+      std::uint32_t y,
+      std::uint32_t firstX,
+      std::uint32_t lastX) {
+    if (y >= rows_.size() || firstX >= lastX) {
+      return;
+    }
+    auto& row = rows_[y];
+    if (row.empty()) {
+      touchedRows_.push_back(y);
+    }
+    row.emplace_back(firstX, lastX);
+  }
+
+  void addMask(const SparseRunMask& source) {
+    for (const auto y : source.touchedRows_) {
+      auto& row = rows_[y];
+      if (row.empty()) {
+        touchedRows_.push_back(y);
+      }
+      row.insert(row.end(), source.rows_[y].begin(), source.rows_[y].end());
+    }
+  }
+
+  std::vector<std::vector<PixelRun>> rows_;
+  std::vector<std::uint32_t> touchedRows_;
+};
 
 struct NodeState {
   std::size_t nodeId = 0;
@@ -251,13 +585,113 @@ struct NodeState {
   Component component;
   std::size_t runCount = 0;
   bool accepted = false;
+  bool classifiedAsModel = false;
   bool modelContact = false;
   bool supportContact = false;
+  std::size_t pendingContactTip = std::numeric_limits<std::size_t>::max();
+  std::size_t pendingContactStart = std::numeric_limits<std::size_t>::max();
+  std::size_t pendingContactLength = 0;
+  std::vector<std::size_t> pendingContactTips;
   std::size_t contactNode = std::numeric_limits<std::size_t>::max();
   std::size_t branchOrigin = std::numeric_limits<std::size_t>::max();
   std::size_t contactLayer = std::numeric_limits<std::size_t>::max();
   std::size_t contactModelPixelCount = 0;
   double contactModelExpansionRatio = 0.0;
+  bool hasSemanticProjection = false;
+  std::vector<SemanticRun> projectedSupportRuns;
+};
+
+class NodeGridIndex {
+public:
+  NodeGridIndex(
+      const std::vector<std::size_t>& nodes,
+      const std::vector<NodeState>& states,
+      double marginPixels)
+      : stamps_(states.size(), 0u) {
+    const auto margin = static_cast<std::uint32_t>(
+        std::max(0.0, std::ceil(marginPixels)));
+    for (const auto nodeId : nodes) {
+      if (nodeId >= states.size()) {
+        continue;
+      }
+      const auto& component = states[nodeId].component;
+      const auto minX = component.minX > margin ? component.minX - margin : 0u;
+      const auto minY = component.minY > margin ? component.minY - margin : 0u;
+      const auto maxX = component.maxX + margin;
+      const auto maxY = component.maxY + margin;
+      add(nodeId, minX, minY, maxX, maxY);
+    }
+  }
+
+  [[nodiscard]] std::vector<std::size_t> query(const Component& component) {
+    std::vector<std::size_t> result;
+    if (cells_.empty()) {
+      return result;
+    }
+    if (++generation_ == 0u) {
+      std::fill(stamps_.begin(), stamps_.end(), 0u);
+      generation_ = 1u;
+    }
+    forEachCell(
+        component.minX, component.minY, component.maxX, component.maxY,
+        [&](std::uint64_t key) {
+          const auto iterator = cells_.find(key);
+          if (iterator == cells_.end()) {
+            return;
+          }
+          for (const auto nodeId : iterator->second) {
+            if (stamps_[nodeId] == generation_) {
+              continue;
+            }
+            stamps_[nodeId] = generation_;
+            result.push_back(nodeId);
+          }
+        });
+    return result;
+  }
+
+private:
+  static constexpr std::uint32_t kCellSize = 128u;
+
+  static std::uint64_t cellKey(std::uint32_t x, std::uint32_t y) {
+    return (static_cast<std::uint64_t>(x) << 32u) | y;
+  }
+
+  template <typename Visitor>
+  static void forEachCell(
+      std::uint32_t minX,
+      std::uint32_t minY,
+      std::uint32_t maxX,
+      std::uint32_t maxY,
+      Visitor visitor) {
+    if (maxX <= minX || maxY <= minY) {
+      return;
+    }
+    const auto firstCellX = minX / kCellSize;
+    const auto firstCellY = minY / kCellSize;
+    const auto lastCellX = (maxX - 1u) / kCellSize;
+    const auto lastCellY = (maxY - 1u) / kCellSize;
+    for (std::uint32_t cellY = firstCellY; cellY <= lastCellY; ++cellY) {
+      for (std::uint32_t cellX = firstCellX; cellX <= lastCellX; ++cellX) {
+        visitor(cellKey(cellX, cellY));
+      }
+    }
+  }
+
+  void add(
+      std::size_t nodeId,
+      std::uint32_t minX,
+      std::uint32_t minY,
+      std::uint32_t maxX,
+      std::uint32_t maxY) {
+    forEachCell(minX, minY, maxX, maxY, [&](std::uint64_t key) {
+      cells_[key].push_back(nodeId);
+    });
+  }
+
+  std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells_;
+  std::vector<std::uint32_t> stamps_;
+  std::uint32_t generation_ = 0u;
 };
 
 struct Match {
@@ -286,14 +720,10 @@ bool nearEnough(
     return 0u;
   };
   const double gapX = static_cast<double>(axisGap(
-      previous.minX, previous.maxX, current.minX, current.maxX))
-                      * options.pitchXMillimetres;
+      previous.minX, previous.maxX, current.minX, current.maxX));
   const double gapY = static_cast<double>(axisGap(
-      previous.minY, previous.maxY, current.minY, current.maxY))
-                      * options.pitchYMillimetres;
-  const double previousRadius = equivalentDiameterMillimetres(previous, options) * 0.5;
-  const double allowedMotion = options.pitchZMillimetres * options.maximumLayerSlope;
-  return std::hypot(gapX, gapY) <= previousRadius + allowedMotion;
+      previous.minY, previous.maxY, current.minY, current.maxY));
+  return std::hypot(gapX, gapY) <= options.maximumLayerMotionPixels;
 }
 
 std::vector<Match> matchingPreviousNodes(
@@ -310,7 +740,7 @@ std::vector<Match> matchingPreviousNodes(
     matches.push_back(Match{
         nodeId,
         overlapPixels(previous, current),
-        centreDistanceMillimetres(previous, current, options),
+        centreDistancePixels(previous, current),
     });
   }
   std::sort(matches.begin(), matches.end(), [](const Match& left, const Match& right) {
@@ -370,12 +800,27 @@ bool hasTerminalTaper(
                 <= static_cast<double>(maximumEarlierArea) * options.terminalTaperRatio;
 }
 
+std::size_t recentMaximumArea(
+    std::size_t nodeId,
+    const std::vector<NodeState>& states,
+    std::size_t lookbackLayers) {
+  std::size_t maximumArea = 0;
+  std::size_t observed = 0;
+  while (nodeId != std::numeric_limits<std::size_t>::max()
+         && observed < lookbackLayers) {
+    maximumArea = std::max(maximumArea, states[nodeId].component.area);
+    nodeId = states[nodeId].parent;
+    ++observed;
+  }
+  return maximumArea;
+}
+
 std::vector<std::size_t> acceptPath(
     std::size_t nodeId,
     std::vector<NodeState>& states) {
   std::vector<std::size_t> acceptedNodes;
   while (nodeId != std::numeric_limits<std::size_t>::max()) {
-    if (states[nodeId].accepted) {
+    if (states[nodeId].classifiedAsModel || states[nodeId].accepted) {
       break;
     }
     states[nodeId].accepted = true;
@@ -385,10 +830,9 @@ std::vector<std::size_t> acceptPath(
   return acceptedNodes;
 }
 
-double branchSlope(
+double branchDriftPixelsPerLayer(
     std::size_t nodeId,
-    const std::vector<NodeState>& states,
-    const SupportAnalysisOptions& options) {
+    const std::vector<NodeState>& states) {
   const auto& upper = states[nodeId];
   std::size_t lowerId = upper.branchOrigin;
   if (lowerId == std::numeric_limits<std::size_t>::max()) {
@@ -405,10 +849,8 @@ double branchSlope(
   if (zLayers == 0) {
     return 0.0;
   }
-  const double lateral = centreDistanceMillimetres(
-      lower.component, upper.component, options);
-  const double vertical = static_cast<double>(zLayers) * options.pitchZMillimetres;
-  return vertical > 0.0 ? lateral / vertical : 0.0;
+  return centreDistancePixels(lower.component, upper.component)
+         / static_cast<double>(zLayers);
 }
 
 
@@ -426,8 +868,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   if (!(options.pitchXMillimetres > 0.0)
       || !(options.pitchYMillimetres > 0.0)
       || !(options.pitchZMillimetres > 0.0)
-      || options.maximumRaftLayers == 0
       || options.minimumTrackLayers == 0
+      || options.modelContactConfirmationLayers < 2u
+      || !(options.raftMaximumChangedPixelRatio >= 0.0
+           && options.raftMaximumChangedPixelRatio < 1.0)
+      || !(options.maximumLayerMotionPixels >= 0.0)
+      || !(options.braceMinimumDriftPixelsPerLayer >= 0.0)
+      || !(options.braceMaximumDriftPixelsPerLayer
+           >= options.braceMinimumDriftPixelsPerLayer)
+      || !(options.minimumModelExpansionRatio > 1.0)
+      || !(options.abruptModelExpansionRatio > 1.0)
+      || !(options.abruptModelExpansionRatio
+           >= options.minimumModelExpansionRatio)
       || !(options.terminalTaperRatio > 0.0 && options.terminalTaperRatio <= 1.0)
       || !(options.modelRootTaperRatio > 0.0 && options.modelRootTaperRatio <= 1.0)) {
     result.error = "support analysis options are invalid";
@@ -438,11 +890,17 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   std::vector<NodeState> states;
   std::vector<std::size_t> previousCandidateNodes;
   std::optional<LayerDescription> previousLayer;
-  std::size_t firstArea = 0;
-  std::size_t firstLargestArea = 0;
+  std::vector<bool> previousModelComponents;
+  std::optional<BinaryMask> firstRaftMask;
+  std::size_t firstRaftArea = 0u;
   bool raftEnded = false;
   bool modelSeen = false;
-  std::size_t lastLayerWithCandidate = 0;
+  SparseRunMask previousSemanticModel(source.height());
+  SparseRunMask previousStableSemanticModel(source.height());
+  SparseRunMask currentSemanticModel(source.height());
+  SparseRunMask confirmedSemanticModel(source.height());
+  SparseRunMask currentStableSemanticModel(source.height());
+  SparseRunMask stableSemanticIntersection(source.height());
 
   for (std::size_t layer = 0; layer < source.layerCount(); ++layer) {
     if (callbacks.isCancelled && callbacks.isCancelled()) {
@@ -463,21 +921,24 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         result.error = "support analysis requires raft matter on the first layer";
         return result;
       }
-      firstArea = current.totalArea;
-      firstLargestArea = current.largestArea;
+      firstRaftMask = *mask;
+      firstRaftArea = current.totalArea;
     }
 
+    // The raft is the mandatory prefix starting at layer zero. Slicers may use
+    // a plate, a grid or independent pads, but the selected raft raster is
+    // repeated until support stems begin. The first different native mask is
+    // therefore the first support layer; no fixed layer window or area limit is
+    // involved in this decision.
     if (!raftEnded) {
-      const bool withinSearch = layer < options.maximumRaftLayers;
-      const bool retainedArea = firstArea != 0
-                                && static_cast<double>(current.totalArea)
-                                       >= static_cast<double>(firstArea)
-                                              * options.raftRetainedAreaRatio;
-      const bool retainedLargest = firstLargestArea != 0
-                                   && static_cast<double>(current.largestArea)
-                                          >= static_cast<double>(firstLargestArea)
-                                                 * options.raftRetainedAreaRatio;
-      if (layer == 0 || (withinSearch && (retainedArea || retainedLargest))) {
+      const auto maximumChangedPixels = static_cast<std::size_t>(std::ceil(
+          static_cast<double>(firstRaftArea)
+          * options.raftMaximumChangedPixelRatio));
+      const bool sameAsFirstRaft = layer == 0
+                                   || (firstRaftMask
+                                       && changedPixelCount(*mask, *firstRaftMask)
+                                              <= maximumChangedPixels);
+      if (sameAsFirstRaft) {
         result.summary.raftLastLayer = layer;
         result.layers[layer].layer = layer;
         result.layers[layer].phase = PrintPhase::Raft;
@@ -485,6 +946,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           result.summary.raftRunCount += component.runs.size();
         }
         previousLayer = std::move(current);
+        previousModelComponents.assign(previousLayer->components.size(), false);
         previousCandidateNodes.clear();
         if (callbacks.progress) {
           callbacks.progress(layer + 1, source.layerCount());
@@ -495,48 +957,156 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
 
     result.layers[layer].layer = layer;
-    const bool layerContainsModelShape = std::any_of(
-        current.components.begin(), current.components.end(),
-        [&](const Component& component) {
-          return !candidateShape(component, options);
-        });
-    if (!modelSeen && layerContainsModelShape) {
-      modelSeen = true;
-      result.summary.firstModelLayer = layer;
-    }
-    const bool supportOnlyLayer = !modelSeen;
+    const bool modelExistedBeforeLayer = modelSeen;
+    const bool firstSupportLayer = layer == result.summary.raftLastLayer + 1u;
 
     std::vector<std::size_t> currentCandidateNodes;
-    std::vector<bool> currentIsCandidate(current.components.size(), false);
+    const auto invalidNode = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> currentComponentNodes(
+        current.components.size(), invalidNode);
+    std::vector<bool> currentIsModel(current.components.size(), false);
     const auto previousStateCount = states.size();
     std::vector<bool> previousHasStructuralChild(previousStateCount, false);
+    std::size_t maximumPreviousSupportArea = 0u;
+    for (const auto nodeId : previousCandidateNodes) {
+      maximumPreviousSupportArea = std::max(
+          maximumPreviousSupportArea, states[nodeId].component.area);
+    }
+    ComponentGridIndex previousModelIndex(
+        previousLayer ? &*previousLayer : nullptr,
+        previousModelComponents,
+        options.maximumLayerMotionPixels);
+    NodeGridIndex previousSupportIndex(
+        previousCandidateNodes, states, options.maximumLayerMotionPixels);
+
     for (std::size_t index = 0; index < current.components.size(); ++index) {
-      currentIsCandidate[index] = supportOnlyLayer
-                                  || candidateShape(current.components[index], options);
-      if (!currentIsCandidate[index]) {
+      const auto nearbySupportNodes = previousSupportIndex.query(
+          current.components[index]);
+      const auto matches = matchingPreviousNodes(
+          current.components[index], nearbySupportNodes, states, options);
+
+      bool overlapsPreviousModel = false;
+      bool nearPreviousModel = false;
+      if (previousLayer) {
+        for (const auto previousIndex : previousModelIndex.query(
+                 current.components[index])) {
+          const auto& previousComponent = previousLayer->components[previousIndex];
+          const auto modelOverlap = overlapPixels(
+              previousComponent, current.components[index]);
+          if (modelOverlap != 0u) {
+            overlapsPreviousModel = true;
+            nearPreviousModel = true;
+            continue;
+          }
+          nearPreviousModel = nearPreviousModel
+                              || nearEnough(
+                                  previousComponent, current.components[index], options);
+        }
+      }
+
+      bool taperedExpansion = false;
+      if (!matches.empty()) {
+        // Only the best structural parent may open a support-to-model contact
+        // candidate. Secondary matches remain brace relations. More
+        // importantly, an already tracked support keeps its semantic identity:
+        // overlap with an earlier model layer or a local area increase cannot
+        // cut the branch by itself.
+        const auto& match = matches.front();
+        const auto& previousState = states[match.previousNode];
+        if (previousState.component.area != 0u
+            && current.components[index].area > previousState.component.area) {
+          const double expansion = static_cast<double>(current.components[index].area)
+                                   / static_cast<double>(previousState.component.area);
+          const bool rootedOnlyInModel =
+              result.nodes[match.previousNode].rootedInModel
+              && !result.nodes[match.previousNode].rootedInRaft;
+          const bool validModelRoot = !rootedOnlyInModel
+                                      || hasModelRootTaper(
+                                          match.previousNode, states, options);
+          const bool displacedGrowth = expansion > 1.0
+              && centreDistancePixels(
+                     previousState.component, current.components[index])
+                     > options.maximumLayerMotionPixels;
+          const bool growthMayOpenContact =
+              expansion >= options.minimumModelExpansionRatio
+              || displacedGrowth;
+          taperedExpansion = previousState.depth >= options.minimumTrackLayers
+                             && validModelRoot
+                             && growthMayOpenContact
+                             && hasTerminalTaper(
+                                 match.previousNode, states, options);
+        }
+      }
+
+      // A tracked branch keeps its support identity across local overlap with
+      // already established model matter. The overlap may come from a brace, a
+      // temporary raster merge or the beginning of a real contact. Only a
+      // model-dominant merge that is far larger than the recent support profile
+      // can bypass continuity, and never when a terminal taper has opened a
+      // provisional contact candidate.
+      std::size_t supportReferenceArea = 0u;
+      if (!matches.empty()) {
+        supportReferenceArea = recentMaximumArea(
+            matches.front().previousNode, states, options.taperLookbackLayers);
+      }
+      const bool plausibleSupportContinuation = !matches.empty()
+          && (taperedExpansion
+              || (supportReferenceArea != 0u
+                  && static_cast<double>(current.components[index].area)
+                         <= static_cast<double>(supportReferenceArea)
+                                * options.abruptModelExpansionRatio));
+      const bool modelDominantMerge = overlapsPreviousModel
+          && !plausibleSupportContinuation;
+      bool isModel = modelDominantMerge;
+
+      bool rootedInModel = false;
+      bool isSupportCandidate = false;
+      bool unparentedRaftSupport = false;
+      if (!isModel) {
+        if (!matches.empty() || firstSupportLayer) {
+          isSupportCandidate = true;
+          unparentedRaftSupport = firstSupportLayer && matches.empty();
+        } else if (modelExistedBeforeLayer && nearPreviousModel) {
+          // A separate component born beside established model matter can be a
+          // model-rooted support. It remains only a candidate until both its
+          // narrow root and terminal taper are validated.
+          isSupportCandidate = true;
+          rootedInModel = true;
+        } else if (!modelExistedBeforeLayer) {
+          const bool relativeModelExpansion = maximumPreviousSupportArea != 0u
+              && static_cast<double>(current.components[index].area)
+                     >= static_cast<double>(maximumPreviousSupportArea)
+                            * options.abruptModelExpansionRatio;
+          if (relativeModelExpansion) {
+            isModel = true;
+          } else {
+            // Before the first part contact, small disconnected components are
+            // still part of the support network (for example a discretised
+            // diagonal brace whose previous raster does not overlap).
+            isSupportCandidate = true;
+            unparentedRaftSupport = true;
+          }
+        } else {
+          // Once model matter exists, an unrelated component is model unless it
+          // has an explicit support path or a narrow root beside the model.
+          isModel = true;
+        }
+      }
+
+      if (isModel) {
+        currentIsModel[index] = true;
+        continue;
+      }
+      if (!isSupportCandidate) {
         continue;
       }
 
-      const auto matches = matchingPreviousNodes(
-          current.components[index], previousCandidateNodes, states, options);
       std::size_t parent = std::numeric_limits<std::size_t>::max();
-      bool rootedInRaft = supportOnlyLayer
-                              || layer == result.summary.raftLastLayer + 1u;
-      bool rootedInModel = false;
+      bool rootedInRaft = unparentedRaftSupport;
       if (!matches.empty()) {
         parent = matches.front().previousNode;
-        rootedInRaft = supportOnlyLayer || result.nodes[parent].rootedInRaft;
+        rootedInRaft = result.nodes[parent].rootedInRaft;
         rootedInModel = result.nodes[parent].rootedInModel;
-      } else if (!supportOnlyLayer && previousLayer) {
-        for (const auto& previousComponent : previousLayer->components) {
-          if (candidateShape(previousComponent, options)) {
-            continue;
-          }
-          if (nearEnough(previousComponent, current.components[index], options)) {
-            rootedInModel = true;
-            break;
-          }
-        }
       }
 
       const std::size_t nodeId = states.size();
@@ -552,6 +1122,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       state.component = current.components[index];
       state.runCount = current.components[index].runs.size();
       states.push_back(std::move(state));
+      currentComponentNodes[index] = nodeId;
 
       SupportGraphNode node;
       node.id = nodeId;
@@ -572,7 +1143,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       result.nodes.push_back(node);
       currentCandidateNodes.push_back(nodeId);
       ++result.summary.candidateNodeCount;
-      lastLayerWithCandidate = layer;
 
       if (parent != std::numeric_limits<std::size_t>::max()) {
         if (parent < previousHasStructuralChild.size()) {
@@ -599,20 +1169,20 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         // A current connected component can geometrically touch several prior
         // branches. Only one parent is retained. A secondary contact is kept
         // as a brace relation only when one of the two independent paths has
-        // the validated approximately-45-degree slope.
+        // the validated layer-native lateral drift.
         for (std::size_t matchIndex = 1; matchIndex < matches.size(); ++matchIndex) {
           const auto other = matches[matchIndex].previousNode;
-          const double currentSlope = branchSlope(nodeId, states, options);
-          const double otherSlope = branchSlope(other, states, options);
-          if (currentSlope >= options.braceMinimumSlope
-              && currentSlope <= options.braceMaximumSlope) {
+          const double currentDrift = branchDriftPixelsPerLayer(nodeId, states);
+          const double otherDrift = branchDriftPixelsPerLayer(other, states);
+          if (currentDrift >= options.braceMinimumDriftPixelsPerLayer
+              && currentDrift <= options.braceMaximumDriftPixelsPerLayer) {
             states[nodeId].supportContact = true;
             states[nodeId].contactNode = other;
             result.edges.push_back(SupportGraphEdge{
                 nodeId, other, SupportEdgeKind::Brace});
             ++result.summary.braceEdgeCount;
-          } else if (otherSlope >= options.braceMinimumSlope
-                     && otherSlope <= options.braceMaximumSlope) {
+          } else if (otherDrift >= options.braceMinimumDriftPixelsPerLayer
+                     && otherDrift <= options.braceMaximumDriftPixelsPerLayer) {
             states[other].supportContact = true;
             states[other].contactNode = nodeId;
             result.edges.push_back(SupportGraphEdge{
@@ -621,27 +1191,155 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           }
         }
       }
+
+      // A local growth after a validated terminal taper opens a provisional
+      // contact candidate. The decision is strictly local to this branch: the
+      // fact that model matter exists elsewhere in the print is irrelevant.
+      // The candidate stays attached to the support graph while it is checked
+      // against the following native layers. It is confirmed only when the
+      // candidate matter persists and grows cumulatively from its first layer.
+      // A stationary or shrinking sequence is committed back to support.
+      if (parent != std::numeric_limits<std::size_t>::max()) {
+        auto& currentState = states[nodeId];
+        const auto& parentState = states[parent];
+        if (parentState.pendingContactTip != invalidNode) {
+          const auto tipArea = states[parentState.pendingContactTip].component.area;
+          const bool remainsAboveTip = tipArea != 0u
+              && currentState.component.area >= tipArea;
+          if (remainsAboveTip) {
+            currentState.pendingContactTip = parentState.pendingContactTip;
+            currentState.pendingContactStart = parentState.pendingContactStart;
+            currentState.pendingContactLength = parentState.pendingContactLength + 1u;
+            currentState.pendingContactTips = parentState.pendingContactTips;
+          }
+        } else if (taperedExpansion) {
+          currentState.pendingContactTip = parent;
+          currentState.pendingContactStart = nodeId;
+          currentState.pendingContactLength = 1u;
+          for (const auto& match : matches) {
+            const auto& matchedState = states[match.previousNode];
+            if (matchedState.component.area == 0u
+                || currentState.component.area <= matchedState.component.area) {
+              continue;
+            }
+            const bool rootedOnlyInModel =
+                result.nodes[match.previousNode].rootedInModel
+                && !result.nodes[match.previousNode].rootedInRaft;
+            const bool validModelRoot = !rootedOnlyInModel
+                || hasModelRootTaper(match.previousNode, states, options);
+            if (matchedState.depth >= options.minimumTrackLayers
+                && validModelRoot
+                && hasTerminalTaper(match.previousNode, states, options)) {
+              currentState.pendingContactTips.push_back(match.previousNode);
+            }
+          }
+          if (currentState.pendingContactTips.empty()) {
+            currentState.pendingContactTips.push_back(parent);
+          }
+        }
+
+        const auto pendingTipArea = currentState.pendingContactTip == invalidNode
+            ? 0u
+            : states[currentState.pendingContactTip].component.area;
+        const auto pendingStartArea = currentState.pendingContactStart == invalidNode
+            ? 0u
+            : states[currentState.pendingContactStart].component.area;
+        const bool abruptLocalContact = pendingTipArea != 0u
+            && static_cast<double>(pendingStartArea)
+                   >= static_cast<double>(pendingTipArea)
+                          * options.abruptModelExpansionRatio;
+        const bool cumulativeGrowthConfirmed = pendingStartArea != 0u
+            && static_cast<double>(currentState.component.area)
+                   >= static_cast<double>(pendingStartArea)
+                          * options.minimumModelExpansionRatio;
+        const bool persistenceConfirmed = currentState.pendingContactLength
+                                          >= options.modelContactConfirmationLayers;
+        const bool localContactConfirmed = abruptLocalContact
+                                           || cumulativeGrowthConfirmed;
+        if (currentState.pendingContactTip != invalidNode
+            && persistenceConfirmed
+            && localContactConfirmed) {
+          const auto startNode = currentState.pendingContactStart;
+          std::size_t cursor = nodeId;
+          while (cursor != invalidNode) {
+            states[cursor].classifiedAsModel = true;
+            states[cursor].accepted = false;
+            if (cursor == startNode) {
+              break;
+            }
+            cursor = states[cursor].parent;
+          }
+
+          for (const auto contactTip : currentState.pendingContactTips) {
+            auto& tipState = states[contactTip];
+            if (tipState.modelContact) {
+              continue;
+            }
+            tipState.modelContact = true;
+            tipState.contactLayer = result.nodes[startNode].layer;
+            tipState.contactModelPixelCount = states[startNode].component.area;
+            tipState.contactModelExpansionRatio = tipState.component.area == 0u
+                ? 0.0
+                : static_cast<double>(states[startNode].component.area)
+                      / static_cast<double>(tipState.component.area);
+            result.edges.push_back(SupportGraphEdge{
+                contactTip, contactTip, SupportEdgeKind::ModelContact});
+            ++result.summary.modelContactEdgeCount;
+          }
+
+          currentIsModel[index] = true;
+          if (!currentCandidateNodes.empty()
+              && currentCandidateNodes.back() == nodeId) {
+            currentCandidateNodes.pop_back();
+          } else {
+            currentCandidateNodes.erase(
+                std::remove(currentCandidateNodes.begin(),
+                            currentCandidateNodes.end(), nodeId),
+                currentCandidateNodes.end());
+          }
+          const auto confirmedModelLayer = result.nodes[startNode].layer;
+          if (!modelSeen || confirmedModelLayer < result.summary.firstModelLayer) {
+            result.summary.firstModelLayer = confirmedModelLayer;
+          }
+          modelSeen = true;
+        } else if (currentState.pendingContactTip != invalidNode
+                   && persistenceConfirmed) {
+          const bool stillGrowing = currentState.component.area
+                                    > parentState.component.area;
+          const bool confirmationWindowExhausted =
+              currentState.pendingContactLength >= options.taperLookbackLayers;
+          if (!stillGrowing || confirmationWindowExhausted) {
+            // No cumulative model growth was established. Keep the complete
+            // sequence as support and allow a later terminal growth to open a
+            // new local candidate.
+            currentState.pendingContactTip = invalidNode;
+            currentState.pendingContactStart = invalidNode;
+            currentState.pendingContactLength = 0u;
+            currentState.pendingContactTips.clear();
+          }
+        }
+      }
     }
 
-    // A compact branch that reaches a non-compact component has touched the
-    // part. The branch remains independent and stops on its last free layer.
-    // The larger connected component on the contact layer is model matter in
-    // full: support semantics are never projected into it.
+    const bool layerContainsModel = std::any_of(
+        currentIsModel.begin(), currentIsModel.end(), [](bool value) { return value; });
+    if (!modelSeen && layerContainsModel) {
+      modelSeen = true;
+      result.summary.firstModelLayer = layer;
+    }
+
+    // A support branch with no structural continuation on this layer may end
+    // against any component already classified as model. The complete contact
+    // component stays model; support semantics stop on the preceding layer.
     for (const auto previousNode : previousCandidateNodes) {
-      // A branch that still has a continuation or a split on this layer has
-      // not reached its terminal head yet. Proximity to a large model
-      // component must not create an early contact projection while the
-      // branch is still narrowing beside the part.
       if (previousNode < previousHasStructuralChild.size()
           && previousHasStructuralChild[previousNode]) {
         continue;
       }
       const auto& previousComponent = states[previousNode].component;
       for (std::size_t index = 0; index < current.components.size(); ++index) {
-        if (currentIsCandidate[index]) {
-          continue;
-        }
-        if (!nearEnough(previousComponent, current.components[index], options)) {
+        if (!currentIsModel[index]
+            || !nearEnough(previousComponent, current.components[index], options)) {
           continue;
         }
         states[previousNode].modelContact = true;
@@ -658,11 +1356,67 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       }
     }
 
+    // Preserve semantic continuity independently from the whole-component
+    // graph decision. A component may contain both an established model region
+    // and a raft-rooted support after a temporary raster fusion. Only model
+    // matter that was stable on preceding native layers is allowed to override
+    // the support decision; the remaining pixels stay attached to the support
+    // branch and are emitted as projected support runs.
+    currentSemanticModel.clear();
+    confirmedSemanticModel.clear();
+    for (std::size_t index = 0; index < current.components.size(); ++index) {
+      const auto nodeId = currentComponentNodes[index];
+      if (currentIsModel[index]) {
+        currentSemanticModel.addRuns(current.components[index].runs);
+        if (nodeId != invalidNode && states[nodeId].classifiedAsModel) {
+          confirmedSemanticModel.addRuns(current.components[index].runs);
+        }
+        continue;
+      }
+      if (nodeId == invalidNode) {
+        if (modelSeen) {
+          currentSemanticModel.addRuns(current.components[index].runs);
+        }
+        continue;
+      }
+
+      const auto persistentModelPixels = previousStableSemanticModel.countSet(
+          current.components[index].runs);
+      if (persistentModelPixels == 0u) {
+        continue;
+      }
+      currentSemanticModel.addIntersection(
+          current.components[index].runs, previousStableSemanticModel);
+      auto& state = states[nodeId];
+      state.hasSemanticProjection = true;
+      state.projectedSupportRuns.clear();
+      previousStableSemanticModel.appendClearRuns(
+          current.components[index].runs,
+          MaterialSemantic::Support,
+          state.projectedSupportRuns);
+      canonicalizeSemanticRuns(
+          state.projectedSupportRuns, MaterialSemantic::Support);
+    }
+    currentSemanticModel.normalize();
+    confirmedSemanticModel.normalize();
+
+    if (result.summary.firstModelLayer == layer) {
+      currentStableSemanticModel.assignFrom(currentSemanticModel);
+    } else {
+      stableSemanticIntersection.assignIntersection(
+          currentSemanticModel, previousSemanticModel);
+      currentStableSemanticModel.assignUnion(
+          stableSemanticIntersection, confirmedSemanticModel);
+    }
+    previousSemanticModel.swap(currentSemanticModel);
+    previousStableSemanticModel.swap(currentStableSemanticModel);
+
     for (const auto previousNode : previousCandidateNodes) {
       std::vector<SemanticRun>().swap(states[previousNode].component.runs);
     }
     previousCandidateNodes = std::move(currentCandidateNodes);
     previousLayer = std::move(current);
+    previousModelComponents = std::move(currentIsModel);
     if (callbacks.progress) {
       callbacks.progress(layer + 1, source.layerCount());
     }
@@ -672,37 +1426,42 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     std::vector<SemanticRun>().swap(states[previousNode].component.runs);
   }
 
-  // By construction, all matter between the mandatory raft and the first
-  // detected part layer belongs to the support network. This is the stable
-  // support-only phase of consumer resin printing and does not require a
-  // local shape guess.
+  // All graph nodes before the first observed model layer are support matter by
+  // construction: they belong to the continuous topology that starts on the
+  // first layer after the raft.
   for (auto& state : states) {
-    if (result.summary.firstModelLayer != 0
-        && result.nodes[state.nodeId].layer < result.summary.firstModelLayer) {
+    if (state.classifiedAsModel) {
+      continue;
+    }
+    const bool supportOnlyPrint = result.summary.firstModelLayer == 0u;
+    if ((supportOnlyPrint && result.nodes[state.nodeId].rootedInRaft)
+        || (!supportOnlyPrint
+            && result.nodes[state.nodeId].layer < result.summary.firstModelLayer)) {
       state.accepted = true;
     }
   }
 
   // Continue every already established raft-rooted branch through the mixed
-  // phase while it remains a separate candidate component. The semantic path
-  // stops before the non-candidate model component, so the part itself is not
-  // absorbed. Supports that start on the model are handled separately below
-  // and still require a terminal taper.
+  // phase while it remains a separate component. A model contact has no support
+  // child, so the semantic path stops on its terminal free layer.
   for (auto& state : states) {
-    if (state.parent == std::numeric_limits<std::size_t>::max()) {
+    if (state.classifiedAsModel
+        || state.parent == std::numeric_limits<std::size_t>::max()) {
       continue;
     }
-    if (states[state.parent].accepted
+    if (!states[state.parent].classifiedAsModel
+        && states[state.parent].accepted
         && result.nodes[state.nodeId].rootedInRaft
         && !result.nodes[state.nodeId].rootedInModel) {
       state.accepted = true;
     }
   }
 
-  // Validate mixed-phase heads. A support branch must be rooted in the raft or
-  // in a previously established part, and must narrow before touching the part.
+  // Validate heads. A support branch must be rooted in the raft or in a
+  // previously established part and must narrow before touching the part.
   for (auto& state : states) {
-    if (!state.modelContact || state.depth < options.minimumTrackLayers) {
+    if (state.classifiedAsModel
+        || !state.modelContact || state.depth < options.minimumTrackLayers) {
       continue;
     }
     const bool rootedInRaft = result.nodes[state.nodeId].rootedInRaft;
@@ -723,8 +1482,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
   // Add diagonal braces only when they terminate on an already validated
   // support branch. Propagation uses reverse contact adjacency instead of
-  // repeatedly rescanning the complete graph, which keeps large support
-  // networks linear in the number of nodes and contacts.
+  // repeatedly rescanning the complete graph.
   std::vector<std::vector<std::size_t>> braceDependents(states.size());
   for (const auto& state : states) {
     if (state.supportContact
@@ -745,11 +1503,12 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     acceptedQueue.pop();
     for (const auto dependentId : braceDependents[acceptedNode]) {
       auto& dependent = states[dependentId];
-      if (dependent.accepted) {
+      if (dependent.classifiedAsModel || dependent.accepted) {
         continue;
       }
-      const double slope = branchSlope(dependent.nodeId, states, options);
-      if (slope < options.braceMinimumSlope || slope > options.braceMaximumSlope) {
+      const double drift = branchDriftPixelsPerLayer(dependent.nodeId, states);
+      if (drift < options.braceMinimumDriftPixelsPerLayer
+          || drift > options.braceMaximumDriftPixelsPerLayer) {
         continue;
       }
       const auto newlyAccepted = acceptPath(dependent.nodeId, states);
@@ -792,17 +1551,28 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   }
 
   for (auto& state : states) {
-    if (!state.accepted) {
+    if (state.classifiedAsModel || !state.accepted) {
       result.nodes[state.nodeId].kind = SupportNodeKind::Rejected;
       continue;
     }
     ++result.summary.acceptedNodeCount;
     auto& layer = result.layers[result.nodes[state.nodeId].layer];
-    layer.supportComponentIds.push_back(
-        static_cast<std::uint32_t>(state.component.localId));
-    result.summary.freeSupportRunCount += state.runCount;
-    result.summary.lastSupportLayer = std::max(
-        result.summary.lastSupportLayer, result.nodes[state.nodeId].layer);
+    if (state.hasSemanticProjection) {
+      layer.projectedSupportRuns.insert(
+          layer.projectedSupportRuns.end(),
+          state.projectedSupportRuns.begin(),
+          state.projectedSupportRuns.end());
+      if (!state.projectedSupportRuns.empty()) {
+        result.summary.lastSupportLayer = std::max(
+            result.summary.lastSupportLayer, result.nodes[state.nodeId].layer);
+      }
+    } else {
+      layer.supportComponentIds.push_back(
+          static_cast<std::uint32_t>(state.component.localId));
+      result.summary.freeSupportRunCount += state.runCount;
+      result.summary.lastSupportLayer = std::max(
+          result.summary.lastSupportLayer, result.nodes[state.nodeId].layer);
+    }
 
     if (state.modelContact && state.contactLayer < result.layers.size()) {
       result.forcedSampleLayers.push_back(result.nodes[state.nodeId].layer);
@@ -824,16 +1594,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         result.summary.rejectedGrowthPixelCount +=
             state.contactModelPixelCount - terminalPixels;
       }
-      // The contact component is the model. Deliberately keep the projected
-      // support run list empty: the terminal support ends on the preceding
-      // free layer and no pixel of the larger component inherits Support.
+      // The contact component is model matter in full. No support pixel is
+      // projected into it.
     } else if (state.modelContact) {
       if (!result.nodes[state.nodeId].terminalTaper) {
         ++result.summary.untaperedModelContactCount;
       }
     }
   }
-
 
   std::sort(result.forcedSampleLayers.begin(), result.forcedSampleLayers.end());
   result.forcedSampleLayers.erase(
@@ -882,6 +1650,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
   result.summary.supportRunCount = result.summary.freeSupportRunCount
                                    + result.summary.projectedSupportRunCount;
+
   result.ok = true;
   return result;
 }

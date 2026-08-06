@@ -77,16 +77,22 @@ struct SupportAnalysisOptions {
   double pitchYMillimetres = 1.0;
   double pitchZMillimetres = 1.0;
 
-  std::size_t maximumRaftLayers = 32;
   std::size_t minimumTrackLayers = 3;
   std::size_t taperLookbackLayers = 8;
+  // A support-to-model transition is never committed on its first local
+  // growth. Candidate matter must persist and keep expanding across this many
+  // consecutive source layers before its first layer is reclassified as model.
+  std::size_t modelContactConfirmationLayers = 2;
 
-  double raftRetainedAreaRatio = 0.52;
-  double maximumSupportDiameterMillimetres = 4.0;
-  double maximumSupportAreaMillimetres2 = 14.0;
-  double maximumLayerSlope = 1.8;
-  double braceMinimumSlope = 0.55;
-  double braceMaximumSlope = 1.65;
+  double raftMaximumChangedPixelRatio = 0.001;
+  // Support topology is evaluated in the native resin domain: raster pixels
+  // across consecutive layer indexes. The PWSZ layer height is metadata for Z
+  // placement and must not change semantic classification for identical masks.
+  double maximumLayerMotionPixels = 4.0;
+  double braceMinimumDriftPixelsPerLayer = 0.5;
+  double braceMaximumDriftPixelsPerLayer = 4.0;
+  double minimumModelExpansionRatio = 1.2;
+  double abruptModelExpansionRatio = 4.0;
   double terminalTaperRatio = 0.72;
   double modelRootTaperRatio = 0.72;
 };
