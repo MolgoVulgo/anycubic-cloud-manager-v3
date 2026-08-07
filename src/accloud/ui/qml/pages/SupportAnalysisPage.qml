@@ -51,6 +51,23 @@ AppPageFrame {
         return String(root.analysisBridge.currentDecisionJson || "[]")
     }
 
+    function scrollDiagnosticTo(item) {
+        if (!item || !diagnosticScroll.contentItem)
+            return
+        var flickable = diagnosticScroll.contentItem
+        var maximum = Math.max(0, flickable.contentHeight - flickable.height)
+        flickable.contentY = Math.max(0, Math.min(maximum, item.y))
+    }
+
+    function selectDiagnosticAt(mouse, image) {
+        if (!root.analysisBridge || image.width <= 0 || image.height <= 0)
+            return
+        if (root.analysisBridge.selectCurrentComponent(
+                    mouse.x / image.width, mouse.y / image.height)) {
+            root.jsonMode = "decisions"
+        }
+    }
+
     FileDialog {
         id: pwszDialog
         objectName: "supportAnalysisPwszDialog"
@@ -252,28 +269,234 @@ AppPageFrame {
                             }
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            AppButton {
+                                objectName: "supportAnalysisRawJumpButton"
+                                text: qsTr("Raw mask")
+                                onClicked: root.scrollDiagnosticTo(rawPanel)
+                            }
+
+                            AppButton {
+                                objectName: "supportAnalysisSemanticJumpButton"
+                                text: qsTr("Support / part")
+                                onClicked: root.scrollDiagnosticTo(semanticPanel)
+                            }
+
+                            AppButton {
+                                objectName: "supportAnalysisNodesJumpButton"
+                                text: qsTr("Decisions / IDs")
+                                onClicked: root.scrollDiagnosticTo(nodesPanel)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                visible: root.analysisBridge
+                                         && root.analysisBridge.selectedNodeId >= 0
+                                text: qsTr("Selected node: %1 (%2)")
+                                      .arg(root.analysisBridge
+                                           ? root.analysisBridge.selectedNodeId : -1)
+                                      .arg(root.analysisBridge
+                                           ? root.analysisBridge.selectedSemantic : "")
+                                color: Theme.fgPrimary
+                                font.bold: true
+                            }
+
+                            AppButton {
+                                objectName: "supportAnalysisClearSelectionButton"
+                                visible: root.analysisBridge
+                                         && root.analysisBridge.selectedNodeId >= 0
+                                text: qsTr("Clear selection")
+                                onClicked: root.analysisBridge.clearDecisionSelection()
+                            }
+                        }
+
                         ScrollView {
+                            id: diagnosticScroll
+                            objectName: "supportAnalysisDiagnosticScroll"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
+                            ScrollBar.vertical.policy: ScrollBar.AlwaysOn
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
 
-                            Image {
-                                id: diagnosticImage
-                                objectName: "supportAnalysisDiagnosticImage"
-                                width: Math.max(parent.width, implicitWidth)
-                                height: Math.max(parent.height, implicitHeight)
-                                source: root.analysisBridge
-                                        ? root.analysisBridge.currentImageUrl
-                                        : ""
-                                fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                cache: false
+                            Column {
+                                id: diagnosticColumn
+                                width: diagnosticScroll.availableWidth
+                                spacing: Theme.gapSection
+
+                                Column {
+                                    id: rawPanel
+                                    objectName: "supportAnalysisRawPanel"
+                                    width: diagnosticColumn.width
+                                    spacing: Theme.gapRow
+
+                                    Text {
+                                        text: qsTr("Raw mask")
+                                        color: Theme.fgPrimary
+                                        font.bold: true
+                                    }
+
+                                    Rectangle {
+                                        width: rawDiagnosticImage.width
+                                        height: rawDiagnosticImage.height
+                                        color: "#0A0A0A"
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderDefault
+
+                                        Image {
+                                            id: rawDiagnosticImage
+                                            objectName: "supportAnalysisRawImage"
+                                            width: diagnosticColumn.width
+                                            height: sourceSize.width > 0
+                                                    ? width * sourceSize.height / sourceSize.width
+                                                    : 260
+                                            source: root.analysisBridge
+                                                    ? root.analysisBridge.currentRawImageUrl
+                                                    : ""
+                                            fillMode: Image.Stretch
+                                            asynchronous: true
+                                            cache: false
+                                        }
+                                    }
+                                }
+
+                                Column {
+                                    id: semanticPanel
+                                    objectName: "supportAnalysisSemanticPanel"
+                                    width: diagnosticColumn.width
+                                    spacing: Theme.gapRow
+
+                                    Text {
+                                        text: qsTr("Support / part")
+                                        color: Theme.fgPrimary
+                                        font.bold: true
+                                    }
+
+                                    Rectangle {
+                                        width: semanticDiagnosticImage.width
+                                        height: semanticDiagnosticImage.height
+                                        color: "#0A0A0A"
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderDefault
+
+                                        Image {
+                                            id: semanticDiagnosticImage
+                                            objectName: "supportAnalysisSemanticImage"
+                                            width: diagnosticColumn.width
+                                            height: sourceSize.width > 0
+                                                    ? width * sourceSize.height / sourceSize.width
+                                                    : 260
+                                            source: root.analysisBridge
+                                                    ? root.analysisBridge.currentSemanticImageUrl
+                                                    : ""
+                                            fillMode: Image.Stretch
+                                            asynchronous: true
+                                            cache: false
+                                        }
+
+                                        Rectangle {
+                                            visible: root.analysisBridge
+                                                     && root.analysisBridge.selectedRegion.valid
+                                            x: root.analysisBridge
+                                               ? root.analysisBridge.selectedRegion.x * parent.width : 0
+                                            y: root.analysisBridge
+                                               ? root.analysisBridge.selectedRegion.y * parent.height : 0
+                                            width: root.analysisBridge
+                                                   ? Math.max(2, root.analysisBridge.selectedRegion.width
+                                                              * parent.width) : 0
+                                            height: root.analysisBridge
+                                                    ? Math.max(2, root.analysisBridge.selectedRegion.height
+                                                               * parent.height) : 0
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: "#FFFFFF"
+                                        }
+
+                                        MouseArea {
+                                            objectName: "supportAnalysisSemanticHitArea"
+                                            anchors.fill: parent
+                                            cursorShape: Qt.CrossCursor
+                                            onClicked: function(mouse) {
+                                                root.selectDiagnosticAt(mouse,
+                                                                        semanticDiagnosticImage)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Column {
+                                    id: nodesPanel
+                                    objectName: "supportAnalysisNodesPanel"
+                                    width: diagnosticColumn.width
+                                    spacing: Theme.gapRow
+
+                                    Text {
+                                        text: qsTr("Decisions and node IDs")
+                                        color: Theme.fgPrimary
+                                        font.bold: true
+                                    }
+
+                                    Rectangle {
+                                        width: nodesDiagnosticImage.width
+                                        height: nodesDiagnosticImage.height
+                                        color: "#0A0A0A"
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderDefault
+
+                                        Image {
+                                            id: nodesDiagnosticImage
+                                            objectName: "supportAnalysisDiagnosticImage"
+                                            width: diagnosticColumn.width
+                                            height: sourceSize.width > 0
+                                                    ? width * sourceSize.height / sourceSize.width
+                                                    : 260
+                                            source: root.analysisBridge
+                                                    ? root.analysisBridge.currentNodesImageUrl
+                                                    : ""
+                                            fillMode: Image.Stretch
+                                            asynchronous: true
+                                            cache: false
+                                        }
+
+                                        Rectangle {
+                                            visible: root.analysisBridge
+                                                     && root.analysisBridge.selectedRegion.valid
+                                            x: root.analysisBridge
+                                               ? root.analysisBridge.selectedRegion.x * parent.width : 0
+                                            y: root.analysisBridge
+                                               ? root.analysisBridge.selectedRegion.y * parent.height : 0
+                                            width: root.analysisBridge
+                                                   ? Math.max(2, root.analysisBridge.selectedRegion.width
+                                                              * parent.width) : 0
+                                            height: root.analysisBridge
+                                                    ? Math.max(2, root.analysisBridge.selectedRegion.height
+                                                               * parent.height) : 0
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: "#FFFFFF"
+                                        }
+
+                                        MouseArea {
+                                            objectName: "supportAnalysisNodesHitArea"
+                                            anchors.fill: parent
+                                            cursorShape: Qt.CrossCursor
+                                            onClicked: function(mouse) {
+                                                root.selectDiagnosticAt(mouse,
+                                                                        nodesDiagnosticImage)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("Diagnostic: raw mask | semantic result | decisions. "
+                            text: qsTr("Scroll through the three separate views. Click the semantic or ID view "
+                                       + "to select the exact component and display its JSON decision. "
                                        + "Red = part, cyan = support, amber = raft; "
                                        + "yellow = candidate contact, magenta = confirmed contact, purple = mixed component.")
                             color: Theme.fgSecondary
@@ -340,8 +563,10 @@ AppPageFrame {
                         Layout.fillHeight: true
 
                         TextArea {
+                            id: jsonText
                             objectName: "supportAnalysisJsonText"
                             text: root.selectedJson()
+                            onTextChanged: cursorPosition = 0
                             readOnly: true
                             selectByMouse: true
                             wrapMode: TextEdit.NoWrap

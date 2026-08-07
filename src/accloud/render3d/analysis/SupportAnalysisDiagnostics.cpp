@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -224,14 +225,255 @@ void drawRect(
   }
 }
 
-bool writeLayerDiagnostic(
+void fillPixelRect(
+    std::vector<std::uint8_t>& pixels,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t minX,
+    std::uint32_t minY,
+    std::uint32_t maxX,
+    std::uint32_t maxY,
+    const std::array<std::uint8_t, 3>& color) {
+  maxX = std::min(maxX, width);
+  maxY = std::min(maxY, height);
+  for (std::uint32_t y = minY; y < maxY; ++y) {
+    for (std::uint32_t x = minX; x < maxX; ++x) {
+      setPixel(pixels, width, height, x, y, color);
+    }
+  }
+}
+
+struct LabelRect {
+  std::uint32_t minX = 0u;
+  std::uint32_t minY = 0u;
+  std::uint32_t maxX = 0u;
+  std::uint32_t maxY = 0u;
+};
+
+bool overlaps(const LabelRect& left, const LabelRect& right) noexcept {
+  return left.minX < right.maxX && right.minX < left.maxX
+         && left.minY < right.maxY && right.minY < left.maxY;
+}
+
+constexpr std::array<std::array<std::uint8_t, 5>, 10> digitGlyphs = {{
+    {{0b111u, 0b101u, 0b101u, 0b101u, 0b111u}},
+    {{0b010u, 0b110u, 0b010u, 0b010u, 0b111u}},
+    {{0b111u, 0b001u, 0b111u, 0b100u, 0b111u}},
+    {{0b111u, 0b001u, 0b111u, 0b001u, 0b111u}},
+    {{0b101u, 0b101u, 0b111u, 0b001u, 0b001u}},
+    {{0b111u, 0b100u, 0b111u, 0b001u, 0b111u}},
+    {{0b111u, 0b100u, 0b111u, 0b101u, 0b111u}},
+    {{0b111u, 0b001u, 0b010u, 0b010u, 0b010u}},
+    {{0b111u, 0b101u, 0b111u, 0b101u, 0b111u}},
+    {{0b111u, 0b101u, 0b111u, 0b001u, 0b111u}},
+}};
+
+void drawNodeIdLabel(
+    std::vector<std::uint8_t>& pixels,
+    std::uint32_t width,
+    std::uint32_t height,
+    const LabelRect& label,
+    std::size_t nodeId,
+    const std::array<std::uint8_t, 3>& borderColor) {
+  constexpr std::array<std::uint8_t, 3> background = {18u, 20u, 25u};
+  constexpr std::array<std::uint8_t, 3> textColor = {245u, 247u, 250u};
+  fillPixelRect(pixels, width, height, label.minX, label.minY,
+                label.maxX, label.maxY, background);
+  drawRect(pixels, width, height, label.minX, label.minY,
+           label.maxX, label.maxY, borderColor);
+
+  const auto text = std::to_string(nodeId);
+  std::uint32_t cursorX = label.minX + 2u;
+  const auto originY = label.minY + 2u;
+  for (const char character : text) {
+    if (character < '0' || character > '9') {
+      continue;
+    }
+    const auto& glyph = digitGlyphs[static_cast<std::size_t>(character - '0')];
+    for (std::uint32_t row = 0u; row < glyph.size(); ++row) {
+      for (std::uint32_t column = 0u; column < 3u; ++column) {
+        if ((glyph[row] & (1u << (2u - column))) != 0u) {
+          setPixel(pixels, width, height, cursorX + column,
+                   originY + row, textColor);
+        }
+      }
+    }
+    cursorX += 4u;
+  }
+}
+
+bool shouldLabelNode(const SupportDecisionTrace& decision) noexcept {
+  if (decision.nodeId == std::numeric_limits<std::size_t>::max()) {
+    return false;
+  }
+  if (decision.decision != MaterialSemantic::Support
+      || decision.contactCandidate || decision.contactConfirmed
+      || decision.mixedSemanticProjection) {
+    return true;
+  }
+  return decision.reason == SupportDecisionReason::SupportMotionContinuation
+         || decision.reason == SupportDecisionReason::SupportFusionContinuation;
+}
+
+class DiagnosticDisjointSet {
+public:
+  std::size_t add() {
+    const auto index = parent_.size();
+    parent_.push_back(index);
+    rank_.push_back(0u);
+    return index;
+  }
+
+  std::size_t find(std::size_t value) {
+    if (parent_[value] != value) {
+      parent_[value] = find(parent_[value]);
+    }
+    return parent_[value];
+  }
+
+  void unite(std::size_t left, std::size_t right) {
+    left = find(left);
+    right = find(right);
+    if (left == right) {
+      return;
+    }
+    if (rank_[left] < rank_[right]) {
+      std::swap(left, right);
+    }
+    parent_[right] = left;
+    if (rank_[left] == rank_[right]) {
+      ++rank_[left];
+    }
+  }
+
+private:
+  std::vector<std::size_t> parent_;
+  std::vector<std::uint8_t> rank_;
+};
+
+using DiagnosticPixelRun = std::pair<std::uint32_t, std::uint32_t>;
+
+template <typename WordProvider>
+std::vector<DiagnosticPixelRun> collectDiagnosticRuns(
+    std::uint32_t width,
+    std::size_t wordsPerRow,
+    WordProvider wordProvider) {
+  std::vector<DiagnosticPixelRun> runs;
+  for (std::size_t wordIndex = 0; wordIndex < wordsPerRow; ++wordIndex) {
+    std::uint64_t word = wordProvider(wordIndex);
+    if (wordIndex + 1u == wordsPerRow && (width % 64u) != 0u) {
+      word &= (std::uint64_t{1} << (width % 64u)) - 1u;
+    }
+    while (word != 0u) {
+      const auto firstBit = static_cast<std::uint32_t>(std::countr_zero(word));
+      const auto shifted = word >> firstBit;
+      const auto runLength = static_cast<std::uint32_t>(std::countr_one(shifted));
+      const auto first = static_cast<std::uint32_t>(wordIndex * 64u) + firstBit;
+      const auto last = std::min<std::uint32_t>(width, first + runLength);
+      if (!runs.empty() && runs.back().second == first) {
+        runs.back().second = last;
+      } else {
+        runs.emplace_back(first, last);
+      }
+      const auto remaining = 64u - firstBit;
+      if (runLength >= remaining) {
+        word = 0u;
+      } else {
+        word &= ~(((std::uint64_t{1} << runLength) - 1u) << firstBit);
+      }
+    }
+  }
+  return runs;
+}
+
+struct DiagnosticRawRun {
+  std::uint32_t y = 0u;
+  std::uint32_t first = 0u;
+  std::uint32_t last = 0u;
+  std::size_t label = 0u;
+};
+
+struct DiagnosticComponent {
+  std::size_t localId = 0u;
+  std::vector<SemanticRun> runs;
+};
+
+std::vector<DiagnosticComponent> describeDiagnosticComponents(
+    const BinaryMask& mask) {
+  std::vector<DiagnosticRawRun> runs;
+  std::vector<std::size_t> previousRow;
+  DiagnosticDisjointSet sets;
+  for (std::uint32_t y = 0u; y < mask.height(); ++y) {
+    const auto rowRuns = collectDiagnosticRuns(
+        mask.width(), mask.wordsPerRow(),
+        [&](std::size_t wordIndex) { return mask.rowWord(y, wordIndex); });
+    std::vector<std::size_t> currentRow;
+    currentRow.reserve(rowRuns.size());
+    std::size_t previousCursor = 0u;
+    for (const auto& [first, last] : rowRuns) {
+      const auto label = sets.add();
+      const auto runIndex = runs.size();
+      runs.push_back(DiagnosticRawRun{y, first, last, label});
+      currentRow.push_back(runIndex);
+
+      while (previousCursor < previousRow.size()
+             && runs[previousRow[previousCursor]].last <= first) {
+        ++previousCursor;
+      }
+      for (std::size_t cursor = previousCursor; cursor < previousRow.size(); ++cursor) {
+        const auto& upper = runs[previousRow[cursor]];
+        if (upper.first >= last) {
+          break;
+        }
+        sets.unite(label, upper.label);
+      }
+    }
+    previousRow = std::move(currentRow);
+  }
+
+  std::vector<DiagnosticComponent> components;
+  std::map<std::size_t, std::size_t> componentIndex;
+  for (auto& run : runs) {
+    const auto root = sets.find(run.label);
+    const auto [iterator, inserted] = componentIndex.try_emplace(
+        root, components.size());
+    if (inserted) {
+      components.push_back(DiagnosticComponent{});
+      components.back().localId = iterator->second;
+    }
+    components[iterator->second].runs.push_back(
+        SemanticRun{run.y, run.first, run.last, MaterialSemantic::Model});
+  }
+  return components;
+}
+
+std::array<std::uint8_t, 3> pickColor(std::size_t componentId) {
+  const auto value = static_cast<std::uint32_t>(componentId + 1u);
+  return {
+      static_cast<std::uint8_t>((value >> 16u) & 0xffu),
+      static_cast<std::uint8_t>((value >> 8u) & 0xffu),
+      static_cast<std::uint8_t>(value & 0xffu),
+  };
+}
+
+struct LayerDiagnosticMetadata {
+  Bounds sourceBounds;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+};
+
+bool writeLayerDiagnostics(
     photons::LayerMaskSource& source,
     const SupportAnalyzer& analyzer,
     const SupportAnalysisResult& result,
     std::size_t layer,
     std::uint32_t downsample,
     const std::vector<const SupportDecisionTrace*>& decisions,
-    const std::filesystem::path& path,
+    const std::filesystem::path& rawPath,
+    const std::filesystem::path& semanticPath,
+    const std::filesystem::path& nodesPath,
+    const std::filesystem::path& pickPath,
+    LayerDiagnosticMetadata& metadata,
     std::string& error) {
   auto material = source.loadMask(layer, error);
   if (!material) {
@@ -253,25 +495,28 @@ bool writeLayerDiagnostic(
   bounds.minY = bounds.minY > margin ? bounds.minY - margin : 0u;
   bounds.maxX = std::min(material->width(), bounds.maxX + margin);
   bounds.maxY = std::min(material->height(), bounds.maxY + margin);
-  const auto panelWidth = std::max(
+  const auto outputWidth = std::max(
       1u, (bounds.maxX - bounds.minX + downsample - 1u) / downsample);
   const auto outputHeight = std::max(
       1u, (bounds.maxY - bounds.minY + downsample - 1u) / downsample);
-  const auto separator = 2u;
-  const auto outputWidth = panelWidth * 3u + separator * 2u;
-  std::vector<std::uint8_t> pixels(
+  metadata = LayerDiagnosticMetadata{bounds, outputWidth, outputHeight};
+
+  std::vector<std::uint8_t> rawPixels(
       static_cast<std::size_t>(outputWidth) * outputHeight * 3u, 10u);
+  std::vector<std::uint8_t> semanticPixels = rawPixels;
+  std::vector<std::uint8_t> nodePixels = rawPixels;
+  std::vector<std::uint8_t> pickPixels(
+      static_cast<std::size_t>(outputWidth) * outputHeight * 3u, 0u);
 
   constexpr std::array<std::uint8_t, 3> rawColor = {205u, 210u, 216u};
   constexpr std::array<std::uint8_t, 3> modelColor = {220u, 96u, 79u};
   constexpr std::array<std::uint8_t, 3> supportColor = {80u, 184u, 198u};
   constexpr std::array<std::uint8_t, 3> raftColor = {239u, 166u, 55u};
-  constexpr std::array<std::uint8_t, 3> separatorColor = {70u, 76u, 86u};
 
-  const auto paintBlock = [&](std::uint32_t sourceY,
+  const auto paintBlock = [&](std::vector<std::uint8_t>& pixels,
+                              std::uint32_t sourceY,
                               std::uint32_t firstX,
                               std::uint32_t lastX,
-                              std::uint32_t panel,
                               const std::array<std::uint8_t, 3>& color) {
     if (sourceY < bounds.minY || sourceY >= bounds.maxY
         || lastX <= bounds.minX || firstX >= bounds.maxX) {
@@ -285,35 +530,23 @@ bool writeLayerDiagnostic(
     const auto firstBlock = (clippedFirst - bounds.minX) / downsample;
     const auto lastBlock = (clippedLast - 1u - bounds.minX) / downsample;
     const auto outputY = (sourceY - bounds.minY) / downsample;
-    const auto panelOffset = panel * (panelWidth + separator);
     for (std::uint32_t x = firstBlock; x <= lastBlock; ++x) {
-      setPixel(pixels, outputWidth, outputHeight,
-               panelOffset + x, outputY, color);
+      setPixel(pixels, outputWidth, outputHeight, x, outputY, color);
     }
   };
 
-  for (std::uint32_t y = bounds.minY; y < bounds.maxY; ++y) {
-    for (std::size_t wordIndex = 0; wordIndex < material->wordsPerRow(); ++wordIndex) {
-      std::uint64_t word = material->rowWord(y, wordIndex);
-      if (wordIndex + 1u == material->wordsPerRow()
-          && (material->width() % 64u) != 0u) {
-        word &= (std::uint64_t{1} << (material->width() % 64u)) - 1u;
-      }
-      while (word != 0u) {
-        const auto firstBit = static_cast<std::uint32_t>(std::countr_zero(word));
-        const auto shifted = word >> firstBit;
-        const auto runLength = static_cast<std::uint32_t>(std::countr_one(shifted));
-        const auto firstX = static_cast<std::uint32_t>(wordIndex * 64u) + firstBit;
-        const auto lastX = firstX + runLength;
-        paintBlock(y, firstX, lastX, 0u, rawColor);
-        paintBlock(y, firstX, lastX, 1u, modelColor);
-        paintBlock(y, firstX, lastX, 2u, modelColor);
-        if (runLength >= 64u - firstBit) {
-          word = 0u;
-        } else {
-          word &= ~(((std::uint64_t{1} << runLength) - 1u) << firstBit);
-        }
-      }
+  const auto components = describeDiagnosticComponents(*material);
+  for (const auto& component : components) {
+    if (component.localId >= 0x00ffffffu) {
+      error = "too many components for diagnostic pick map";
+      return false;
+    }
+    const auto encoded = pickColor(component.localId);
+    for (const auto& run : component.runs) {
+      paintBlock(rawPixels, run.y, run.firstX, run.lastX, rawColor);
+      paintBlock(semanticPixels, run.y, run.firstX, run.lastX, modelColor);
+      paintBlock(nodePixels, run.y, run.firstX, run.lastX, modelColor);
+      paintBlock(pickPixels, run.y, run.firstX, run.lastX, encoded);
     }
   }
 
@@ -321,22 +554,26 @@ bool writeLayerDiagnostic(
     const auto color = run.semantic == MaterialSemantic::Raft
                            ? raftColor
                            : supportColor;
-    paintBlock(run.y, run.firstX, run.lastX, 1u, color);
-    paintBlock(run.y, run.firstX, run.lastX, 2u, color);
+    paintBlock(semanticPixels, run.y, run.firstX, run.lastX, color);
+    paintBlock(nodePixels, run.y, run.firstX, run.lastX, color);
   }
 
-  for (std::uint32_t x = panelWidth; x < panelWidth + separator; ++x) {
-    for (std::uint32_t y = 0; y < outputHeight; ++y) {
-      setPixel(pixels, outputWidth, outputHeight, x, y, separatorColor);
+  std::vector<std::pair<const SupportDecisionTrace*, std::array<std::uint8_t, 3>>>
+      labelledDecisions;
+  const auto convertX = [&](std::uint32_t sourceX) {
+    if (sourceX <= bounds.minX) {
+      return 0u;
     }
-  }
-  const auto secondSeparator = panelWidth * 2u + separator;
-  for (std::uint32_t x = secondSeparator; x < secondSeparator + separator; ++x) {
-    for (std::uint32_t y = 0; y < outputHeight; ++y) {
-      setPixel(pixels, outputWidth, outputHeight, x, y, separatorColor);
+    return std::min(outputWidth, (sourceX - bounds.minX + downsample - 1u)
+                                     / downsample);
+  };
+  const auto convertY = [&](std::uint32_t sourceY) {
+    if (sourceY <= bounds.minY) {
+      return 0u;
     }
-  }
-
+    return std::min(outputHeight, (sourceY - bounds.minY + downsample - 1u)
+                                      / downsample);
+  };
   for (const auto* decision : decisions) {
     if (decision == nullptr) {
       continue;
@@ -353,30 +590,98 @@ bool writeLayerDiagnostic(
     } else if (decision->mixedSemanticProjection) {
       color = {180u, 100u, 255u};
     }
-    const auto convertX = [&](std::uint32_t sourceX) {
-      if (sourceX <= bounds.minX) {
-        return 0u;
-      }
-      return std::min(panelWidth, (sourceX - bounds.minX + downsample - 1u)
-                                      / downsample);
-    };
-    const auto convertY = [&](std::uint32_t sourceY) {
-      if (sourceY <= bounds.minY) {
-        return 0u;
-      }
-      return std::min(outputHeight, (sourceY - bounds.minY + downsample - 1u)
-                                        / downsample);
-    };
-    const auto panelOffset = 2u * (panelWidth + separator);
-    drawRect(pixels, outputWidth, outputHeight,
-             panelOffset + convertX(decision->minX), convertY(decision->minY),
-             panelOffset + std::max(convertX(decision->maxX),
-                                    convertX(decision->minX) + 1u),
+    drawRect(nodePixels, outputWidth, outputHeight,
+             convertX(decision->minX), convertY(decision->minY),
+             std::max(convertX(decision->maxX), convertX(decision->minX) + 1u),
              std::max(convertY(decision->maxY), convertY(decision->minY) + 1u),
              color);
+    if (shouldLabelNode(*decision)) {
+      labelledDecisions.emplace_back(decision, color);
+    }
   }
 
-  return writeRgbPng(path, outputWidth, outputHeight, pixels, error);
+  std::vector<LabelRect> occupiedLabels;
+  for (const auto& [decision, color] : labelledDecisions) {
+    const auto text = std::to_string(decision->nodeId);
+    const auto labelWidth = static_cast<std::uint32_t>(text.size() * 4u + 3u);
+    constexpr std::uint32_t labelHeight = 9u;
+    if (labelWidth > outputWidth || labelHeight > outputHeight) {
+      continue;
+    }
+    const auto minX = decision->minX <= bounds.minX
+                          ? 0u
+                          : std::min(outputWidth - 1u,
+                                     (decision->minX - bounds.minX) / downsample);
+    const auto maxX = decision->maxX <= bounds.minX
+                          ? minX + 1u
+                          : std::min(outputWidth,
+                                     (decision->maxX - bounds.minX + downsample - 1u)
+                                         / downsample);
+    const auto minY = decision->minY <= bounds.minY
+                          ? 0u
+                          : std::min(outputHeight - 1u,
+                                     (decision->minY - bounds.minY) / downsample);
+    const auto maxY = decision->maxY <= bounds.minY
+                          ? minY + 1u
+                          : std::min(outputHeight,
+                                     (decision->maxY - bounds.minY + downsample - 1u)
+                                         / downsample);
+
+    const auto clampX = [&](std::int64_t value) {
+      return static_cast<std::uint32_t>(std::clamp<std::int64_t>(
+          value, 0, static_cast<std::int64_t>(outputWidth - labelWidth)));
+    };
+    const auto clampY = [&](std::int64_t value) {
+      return static_cast<std::uint32_t>(std::clamp<std::int64_t>(
+          value, 0, static_cast<std::int64_t>(outputHeight - labelHeight)));
+    };
+    const auto centeredX = clampX(
+        static_cast<std::int64_t>(minX + maxX) / 2
+        - static_cast<std::int64_t>(labelWidth) / 2);
+    const auto centeredY = clampY(
+        static_cast<std::int64_t>(minY + maxY) / 2
+        - static_cast<std::int64_t>(labelHeight) / 2);
+    const std::array<LabelRect, 5> candidates = {{
+        {centeredX, centeredY, centeredX + labelWidth, centeredY + labelHeight},
+        {clampX(minX), clampY(static_cast<std::int64_t>(minY) - labelHeight - 1),
+         clampX(minX) + labelWidth,
+         clampY(static_cast<std::int64_t>(minY) - labelHeight - 1) + labelHeight},
+        {clampX(minX), clampY(maxY + 1u),
+         clampX(minX) + labelWidth, clampY(maxY + 1u) + labelHeight},
+        {clampX(maxX + 1u), clampY(minY),
+         clampX(maxX + 1u) + labelWidth, clampY(minY) + labelHeight},
+        {clampX(static_cast<std::int64_t>(minX) - labelWidth - 1), clampY(minY),
+         clampX(static_cast<std::int64_t>(minX) - labelWidth - 1) + labelWidth,
+         clampY(minY) + labelHeight},
+    }};
+
+    auto selected = candidates.front();
+    bool found = false;
+    for (const auto& candidate : candidates) {
+      const auto collision = std::any_of(
+          occupiedLabels.begin(), occupiedLabels.end(),
+          [&](const LabelRect& occupied) { return overlaps(candidate, occupied); });
+      if (!collision) {
+        selected = candidate;
+        found = true;
+        break;
+      }
+    }
+    if (!found && decision->decision == MaterialSemantic::Support
+        && !decision->contactCandidate && !decision->contactConfirmed
+        && !decision->mixedSemanticProjection) {
+      continue;
+    }
+    occupiedLabels.push_back(selected);
+    drawNodeIdLabel(nodePixels, outputWidth, outputHeight, selected,
+                    decision->nodeId, color);
+  }
+
+  return writeRgbPng(rawPath, outputWidth, outputHeight, rawPixels, error)
+         && writeRgbPng(semanticPath, outputWidth, outputHeight,
+                        semanticPixels, error)
+         && writeRgbPng(nodesPath, outputWidth, outputHeight, nodePixels, error)
+         && writeRgbPng(pickPath, outputWidth, outputHeight, pickPixels, error);
 }
 
 nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
@@ -481,10 +786,12 @@ nlohmann::json summaryJson(const SupportAnalysisSummary& summary) {
   };
 }
 
-std::string layerFileName(std::size_t layerOneBased) {
+std::string layerImageFileName(
+    std::size_t layerOneBased,
+    const char* panel) {
   std::ostringstream stream;
   stream << "layer_" << std::setw(6) << std::setfill('0') << layerOneBased
-         << ".png";
+         << "_" << panel << ".png";
   return stream.str();
 }
 
@@ -739,6 +1046,16 @@ bool SupportAnalysisBundleWriter::write(
   manifest["analysis_json"] = "analysis.json";
   manifest["decisions_json"] = "decisions.json";
   manifest["image_downsample"] = options.downsample;
+  manifest["diagnostic_layout"] = {
+      {"orientation", "vertical"},
+      {"separate_images", true},
+      {"interactive_panels", {"semantic_result", "decision_nodes"}},
+      {"panels", {"raw_mask", "semantic_result", "decision_nodes"}},
+      {"pick_map_encoding", "component_id_plus_one_rgb24"},
+      {"node_id_labels", true},
+      {"node_id_label_policy",
+       "model_contact_mixed_and_nonstandard_support"},
+  };
   manifest["layer_count"] = source.layerCount();
   manifest["images"] = nlohmann::json::array();
 
@@ -747,12 +1064,21 @@ bool SupportAnalysisBundleWriter::write(
       error = "analysis bundle export cancelled";
       return false;
     }
-    const auto fileName = layerFileName(layer + 1u);
+    const auto rawFileName = layerImageFileName(layer + 1u, "raw");
+    const auto semanticFileName = layerImageFileName(layer + 1u, "semantic");
+    const auto nodesFileName = layerImageFileName(layer + 1u, "nodes");
+    const auto pickFileName = layerImageFileName(layer + 1u, "pick");
     const auto jsonFileName = layerJsonFileName(layer + 1u);
+    LayerDiagnosticMetadata diagnosticMetadata;
     if (options.writeImages
-        && !writeLayerDiagnostic(
+        && !writeLayerDiagnostics(
             source, analyzer, result, layer, options.downsample,
-            decisionsByLayer[layer], imagesDirectory / fileName, error)) {
+            decisionsByLayer[layer],
+            imagesDirectory / rawFileName,
+            imagesDirectory / semanticFileName,
+            imagesDirectory / nodesFileName,
+            imagesDirectory / pickFileName,
+            diagnosticMetadata, error)) {
       return false;
     }
 
@@ -760,14 +1086,40 @@ bool SupportAnalysisBundleWriter::write(
         {"schema", "accloud.support-analysis-layer.v1"},
         {"layer", layer + 1u},
         {"phase", phaseName(result.layers[layer].phase)},
-        {"image", options.writeImages ? "images/" + fileName : ""},
+        {"image", options.writeImages ? "images/" + nodesFileName : ""},
         {"support_components", result.layers[layer].supportComponentIds.size()},
         {"projected_support_runs", result.layers[layer].projectedSupportRuns.size()},
         {"decisions", nlohmann::json::array()},
+        {"diagnostic",
+         {{"orientation", "vertical"},
+          {"separate_images", true},
+          {"interactive_panels", {"semantic_result", "decision_nodes"}},
+          {"images",
+           {{"raw_mask", options.writeImages ? "images/" + rawFileName : ""},
+            {"semantic_result",
+             options.writeImages ? "images/" + semanticFileName : ""},
+            {"decision_nodes",
+             options.writeImages ? "images/" + nodesFileName : ""},
+            {"pick_map", options.writeImages ? "images/" + pickFileName : ""}}},
+          {"source_bounds_pixels",
+           {{"min_x", diagnosticMetadata.sourceBounds.minX},
+            {"min_y", diagnosticMetadata.sourceBounds.minY},
+            {"max_x", diagnosticMetadata.sourceBounds.maxX},
+            {"max_y", diagnosticMetadata.sourceBounds.maxY}}},
+          {"image_size_pixels",
+           {{"width", diagnosticMetadata.width},
+            {"height", diagnosticMetadata.height}}},
+          {"pick_map_encoding", "component_id_plus_one_rgb24"},
+          {"node_id_labels", nlohmann::json::array()}}},
     };
     for (const auto* decision : decisionsByLayer[layer]) {
       if (decision != nullptr) {
-        layerJson["decisions"].push_back(decisionJson(*decision));
+        auto serialized = decisionJson(*decision);
+        serialized["selection_id"] = decision->componentId + 1u;
+        layerJson["decisions"].push_back(std::move(serialized));
+        if (shouldLabelNode(*decision)) {
+          layerJson["diagnostic"]["node_id_labels"].push_back(decision->nodeId);
+        }
       }
     }
     if (!writeJsonFile(layersDirectory / jsonFileName, layerJson, error)) {
@@ -776,7 +1128,12 @@ bool SupportAnalysisBundleWriter::write(
 
     manifest["images"].push_back({
         {"layer", layer + 1u},
-        {"path", options.writeImages ? "images/" + fileName : ""},
+        {"path", options.writeImages ? "images/" + nodesFileName : ""},
+        {"raw_path", options.writeImages ? "images/" + rawFileName : ""},
+        {"semantic_path",
+         options.writeImages ? "images/" + semanticFileName : ""},
+        {"nodes_path", options.writeImages ? "images/" + nodesFileName : ""},
+        {"pick_path", options.writeImages ? "images/" + pickFileName : ""},
         {"layer_json", "layers/" + jsonFileName},
         {"decision_count", decisionsByLayer[layer].size()},
     });

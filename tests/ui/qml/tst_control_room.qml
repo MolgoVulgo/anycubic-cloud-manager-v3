@@ -2826,12 +2826,21 @@ TestCase {
                                                     'property int layerCount: 0;' +
                                                     'property int currentLayer: 1;' +
                                                     'property url currentImageUrl: "";' +
+                                                    'property url currentRawImageUrl: "";' +
+                                                    'property url currentSemanticImageUrl: "";' +
+                                                    'property url currentNodesImageUrl: "";' +
+                                                    'property int selectedDecisionIndex: -1;' +
+                                                    'property int selectedNodeId: -1;' +
+                                                    'property string selectedSemantic: "";' +
+                                                    'property var selectedRegion: ({ valid: false, x: 0, y: 0, width: 0, height: 0 });' +
                                                     'property string currentLayerJson: "{}";' +
                                                     'property string currentDecisionJson: "[]";' +
                                                     'property string analysisJson: "{}";' +
                                                     'function analyze(path) {} ' +
                                                     'function cancel() {} ' +
                                                     'function setCurrentLayer(layer) { currentLayer = layer } ' +
+                                                    'function selectCurrentComponent(x, y) { selectedDecisionIndex = 0; selectedNodeId = 42; selectedSemantic = "support"; selectedRegion = ({ valid: true, x: x, y: y, width: 0.1, height: 0.1 }); return true } ' +
+                                                    'function clearDecisionSelection() { selectedDecisionIndex = -1; selectedNodeId = -1; selectedSemantic = ""; selectedRegion = ({ valid: false, x: 0, y: 0, width: 0, height: 0 }) } ' +
                                                     '}', this, "supportAnalysisBridgeMock")
         var debugWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
             "experimentalViewerEnabled": true,
@@ -2857,6 +2866,13 @@ TestCase {
                                                     'property int layerCount: 12;' +
                                                     'property int currentLayer: 4;' +
                                                     'property url currentImageUrl: "";' +
+                                                    'property url currentRawImageUrl: "";' +
+                                                    'property url currentSemanticImageUrl: "";' +
+                                                    'property url currentNodesImageUrl: "";' +
+                                                    'property int selectedDecisionIndex: -1;' +
+                                                    'property int selectedNodeId: -1;' +
+                                                    'property string selectedSemantic: "";' +
+                                                    'property var selectedRegion: ({ valid: false, x: 0, y: 0, width: 0, height: 0 });' +
                                                     'property string currentLayerJson: "{}";' +
                                                     'property string currentDecisionJson: "[]";' +
                                                     'property string analysisJson: "{}";' +
@@ -2864,6 +2880,8 @@ TestCase {
                                                     'function analyze(path) { analyzedPath = String(path) } ' +
                                                     'function cancel() {} ' +
                                                     'function setCurrentLayer(layer) { currentLayer = Math.max(1, Math.min(layerCount, layer)) } ' +
+                                                    'function selectCurrentComponent(x, y) { selectedDecisionIndex = 0; selectedNodeId = 42; selectedSemantic = "support"; selectedRegion = ({ valid: true, x: x, y: y, width: 0.1, height: 0.1 }); currentDecisionJson = JSON.stringify({ node_id: 42, choice: "support" }); return true } ' +
+                                                    'function clearDecisionSelection() { selectedDecisionIndex = -1; selectedNodeId = -1; selectedSemantic = ""; selectedRegion = ({ valid: false, x: 0, y: 0, width: 0, height: 0 }); currentDecisionJson = "[]" } ' +
                                                     '}', this, "supportAnalysisPageBridgeMock")
         supportAnalysisBridge.currentLayerJson = JSON.stringify({"layer": 4})
         supportAnalysisBridge.analysisJson = JSON.stringify({"layer_count": 12})
@@ -2876,8 +2894,24 @@ TestCase {
         verify(findObjectByName(page, "supportAnalysisSelectButton") !== null)
         verify(findObjectByName(page, "supportAnalysisRunButton") !== null)
         verify(findObjectByName(page, "supportAnalysisViewer") !== null)
-        verify(findObjectByName(page, "supportAnalysisDiagnosticImage") !== null)
+        var diagnosticScroll = findObjectByName(page, "supportAnalysisDiagnosticScroll")
+        var diagnosticImage = findObjectByName(page, "supportAnalysisDiagnosticImage")
+        verify(diagnosticScroll !== null)
+        verify(diagnosticImage !== null)
+        verify(diagnosticImage.width >= diagnosticScroll.availableWidth)
+        verify(findObjectByName(page, "supportAnalysisRawImage") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticImage") !== null)
+        verify(findObjectByName(page, "supportAnalysisRawJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisNodesJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticHitArea") !== null)
+        verify(findObjectByName(page, "supportAnalysisNodesHitArea") !== null)
         verify(findObjectByName(page, "supportAnalysisJsonText") !== null)
+
+        page.selectDiagnosticAt({"x": 25, "y": 50}, {"width": 100, "height": 100})
+        compare(supportAnalysisBridge.selectedNodeId, 42)
+        compare(supportAnalysisBridge.selectedSemantic, "support")
+        compare(page.jsonMode, "decisions")
 
         var field = findObjectByName(page, "supportAnalysisSourceField")
         var runButton = findObjectByName(page, "supportAnalysisRunButton")

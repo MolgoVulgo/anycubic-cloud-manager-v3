@@ -7,10 +7,13 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <QImage>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QtGlobal>
 
 #include <algorithm>
+#include <cmath>
 
 namespace accloud {
 namespace {
@@ -63,22 +66,77 @@ QString SupportAnalysisBridge::bundlePath() const { return m_bundlePath; }
 int SupportAnalysisBridge::layerCount() const noexcept { return m_layerCount; }
 int SupportAnalysisBridge::currentLayer() const noexcept { return m_currentLayer; }
 
-QUrl SupportAnalysisBridge::currentImageUrl() const {
+QString SupportAnalysisBridge::currentDiagnosticPath(
+    const QString& panel) const {
   if (m_bundlePath.isEmpty() || m_layerCount <= 0) {
     return {};
   }
+
+  const auto diagnostic = m_currentLayerData
+                              .value(QStringLiteral("diagnostic"))
+                              .toObject();
+  const auto relativeFromLayer = diagnostic
+                                     .value(QStringLiteral("images"))
+                                     .toObject()
+                                     .value(panel)
+                                     .toString();
+  if (!relativeFromLayer.isEmpty()) {
+    return QDir(m_bundlePath).filePath(relativeFromLayer);
+  }
+
   const auto images = m_manifest.value(QStringLiteral("images")).toArray();
   if (m_currentLayer < 1 || m_currentLayer > images.size()) {
     return {};
   }
-  const auto relative = images.at(m_currentLayer - 1)
-                            .toObject()
-                            .value(QStringLiteral("path"))
-                            .toString();
+  const auto entry = images.at(m_currentLayer - 1).toObject();
+  QString field;
+  if (panel == QStringLiteral("raw_mask")) {
+    field = QStringLiteral("raw_path");
+  } else if (panel == QStringLiteral("semantic_result")) {
+    field = QStringLiteral("semantic_path");
+  } else if (panel == QStringLiteral("decision_nodes")) {
+    field = QStringLiteral("nodes_path");
+  } else if (panel == QStringLiteral("pick_map")) {
+    field = QStringLiteral("pick_path");
+  }
+  auto relative = entry.value(field).toString();
+  if (relative.isEmpty() && panel == QStringLiteral("decision_nodes")) {
+    relative = entry.value(QStringLiteral("path")).toString();
+  }
   if (relative.isEmpty()) {
     return {};
   }
-  return QUrl::fromLocalFile(QDir(m_bundlePath).filePath(relative));
+  return QDir(m_bundlePath).filePath(relative);
+}
+
+QUrl SupportAnalysisBridge::currentDiagnosticImageUrl(
+    const QString& panel) const {
+  const auto path = currentDiagnosticPath(panel);
+  return path.isEmpty() ? QUrl{} : QUrl::fromLocalFile(path);
+}
+
+QUrl SupportAnalysisBridge::currentImageUrl() const {
+  return currentNodesImageUrl();
+}
+
+QUrl SupportAnalysisBridge::currentRawImageUrl() const {
+  auto url = currentDiagnosticImageUrl(QStringLiteral("raw_mask"));
+  if (url.isEmpty()) {
+    url = currentNodesImageUrl();
+  }
+  return url;
+}
+
+QUrl SupportAnalysisBridge::currentSemanticImageUrl() const {
+  auto url = currentDiagnosticImageUrl(QStringLiteral("semantic_result"));
+  if (url.isEmpty()) {
+    url = currentNodesImageUrl();
+  }
+  return url;
+}
+
+QUrl SupportAnalysisBridge::currentNodesImageUrl() const {
+  return currentDiagnosticImageUrl(QStringLiteral("decision_nodes"));
 }
 
 QString SupportAnalysisBridge::currentLayerJson() const {
@@ -86,16 +144,170 @@ QString SupportAnalysisBridge::currentLayerJson() const {
     return QStringLiteral("{}");
   }
   auto layer = m_currentLayerData;
-  layer.insert(QStringLiteral("image_absolute"), currentImageUrl().toLocalFile());
+  layer.insert(QStringLiteral("raw_image_absolute"),
+               currentRawImageUrl().toLocalFile());
+  layer.insert(QStringLiteral("semantic_image_absolute"),
+               currentSemanticImageUrl().toLocalFile());
+  layer.insert(QStringLiteral("nodes_image_absolute"),
+               currentNodesImageUrl().toLocalFile());
   return prettyJson(layer);
 }
 
 QString SupportAnalysisBridge::currentDecisionJson() const {
-  return prettyJson(m_currentLayerData.value(QStringLiteral("decisions")).toArray());
+  const auto decisions = m_currentLayerData
+                             .value(QStringLiteral("decisions"))
+                             .toArray();
+  if (m_selectedDecisionIndex >= 0
+      && m_selectedDecisionIndex < decisions.size()) {
+    return prettyJson(decisions.at(m_selectedDecisionIndex).toObject());
+  }
+  return prettyJson(decisions);
 }
 
 QString SupportAnalysisBridge::analysisJson() const {
   return prettyJson(m_analysis);
+}
+
+int SupportAnalysisBridge::selectedDecisionIndex() const noexcept {
+  return m_selectedDecisionIndex;
+}
+
+qint64 SupportAnalysisBridge::selectedNodeId() const noexcept {
+  const auto decisions = m_currentLayerData
+                             .value(QStringLiteral("decisions"))
+                             .toArray();
+  if (m_selectedDecisionIndex < 0
+      || m_selectedDecisionIndex >= decisions.size()) {
+    return -1;
+  }
+  const auto value = decisions.at(m_selectedDecisionIndex)
+                         .toObject()
+                         .value(QStringLiteral("node_id"));
+  return value.isDouble() ? static_cast<qint64>(value.toDouble()) : -1;
+}
+
+QString SupportAnalysisBridge::selectedSemantic() const {
+  const auto decisions = m_currentLayerData
+                             .value(QStringLiteral("decisions"))
+                             .toArray();
+  if (m_selectedDecisionIndex < 0
+      || m_selectedDecisionIndex >= decisions.size()) {
+    return {};
+  }
+  return decisions.at(m_selectedDecisionIndex)
+      .toObject()
+      .value(QStringLiteral("choice"))
+      .toString();
+}
+
+QVariantMap SupportAnalysisBridge::selectedRegion() const {
+  QVariantMap region{{QStringLiteral("valid"), false}};
+  const auto decisions = m_currentLayerData
+                             .value(QStringLiteral("decisions"))
+                             .toArray();
+  if (m_selectedDecisionIndex < 0
+      || m_selectedDecisionIndex >= decisions.size()) {
+    return region;
+  }
+  const auto diagnostic = m_currentLayerData
+                              .value(QStringLiteral("diagnostic"))
+                              .toObject();
+  const auto sourceBounds = diagnostic
+                                .value(QStringLiteral("source_bounds_pixels"))
+                                .toObject();
+  const auto decisionBounds = decisions.at(m_selectedDecisionIndex)
+                                  .toObject()
+                                  .value(QStringLiteral("bounds_pixels"))
+                                  .toObject();
+  const auto sourceMinX = sourceBounds.value(QStringLiteral("min_x")).toDouble();
+  const auto sourceMinY = sourceBounds.value(QStringLiteral("min_y")).toDouble();
+  const auto sourceMaxX = sourceBounds.value(QStringLiteral("max_x")).toDouble();
+  const auto sourceMaxY = sourceBounds.value(QStringLiteral("max_y")).toDouble();
+  const auto sourceWidth = sourceMaxX - sourceMinX;
+  const auto sourceHeight = sourceMaxY - sourceMinY;
+  if (sourceWidth <= 0.0 || sourceHeight <= 0.0) {
+    return region;
+  }
+  const auto x = std::clamp(
+      (decisionBounds.value(QStringLiteral("min_x")).toDouble() - sourceMinX)
+          / sourceWidth,
+      0.0, 1.0);
+  const auto y = std::clamp(
+      (decisionBounds.value(QStringLiteral("min_y")).toDouble() - sourceMinY)
+          / sourceHeight,
+      0.0, 1.0);
+  const auto right = std::clamp(
+      (decisionBounds.value(QStringLiteral("max_x")).toDouble() - sourceMinX)
+          / sourceWidth,
+      0.0, 1.0);
+  const auto bottom = std::clamp(
+      (decisionBounds.value(QStringLiteral("max_y")).toDouble() - sourceMinY)
+          / sourceHeight,
+      0.0, 1.0);
+  region.insert(QStringLiteral("valid"), true);
+  region.insert(QStringLiteral("x"), x);
+  region.insert(QStringLiteral("y"), y);
+  region.insert(QStringLiteral("width"), std::max(0.0, right - x));
+  region.insert(QStringLiteral("height"), std::max(0.0, bottom - y));
+  return region;
+}
+
+bool SupportAnalysisBridge::selectCurrentComponent(
+    double normalizedX,
+    double normalizedY) {
+  if (!std::isfinite(normalizedX) || !std::isfinite(normalizedY)
+      || normalizedX < 0.0 || normalizedX >= 1.0
+      || normalizedY < 0.0 || normalizedY >= 1.0) {
+    clearDecisionSelection();
+    return false;
+  }
+  const auto pickPath = currentDiagnosticPath(QStringLiteral("pick_map"));
+  QImage pickMap(pickPath);
+  if (pickMap.isNull() || pickMap.width() <= 0 || pickMap.height() <= 0) {
+    clearDecisionSelection();
+    return false;
+  }
+  const auto x = std::clamp(
+      static_cast<int>(std::floor(normalizedX * pickMap.width())),
+      0, pickMap.width() - 1);
+  const auto y = std::clamp(
+      static_cast<int>(std::floor(normalizedY * pickMap.height())),
+      0, pickMap.height() - 1);
+  const auto pixel = pickMap.pixel(x, y);
+  const auto encoded = (static_cast<std::uint32_t>(qRed(pixel)) << 16u)
+                       | (static_cast<std::uint32_t>(qGreen(pixel)) << 8u)
+                       | static_cast<std::uint32_t>(qBlue(pixel));
+  if (encoded == 0u) {
+    clearDecisionSelection();
+    return false;
+  }
+  const auto componentId = static_cast<int>(encoded - 1u);
+  const auto decisions = m_currentLayerData
+                             .value(QStringLiteral("decisions"))
+                             .toArray();
+  for (int index = 0; index < decisions.size(); ++index) {
+    if (decisions.at(index)
+            .toObject()
+            .value(QStringLiteral("component_id"))
+            .toInt(-1) != componentId) {
+      continue;
+    }
+    if (m_selectedDecisionIndex != index) {
+      m_selectedDecisionIndex = index;
+      emit decisionSelectionChanged();
+    }
+    return true;
+  }
+  clearDecisionSelection();
+  return false;
+}
+
+void SupportAnalysisBridge::clearDecisionSelection() {
+  if (m_selectedDecisionIndex < 0) {
+    return;
+  }
+  m_selectedDecisionIndex = -1;
+  emit decisionSelectionChanged();
 }
 
 void SupportAnalysisBridge::analyze(const QString& localPath) {
@@ -175,6 +387,7 @@ bool SupportAnalysisBridge::openBundle(const QString& localPath) {
   m_sourcePath = manifest.value(QStringLiteral("source_path")).toString();
   m_layerCount = manifest.value(QStringLiteral("layer_count")).toInt();
   m_currentLayer = std::clamp(m_currentLayer, 1, std::max(1, m_layerCount));
+  m_selectedDecisionIndex = -1;
   if (!loadCurrentLayerData()) {
     return false;
   }
@@ -185,6 +398,7 @@ bool SupportAnalysisBridge::openBundle(const QString& localPath) {
   emit sourcePathChanged();
   emit bundleChanged();
   emit currentLayerChanged();
+  emit decisionSelectionChanged();
   return true;
 }
 
@@ -204,10 +418,12 @@ void SupportAnalysisBridge::setCurrentLayer(int oneBasedLayer) {
     return;
   }
   m_currentLayer = normalized;
+  m_selectedDecisionIndex = -1;
   if (!loadCurrentLayerData()) {
     return;
   }
   emit currentLayerChanged();
+  emit decisionSelectionChanged();
 }
 
 void SupportAnalysisBridge::setRunning(bool value) {
@@ -249,8 +465,10 @@ void SupportAnalysisBridge::resetBundle() {
   m_currentLayerData = {};
   m_layerCount = 0;
   m_currentLayer = 1;
+  m_selectedDecisionIndex = -1;
   emit bundleChanged();
   emit currentLayerChanged();
+  emit decisionSelectionChanged();
 }
 
 void SupportAnalysisBridge::consumeProcessOutput() {

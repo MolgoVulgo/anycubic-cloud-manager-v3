@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QString>
 #include <QUrl>
+#include <QVariantMap>
 
 class QProcess;
 
@@ -22,9 +23,16 @@ class SupportAnalysisBridge final : public QObject {
   Q_PROPERTY(int layerCount READ layerCount NOTIFY bundleChanged)
   Q_PROPERTY(int currentLayer READ currentLayer WRITE setCurrentLayer NOTIFY currentLayerChanged)
   Q_PROPERTY(QUrl currentImageUrl READ currentImageUrl NOTIFY currentLayerChanged)
+  Q_PROPERTY(QUrl currentRawImageUrl READ currentRawImageUrl NOTIFY currentLayerChanged)
+  Q_PROPERTY(QUrl currentSemanticImageUrl READ currentSemanticImageUrl NOTIFY currentLayerChanged)
+  Q_PROPERTY(QUrl currentNodesImageUrl READ currentNodesImageUrl NOTIFY currentLayerChanged)
   Q_PROPERTY(QString currentLayerJson READ currentLayerJson NOTIFY currentLayerChanged)
-  Q_PROPERTY(QString currentDecisionJson READ currentDecisionJson NOTIFY currentLayerChanged)
+  Q_PROPERTY(QString currentDecisionJson READ currentDecisionJson NOTIFY decisionSelectionChanged)
   Q_PROPERTY(QString analysisJson READ analysisJson NOTIFY bundleChanged)
+  Q_PROPERTY(int selectedDecisionIndex READ selectedDecisionIndex NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(qint64 selectedNodeId READ selectedNodeId NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(QString selectedSemantic READ selectedSemantic NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(QVariantMap selectedRegion READ selectedRegion NOTIFY decisionSelectionChanged)
 
 public:
   explicit SupportAnalysisBridge(QObject* parent = nullptr);
@@ -38,14 +46,23 @@ public:
   [[nodiscard]] int layerCount() const noexcept;
   [[nodiscard]] int currentLayer() const noexcept;
   [[nodiscard]] QUrl currentImageUrl() const;
+  [[nodiscard]] QUrl currentRawImageUrl() const;
+  [[nodiscard]] QUrl currentSemanticImageUrl() const;
+  [[nodiscard]] QUrl currentNodesImageUrl() const;
   [[nodiscard]] QString currentLayerJson() const;
   [[nodiscard]] QString currentDecisionJson() const;
   [[nodiscard]] QString analysisJson() const;
+  [[nodiscard]] int selectedDecisionIndex() const noexcept;
+  [[nodiscard]] qint64 selectedNodeId() const noexcept;
+  [[nodiscard]] QString selectedSemantic() const;
+  [[nodiscard]] QVariantMap selectedRegion() const;
 
   Q_INVOKABLE void analyze(const QString& localPath);
   Q_INVOKABLE bool openBundle(const QString& localPath);
   Q_INVOKABLE void cancel();
   Q_INVOKABLE void setCurrentLayer(int oneBasedLayer);
+  Q_INVOKABLE bool selectCurrentComponent(double normalizedX, double normalizedY);
+  Q_INVOKABLE void clearDecisionSelection();
 
 signals:
   void runningChanged();
@@ -56,6 +73,7 @@ signals:
   void bundlePathChanged();
   void bundleChanged();
   void currentLayerChanged();
+  void decisionSelectionChanged();
 
 private:
   void setRunning(bool value);
@@ -66,6 +84,8 @@ private:
   void consumeProcessOutput();
   void handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
   bool loadCurrentLayerData();
+  [[nodiscard]] QUrl currentDiagnosticImageUrl(const QString& panel) const;
+  [[nodiscard]] QString currentDiagnosticPath(const QString& panel) const;
   [[nodiscard]] QString probeExecutable() const;
   [[nodiscard]] static QString normalizeLocalPath(const QString& value);
   [[nodiscard]] static QString prettyJson(const QJsonObject& object);
@@ -80,6 +100,7 @@ private:
   QString m_bundlePath;
   int m_layerCount = 0;
   int m_currentLayer = 1;
+  int m_selectedDecisionIndex = -1;
   QJsonObject m_manifest;
   QJsonObject m_analysis;
   QJsonObject m_currentLayerData;

@@ -6,6 +6,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <fstream>
@@ -78,6 +80,24 @@ bool hasPngSignature(const std::filesystem::path& path) {
          && std::equal(std::begin(signature), std::end(signature), std::begin(expected));
 }
 
+std::pair<std::uint32_t, std::uint32_t> readPngDimensions(
+    const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  std::array<unsigned char, 24> header = {};
+  file.read(reinterpret_cast<char*>(header.data()),
+            static_cast<std::streamsize>(header.size()));
+  if (file.gcount() != static_cast<std::streamsize>(header.size())) {
+    return {0u, 0u};
+  }
+  const auto readBigEndian = [&](std::size_t offset) {
+    return (static_cast<std::uint32_t>(header[offset]) << 24u)
+           | (static_cast<std::uint32_t>(header[offset + 1u]) << 16u)
+           | (static_cast<std::uint32_t>(header[offset + 2u]) << 8u)
+           | static_cast<std::uint32_t>(header[offset + 3u]);
+  };
+  return {readBigEndian(16u), readBigEndian(20u)};
+}
+
 } // namespace
 
 int main() {
@@ -135,6 +155,16 @@ int main() {
                "manifest layer count mismatch")
       || !require(manifest.at("images").size() == layers.size(),
                   "manifest image count mismatch")
+      || !require(manifest.at("diagnostic_layout").at("orientation") == "vertical",
+                  "diagnostic layout must be vertical")
+      || !require(manifest.at("diagnostic_layout").at("separate_images") == true,
+                  "diagnostic panels must be separate images")
+      || !require(
+          manifest.at("diagnostic_layout").at("pick_map_encoding")
+              == "component_id_plus_one_rgb24",
+          "diagnostic pick-map encoding mismatch")
+      || !require(manifest.at("diagnostic_layout").at("node_id_labels") == true,
+                  "diagnostic node labels must be enabled")
       || !require(summary.at("layer_count") == layers.size(),
                   "summary layer count mismatch")
       || !require(analysis.at("layers").size() == layers.size(),
@@ -206,22 +236,75 @@ int main() {
     return 1;
   }
 
+  bool foundNodeLabel = false;
+  bool foundSelectionId = false;
   for (std::size_t layer = 1; layer <= layers.size(); ++layer) {
-    std::ostringstream name;
-    name << "layer_" << std::setw(6) << std::setfill('0') << layer << ".png";
-    if (!require(hasPngSignature(output / "images" / name.str()),
-                 "diagnostic PNG is missing or invalid")) {
-      return 1;
+    std::ostringstream baseName;
+    baseName << "layer_" << std::setw(6) << std::setfill('0') << layer;
+    const std::array<std::string, 4> panels = {
+        "raw", "semantic", "nodes", "pick",
+    };
+    std::optional<std::pair<std::uint32_t, std::uint32_t>> expectedDimensions;
+    for (const auto& panel : panels) {
+      const auto fileName = baseName.str() + "_" + panel + ".png";
+      const auto path = output / "images" / fileName;
+      if (!require(hasPngSignature(path),
+                   "diagnostic panel PNG is missing or invalid")) {
+        return 1;
+      }
+      const auto dimensions = readPngDimensions(path);
+      if (!require(dimensions.first > 0u && dimensions.first <= 40u,
+                   "diagnostic panel width is invalid")
+          || !require(dimensions.second > 0u && dimensions.second <= 32u,
+                      "diagnostic panel height is invalid")) {
+        return 1;
+      }
+      if (!expectedDimensions.has_value()) {
+        expectedDimensions = dimensions;
+      } else if (!require(dimensions == *expectedDimensions,
+                          "diagnostic panels and pick map must align")) {
+        return 1;
+      }
     }
-    auto jsonName = name.str();
-    jsonName.replace(jsonName.size() - 4u, 4u, ".json");
+
+    const auto jsonName = baseName.str() + ".json";
     const auto layerJson = readJson(output / "layers" / jsonName);
     if (!require(layerJson.at("layer") == layer,
                  "per-layer JSON index mismatch")
         || !require(layerJson.contains("decisions"),
-                    "per-layer decisions are missing")) {
+                    "per-layer decisions are missing")
+        || !require(layerJson.at("diagnostic").at("orientation") == "vertical",
+                    "per-layer diagnostic layout mismatch")
+        || !require(layerJson.at("diagnostic").at("separate_images") == true,
+                    "per-layer separate-image flag is missing")
+        || !require(layerJson.at("diagnostic").at("images").contains("raw_mask"),
+                    "raw diagnostic image reference is missing")
+        || !require(
+            layerJson.at("diagnostic").at("images").contains("semantic_result"),
+            "semantic diagnostic image reference is missing")
+        || !require(
+            layerJson.at("diagnostic").at("images").contains("decision_nodes"),
+            "node diagnostic image reference is missing")
+        || !require(layerJson.at("diagnostic").at("images").contains("pick_map"),
+                    "diagnostic pick-map reference is missing")
+        || !require(layerJson.at("diagnostic").contains("source_bounds_pixels"),
+                    "diagnostic source bounds are missing")
+        || !require(layerJson.at("diagnostic").contains("image_size_pixels"),
+                    "diagnostic image size is missing")
+        || !require(layerJson.at("diagnostic").contains("node_id_labels"),
+                    "per-layer node-label index is missing")) {
       return 1;
     }
+    for (const auto& decision : layerJson.at("decisions")) {
+      foundSelectionId = foundSelectionId || decision.contains("selection_id");
+    }
+    foundNodeLabel = foundNodeLabel
+                     || !layerJson.at("diagnostic").at("node_id_labels").empty();
+  }
+  if (!require(foundNodeLabel, "diagnostic node labels were not indexed")
+      || !require(foundSelectionId,
+                  "diagnostic decisions do not expose selection IDs")) {
+    return 1;
   }
 
   std::filesystem::remove_all(output, cleanupError);

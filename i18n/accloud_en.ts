@@ -4048,8 +4048,38 @@ Cloud connection: </source>
         </message>
         <message>
             <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
-            <source>Diagnostic: raw mask | semantic result | decisions. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</source>
-            <translation>Diagnostic: raw mask | semantic result | decisions. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</translation>
+            <source>Raw mask</source>
+            <translation>Raw mask</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Support / part</source>
+            <translation>Support / part</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions / IDs</source>
+            <translation>Decisions / IDs</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Selected node: %1 (%2)</source>
+            <translation>Selected node: %1 (%2)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Clear selection</source>
+            <translation>Clear selection</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions and node IDs</source>
+            <translation>Decisions and node IDs</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Scroll through the three separate views. Click the semantic or ID view to select the exact component and display its JSON decision. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</source>
+            <translation>Scroll through the three separate views. Click the semantic or ID view to select the exact component and display its JSON decision. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</translation>
         </message>
         <message>
             <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
