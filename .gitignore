@@ -2,6 +2,8 @@ accloud/build/
 patch/
 .github/
 acm.zip
+pwsz
+local
 
 # Local archive helper
 make-a.sh

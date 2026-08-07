@@ -296,10 +296,25 @@ def main() -> int:
     for token in (
         "constexpr std::size_t kViewerLayerStride = 2",
         "options.layerStride = kViewerLayerStride",
-        "sampledMaskLayer(std::size_t layer)",
     ):
         if token not in qml_item_cpp:
             errors.append(f"missing fixed quick-preview contract token: {token}")
+    if not re.search(
+        r"sampledMaskLayer\(\s*std::size_t\s+layer,\s*"
+        r"const\s+SupportAnalysisResult\*\s+supportAnalysis\s*=\s*nullptr\s*\)",
+        qml_item_cpp,
+        flags=re.DOTALL,
+    ):
+        errors.append(
+            "dynamic cut surfaces must retain the fixed stride and accept "
+            "support-analysis forced samples"
+        )
+    for token in (
+        "supportAnalysis->forcedSampleLayers",
+        "options.forcedSampleLayers = analysis->forcedSampleLayers",
+    ):
+        if token not in qml_item_cpp:
+            errors.append(f"missing adaptive semantic-sampling contract token: {token}")
     if "Q_PROPERTY(int workerCount" not in qml_item_header or "int workerCount_ = 4" not in qml_item_header:
         errors.append("QmlGlItem must expose four mesh workers by default")
     if "std::size_t layerStride = 1" not in mesher_header:
@@ -312,9 +327,26 @@ def main() -> int:
         "MeshWorkerStats",
         "CutSurfaceBoundary",
         "buildCutSurface",
+        "SupportMaskProvider",
+        "supportMaskProvider",
     ):
         if token not in mesher_header:
             errors.append(f"missing parallel mesher contract token: {token}")
+    if "QString::number(summary.maximumContactGrowthRatio" in qml_item_cpp:
+        errors.append(
+            "Render3D FieldMap values must remain std::string; "
+            "maximum_contact_growth_ratio must use text(...)"
+        )
+    if not re.search(
+        r'\{"maximum_contact_growth_ratio",\s*'
+        r'text\(summary\.maximumContactGrowthRatio\)\}',
+        qml_item_cpp,
+    ):
+        errors.append(
+            "support-analysis completion log must serialize "
+            "maximum_contact_growth_ratio through text(...)"
+        )
+
     for token in (
         'kRender3dLogSource = "render3d"',
         "options.layerStride",
@@ -341,12 +373,21 @@ def main() -> int:
         '"worker_completed"',
         "options.workerCount",
         "kChunkLayers = 8",
+        "SupportAnalyzer{}.analyze",
+        '"support_analysis"',
+        '"materialization_failed"',
+        '"support_analysis_enabled"',
+        '"support_semantics"',
+        "options.supportMaskProvider",
+        "sceneHasSupportSemantics_",
+        "applyLoadingPhase",
     ):
         if token not in qml_item_cpp:
             errors.append(f"missing Render3D diagnostic token: {token}")
     for obsolete in (
         "cutUploadQueue_",
         "clearCutRequested_",
+        "options.classifySupports = true",
     ):
         if obsolete in qml_item_cpp or obsolete in qml_item_header:
             errors.append(f"obsolete non-transactional cut-surface token remains: {obsolete}")
@@ -503,6 +544,8 @@ def main() -> int:
             'objectName: "viewerBuildModal"',
             'running: viewer.loading',
             'progress: viewer.progress',
+            'phaseText: viewer.loadingPhase',
+            'Analyze all native layers before building the 3D view.',
         ):
             if token not in viewer_page_text:
                 errors.append(f"missing viewer sampling UI token: {token}")
@@ -541,6 +584,7 @@ def main() -> int:
             'objectName: "viewerBuildModal"',
             'property bool running: false',
             'property real progress: 0.0',
+            'property string phaseText: ""',
             'readonly property real boundedProgress:',
             'objectName: "viewerBuildInputBlocker"',
             'acceptedButtons: Qt.AllButtons',

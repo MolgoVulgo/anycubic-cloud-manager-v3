@@ -36,6 +36,7 @@ ZIP PWSZ
 -> mesh par empilement
 -> chunks de 8 couches
 -> surfaces axis-alignées compactées sur 8 octets
+-> bit sémantique conservateur pièce/support dérivé de la géométrie des couches
 -> file CPU-vers-GPU bornée
 -> buffers d'instances OpenGL sans vertices/index dupliqués
 -> budget GPU vérifié avant allocation
@@ -121,6 +122,56 @@ couche courante matière, couche suivante vide
 
 La méthode conserve surfaces externes, parois internes, trous, supports, radeau et îlots indépendants sans générer un cube par pixel. Les runs coplanaires et spans verticaux identiques sont fusionnés lorsque possible.
 
+## Sémantique estimée des supports
+
+Les couches raster PWSZ ne contiennent pas d'étiquettes exactes du slicer pour la pièce, les supports ou le radeau. Le masque d'exposition reste donc l'unique vérité géométrique : les pixels non noirs définissent la matière et l'analyse sémantique peut seulement associer une catégorie visuelle à cette matière existante.
+
+Le viewer Qt possède désormais deux chemins runtime distincts :
+
+```text
+Supports désactivés
+-> ouverture du PWSZ
+-> décodage uniquement des couches nécessaires à l'aperçu fixe une couche sur deux
+-> construction du mesh classique par chunks, sans analyse sémantique
+
+Supports activés
+-> passe 1 : analyse séquentielle de toutes les couches natives du PWSZ
+-> conservation d'un index sémantique compact par couche
+-> passe 2 : reconstruction du mesh habituel une couche sur deux depuis les masques originaux
+   avec matérialisation des étiquettes radeau/support depuis cet index
+```
+
+Le chemin désactivé ne lance pas `SupportAnalyzer`, ne décode aucune couche de contexte pour classifier les supports et ne transmet aucun provider de masque support à `LayerStackMesher`. Sa géométrie, son découpage en chunks et sa représentation GPU restent ceux du viewer classique.
+
+Le chemin activé exige de la matière de radeau dès la couche 1 et attribue les phases globales `Raft`, `SupportsOnly`, `ModelAndSupports` et `ModelMostly`. Le radeau est le préfixe de masques natifs répétés qui commence à la couche 1 ; un nombre borné de pixels d'antialias différents est toléré, mais aucune quantité fixe de couches ni aucune fenêtre de hauteur physique ne le définit. Son premier successeur matériellement différent est la première couche de supports. La matière connectée à cette topologie de supports reste support jusqu'à ce qu'un rétrécissement terminal atteigne la pièce. La hauteur de couche du PWSZ sert uniquement au placement Z et ne peut pas modifier la classification sémantique d'une même séquence de couches.
+
+Les supports et la pièce ne sont pas séparés par un diamètre ou une surface absolue de composant. Les supports light, normal et heavy sont suivis selon l'évolution relative de leur section. Pendant les phases mixtes, les composants sont suivis dans une forêt orientée enracinée : un seul parent structurel est conservé, une branche peut se diviser, aucune fusion structurelle de branches n'est créée et les contacts secondaires ne deviennent des croisillons que lorsque leur dérive raster native par couche respecte la plage configurée. L'association des parents utilise le recouvrement des runs raster natifs et la distance matière exacte entre runs ; un simple recouvrement de boîtes englobantes ne peut donc plus créer un parent support à travers une zone vide. Une branche enracinée dans le radeau conserve son identité de support malgré une variation locale de section, une fusion raster temporaire ou un recouvrement avec un composant de pièce déjà établi. Ce recouvrement ne peut pas, à lui seul, couper la branche. Si au moins deux sections support précédentes restent largement conservées et expliquent ensemble une part significative du composant courant, l'événement est classé `support_fusion_continuation` : le composant fusionné reste support au lieu d'ouvrir un contact pièce. Seule une fusion connectée dominée par la pièce et très supérieure au profil récent du support peut contourner cette continuité, et une expansion après rétrécissement reste toujours d'abord un contact provisoire. Un support qui démarre sur une pièce déjà établie doit également naître d'une racine localement étroite ; une excroissance large de la pièce ne devient pas un support simplement parce que son extrémité supérieure se rétrécit.
+
+Un rétrécissement suivi d'une croissance locale ouvre l'état `contact candidat` ; il ne transforme pas immédiatement le composant courant en pièce. Une pointe terminale n'est pas établie par une ancienne chute isolée par rapport à la plus grande section de la fenêtre d'historique. La réduction relative doit aussi être confirmée par un effondrement final immédiat, par plusieurs diminutions significatives dans la lignée récente, ou par un rebond borné après un rétrécissement réel. Un plateau de support stable après une ancienne traverse ou fusion de branches ne peut donc plus devenir une pointe terminale. La décision reste locale à la branche suivie et ne dépend jamais de la présence de matière pièce ailleurs dans l'impression. Une croissance unique atteignant le seuil relatif configuré peut ouvrir le candidat. Une croissance plus faible ne peut l'ouvrir que si le centre sort aussi de l'enveloppe de déplacement normale **et** si la section parente, translatée sur le centre courant, ne conserve plus le recouvrement de forme minimal configuré. Le déplacement du centre seul ne constitue jamais une preuve de contact avec la pièce. Si la forme translatée et la trajectoire prédite de la branche restent cohérentes, le composant demeure support avec la raison diagnostique `support_motion_continuation`. Le candidat doit ensuite persister. Il est confirmé soit par une première section localement brutale par rapport à la pointe terminale, soit par une croissance cumulée depuis sa première couche au fil des couches natives suivantes. Une séquence stationnaire, décroissante, expliquée par le mouvement, expliquée par une fusion ou non confirmée est réintégrée à la branche support. Les supports inclinés, traverses, élargissements locaux et fusions temporaires restent ainsi des supports, tandis qu'une section de pièce qui grandit progressivement est reclassée depuis sa véritable première couche.
+
+Une fois le candidat confirmé, la frontière est appliquée rétroactivement uniquement à cette chaîne candidate : la dernière section terminale valide et tous ses ancêtres inférieurs restent support, tandis que le composant connecté confirmé et sa continuation deviennent pièce. La sémantique pièce ne redescend jamais dans le chemin support confirmé. Le plan d'échantillonnage obligatoire conserve la dernière couche terminale libre et la première couche de contact pièce confirmée afin que le changement de couleur se produise au bon plan Z. Les contacts sans rétrécissement sont rejetés et conservent la couleur de la pièce.
+
+Un contact confirmé initialise également une lignée de pièce persistante. Sur chaque couche native suivante, la matière pièce n'est considérée comme fiable que si elle recouvre de la matière pièce de la couche précédente ou si elle provient d'un contact explicitement confirmé. Un recouvrement limité à une seule couche ne suffit donc pas à convertir une branche support. Lorsqu'un support enraciné dans le radeau et une lignée pièce fiable appartiennent ensuite au même composant raster connexe, le composant est séparé sémantiquement au lieu de recevoir une catégorie unique : les pixels hérités de la pièce fiable restent pièce, tandis que les pixels complémentaires rattachés à la branche support sont conservés sous forme de runs support projetés. La lignée pièce ne peut plus retomber en support et le reste du support ne peut pas être absorbé uniquement parce que les deux zones fusionnent temporairement.
+
+Le résultat d'analyse reste compact. Chaque couche conserve sa phase, les identifiants triés et uniques des composants entièrement support et des runs support projetés clairsemés uniquement pour les composants mixtes ; les masques décodés et les bitmaps sémantiques complets ne sont pas retenus. Chaque contact pièce validé enregistre deux échantillons source obligatoires : la dernière couche libre de la tête terminale et la première couche de contact. Pendant la construction du mesh, `materializeLayerSemantics()` réextrait uniquement une couche retenue et un `SupportMaskProvider` traduit le `Raft`, les composants entièrement `Support` et les runs support projetés vers le bit support existant. La lignée clairsemée pièce/support est mise à jour dans la passe principale d'analyse des couches natives ; elle n'impose aucune relecture supplémentaire de l'archive. Lorsque l'analyse Supports est active, le mesher fusionne les échantillons obligatoires avec le stride fixe de l'aperçu rapide, puis trie et déduplique le plan. Une extrusion ne peut ainsi plus traverser une transition support/pièce ignorée tout en préservant les deux sémantiques dans un composant mixte. Lorsque l'analyse est désactivée, la liste obligatoire est ignorée et le stride classique reste strictement inchangé. Le résultat ne dépend ni de la taille des chunks de rendu ni du nombre de workers. Les sections dynamiques basse et haute sélectionnent le dernier échantillon sémantique retenu inférieur ou égal à la couche matière demandée et conservent donc les couleurs du mesh principal.
+
+L'étiquette sémantique reste dans le bit 60 de `PackedSurfaceQuad` ; l'orientation de face reste dans les bits 61..63. La taille d'instance reste de 8 octets et la réduction structurelle de 15× est inchangée. Le provider sémantique est contrôlé avant maillage : ses dimensions doivent correspondre au masque matière et il ne peut introduire aucun pixel hors de la matière PWSZ native.
+
+La case **Supports** commande ce chemin optionnel. Un fichier chargé initialement avec l'option désactivée utilise le chemin classique sans analyse. Son activation sur une telle scène relance un chargement complet en deux passes. Sa désactivation après une construction analysée restaure immédiatement la couleur classique dans le shader ; l'index déjà calculé peut rester attaché à cette scène, mais les chargements suivants effectués avec l'option désactivée ignorent totalement l'analyse. Aucun mode ne masque, n'ajoute ou ne retire de matière.
+
+La modal du viewport expose la phase active via `viewer.loadingPhase`. La progression est pondérée par le travail de décodage réel : toutes les couches natives analysées pendant la passe 1, puis le plan effectif de couches retenues maillé pendant la passe 2. Les diagnostics runtime sont écrits dans `render3d.jsonl` avec le composant `support_analysis` et les événements `started`, `progress`, `phase_detected`, `completed`, `cancelled`, `failed` et `materialization_failed`. La fin de l'analyse indique le nombre d'échantillons sémantiques obligatoires. Les événements de début et de fin du mesher indiquent `base_sample_count`, `forced_semantic_sample_count` et `effective_sample_count`. L'événement de fin indique les runs de supports par composants entiers, les runs support projetés utilisés par les composants mixtes, `terminal_support_stops`, `expanding_model_contacts`, `maximum_model_expansion_ratio`, les pixels d'expansion rejetés ainsi que les contacts sans rétrécissement. `projected_contact_pixels` reste nul, car aucun pixel support n'est projeté dans une zone de contact pièce confirmée. Les logs contiennent uniquement des compteurs agrégés et les bornes de phases, jamais les composants ou runs individuels.
+
+L'exécutable de diagnostic est disponible uniquement avec le core expérimental du viewer :
+
+```bash
+accloud_support_analysis_probe entree.pwsz --output analyse.json
+accloud_support_analysis_probe entree.pwsz --verify-materialization
+accloud_support_analysis_probe entree.pwsz \
+  --dump-layer 101 --dump-ppm couche-101.ppm --downsample 8
+```
+
+`--verify-materialization` relit toutes les couches natives et vérifie que l'index compact recrée exactement les totaux de runs radeau/support enregistrés. Les dumps PPM sont uniquement des diagnostics et ne constituent pas des ressources runtime.
+
 ### Représentation GPU compacte
 
 Le chemin actif n'envoie plus quatre `MeshVertex` et six indices par rectangle. Un `PackedSurfaceQuad` encode l'orientation, le plan fixe, les deux bornes du rectangle et les coordonnées Z relatives au chunk dans deux mots 32 bits :
@@ -152,10 +203,10 @@ Le fragment shader OpenGL clippe chaque triangle sur les plans Z exacts. Le rend
 
 La plage visible est contrôlée par un double curseur vertical fixé au bord droit du viewport. La couche maximale est indiquée au-dessus et la couche `1` au-dessous. Chaque poignée affiche dans un tooltip le numéro de couche courant au survol. La molette utilisée au-dessus du contrôle déplace uniquement la borne haute ; la borne basse reste modifiable exclusivement par glisser-déposer avec la souris. Les anciens champs numériques de saisie des bornes ne sont plus exposés.
 
-Le titre du dialogue reste générique (`Vue 3D`). L’overlay du viewport affiche, dans cet ordre, le nom de la machine, puis `nom.pwsz · N couches`, puis le rappel des commandes. Il n’affiche ni nombre de workers, ni mode d’échantillonnage, ni nombre de chunks ou de triangles, ni bornes de couches visibles, ni valeurs Z. Dans l’en-tête, **Réinitialiser la vue** est placé immédiatement à gauche de **Plein écran** ; **Quitter le plein écran** restaure la taille de travail. Le pied du dialogue place **Imprimer** immédiatement à gauche de **Fermer**. **Imprimer** ferme le viewer puis déclenche exactement le même flux de configuration d’impression distante que l’action **Imprimer** du listing des fichiers cloud.
+Le titre du dialogue reste générique (`Vue 3D`). L’overlay du viewport affiche, dans cet ordre, le nom de la machine, puis `nom.pwsz · N couches`, puis le rappel des commandes. Il n’affiche ni nombre de workers, ni mode d’échantillonnage, ni nombre de chunks ou de triangles, ni bornes de couches visibles, ni valeurs Z. Une case compacte **Supports** est ancrée dans l'angle inférieur gauche du viewport et active la couleur estimée des supports. Dans l’en-tête, **Réinitialiser la vue** est placé immédiatement à gauche de **Plein écran** ; **Quitter le plein écran** restaure la taille de travail. Le pied du dialogue place **Imprimer** immédiatement à gauche de **Fermer**. **Imprimer** ferme le viewer puis déclenche exactement le même flux de configuration d’impression distante que l’action **Imprimer** du listing des fichiers cloud.
 Pendant toute la reconstruction initiale, une modal limitée au viewport couvre uniquement la zone du viewer et bloque ses interactions. Une barre de progression déterminée est centrée dans cette modal et suit `viewer.progress` de 0 à 100 %. La modal reste affichée tant que `viewer.loading` est vrai, même si des chunks partiels sont déjà disponibles, puis disparaît à la fin de la construction ou en cas d’erreur. L’en-tête et le pied du dialogue restent hors de cette modal.
 
-Lorsqu’une borne coupe le document, un worker dédié décode uniquement le masque de la couche frontière et construit une surface compacte sur le plan Z correspondant. La section basse porte une normale Z négative et la section haute une normale Z positive. La matière vient exactement du masque correspondant à l’aperçu fixe `layerStride=2` : une pièce pleine produit une section pleine, une coque conserve sa cavité, et des supports ou îlots séparés restent séparés. Les faces horizontales déjà présentes sur le plan de clipping sont supprimées pendant la passe du mesh principal afin d’éviter leur superposition avec le bouchon dynamique.
+Lorsqu’une borne coupe le document, un worker dédié décode uniquement le masque de la couche frontière et construit une surface compacte sur le plan Z correspondant. La section basse porte une normale Z négative et la section haute une normale Z positive. La matière vient exactement du dernier masque retenu inférieur ou égal à la couche demandée : le plan classique suit `layerStride=2`, tandis que le plan Supports inclut aussi les couches terminales et de contact obligatoires. Une pièce pleine produit une section pleine, une coque conserve sa cavité, et des supports ou îlots séparés restent séparés. Les faces horizontales déjà présentes sur le plan de clipping sont supprimées pendant la passe du mesh principal afin d’éviter leur superposition avec le bouchon dynamique.
 
 Le changement de plage est transactionnel. Le renderer conserve la plage et les sections actuellement affichées pendant la construction de la nouvelle demande. La nouvelle paire « plans de clipping + surfaces de section » est uploadée dans un buffer de préparation, puis remplacée dans une même frame. Une section ne peut donc jamais disparaître avant que sa remplaçante soit prête. Les demandes intermédiaires rendues obsolètes par un déplacement rapide du curseur sont abandonnées sans modifier l’état affiché.
 
@@ -186,7 +237,7 @@ Garde-fous implémentés :
 
 - masques bit-packed ;
 - maillage séquentiel avec couches voisines ;
-- rendu unique avec `layerStride=2`, soit une couche source décodée sur deux ;
+- rendu unique avec un `layerStride=2` de base ; lorsque l'analyse Supports est active, seules les couches obligatoires de transition tête/contact complètent ce plan ;
 - conservation des bornes première/dernière exactes et de l’étendue Z d’origine malgré l’échantillonnage ;
 - callbacks de chunks streaming ;
 - file d’upload bornée : 8 chunks / 256 Mio en attente par défaut ;
@@ -210,7 +261,7 @@ Limites connues :
 - pas encore d’éviction GPU, LOD ou simplification ;
 - le budget de 2 Gio refuse proprement un modèle compact pathologique au lieu de laisser le pilote interrompre le processus ;
 - les modèles exacts peuvent conserver un très grand nombre de surfaces sur des supports denses ;
-- pas de couleur sémantique modèle/support/radeau ;
+- la couleur des supports reste heuristique, car le masque d'exposition PWSZ ne contient aucune étiquette sémantique exacte du slicer ; la matière fusionnée ou ambiguë conserve volontairement la couleur de la pièce ;
 - backend desktop OpenGL uniquement à cette étape expérimentale.
 
 ## Validation
@@ -223,13 +274,15 @@ accloud_experimental_viewer_scaffold
 accloud_pw0_decode
 accloud_pwsz_reader
 accloud_layer_stack_mesher
+accloud_support_analyzer
+accloud_support_analysis_diagnostics
 accloud_render_pipeline
 accloud_viewer_controls
 accloud_cut_surface_transactions
 accloud_render3d_worker_benchmark_selftest
 ```
 
-`accloud_render_pipeline` valide la comptabilité compacte de la file bornée, le format 8 octets, l'expansion géométrique exacte, le ratio 15×, le budget GPU simulé, une pièce synthétique complète de 250 mm, la consommation streaming, l’annulation, la sélection des chunks, les plans Z exacts, les sections pleines, les cavités conservées, les îlots de supports séparés, le format 8 octets du cache de sections et son éviction LRU bornée. `accloud_cut_surface_transactions` vérifie que les déplacements rapides du slider remplacent les demandes intermédiaires, refusent les commits CPU/GPU obsolètes et conservent la plage affichée jusqu’au commit du dernier batch complet. `accloud_render3d_worker_benchmark_selftest` valide la matrice synthétique workers/chunks et la stabilité géométrique.
+`accloud_render_pipeline` valide la comptabilité compacte de la file bornée, le format 8 octets, l'expansion géométrique exacte, le ratio 15×, le budget GPU simulé, une pièce synthétique complète de 250 mm, la consommation streaming, l’annulation, la sélection des chunks, les plans Z exacts, les sections pleines, les cavités conservées, les îlots de supports séparés, le format 8 octets du cache de sections et son éviction LRU bornée.
 
 Validation desktop obligatoire sur un poste avec dépendances Qt natives :
 
@@ -244,3 +297,33 @@ Les PWSZ réels peuvent servir d’entrées locales, mais ne deviennent pas des 
 ## Décision
 
 Le viewer possède désormais un chemin de développement de bout en bout depuis chaque ligne de fichier PWSZ vers un mesh 3D navigable et filtrable par plage, avec surfaces GPU compactes et budget d'allocation contrôlé. La production reste désactivée. Sa préparation exige encore la validation locale sur de grands PWSZ et le LOD/éviction éventuels.
+
+## Bundle complet de diagnostic de l’analyse des supports
+
+Le probe de développement peut exporter la trace complète des décisions pour un fichier PWSZ local :
+
+```bash
+./build/experimental-viewer-core/accloud_support_analysis_probe \
+  ../pwsz/Beetle.pwsz \
+  --bundle /tmp/beetle-support-analysis \
+  --verify-materialization
+```
+
+Le bundle est réservé au diagnostic de développement et contient :
+
+```text
+manifest.json                 index couches/images et métadonnées source
+summary.json                  résumé global compact utilisé par l’interface
+analysis.json                 analyse complète des couches, nœuds et arêtes
+decisions.json                toutes les décisions sémantiques et comparaisons
+images/layer_XXXXXX_raw.png       masque d’exposition brut
+images/layer_XXXXXX_semantic.png  résultat pièce/support/radeau
+images/layer_XXXXXX_nodes.png     décisions et identifiants de nœuds rendus
+images/layer_XXXXXX_pick.png      carte RGB24 invisible de sélection des composants
+layers/layer_XXXXXX.json          décisions et géométrie des images chargées à la demande
+```
+
+`decisions.json` enregistre les surfaces courante et parente, leur ratio, le recouvrement brut et aligné sur les centres, la distance matière exacte, les pixels ajoutés et retirés après alignement, le mouvement prédit de la branche, le résidu de mouvement, tous les identifiants et recouvrements des parents support correspondants, les nombres et taux de parents conservés, les preuves de diminution de la pointe terminale, l’état avant et après la décision, la sémantique choisie, un `reason_code` stable et un champ `why` lisible. La capture de la trace est optionnelle et n’est pas activée par le viewer normal. Chaque couche source exporte trois images pleine largeur distinctes : masque brut, résultat sémantique et décisions. L’image des décisions affiche le véritable `node_id` sur les décisions pièce, contact, composant mixte et support non standard ; les continuations support ordinaires restent sans étiquette pour préserver la lisibilité des grilles denses. Une quatrième image invisible encode `component_id + 1` en RGB24 pour chaque pixel diagnostic sous-échantillonné. Le JSON de couche enregistre les limites du recadrage, les dimensions, les chemins des panneaux et le même `selection_id` local à la couche.
+
+Avec `ACCLOUD_DEBUG` et le viewer expérimental actifs, `MainWindow.qml` expose l’onglet **Analyse des supports**. L’utilisateur sélectionne une pièce `.pwsz` locale, puis `SupportAnalysisBridge` lance le probe de manière asynchrone à côté de l’exécutable desktop. L’onglet est divisé entre le viewer 3D synchronisé, une pile défilable verticalement des trois images diagnostiques et un inspecteur JSON inférieur. Des boutons donnent un accès direct aux vues brute, sémantique et identifiants, et la barre de défilement verticale reste visible. Un clic sur l’image sémantique ou l’image des identifiants lit la carte de sélection invisible, choisit le composant exact sous le curseur, encadre sa zone et remplace la liste des décisions par l’objet JSON correspondant. Un changement de plage 3D ou de couche efface la sélection et actualise les trois images ainsi que le JSON de couche. Les gros fichiers globaux ne sont pas parsés de manière eager dans QML : le bridge charge uniquement `summary.json` et le fichier `layers/layer_XXXXXX.json` sélectionné. L’onglet et le bridge sont absents des ressources de production.
+

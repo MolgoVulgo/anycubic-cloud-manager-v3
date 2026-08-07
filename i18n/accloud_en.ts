@@ -2059,8 +2059,8 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="769" />
-            <source>Choose a color pair for the printed part and the viewport background.</source>
-            <translation>Choose a color pair for the printed part and the viewport background.</translation>
+            <source>Choose colors for the printed part, estimated supports and viewport background.</source>
+            <translation>Choose colors for the printed part, estimated supports and viewport background.</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="791" />
@@ -2071,6 +2071,11 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
             <location filename="../ui/qml/MainWindow.qml" line="840" />
             <source>Part: %1</source>
             <translation>Part: %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Supports: %1</source>
+            <translation>Supports: %1</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="849" />
@@ -2086,6 +2091,11 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
             <location filename="../ui/qml/MainWindow.qml" line="877" />
             <source>3D colors updated: %1</source>
             <translation>3D colors updated: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/MainWindow.qml" />
+            <source>Support analysis</source>
+            <translation>Support analysis</translation>
         </message>
 </context>
     <context>
@@ -3864,6 +3874,16 @@ Cloud connection: </source>
             <source>%1 · %2 layers</source>
             <translation>%1 · %2 layers</translation>
         </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Supports</source>
+            <translation>Supports</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.</source>
+            <translation>Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.</translation>
+        </message>
     </context>
     <context>
         <name>QmlGlItem</name>
@@ -3907,7 +3927,17 @@ Cloud connection: </source>
             <source>OpenGL rejected the complete 3D model before rendering.</source>
             <translation>OpenGL rejected the complete 3D model before rendering.</translation>
         </message>
-    </context>
+            <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Analyzing supports…</source>
+            <translation>Analyzing supports…</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Creating 3D view…</source>
+            <translation>Creating 3D view…</translation>
+        </message>
+</context>
     <context>
         <name>ViewerBuildModal</name>
         <message>
@@ -3952,6 +3982,202 @@ Cloud connection: </source>
             <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
             <source>Exit full screen</source>
             <translation>Exit full screen</translation>
+        </message>
+    </context>
+    <context>
+        <name>SupportAnalysisPage</name>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select the PWSZ part to analyze</source>
+            <translation>Select the PWSZ part to analyze</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>PWSZ files (*.pwsz)</source>
+            <translation>PWSZ files (*.pwsz)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>All files (*)</source>
+            <translation>All files (*)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select a local .pwsz file</source>
+            <translation>Select a local .pwsz file</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Select part</source>
+            <translation>Select part</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Analyzing…</source>
+            <translation>Analyzing…</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Analyze</source>
+            <translation>Analyze</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Cancel</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Previous</source>
+            <translation>Previous</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Layer %1 / %2</source>
+            <translation>Layer %1 / %2</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>No analysis</source>
+            <translation>No analysis</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Next</source>
+            <translation>Next</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Raw mask</source>
+            <translation>Raw mask</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Support / part</source>
+            <translation>Support / part</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions / IDs</source>
+            <translation>Decisions / IDs</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Selected node: %1 (%2)</source>
+            <translation>Selected node: %1 (%2)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Clear selection</source>
+            <translation>Clear selection</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions and node IDs</source>
+            <translation>Decisions and node IDs</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Scroll through the three separate views. Click the semantic or ID view to select the exact component and display its JSON decision. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</source>
+            <translation>Scroll through the three separate views. Click the semantic or ID view to select the exact component and display its JSON decision. Red = part, cyan = support, amber = raft; yellow = candidate contact, magenta = confirmed contact, purple = mixed component.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Decisions</source>
+            <translation>Decisions</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Layer</source>
+            <translation>Layer</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Global summary</source>
+            <translation>Global summary</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Surface comparisons and decision reasons for layer %1</source>
+            <translation>Surface comparisons and decision reasons for layer %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>No JSON loaded</source>
+            <translation>No JSON loaded</translation>
+        </message>
+    </context>
+    <context>
+        <name>SupportAnalysisBridge</name>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Cannot open JSON file: %1</source>
+            <translation>Cannot open JSON file: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Invalid JSON file %1: %2</source>
+            <translation>Invalid JSON file %1: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Select an existing .pwsz file.</source>
+            <translation>Select an existing .pwsz file.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Support-analysis probe not found: %1</source>
+            <translation>Support-analysis probe not found: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analyzing native layers</source>
+            <translation>Analyzing native layers</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis bundle directory does not exist.</source>
+            <translation>Analysis bundle directory does not exist.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis bundle ready</source>
+            <translation>Analysis bundle ready</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis cancelled</source>
+            <translation>Analysis cancelled</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Generating diagnostic images</source>
+            <translation>Generating diagnostic images</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Support analysis failed with exit code %1.</source>
+            <translation>Support analysis failed with exit code %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Analysis failed</source>
+            <translation>Analysis failed</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Bundle loading failed</source>
+            <translation>Bundle loading failed</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Selected layer is outside the bundle.</source>
+            <translation>Selected layer is outside the bundle.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/app/SupportAnalysisBridge.cpp" />
+            <source>Layer JSON reference is missing.</source>
+            <translation>Layer JSON reference is missing.</translation>
         </message>
     </context>
 </TS>

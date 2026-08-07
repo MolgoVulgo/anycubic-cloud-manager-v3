@@ -71,6 +71,8 @@ int main(int argc, char** argv) {
       "u_pitch",
       "u_baseLayer",
       "u_meshColor",
+      "u_supportColor",
+      "u_supportColoringEnabled",
       "u_lightDirection",
       "u_clipZ",
       "u_clipEpsilon",

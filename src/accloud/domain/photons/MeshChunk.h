@@ -52,6 +52,14 @@ enum class PackedSurfaceFace : std::uint32_t {
   PositiveZ = 5,
 };
 
+// Estimated semantic class attached to one surface. PWSZ layer masks merge the
+// model, supports and raft, so Support means "classified as support-like by the
+// conservative Render3D heuristic", never an exact slicer label.
+enum class PackedSurfaceSemantic : std::uint32_t {
+  Model = 0,
+  Support = 1,
+};
+
 // One exact axis-aligned surface rectangle. Grid coordinates are encoded as
 // integers and converted to millimetres by the renderer using the chunk pitch.
 // No vertex, normal or index duplication is stored in the runtime mesh.
@@ -68,6 +76,7 @@ static_assert(sizeof(PackedSurfaceQuad) == 8,
 inline constexpr std::uint32_t kPackedSurfaceMaximumX = (1u << 14u) - 1u;
 inline constexpr std::uint32_t kPackedSurfaceMaximumY = (1u << 13u) - 1u;
 inline constexpr std::uint32_t kPackedSurfaceMaximumRelativeZ = (1u << 6u) - 1u;
+inline constexpr std::uint32_t kPackedSurfaceSemanticOffset = 60u;
 inline constexpr std::uint32_t kPackedSurfaceFaceOffset = 61u;
 inline constexpr std::size_t kLegacyBytesPerSurfaceQuad =
     4u * sizeof(MeshVertex) + 6u * sizeof(std::uint32_t);
@@ -91,10 +100,18 @@ inline constexpr std::size_t kLegacyBytesPerSurfaceQuad =
   return static_cast<PackedSurfaceFace>(packedSurfaceField(quad, kPackedSurfaceFaceOffset, 3u));
 }
 
+[[nodiscard]] constexpr PackedSurfaceSemantic packedSurfaceSemantic(
+    const PackedSurfaceQuad& quad) noexcept {
+  return static_cast<PackedSurfaceSemantic>(
+      packedSurfaceField(quad, kPackedSurfaceSemanticOffset, 1u));
+}
+
 [[nodiscard]] constexpr PackedSurfaceQuad makePackedSurfaceQuad(
     std::uint64_t payload,
-    PackedSurfaceFace face) noexcept {
+    PackedSurfaceFace face,
+    PackedSurfaceSemantic semantic = PackedSurfaceSemantic::Model) noexcept {
   const std::uint64_t bits = payload
+      | (static_cast<std::uint64_t>(semantic) << kPackedSurfaceSemanticOffset)
       | (static_cast<std::uint64_t>(face) << kPackedSurfaceFaceOffset);
   return PackedSurfaceQuad{
       static_cast<std::uint32_t>(bits),
@@ -108,13 +125,14 @@ inline constexpr std::size_t kLegacyBytesPerSurfaceQuad =
     std::uint32_t y0,
     std::uint32_t y1,
     std::uint32_t z0,
-    std::uint32_t z1) noexcept {
+    std::uint32_t z1,
+    PackedSurfaceSemantic semantic = PackedSurfaceSemantic::Model) noexcept {
   const std::uint64_t payload = static_cast<std::uint64_t>(fixedX)
       | (static_cast<std::uint64_t>(y0) << 14u)
       | (static_cast<std::uint64_t>(y1) << 27u)
       | (static_cast<std::uint64_t>(z0) << 40u)
       | (static_cast<std::uint64_t>(z1) << 46u);
-  return makePackedSurfaceQuad(payload, face);
+  return makePackedSurfaceQuad(payload, face, semantic);
 }
 
 [[nodiscard]] constexpr PackedSurfaceQuad packYSurface(
@@ -123,13 +141,14 @@ inline constexpr std::size_t kLegacyBytesPerSurfaceQuad =
     std::uint32_t x0,
     std::uint32_t x1,
     std::uint32_t z0,
-    std::uint32_t z1) noexcept {
+    std::uint32_t z1,
+    PackedSurfaceSemantic semantic = PackedSurfaceSemantic::Model) noexcept {
   const std::uint64_t payload = static_cast<std::uint64_t>(fixedY)
       | (static_cast<std::uint64_t>(x0) << 13u)
       | (static_cast<std::uint64_t>(x1) << 27u)
       | (static_cast<std::uint64_t>(z0) << 41u)
       | (static_cast<std::uint64_t>(z1) << 47u);
-  return makePackedSurfaceQuad(payload, face);
+  return makePackedSurfaceQuad(payload, face, semantic);
 }
 
 [[nodiscard]] constexpr PackedSurfaceQuad packZSurface(
@@ -138,13 +157,14 @@ inline constexpr std::size_t kLegacyBytesPerSurfaceQuad =
     std::uint32_t x0,
     std::uint32_t x1,
     std::uint32_t y0,
-    std::uint32_t y1) noexcept {
+    std::uint32_t y1,
+    PackedSurfaceSemantic semantic = PackedSurfaceSemantic::Model) noexcept {
   const std::uint64_t payload = static_cast<std::uint64_t>(x0)
       | (static_cast<std::uint64_t>(x1) << 14u)
       | (static_cast<std::uint64_t>(y0) << 28u)
       | (static_cast<std::uint64_t>(y1) << 41u)
       | (static_cast<std::uint64_t>(relativeZ) << 54u);
-  return makePackedSurfaceQuad(payload, face);
+  return makePackedSurfaceQuad(payload, face, semantic);
 }
 
 struct MeshChunk {

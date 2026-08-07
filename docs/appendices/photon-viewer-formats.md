@@ -36,6 +36,7 @@ PWSZ ZIP
 -> stacked-layer surface mesh
 -> 8-layer chunks
 -> eight-byte axis-aligned surface instances
+-> conservative model/support semantic bit derived from layer geometry
 -> bounded CPU-to-GPU upload queue
 -> instanced OpenGL buffers without duplicated vertices/indices
 -> GPU budget checked before allocation
@@ -121,6 +122,56 @@ current layer material, next layer void
 
 This preserves exterior walls, interior cavity walls, through-holes, supports, raft and disconnected islands without creating one voxel cube per exposed pixel. Coplanar runs and identical vertical spans are merged where possible.
 
+## Estimated support semantics
+
+PWSZ raster layers do not contain exact slicer labels for model, supports or raft. The exposure mask therefore remains the only geometry truth: non-black pixels define material, and semantic analysis may only attach a visual category to that existing material.
+
+The Qt viewer now has two distinct runtime paths:
+
+```text
+Supports disabled
+-> open the PWSZ
+-> decode only the layers required by the fixed stride-two preview
+-> build the classic chunked mesh with no semantic analysis
+
+Supports enabled
+-> pass 1: analyze every native PWSZ layer sequentially
+-> retain a compact per-layer semantic index
+-> pass 2: rebuild the usual stride-two chunked mesh from the original masks
+   while materializing raft/support tags from that index
+```
+
+The disabled path does not invoke `SupportAnalyzer`, does not decode contextual layers for support classification, and passes no support-mask provider to `LayerStackMesher`. Its geometry, chunking and GPU representation remain the classic viewer contract.
+
+The enabled path requires non-empty raft matter on layer 1 and assigns the global phases `Raft`, `SupportsOnly`, `ModelAndSupports` and `ModelMostly`. The raft is the repeated native-mask prefix that starts on layer 1; a bounded number of changed antialias pixels is tolerated, but no fixed layer count or physical-height window defines it. Its first materially different successor is the first support layer. Matter connected to that support topology remains support until a terminal taper reaches the part. The PWSZ layer height is used for Z placement only and cannot change semantic classification for an identical layer sequence.
+
+Support and model are not separated by an absolute component diameter or area. Light, normal and heavy supports are followed through their relative section evolution. During mixed phases, components are tracked in a rooted directed forest: one structural parent is retained, branches may split, structural branch merges are not created, and secondary contacts become braces only when their trajectory has the configured layer-native raster drift. Parent matching uses overlap between native raster runs and the exact run-to-run material distance; overlap of bounding boxes alone cannot create a support parent through an empty hole. A branch rooted in the raft keeps its support identity across local section changes, temporary raster merges and overlap with an already established model component. Such overlap alone cannot cut the branch. If at least two previous support sections remain substantially preserved and together explain a significant part of the current component, the event is classified as `support_fusion_continuation`: the merged component remains support instead of opening a part contact. Only a model-dominant connected merge that is far larger than the recent support profile can bypass that continuity, and a tapered expansion is always handled as a provisional contact first. A support starting on an already established model must also start from a locally narrow root; a broad model protrusion cannot become a support merely because its upper end tapers.
+
+A reduction followed by local growth opens the state `contact candidate`; it does not immediately turn the current component into model matter. A terminal taper is not established by one old drop relative to the largest section in the lookback window. The relative reduction must also be supported by an immediate final collapse, by several meaningful decreases in the recent lineage, or by a bounded rebound after such a real taper. A stable support plateau following an earlier crossbar or branch fusion therefore cannot become a terminal tip. The decision is local to the tracked branch and never depends on model matter existing elsewhere in the print. A single growth of at least the configured relative threshold may open the candidate. A smaller growth may open it only when the centre also leaves the normal per-layer motion envelope **and** the parent section, translated onto the current centre, no longer preserves the configured support-shape overlap. Centre displacement alone is never evidence of a part contact. If the translated shape and the predicted branch trajectory remain coherent, the component stays support with the diagnostic reason `support_motion_continuation`. A candidate must then persist. It is confirmed either by a locally abrupt first section relative to the terminal tip or by cumulative growth from the first candidate layer across the following native layers. Stationary, shrinking, motion-explained, fusion-explained or otherwise unconfirmed sequences are committed back to the support branch. This keeps inclined supports, braces, local widening and temporary fusions as support while allowing a progressively growing part section to be reclassified from its true first layer.
+
+Once a candidate is confirmed, the boundary is applied retroactively only to that candidate chain: the last valid terminal section and every lower ancestor remain support, while the confirmed connected component and its following model continuation are model matter. Model semantics never propagate downward into the confirmed support path. The mandatory sampling plan retains both the last free terminal layer and the first confirmed model-contact layer so the second-pass mesh changes colour at the correct Z plane. Untapered contacts are rejected and remain model-coloured.
+
+A confirmed contact also seeds a persistent model lineage. On each following native layer, model matter is trusted only when it overlaps model matter from the preceding layer, or when it was introduced by an explicitly confirmed contact. A one-layer overlap is therefore insufficient to convert a support branch. When a raft-rooted support and a trusted model lineage later belong to the same raster-connected component, the component is split semantically instead of being assigned one category: pixels inherited from the trusted model remain model, while the complementary pixels attached to the support branch are stored as projected support runs. The model lineage cannot fall back to support, and the support remainder cannot be absorbed merely because both regions temporarily merge.
+
+The analysis result stays compact. Each layer stores its phase, sorted unique identifiers for whole support components and sparse projected support runs only for mixed components; decoded masks and full semantic bitmaps are not retained. Every validated model contact records two mandatory source samples: the last free terminal-head layer and the first contact layer. During mesh construction, `materializeLayerSemantics()` re-extracts only a retained layer and a `SupportMaskProvider` maps `Raft`, whole `Support` components and projected support runs to the existing support bit. The sparse model/support lineage is updated inside the main native-layer analysis pass; it does not require another archive reread. When support analysis is enabled, the mesher merges mandatory samples into the fixed quick-preview stride, then sorts and deduplicates the plan. This prevents extrusion from crossing a skipped support/model transition while preserving both semantics through mixed components. When support analysis is disabled, the mandatory list is ignored and the classic stride is byte-for-byte unchanged. The result is independent from render chunk size and worker count. Dynamic lower/upper cut surfaces select the latest retained semantic sample at or below the requested material layer, so their colours remain consistent with the main mesh.
+
+The semantic tag remains in bit 60 of `PackedSurfaceQuad`; face orientation remains in bits 61..63. The instance size stays at 8 bytes and the structural 15× reduction is unchanged. The semantic provider is validated before meshing: its dimensions must match the material mask and it cannot introduce pixels outside native PWSZ matter.
+
+The **Supports** checkbox controls this optional path. A file initially loaded with the option disabled uses the classic path without analysis. Enabling it on such a scene launches a complete two-pass reload. Disabling it after an analyzed build immediately restores the classic colour in the shader; the already computed index may remain attached to that scene, but later loads made while the option is disabled skip analysis entirely. No mode hides, adds or removes material.
+
+The viewport modal exposes the active phase through `viewer.loadingPhase`. Progress is weighted by actual decoding work: all native layers analyzed in pass 1 plus the effective retained-layer plan meshed in pass 2. Runtime diagnostics are written to `render3d.jsonl` with the `support_analysis` component and the events `started`, `progress`, `phase_detected`, `completed`, `skipped`, `cancelled`, `failed` and `materialization_failed`. The analysis completion reports the number of mandatory semantic samples. Mesher start/completion events report `base_sample_count`, `forced_semantic_sample_count` and `effective_sample_count`. The completion event reports whole-component support runs, projected support runs used by mixed components, `terminal_support_stops`, `expanding_model_contacts`, `maximum_model_expansion_ratio`, rejected growth pixels and untapered model contacts. `projected_contact_pixels` remains zero because support pixels are never projected into a confirmed model-contact region. Logs contain aggregate counts and phase boundaries, never per-component or per-run payloads.
+
+The diagnostic executable is available only with the experimental viewer core:
+
+```bash
+accloud_support_analysis_probe input.pwsz --output analysis.json
+accloud_support_analysis_probe input.pwsz --verify-materialization
+accloud_support_analysis_probe input.pwsz \
+  --dump-layer 101 --dump-ppm layer-101.ppm --downsample 8
+```
+
+`--verify-materialization` rereads every native layer and checks that the compact index recreates exactly the recorded raft/support run totals. PPM dumps are diagnostics only and are not runtime assets.
+
 ## Layer chunks and visible ranges
 
 Meshes are split into inclusive chunks, currently 8 layers each. The 8-layer default is based on the Beetle benchmark: it reduces first-chunk latency while keeping total build time comparable to 16- and 32-layer chunks. Each chunk carries exact `first`/`last` layer numbers and a world-space bounding box. Chunk boundaries may split one coplanar wall into more triangles, but they must not produce overlapping triangles, change the exposed surface area, or alter the volume bounds.
@@ -138,7 +189,7 @@ The OpenGL fragment shader clips every triangle against the exact lower and uppe
 
 The visible range is controlled by a vertical dual-handle slider fixed to the right edge of the viewport. The maximum layer is shown above it and layer `1` below it. Hovering either handle displays its current layer number in a tooltip. Wheel input over the control changes only the upper bound; the lower bound remains mouse-drag only. The previous numeric bound inputs are no longer exposed.
 
-The viewer dialog title remains generic (`3D view`). The viewport overlay displays, in order, the machine name, then `name.pwsz · N layers`, then the navigation hint. It does not show worker count, sampling mode, chunk/triangle counts, visible-range bounds or Z values. In the header, **Reset view** is placed immediately to the left of **Full screen**; **Exit full screen** restores the workspace size. The dialog footer places **Print** immediately to the left of **Close**. **Print** closes the viewer and triggers exactly the same remote-print configuration flow as the **Print** action in the cloud-file listing.
+The viewer dialog title remains generic (`3D view`). The viewport overlay displays, in order, the machine name, then `name.pwsz · N layers`, then the navigation hint. It does not show worker count, sampling mode, chunk/triangle counts, visible-range bounds or Z values. A compact **Supports** checkbox is anchored to the lower-left corner of the viewport and enables the estimated support colour. In the header, **Reset view** is placed immediately to the left of **Full screen**; **Exit full screen** restores the workspace size. The dialog footer places **Print** immediately to the left of **Close**. **Print** closes the viewer and triggers exactly the same remote-print configuration flow as the **Print** action in the cloud-file listing.
 During the whole initial reconstruction, a modal limited to the viewport covers only the viewer area and blocks its interactions. A determinate progress bar is centred in that modal and follows `viewer.progress` from 0 to 100%. The modal remains visible while `viewer.loading` is true, even when partial chunks are already available, then disappears when construction finishes or fails. The dialog header and footer remain outside this modal.
 
 When either bound cuts through the document, a dedicated background worker decodes only the boundary mask and builds one compact section surface at the corresponding Z plane. The lower section uses a negative-Z normal and the upper section a positive-Z normal. The section is derived from the exact material mask corresponding to the fixed `layerStride=2` preview: a solid part produces a filled cap, a hollow part preserves its cavity, and separate supports or islands remain separate. Existing horizontal faces on the clip plane are suppressed during the base-mesh pass to avoid overlap with the dynamic cap.
@@ -172,7 +223,7 @@ Implemented safeguards:
 
 - bit-packed masks;
 - sequential neighbouring-layer meshing;
-- single rendering mode with `layerStride=2`, decoding one source layer out of two;
+- single rendering mode with base `layerStride=2`; when support analysis is enabled, only mandatory terminal/contact transition layers supplement that base plan;
 - exact first/last selected layers and original Z extent preserved when sampling;
 - streamed chunk callbacks;
 - bounded upload queue: 8 chunks / 256 MiB pending by default;
@@ -180,7 +231,7 @@ Implemented safeguards:
 - GUI-thread isolation;
 - cancellation when the viewer is reloaded or destroyed.
 
-The one-layer-out-of-two rendering is an intentional display approximation: the viewer is meant to identify and inspect a part quickly, including third-party files. A support or detail located only on a skipped source layer may be absent. No full-detail mode is exposed, and the PWSZ source and print data are never changed.
+The one-layer-out-of-two rendering is an intentional display approximation: the viewer is meant to identify and inspect a part quickly, including third-party files. With support analysis disabled, a support or detail located only on a skipped source layer may be absent. With support analysis enabled, only the last free head and first model-contact layers are added to the plan; unrelated details remain subject to the same approximation. No full-detail mode is exposed, and the PWSZ source and print data are never changed.
 
 ### Dedicated Render3D diagnostics
 
@@ -192,7 +243,7 @@ Known limits:
 - no GPU eviction, LOD or mesh simplification yet;
 - the 2 GiB budget rejects a pathological compact model cleanly instead of allowing the driver to abort the process;
 - exact pixel-derived models can still contain many surfaces on dense support structures;
-- no semantic colour separation between model, supports and raft;
+- support colouring is heuristic because the PWSZ exposure mask contains no exact slicer semantic labels; fused or ambiguous material deliberately keeps the model colour;
 - the desktop backend is OpenGL-only in this experimental phase.
 
 ## Validation
@@ -205,13 +256,23 @@ accloud_experimental_viewer_scaffold
 accloud_pw0_decode
 accloud_pwsz_reader
 accloud_layer_stack_mesher
+accloud_support_analyzer
+accloud_support_analysis_diagnostics
 accloud_render_pipeline
 accloud_viewer_controls
 accloud_cut_surface_transactions
 accloud_render3d_worker_benchmark_selftest
 ```
 
+<<<<<<< HEAD
 `accloud_render_pipeline` validates compact queue accounting, the eight-byte format, exact geometry expansion, the 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, the eight-byte section-cache record and bounded LRU eviction. `accloud_cut_surface_transactions` verifies that rapid slider requests replace intermediate work, reject stale CPU/GPU commits and preserve the displayed range until the latest complete batch is committed. `accloud_render3d_worker_benchmark_selftest` validates the synthetic worker/chunk matrix and geometry stability.
+=======
+`accloud_support_analyzer` validates plate, grid and pad raft prefixes with bounded antialias variation, support-only and mixed phases, a rooted non-merging support forest, branch splits, layer-native braces, light/normal/heavy diameter independence, small and progressively growing first-part sections after a tapered tip, translated Torus-like taper continuations that must remain support, stable plateaus after an old taper that must not reopen a contact, multi-parent support fusions that remain support, rejection of false parents through empty bounding-box holes, structural-parent-only local contact decisions, PWSZ layer-height invariance of semantics, model-rooted supports, deferred contact until a branch has no structural child, persistent model lineage after a confirmed contact, semantic partition of one raster-connected mixed model/support component, hollow-model rejection, deterministic compact component indices, cancellation and exact per-layer rematerialization.
+
+`accloud_support_analysis_diagnostics` validates the complete bundle schema, three visible PNG panels plus one aligned pick-map PNG and one lazy JSON file per layer, selection identifiers, crop geometry, surface comparisons, selected semantics, stable reason codes and human-readable decision explanations.
+
+`accloud_render_pipeline` validates compact queue accounting, the eight-byte format, semantic bit encoding, exact geometry expansion, the unchanged 15× ratio, a simulated GPU budget, a complete synthetic 250 mm part, streamed chunk consumption, cancellation, renderer chunk selection, exact Z clip planes, filled solid sections, preserved hollow cavities, separated support islands, conservative support/fusion/raft classification, semantic preservation through the eight-byte section cache and bounded LRU eviction.
+>>>>>>> 3d
 
 Desktop validation is mandatory on a workstation with native Qt dependencies:
 
@@ -226,3 +287,33 @@ Real PWSZ samples may be used as local validation inputs, but they are not distr
 ## Decision
 
 The viewer now has an end-to-end development path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. Production remains disabled. Production readiness still requires local validation on large PWSZ files and possible LOD/eviction work.
+
+## Complete support-analysis diagnostic bundle
+
+The development probe can export the complete decision trace for one local PWSZ file:
+
+```bash
+./build/experimental-viewer-core/accloud_support_analysis_probe \
+  ../pwsz/Beetle.pwsz \
+  --bundle /tmp/beetle-support-analysis \
+  --verify-materialization
+```
+
+The bundle is intended for development diagnostics and contains:
+
+```text
+manifest.json                 layer/image index and source metadata
+summary.json                  compact global summary used by the UI
+analysis.json                 complete layer, node and edge analysis
+decisions.json                every semantic decision and its comparisons
+images/layer_XXXXXX_raw.png       raw exposure mask
+images/layer_XXXXXX_semantic.png  model/support/raft result
+images/layer_XXXXXX_nodes.png     decisions and rendered node identifiers
+images/layer_XXXXXX_pick.png      hidden RGB24 component selection map
+layers/layer_XXXXXX.json          lazy per-layer decisions and image geometry
+```
+
+`decisions.json` records the current and parent surfaces, their ratio, raw and centre-aligned overlap, exact material distance, added and removed pixels after alignment, predicted branch motion, motion residual, all matched support-parent node identifiers and overlaps, preserved-parent counts and coverage, terminal-taper decrease evidence, state before and after the decision, the selected semantic, a stable `reason_code` and a human-readable `why` field. Decision tracing is opt-in and is not enabled by the normal viewer path. Each source layer exports three separate full-width images: raw mask, semantic result and decision overlay. The decision image prints the real `node_id` on model, contact, mixed and non-standard support decisions; default support continuations remain unlabeled to keep dense support grids readable. A fourth hidden pick image encodes `component_id + 1` as RGB24 for every downsampled diagnostic pixel. The per-layer JSON records the crop bounds, image size, panel paths and the same layer-local `selection_id`.
+
+With `ACCLOUD_DEBUG` and the experimental viewer enabled, `MainWindow.qml` exposes the **Support analysis** tab. The user selects a local `.pwsz` part, then `SupportAnalysisBridge` launches the probe asynchronously beside the desktop executable. The tab is divided into a synchronized 3D viewer, a vertically scrollable stack of the three diagnostic images and a lower JSON inspector. Direct buttons jump to the raw, semantic or node-ID view and the vertical scrollbar remains available. Clicking the semantic or node-ID image reads the hidden pick map, selects the exact component under the cursor, outlines its diagnostic bounds and replaces the decisions array with the matching decision object in the JSON inspector. Changing the viewer range or layer selector clears the selection and updates all three images and the per-layer JSON. Large global files are not parsed eagerly by QML: the bridge loads `summary.json` and the selected `layers/layer_XXXXXX.json` only. The tab and bridge are absent from production resources.
+

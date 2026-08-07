@@ -10,6 +10,7 @@ TestCase {
     property var mqttBridge: undefined
     property var sessionImportBridge: undefined
     property var uiSettingsBridge: undefined
+    property var supportAnalysisBridge: undefined
     property bool accloudProdUi: false
 
     function cleanup() {
@@ -41,6 +42,11 @@ TestCase {
             uiSettingsBridge.destroy()
         }
         uiSettingsBridge = undefined
+        if (supportAnalysisBridge !== undefined && supportAnalysisBridge !== null
+                && supportAnalysisBridge.destroy !== undefined) {
+            supportAnalysisBridge.destroy()
+        }
+        supportAnalysisBridge = undefined
         accloudProdUi = false
     }
 
@@ -216,8 +222,11 @@ TestCase {
 
         var tabs = findObjectByName(window, "controlRoomTabs")
         verify(tabs !== null)
-        compare(tabs.count, 4)
+        compare(tabs.count, 5)
         verify(findObjectByName(window, "mqttTabButton") !== null)
+        var supportAnalysisTab = findObjectByName(window, "supportAnalysisTabButton")
+        verify(supportAnalysisTab !== null)
+        compare(supportAnalysisTab.visible, false)
 
         var uploadButton = findObjectByName(window, "uploadDialogButton")
         verify(uploadButton !== null)
@@ -249,11 +258,15 @@ TestCase {
         verify(tabs !== null)
         verify(filesPage !== null)
         verify(dialogLoader !== null)
-        compare(tabs.count, 4)
+        compare(tabs.count, 5)
+        var supportAnalysisTab = findObjectByName(window, "supportAnalysisTabButton")
+        verify(supportAnalysisTab !== null)
+        compare(supportAnalysisTab.visible, false)
         compare(filesPage.viewerEnabled, true)
         compare(filesPage.render3dWorkerCount, 4)
         compare(filesPage.render3dPalettePreset, "technical_cyan")
         compare(normalizedColor(filesPage.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(filesPage.render3dSupportColor), "#f28c28")
         compare(normalizedColor(filesPage.render3dBackgroundColor), "#171a1f")
         compare(dialogLoader.active, false)
         verify(findObjectByName(window, "viewerTabButton") === null)
@@ -342,6 +355,7 @@ TestCase {
 
         compare(window.render3dPalettePreset, "technical_cyan")
         compare(normalizedColor(window.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(window.render3dSupportColor), "#f28c28")
         compare(normalizedColor(window.render3dBackgroundColor), "#171a1f")
         compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "technical_cyan")
 
@@ -351,6 +365,7 @@ TestCase {
         var dialog = findObjectByName(window, "render3dPaletteDialog")
         var combo = findObjectByName(window, "render3dPaletteCombo")
         var previewPart = findObjectByName(window, "render3dPalettePreviewPart")
+        var previewSupport = findObjectByName(window, "render3dPalettePreviewSupport")
         var previewBackground = findObjectByName(window, "render3dPalettePreviewBackground")
         verify(filesPage !== null)
         verify(settingsMenu !== null)
@@ -358,9 +373,11 @@ TestCase {
         verify(dialog !== null)
         verify(combo !== null)
         verify(previewPart !== null)
+        verify(previewSupport !== null)
         verify(previewBackground !== null)
         compare(filesPage.render3dPalettePreset, "technical_cyan")
         compare(normalizedColor(filesPage.render3dPartColor), "#55b7c6")
+        compare(normalizedColor(filesPage.render3dSupportColor), "#f28c28")
         compare(normalizedColor(filesPage.render3dBackgroundColor), "#171a1f")
 
         settingsMenu.open()
@@ -373,19 +390,23 @@ TestCase {
         compare(combo.count, 5)
         compare(dialog.pendingIndex, 0)
         compare(normalizedColor(previewPart.color), "#55b7c6")
+        compare(normalizedColor(previewSupport.color), "#f28c28")
         compare(normalizedColor(previewBackground.color), "#171a1f")
 
         dialog.pendingIndex = 3
         wait(0)
         compare(normalizedColor(previewPart.color), "#ff7a66")
+        compare(normalizedColor(previewSupport.color), "#67e8f9")
         compare(normalizedColor(previewBackground.color), "#111827")
 
         window.persistRender3dPalettePreset("night_coral")
         compare(window.render3dPalettePreset, "night_coral")
         compare(normalizedColor(window.render3dPartColor), "#ff7a66")
+        compare(normalizedColor(window.render3dSupportColor), "#67e8f9")
         compare(normalizedColor(window.render3dBackgroundColor), "#111827")
         compare(filesPage.render3dPalettePreset, "night_coral")
         compare(normalizedColor(filesPage.render3dPartColor), "#ff7a66")
+        compare(normalizedColor(filesPage.render3dSupportColor), "#67e8f9")
         compare(normalizedColor(filesPage.render3dBackgroundColor), "#111827")
         compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "night_coral")
 
@@ -402,11 +423,13 @@ TestCase {
         wait(0)
         compare(restoredWindow.render3dPalettePreset, "light_graphite")
         compare(normalizedColor(restoredWindow.render3dPartColor), "#334155")
+        compare(normalizedColor(restoredWindow.render3dSupportColor), "#d97706")
         compare(normalizedColor(restoredWindow.render3dBackgroundColor), "#f4f1ea")
         var restoredFilesPage = findObjectByName(restoredWindow, "cloudFilesPage")
         verify(restoredFilesPage !== null)
         compare(restoredFilesPage.render3dPalettePreset, "light_graphite")
         compare(normalizedColor(restoredFilesPage.render3dPartColor), "#334155")
+        compare(normalizedColor(restoredFilesPage.render3dSupportColor), "#d97706")
         compare(normalizedColor(restoredFilesPage.render3dBackgroundColor), "#f4f1ea")
         restoredWindow.close()
         restoredWindow.destroy()
@@ -2663,18 +2686,22 @@ TestCase {
             "width": 800,
             "height": 500,
             "running": true,
-            "progress": 0.42
+            "progress": 0.42,
+            "phaseText": "Analyzing supports…"
         })
 
         var blocker = findObjectByName(modal, "viewerBuildInputBlocker")
         var card = findObjectByName(modal, "viewerBuildProgressCard")
+        var title = findObjectByName(modal, "viewerBuildProgressTitle")
         var progressBar = findObjectByName(modal, "viewerBuildProgressBar")
         var percent = findObjectByName(modal, "viewerBuildProgressPercent")
         verify(blocker !== null)
         verify(card !== null)
+        verify(title !== null)
         verify(progressBar !== null)
         verify(percent !== null)
         compare(modal.visible, true)
+        compare(title.text, "Analyzing supports…")
         verify(Math.abs(progressBar.value - 0.42) < 0.001)
         compare(percent.text, "42%")
 
@@ -2712,13 +2739,20 @@ TestCase {
 
         var resetButton = findObjectByName(dialog, "viewerDialogResetButton")
         var fullscreenButton = findObjectByName(dialog, "viewerDialogFullscreenButton")
+        var viewerPage = findObjectByName(dialog, "cloudFileVolumeViewerPage")
+        var supportsCheckBox = findObjectByName(dialog, "viewerSupportsCheckBox")
         var printButton = findObjectByName(dialog, "viewerDialogPrintButton")
         var closeButton = findObjectByName(dialog, "viewerDialogCloseButton")
         verify(resetButton !== null)
         verify(fullscreenButton !== null)
+        verify(viewerPage !== null)
+        verify(supportsCheckBox !== null)
         verify(printButton !== null)
         verify(closeButton !== null)
         compare(printButton.enabled, true)
+        compare(supportsCheckBox.checked, true)
+        viewerPage.supportColoringEnabled = false
+        compare(supportsCheckBox.checked, false)
 
         mouseClick(printButton)
         tryCompare(dialog, "visible", false)
@@ -2766,6 +2800,133 @@ TestCase {
         dialog.destroy()
         host.close()
         host.destroy()
+    }
+
+
+    function test_support_analysis_tab_is_dev_only() {
+        var normalWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true,
+            "buildDebugEnabled": false,
+            "debugUi": false
+        })
+        wait(0)
+        var normalTab = findObjectByName(normalWindow, "supportAnalysisTabButton")
+        verify(normalTab !== null)
+        compare(normalTab.visible, false)
+        normalWindow.close()
+        normalWindow.destroy()
+
+        supportAnalysisBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                                    'property bool running: false;' +
+                                                    'property real progress: 0;' +
+                                                    'property string phase: "";' +
+                                                    'property string errorString: "";' +
+                                                    'property string sourcePath: "";' +
+                                                    'property string bundlePath: "";' +
+                                                    'property int layerCount: 0;' +
+                                                    'property int currentLayer: 1;' +
+                                                    'property url currentImageUrl: "";' +
+                                                    'property url currentRawImageUrl: "";' +
+                                                    'property url currentSemanticImageUrl: "";' +
+                                                    'property url currentNodesImageUrl: "";' +
+                                                    'property int selectedDecisionIndex: -1;' +
+                                                    'property int selectedNodeId: -1;' +
+                                                    'property string selectedSemantic: "";' +
+                                                    'property var selectedRegion: ({ valid: false, x: 0, y: 0, width: 0, height: 0 });' +
+                                                    'property string currentLayerJson: "{}";' +
+                                                    'property string currentDecisionJson: "[]";' +
+                                                    'property string analysisJson: "{}";' +
+                                                    'function analyze(path) {} ' +
+                                                    'function cancel() {} ' +
+                                                    'function setCurrentLayer(layer) { currentLayer = layer } ' +
+                                                    'function selectCurrentComponent(x, y) { selectedDecisionIndex = 0; selectedNodeId = 42; selectedSemantic = "support"; selectedRegion = ({ valid: true, x: x, y: y, width: 0.1, height: 0.1 }); return true } ' +
+                                                    'function clearDecisionSelection() { selectedDecisionIndex = -1; selectedNodeId = -1; selectedSemantic = ""; selectedRegion = ({ valid: false, x: 0, y: 0, width: 0, height: 0 }) } ' +
+                                                    '}', this, "supportAnalysisBridgeMock")
+        var debugWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
+            "experimentalViewerEnabled": true,
+            "buildDebugEnabled": true,
+            "debugUi": true
+        })
+        wait(0)
+        var debugTab = findObjectByName(debugWindow, "supportAnalysisTabButton")
+        verify(debugTab !== null)
+        compare(debugTab.visible, true)
+        debugWindow.close()
+        debugWindow.destroy()
+    }
+
+    function test_support_analysis_page_selects_piece_and_synchronizes_layer() {
+        supportAnalysisBridge = Qt.createQmlObject('import QtQuick 2.15; QtObject {' +
+                                                    'property bool running: false;' +
+                                                    'property real progress: 1;' +
+                                                    'property string phase: "ready";' +
+                                                    'property string errorString: "";' +
+                                                    'property string sourcePath: "";' +
+                                                    'property string bundlePath: "/tmp/bundle";' +
+                                                    'property int layerCount: 12;' +
+                                                    'property int currentLayer: 4;' +
+                                                    'property url currentImageUrl: "";' +
+                                                    'property url currentRawImageUrl: "";' +
+                                                    'property url currentSemanticImageUrl: "";' +
+                                                    'property url currentNodesImageUrl: "";' +
+                                                    'property int selectedDecisionIndex: -1;' +
+                                                    'property int selectedNodeId: -1;' +
+                                                    'property string selectedSemantic: "";' +
+                                                    'property var selectedRegion: ({ valid: false, x: 0, y: 0, width: 0, height: 0 });' +
+                                                    'property string currentLayerJson: "{}";' +
+                                                    'property string currentDecisionJson: "[]";' +
+                                                    'property string analysisJson: "{}";' +
+                                                    'property string analyzedPath: "";' +
+                                                    'function analyze(path) { analyzedPath = String(path) } ' +
+                                                    'function cancel() {} ' +
+                                                    'function setCurrentLayer(layer) { currentLayer = Math.max(1, Math.min(layerCount, layer)) } ' +
+                                                    'function selectCurrentComponent(x, y) { selectedDecisionIndex = 0; selectedNodeId = 42; selectedSemantic = "support"; selectedRegion = ({ valid: true, x: x, y: y, width: 0.1, height: 0.1 }); currentDecisionJson = JSON.stringify({ node_id: 42, choice: "support" }); return true } ' +
+                                                    'function clearDecisionSelection() { selectedDecisionIndex = -1; selectedNodeId = -1; selectedSemantic = ""; selectedRegion = ({ valid: false, x: 0, y: 0, width: 0, height: 0 }); currentDecisionJson = "[]" } ' +
+                                                    '}', this, "supportAnalysisPageBridgeMock")
+        supportAnalysisBridge.currentLayerJson = JSON.stringify({"layer": 4})
+        supportAnalysisBridge.analysisJson = JSON.stringify({"layer_count": 12})
+        var page = createQmlObject("../../../ui/qml/pages/SupportAnalysisPage.qml", {
+            "width": 1280,
+            "height": 820,
+            "analysisBridge": supportAnalysisBridge
+        })
+        wait(0)
+        verify(findObjectByName(page, "supportAnalysisSelectButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisRunButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisViewer") !== null)
+        var diagnosticScroll = findObjectByName(page, "supportAnalysisDiagnosticScroll")
+        var diagnosticImage = findObjectByName(page, "supportAnalysisDiagnosticImage")
+        verify(diagnosticScroll !== null)
+        verify(diagnosticImage !== null)
+        verify(diagnosticImage.width >= diagnosticScroll.availableWidth)
+        verify(findObjectByName(page, "supportAnalysisRawImage") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticImage") !== null)
+        verify(findObjectByName(page, "supportAnalysisRawJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisNodesJumpButton") !== null)
+        verify(findObjectByName(page, "supportAnalysisSemanticHitArea") !== null)
+        verify(findObjectByName(page, "supportAnalysisNodesHitArea") !== null)
+        verify(findObjectByName(page, "supportAnalysisJsonText") !== null)
+
+        page.selectDiagnosticAt({"x": 25, "y": 50}, {"width": 100, "height": 100})
+        compare(supportAnalysisBridge.selectedNodeId, 42)
+        compare(supportAnalysisBridge.selectedSemantic, "support")
+        compare(page.jsonMode, "decisions")
+
+        var field = findObjectByName(page, "supportAnalysisSourceField")
+        var runButton = findObjectByName(page, "supportAnalysisRunButton")
+        verify(field !== null)
+        verify(runButton !== null)
+        field.text = "/tmp/selected.pwsz"
+        runButton.clicked()
+        compare(supportAnalysisBridge.analyzedPath, "/tmp/selected.pwsz")
+
+        var nextButton = findObjectByName(page, "supportAnalysisNextLayerButton")
+        verify(nextButton !== null)
+        nextButton.clicked()
+        compare(supportAnalysisBridge.currentLayer, 5)
+
+        page.destroy()
     }
 
     function test_vertical_layer_range_wheel_moves_only_upper_handle() {

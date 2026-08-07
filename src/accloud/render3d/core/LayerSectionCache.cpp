@@ -98,12 +98,12 @@ bool makeLayerSectionTemplate(
       destination = {};
       return false;
     }
-    destination.rectangles.push_back(LayerSectionRect{
+    destination.rectangles.push_back(LayerSectionRect::make(
         static_cast<std::uint16_t>(x0),
         static_cast<std::uint16_t>(x1),
         static_cast<std::uint16_t>(y0),
         static_cast<std::uint16_t>(y1),
-    });
+        photons::packedSurfaceSemantic(quad)));
   }
   return true;
 }
@@ -135,14 +135,15 @@ photons::MeshChunk materializeLayerSection(
         rectangle.x0,
         rectangle.x1,
         rectangle.y0,
-        rectangle.y1));
+        rectangle.y1(),
+        rectangle.semantic()));
     chunk.bounds.include(
         static_cast<float>(rectangle.x0) * pitchXMm,
         static_cast<float>(rectangle.y0) * pitchYMm,
         z);
     chunk.bounds.include(
         static_cast<float>(rectangle.x1) * pitchXMm,
-        static_cast<float>(rectangle.y1) * pitchYMm,
+        static_cast<float>(rectangle.y1()) * pitchYMm,
         z);
   }
   return chunk;

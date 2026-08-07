@@ -21,7 +21,35 @@ struct LayerSectionRect {
   std::uint16_t x0 = 0;
   std::uint16_t x1 = 0;
   std::uint16_t y0 = 0;
-  std::uint16_t y1 = 0;
+  std::uint16_t y1AndSemantic = 0;
+
+  static constexpr std::uint16_t kYMask = 0x1fffu;
+  static constexpr std::uint16_t kSupportBit = 0x8000u;
+
+  [[nodiscard]] std::uint16_t y1() const noexcept {
+    return y1AndSemantic & kYMask;
+  }
+  [[nodiscard]] photons::PackedSurfaceSemantic semantic() const noexcept {
+    return (y1AndSemantic & kSupportBit) != 0u
+               ? photons::PackedSurfaceSemantic::Support
+               : photons::PackedSurfaceSemantic::Model;
+  }
+
+  static LayerSectionRect make(
+      std::uint16_t x0,
+      std::uint16_t x1,
+      std::uint16_t y0,
+      std::uint16_t y1,
+      photons::PackedSurfaceSemantic semantic) noexcept {
+    return LayerSectionRect{
+        x0,
+        x1,
+        y0,
+        static_cast<std::uint16_t>(
+            (y1 & kYMask)
+            | (semantic == photons::PackedSurfaceSemantic::Support ? kSupportBit : 0u)),
+    };
+  }
 
   [[nodiscard]] bool operator==(const LayerSectionRect&) const noexcept = default;
 };

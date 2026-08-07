@@ -66,6 +66,26 @@ bool test_render3d_events_have_a_dedicated_sink() {
       "build_started",
       {},
       {{"generation", "7"}, {"layer_step", "2"}});
+  accloud::logging::log(
+      accloud::logging::Level::kDebug,
+      "render3d",
+      "support_analysis",
+      "completed",
+      {},
+      {{"generation", "7"},
+       {"raft_last_layer", "10"},
+       {"support_runs", "35"},
+       {"free_support_runs", "35"},
+       {"projected_support_runs", "0"},
+       {"projected_contact_pixels", "0"},
+       {"rejected_projection_runs", "0"},
+       {"rejected_growth_pixels", "23"},
+       {"untapered_model_contacts", "3"},
+       {"contacts_without_valid_projection", "0"},
+       {"maximum_contact_growth_ratio", "0.000000"},
+       {"terminal_support_stops", "7"},
+       {"expanding_model_contacts", "7"},
+       {"maximum_model_expansion_ratio", "12.500000"}});
   accloud::logging::shutdown();
 
   const std::filesystem::path dedicatedPath = logDir / "render3d.jsonl";
@@ -80,7 +100,49 @@ bool test_render3d_events_have_a_dedicated_sink() {
       && expect(line.find("\"event\":\"build_started\"") != std::string::npos,
                 "Dedicated Render3D log must preserve generation events")
       && expect(line.find("\"layer_step\":\"2\"") != std::string::npos,
-                "Dedicated Render3D log must preserve sampling diagnostics");
+                "Dedicated Render3D log must preserve sampling diagnostics")
+      && expect(line.find("\"component\":\"support_analysis\"")
+                    != std::string::npos,
+                "Dedicated Render3D log must preserve support-analysis events")
+      && expect(line.find("\"raft_last_layer\":\"10\"")
+                    != std::string::npos,
+                "Support-analysis logs must preserve phase diagnostics")
+      && expect(line.find("\"support_runs\":\"35\"")
+                    != std::string::npos,
+                "Support-analysis logs must preserve semantic summaries")
+      && expect(line.find("\"free_support_runs\":\"35\"")
+                    != std::string::npos,
+                "Support-analysis logs must distinguish free support runs")
+      && expect(line.find("\"projected_support_runs\":\"0\"")
+                    != std::string::npos,
+                "Support-analysis logs must confirm that model contacts are not projected")
+      && expect(line.find("\"rejected_projection_runs\":\"0\"")
+                    != std::string::npos,
+                "Support-analysis logs must keep the compatibility projection counter")
+      && expect(line.find("\"projected_contact_pixels\":\"0\"")
+                    != std::string::npos,
+                "Support-analysis logs must confirm that no model pixel inherits support")
+      && expect(line.find("\"rejected_growth_pixels\":\"23\"")
+                    != std::string::npos,
+                "Support-analysis logs must expose prevented post-contact growth")
+      && expect(line.find("\"untapered_model_contacts\":\"3\"")
+                    != std::string::npos,
+                "Support-analysis logs must expose rejected untapered contacts")
+      && expect(line.find("\"contacts_without_valid_projection\":\"0\"")
+                    != std::string::npos,
+                "Support-analysis logs must keep the compatibility invalid-projection counter")
+      && expect(line.find("\"maximum_contact_growth_ratio\":\"0.000000\"")
+                    != std::string::npos,
+                "Support-analysis logs must confirm that contact projection is disabled")
+      && expect(line.find("\"terminal_support_stops\":\"7\"")
+                    != std::string::npos,
+                "Support-analysis logs must expose terminal stops before model matter")
+      && expect(line.find("\"expanding_model_contacts\":\"7\"")
+                    != std::string::npos,
+                "Support-analysis logs must count small-to-large model transitions")
+      && expect(line.find("\"maximum_model_expansion_ratio\":\"12.500000\"")
+                    != std::string::npos,
+                "Support-analysis logs must expose the largest model expansion ratio");
 
   std::filesystem::remove_all(logDir, ec);
   return ok;

@@ -40,6 +40,7 @@ ApplicationWindow {
     property int render3dWorkerCount: 4
     property string render3dPalettePreset: "technical_cyan"
     readonly property color render3dPartColor: root.render3dPaletteFor(root.render3dPalettePreset).partColor
+    readonly property color render3dSupportColor: root.render3dPaletteFor(root.render3dPalettePreset).supportColor
     readonly property color render3dBackgroundColor: root.render3dPaletteFor(root.render3dPalettePreset).backgroundColor
     readonly property string directDeleteLocalOnFailureSettingsKey: "printing.directDeleteLocalOnFailure"
     readonly property string cloudFileAdvancedDetailsSettingsKey: "ui.cloudFiles.showAdvancedDetails"
@@ -188,30 +189,35 @@ ApplicationWindow {
                 "id": "technical_cyan",
                 "label": qsTr("Technical cyan"),
                 "partColor": "#55B7C6",
+                "supportColor": "#F28C28",
                 "backgroundColor": "#171A1F"
             },
             {
                 "id": "industrial_amber",
                 "label": qsTr("Industrial amber"),
                 "partColor": "#F2B84B",
+                "supportColor": "#60A5FA",
                 "backgroundColor": "#20242B"
             },
             {
                 "id": "mineral_ivory",
                 "label": qsTr("Mineral ivory"),
                 "partColor": "#E8E2D6",
+                "supportColor": "#F59E0B",
                 "backgroundColor": "#243447"
             },
             {
                 "id": "night_coral",
                 "label": qsTr("Night coral"),
                 "partColor": "#FF7A66",
+                "supportColor": "#67E8F9",
                 "backgroundColor": "#111827"
             },
             {
                 "id": "light_graphite",
                 "label": qsTr("Light graphite"),
                 "partColor": "#334155",
+                "supportColor": "#D97706",
                 "backgroundColor": "#F4F1EA"
             }
         ]
@@ -766,7 +772,7 @@ ApplicationWindow {
         id: render3dPaletteDialog
         objectName: "render3dPaletteDialog"
         title: qsTr("3D color settings")
-        subtitle: qsTr("Choose a color pair for the printed part and the viewport background.")
+        subtitle: qsTr("Choose colors for the printed part, estimated supports and viewport background.")
         minimumWidth: 520
         maximumWidth: 620
         property var paletteOptions: []
@@ -824,10 +830,23 @@ ApplicationWindow {
                 Rectangle {
                     objectName: "render3dPalettePreviewPart"
                     anchors.centerIn: parent
-                    width: Math.min(parent.width * 0.48, 240)
+                    anchors.horizontalCenterOffset: -55
+                    width: Math.min(parent.width * 0.36, 180)
                     height: 62
                     radius: Theme.radiusControl
                     color: render3dPaletteDialog.pendingPalette.partColor
+                    border.width: 1
+                    border.color: Qt.darker(color, 1.25)
+                }
+
+                Rectangle {
+                    objectName: "render3dPalettePreviewSupport"
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: 85
+                    width: 56
+                    height: 82
+                    radius: Theme.radiusControl
+                    color: render3dPaletteDialog.pendingPalette.supportColor
                     border.width: 1
                     border.color: Qt.darker(color, 1.25)
                 }
@@ -836,15 +855,25 @@ ApplicationWindow {
                 Layout.fillWidth: true
 
                 Text {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: parent.width / 3
                     text: qsTr("Part: %1").arg(
                               render3dPaletteDialog.pendingPalette.partColor)
                     color: Theme.fgSecondary
                     font.pixelSize: Theme.fontCaptionPx
                 }
 
+
                 Text {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: parent.width / 3
+                    horizontalAlignment: Text.AlignHCenter
+                    text: qsTr("Supports: %1").arg(
+                              render3dPaletteDialog.pendingPalette.supportColor)
+                    color: Theme.fgSecondary
+                    font.pixelSize: Theme.fontCaptionPx
+                }
+
+                Text {
+                    Layout.preferredWidth: parent.width / 3
                     horizontalAlignment: Text.AlignRight
                     text: qsTr("Background: %1").arg(
                               render3dPaletteDialog.pendingPalette.backgroundColor)
@@ -1353,6 +1382,12 @@ ApplicationWindow {
                             visible: !root.prodUi
                         }
 
+                        AppTabButton {
+                            objectName: "supportAnalysisTabButton"
+                            text: qsTr("Support analysis")
+                            visible: root.debugUi && root.experimentalViewerEnabled
+                        }
+
                         onCurrentIndexChanged: {
                             if (currentIndex === 1
                                     && printerPage
@@ -1380,6 +1415,7 @@ ApplicationWindow {
                             render3dWorkerCount: root.render3dWorkerCount
                             render3dPalettePreset: root.render3dPalettePreset
                             render3dPartColor: root.render3dPartColor
+                            render3dSupportColor: root.render3dSupportColor
                             render3dBackgroundColor: root.render3dBackgroundColor
                             showAdvancedDetails: root.cloudFileAdvancedDetailsEnabled
                             onStatusBroadcast: function(message, severity, operationId) {
@@ -1479,6 +1515,35 @@ ApplicationWindow {
                                         wrapMode: Text.WordWrap
                                         Layout.fillWidth: true
                                     }
+                                }
+                            }
+                        }
+
+                        Item {
+                            objectName: "supportAnalysisPageHost"
+                            visible: root.debugUi && root.experimentalViewerEnabled
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Loader {
+                                id: supportAnalysisPageLoader
+                                anchors.fill: parent
+                                active: root.debugUi
+                                        && root.experimentalViewerEnabled
+                                        && controlTabs.currentIndex === 4
+                                source: "pages/SupportAnalysisPage.qml"
+                                onLoaded: {
+                                    if (!item)
+                                        return
+                                    item.analysisBridge = (typeof supportAnalysisBridge !== "undefined")
+                                                          ? supportAnalysisBridge
+                                                          : null
+                                    item.embeddedAnalysisInTabsContainer = true
+                                    item.workerCount = root.render3dWorkerCount
+                                    item.palettePreset = root.render3dPalettePreset
+                                    item.partColor = root.render3dPartColor
+                                    item.supportColor = root.render3dSupportColor
+                                    item.viewportColor = root.render3dBackgroundColor
                                 }
                             }
                         }

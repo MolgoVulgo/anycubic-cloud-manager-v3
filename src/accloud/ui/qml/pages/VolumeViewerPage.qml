@@ -16,9 +16,13 @@ AppPageFrame {
     property int workerCount: 4
     property string palettePreset: "technical_cyan"
     property color partColor: "#55B7C6"
+    property color supportColor: "#F28C28"
     property color viewportColor: "#171A1F"
+    property bool supportColoringEnabled: true
     readonly property int totalLayers: viewer.totalLayers
     readonly property int loadedChunkCount: viewer.loadedChunkCount
+    property alias firstLayer: viewer.firstLayer
+    property alias lastLayer: viewer.lastLayer
     embeddedInTabsContainer: root.embeddedViewerInTabsContainer
     showSectionHeader: root.showViewerHeader
     sectionTitle: root.displayFileName.length > 0
@@ -36,6 +40,14 @@ AppPageFrame {
 
     function resetView() {
         viewer.resetView()
+    }
+
+    function showThroughLayer(layer) {
+        if (viewer.totalLayers <= 0)
+            return
+        var normalized = Math.max(1, Math.min(viewer.totalLayers, Math.round(layer)))
+        viewer.firstLayer = 1
+        viewer.lastLayer = normalized
     }
 
     RowLayout {
@@ -87,6 +99,8 @@ AppPageFrame {
             sourcePath: pathField.text
             backgroundColor: root.viewportColor
             meshColor: root.partColor
+            supportColor: root.supportColor
+            supportColoringEnabled: root.supportColoringEnabled
             workerCount: root.workerCount
         }
 
@@ -197,11 +211,40 @@ AppPageFrame {
             }
         }
 
+        Rectangle {
+            objectName: "viewerSupportsControl"
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 12
+            radius: Theme.radiusControl
+            color: "#99000000"
+            border.width: 1
+            border.color: "#55777777"
+            implicitWidth: supportsCheckBox.implicitWidth + 20
+            implicitHeight: supportsCheckBox.implicitHeight + 12
+            z: 3
+
+            AppCheckBox {
+                id: supportsCheckBox
+                objectName: "viewerSupportsCheckBox"
+                anchors.centerIn: parent
+                text: qsTr("Supports")
+                checked: root.supportColoringEnabled
+                enabled: !viewer.loading
+                onToggled: root.supportColoringEnabled = checked
+
+                ToolTip.visible: hovered
+                ToolTip.delay: 350
+                ToolTip.text: qsTr("Analyze all native layers before building the 3D view. When disabled, the classic viewer path is used.")
+            }
+        }
+
         ViewerBuildModal {
             objectName: "viewerBuildModal"
             anchors.fill: parent
             running: viewer.loading
             progress: viewer.progress
+            phaseText: viewer.loadingPhase
         }
     }
 

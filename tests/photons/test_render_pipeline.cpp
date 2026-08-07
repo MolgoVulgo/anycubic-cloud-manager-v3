@@ -152,6 +152,51 @@ std::size_t totalTriangles(const std::vector<accloud::photons::MeshChunk>& chunk
   return total;
 }
 
+std::size_t semanticSurfaceCount(
+    const std::vector<accloud::photons::MeshChunk>& chunks,
+    accloud::photons::PackedSurfaceSemantic semantic) {
+  std::size_t total = 0;
+  for (const auto& chunk : chunks) {
+    for (const auto& surface : chunk.surfaces) {
+      if (accloud::photons::packedSurfaceSemantic(surface) == semantic) {
+        ++total;
+      }
+    }
+  }
+  return total;
+}
+
+double semanticSurfaceAreaMm2(
+    const std::vector<accloud::photons::MeshChunk>& chunks,
+    accloud::photons::PackedSurfaceSemantic semantic) {
+  double total = 0.0;
+  for (const auto& chunk : chunks) {
+    for (const auto& surface : chunk.surfaces) {
+      if (accloud::photons::packedSurfaceSemantic(surface) != semantic) {
+        continue;
+      }
+      const auto expanded = accloud::photons::expandSurfaceQuad(chunk, surface);
+      for (std::size_t index = 0; index < expanded.size(); index += 3) {
+        const auto& a = expanded[index];
+        const auto& b = expanded[index + 1];
+        const auto& c = expanded[index + 2];
+        const double abX = static_cast<double>(b.x) - a.x;
+        const double abY = static_cast<double>(b.y) - a.y;
+        const double abZ = static_cast<double>(b.z) - a.z;
+        const double acX = static_cast<double>(c.x) - a.x;
+        const double acY = static_cast<double>(c.y) - a.y;
+        const double acZ = static_cast<double>(c.z) - a.z;
+        const double crossX = abY * acZ - abZ * acY;
+        const double crossY = abZ * acX - abX * acZ;
+        const double crossZ = abX * acY - abY * acX;
+        total += 0.5 * std::sqrt(
+            crossX * crossX + crossY * crossY + crossZ * crossZ);
+      }
+    }
+  }
+  return total;
+}
+
 struct MeshCoverageSignature {
   double surfaceAreaMm2 = 0.0;
   accloud::photons::MeshBounds bounds;
@@ -230,7 +275,13 @@ int main() {
   ok &= require(sizeof(accloud::photons::PackedSurfaceQuad) == 8,
                 "packed GPU surfaces must remain eight-byte instances");
   const auto packedProbe = accloud::photons::packXSurface(
-      accloud::photons::PackedSurfaceFace::PositiveX, 10, 20, 30, 2, 7);
+      accloud::photons::PackedSurfaceFace::PositiveX,
+      10,
+      20,
+      30,
+      2,
+      7,
+      accloud::photons::PackedSurfaceSemantic::Support);
   accloud::photons::MeshChunk packedProbeChunk;
   packedProbeChunk.layers = {100, 107};
   packedProbeChunk.pitchXMm = 0.05F;
@@ -241,6 +292,8 @@ int main() {
   ok &= require(
       accloud::photons::packedSurfaceFace(packedProbe)
               == accloud::photons::PackedSurfaceFace::PositiveX
+          && accloud::photons::packedSurfaceSemantic(packedProbe)
+                 == accloud::photons::PackedSurfaceSemantic::Support
           && std::abs(packedProbeCorners[0].x - 0.5F) < 0.0001F
           && std::abs(packedProbeCorners[0].y - 1.2F) < 0.0001F
           && std::abs(packedProbeCorners[2].z - 7.49F) < 0.0001F
@@ -356,6 +409,326 @@ int main() {
     ok &= require(std::abs(sampledChunk.bounds.maxZ - 0.2F) < 0.0001F,
                   "sampled mesh must preserve the original Z extent");
   }
+
+  accloud::photons::BinaryMask transitionMaterial(1, 1);
+  transitionMaterial.set(0, 0, true);
+  const std::vector<accloud::photons::BinaryMask> transitionMasks = {
+      transitionMaterial, transitionMaterial, transitionMaterial};
+  const auto transitionProvider = [](
+      std::size_t layer,
+      const accloud::photons::BinaryMask& material,
+      accloud::photons::BinaryMask& supportMask,
+      std::string&) {
+    supportMask = accloud::photons::BinaryMask(material.width(), material.height());
+    if (layer == 0u) {
+      supportMask = material;
+    }
+    return true;
+  };
+
+  accloud::render3d::MeshBuildOptions skippedTransitionOptions = options;
+  skippedTransitionOptions.pitchXMm = 1.0;
+  skippedTransitionOptions.pitchYMm = 1.0;
+  skippedTransitionOptions.pitchZMm = 1.0;
+  skippedTransitionOptions.layerStride = 2;
+  skippedTransitionOptions.chunkLayerCount = 4;
+  skippedTransitionOptions.classifySupports = true;
+  skippedTransitionOptions.supportMaskProvider = transitionProvider;
+  VectorSource skippedTransitionSource(transitionMasks);
+  const auto skippedTransition = mesher.build(
+      skippedTransitionSource, {0, 2}, skippedTransitionOptions);
+
+  accloud::render3d::MeshBuildOptions forcedTransitionOptions = skippedTransitionOptions;
+  forcedTransitionOptions.forcedSampleLayers = {0u, 1u};
+  std::size_t forcedCompleted = 0;
+  std::size_t forcedTotal = 0;
+  accloud::render3d::MeshBuildCallbacks forcedCallbacks;
+  forcedCallbacks.progress = [&](std::size_t completed, std::size_t total) {
+    forcedCompleted = completed;
+    forcedTotal = total;
+  };
+  VectorSource forcedTransitionSource(transitionMasks);
+  const auto forcedTransition = mesher.build(
+      forcedTransitionSource, {0, 2}, forcedTransitionOptions, forcedCallbacks);
+
+  ok &= require(skippedTransition.ok && forcedTransition.ok,
+                "regular and semantic-transition sampling must both build");
+  ok &= require(forcedTransition.baseSampleCount == 2u
+                    && forcedTransition.forcedSemanticSampleCount == 1u
+                    && forcedTransition.effectiveSampleCount == 3u
+                    && forcedCompleted == 3u && forcedTotal == 3u,
+                "one skipped semantic transition must add exactly one effective sample");
+  const double skippedSupportArea = semanticSurfaceAreaMm2(
+      skippedTransition.chunks,
+      accloud::photons::PackedSurfaceSemantic::Support);
+  const double forcedSupportArea = semanticSurfaceAreaMm2(
+      forcedTransition.chunks,
+      accloud::photons::PackedSurfaceSemantic::Support);
+  ok &= require(forcedSupportArea < skippedSupportArea,
+                "forcing the contact layer must stop support extrusion at the transition");
+  const auto skippedCoverage = meshCoverage(skippedTransition.chunks);
+  const auto forcedCoverage = meshCoverage(forcedTransition.chunks);
+  ok &= require(std::abs(skippedCoverage.surfaceAreaMm2
+                         - forcedCoverage.surfaceAreaMm2) < 0.000001,
+                "adaptive semantic samples must not alter the printed geometry");
+
+  accloud::render3d::MeshBuildOptions classicForcedOptions = sampledOptions;
+  classicForcedOptions.forcedSampleLayers = {1u};
+  VectorSource classicForcedSource(transitionMasks);
+  const auto classicForced = mesher.build(
+      classicForcedSource, {0, 2}, classicForcedOptions);
+  ok &= require(classicForced.ok
+                    && classicForced.forcedSemanticSampleCount == 0u
+                    && classicForced.effectiveSampleCount
+                           == classicForced.baseSampleCount,
+                "forced semantic samples must be ignored by the classic pipeline");
+
+  accloud::render3d::MeshBuildOptions semanticOptions;
+  semanticOptions.pitchXMm = 1.0;
+  semanticOptions.pitchYMm = 1.0;
+  semanticOptions.pitchZMm = 0.25;
+  semanticOptions.chunkLayerCount = 8;
+  semanticOptions.workerCount = 1;
+  semanticOptions.classifySupports = true;
+  semanticOptions.supportMaximumSpanMm = 1.5;
+  semanticOptions.supportMaximumAreaMm2 = 2.0;
+  semanticOptions.supportRaftMaximumHeightMm = 1.0;
+
+  const auto makePartAndStem = [](bool fuseStem) {
+    accloud::photons::BinaryMask mask(9, 5);
+    for (std::uint32_t y = 1; y < 4; ++y) {
+      for (std::uint32_t x = 1; x < 4; ++x) {
+        mask.set(x, y, true);
+      }
+    }
+    mask.set(7, 2, true);
+    if (fuseStem) {
+      for (std::uint32_t x = 4; x < 7; ++x) {
+        mask.set(x, 2, true);
+      }
+    }
+    return mask;
+  };
+
+  VectorSource partOnlySource({
+      makePartAndStem(true),
+      makePartAndStem(true),
+      makePartAndStem(true),
+  });
+  const auto partOnlyResult = mesher.build(
+      partOnlySource, {0, 2}, semanticOptions);
+  ok &= require(
+      partOnlyResult.ok
+          && semanticSurfaceCount(
+                 partOnlyResult.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 == 0,
+      "a single connected part must remain model-colored");
+
+  accloud::photons::BinaryMask tinyPart(3, 3);
+  tinyPart.set(1, 1, true);
+  VectorSource tinyPartSource({tinyPart, tinyPart, tinyPart});
+  const auto tinyPartResult = mesher.build(
+      tinyPartSource, {0, 2}, semanticOptions);
+  ok &= require(
+      tinyPartResult.ok
+          && semanticSurfaceCount(
+                 tinyPartResult.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 == 0,
+      "a sole narrow component is ambiguous and must remain model-colored");
+
+  VectorSource stemSource({
+      makePartAndStem(false),
+      makePartAndStem(false),
+      makePartAndStem(false),
+  });
+  const auto stemResult = mesher.build(stemSource, {0, 2}, semanticOptions);
+  ok &= require(
+      stemResult.ok
+          && semanticSurfaceCount(
+                 stemResult.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 > 0
+          && semanticSurfaceCount(
+                 stemResult.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Model)
+                 > 0,
+      "a persistent narrow island beside a larger part must be tagged as estimated support");
+
+  VectorSource fusedStemSource({
+      makePartAndStem(false),
+      makePartAndStem(false),
+      makePartAndStem(true),
+  });
+  const auto fusedStemResult = mesher.build(
+      fusedStemSource, {0, 2}, semanticOptions);
+  bool fusedTopIsModel = fusedStemResult.ok;
+  for (const auto& chunk : fusedStemResult.chunks) {
+    for (const auto& surface : chunk.surfaces) {
+      if (accloud::photons::packedSurfaceFace(surface)
+              == accloud::photons::PackedSurfaceFace::PositiveZ
+          && accloud::photons::packedSurfaceField(surface, 54u, 6u) == 3u) {
+        fusedTopIsModel &= accloud::photons::packedSurfaceSemantic(surface)
+                           == accloud::photons::PackedSurfaceSemantic::Model;
+      }
+    }
+  }
+  ok &= require(
+      fusedTopIsModel,
+      "material made ambiguous by a support-to-model fusion must keep the model semantic");
+
+  accloud::photons::BinaryMask raft(5, 5);
+  for (std::uint32_t y = 0; y < 5; ++y) {
+    for (std::uint32_t x = 0; x < 5; ++x) {
+      raft.set(x, y, true);
+    }
+  }
+  accloud::photons::BinaryMask raftStem(5, 5);
+  raftStem.set(2, 2, true);
+  raftStem.set(2, 3, true);
+  VectorSource raftSource({raft, raftStem, raftStem});
+  const auto raftResult = mesher.build(raftSource, {0, 2}, semanticOptions);
+  ok &= require(
+      raftResult.ok
+          && semanticSurfaceCount(
+                 raftResult.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 > 0,
+      "an early broad footprint that contracts into narrow stems must expose an estimated raft/support semantic");
+
+  std::vector<accloud::photons::BinaryMask> indexedMasks;
+  for (std::size_t layer = 0; layer < 8; ++layer) {
+    accloud::photons::BinaryMask mask(4, 4);
+    for (std::uint32_t y = 1; y < 3; ++y) {
+      for (std::uint32_t x = 1; x < 3; ++x) {
+        mask.set(x, y, true);
+      }
+    }
+    indexedMasks.push_back(std::move(mask));
+  }
+  std::atomic<std::size_t> providerCalls{0};
+  const auto indexedProvider = [&providerCalls](
+      std::size_t layer,
+      const accloud::photons::BinaryMask& material,
+      accloud::photons::BinaryMask& supportMask,
+      std::string&) {
+    providerCalls.fetch_add(1, std::memory_order_relaxed);
+    supportMask = accloud::photons::BinaryMask(material.width(), material.height());
+    if (layer < 4) {
+      supportMask = material;
+    }
+    return true;
+  };
+
+  accloud::render3d::MeshBuildOptions indexedOptions = options;
+  indexedOptions.classifySupports = true;
+  indexedOptions.supportMaskProvider = indexedProvider;
+  indexedOptions.chunkLayerCount = 2;
+  indexedOptions.workerCount = 1;
+  VectorSource indexedSerialSource(indexedMasks);
+  const auto indexedSerial = mesher.build(
+      indexedSerialSource, {0, 7}, indexedOptions);
+
+  accloud::render3d::MeshBuildOptions indexedSameChunkParallelOptions = indexedOptions;
+  indexedSameChunkParallelOptions.workerCount = 4;
+  VectorSource indexedSameChunkParallelSource(indexedMasks);
+  const auto indexedSameChunkParallel = mesher.build(
+      indexedSameChunkParallelSource, {0, 7}, indexedSameChunkParallelOptions);
+
+  accloud::render3d::MeshBuildOptions indexedParallelOptions = indexedOptions;
+  indexedParallelOptions.chunkLayerCount = 4;
+  indexedParallelOptions.workerCount = 4;
+  VectorSource indexedParallelSource(indexedMasks);
+  const auto indexedParallel = mesher.build(
+      indexedParallelSource, {0, 7}, indexedParallelOptions);
+  ok &= require(
+      indexedSerial.ok && indexedSameChunkParallel.ok && indexedParallel.ok,
+      "global support indexes must feed serial and parallel mesh builds");
+  ok &= require(
+      semanticSurfaceCount(
+          indexedSerial.chunks,
+          accloud::photons::PackedSurfaceSemantic::Support)
+              > 0
+          && semanticSurfaceCount(
+                 indexedSerial.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Model)
+                 > 0,
+      "an external support index must color both indexed support and model layers");
+  ok &= require(
+      semanticSurfaceCount(
+          indexedSerial.chunks,
+          accloud::photons::PackedSurfaceSemantic::Support)
+              == semanticSurfaceCount(
+                  indexedSameChunkParallel.chunks,
+                  accloud::photons::PackedSurfaceSemantic::Support)
+          && semanticSurfaceCount(
+                 indexedSerial.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Model)
+                 == semanticSurfaceCount(
+                     indexedSameChunkParallel.chunks,
+                     accloud::photons::PackedSurfaceSemantic::Model),
+      "external support semantics must be deterministic across worker counts for an identical chunk layout");
+  const double indexedSerialSupportArea = semanticSurfaceAreaMm2(
+      indexedSerial.chunks, accloud::photons::PackedSurfaceSemantic::Support);
+  const double indexedParallelSupportArea = semanticSurfaceAreaMm2(
+      indexedParallel.chunks, accloud::photons::PackedSurfaceSemantic::Support);
+  const double indexedSerialModelArea = semanticSurfaceAreaMm2(
+      indexedSerial.chunks, accloud::photons::PackedSurfaceSemantic::Model);
+  const double indexedParallelModelArea = semanticSurfaceAreaMm2(
+      indexedParallel.chunks, accloud::photons::PackedSurfaceSemantic::Model);
+  ok &= require(
+      std::abs(indexedSerialSupportArea - indexedParallelSupportArea) <= 0.0001
+          && std::abs(indexedSerialModelArea - indexedParallelModelArea) <= 0.0001,
+      "external support semantic area must be independent from chunk size");
+  const auto indexedSerialCoverage = meshCoverage(indexedSerial.chunks);
+  const auto indexedParallelCoverage = meshCoverage(indexedParallel.chunks);
+  ok &= require(
+      sameBounds(indexedSerialCoverage.bounds, indexedParallelCoverage.bounds)
+          && std::abs(indexedSerialCoverage.surfaceAreaMm2
+                      - indexedParallelCoverage.surfaceAreaMm2)
+                 <= 0.0001,
+      "external support semantics must not change mesh geometry across chunk layouts");
+
+  const std::size_t callsBeforeClassic = providerCalls.load(std::memory_order_relaxed);
+  accloud::render3d::MeshBuildOptions classicIndexedOptions = indexedOptions;
+  classicIndexedOptions.classifySupports = false;
+  VectorSource classicIndexedSource(indexedMasks);
+  const auto classicIndexed = mesher.build(
+      classicIndexedSource, {0, 7}, classicIndexedOptions);
+  ok &= require(
+      classicIndexed.ok
+          && providerCalls.load(std::memory_order_relaxed) == callsBeforeClassic
+          && semanticSurfaceCount(
+                 classicIndexed.chunks,
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 == 0,
+      "the classic path must not call or expose the optional support index");
+  const auto classicIndexedCoverage = meshCoverage(classicIndexed.chunks);
+  ok &= require(
+      sameBounds(classicIndexedCoverage.bounds, indexedSerialCoverage.bounds)
+          && std::abs(classicIndexedCoverage.surfaceAreaMm2
+                      - indexedSerialCoverage.surfaceAreaMm2)
+                 <= 0.0001,
+      "support indexing must never alter the classic mesh geometry");
+
+  accloud::render3d::MeshBuildOptions invalidIndexedOptions = indexedOptions;
+  invalidIndexedOptions.supportMaskProvider = [](
+      std::size_t,
+      const accloud::photons::BinaryMask& material,
+      accloud::photons::BinaryMask& supportMask,
+      std::string&) {
+    supportMask = accloud::photons::BinaryMask(material.width(), material.height());
+    supportMask.set(0, 0, true);
+    return true;
+  };
+  VectorSource invalidIndexedSource(indexedMasks);
+  const auto invalidIndexed = mesher.build(
+      invalidIndexedSource, {0, 7}, invalidIndexedOptions);
+  ok &= require(
+      !invalidIndexed.ok
+          && invalidIndexed.error.find("outside material") != std::string::npos,
+      "external semantic masks must be rejected when they add non-material pixels");
 
   accloud::photons::BinaryMask solidSectionMask(6, 6);
   for (std::uint32_t y = 1; y < 5; ++y) {
@@ -481,6 +854,70 @@ int main() {
     ok &= require(std::abs(coverage.surfaceAreaMm2 - 0.04) < 0.0001,
                   "section surfaces must not fill empty space between islands");
   }
+
+  accloud::photons::MeshChunk supportSectionChunk;
+  supportSectionChunk.layers = {4, 4};
+  supportSectionChunk.rasterWidth = 3;
+  supportSectionChunk.rasterHeight = 3;
+  supportSectionChunk.pitchXMm = 0.1F;
+  supportSectionChunk.pitchYMm = 0.2F;
+  supportSectionChunk.pitchZMm = 0.05F;
+  supportSectionChunk.surfaces.push_back(accloud::photons::packZSurface(
+      accloud::photons::PackedSurfaceFace::PositiveZ,
+      0,
+      1,
+      2,
+      1,
+      2,
+      accloud::photons::PackedSurfaceSemantic::Support));
+  accloud::render3d::LayerSectionTemplate supportTemplate;
+  std::string supportCacheError;
+  const bool supportTemplateOk = accloud::render3d::makeLayerSectionTemplate(
+      supportSectionChunk,
+      supportTemplate,
+      supportCacheError);
+  const auto supportRematerialized = supportTemplateOk
+                                         ? accloud::render3d::materializeLayerSection(
+                                               supportTemplate,
+                                               6,
+                                               accloud::render3d::CutSurfaceBoundary::Lower,
+                                               supportSectionChunk.pitchXMm,
+                                               supportSectionChunk.pitchYMm,
+                                               supportSectionChunk.pitchZMm)
+                                         : accloud::photons::MeshChunk{};
+  ok &= require(
+      supportTemplateOk
+          && !supportRematerialized.surfaces.empty()
+          && accloud::photons::packedSurfaceSemantic(
+                 supportRematerialized.surfaces.front())
+                 == accloud::photons::PackedSurfaceSemantic::Support,
+      "the eight-byte section cache must preserve support semantics independently "
+      "from classification");
+
+  accloud::render3d::MeshBuildOptions indexedSectionOptions = sectionOptions;
+  indexedSectionOptions.classifySupports = true;
+  indexedSectionOptions.supportMaskProvider = [](
+      std::size_t,
+      const accloud::photons::BinaryMask& material,
+      accloud::photons::BinaryMask& supportMask,
+      std::string&) {
+    supportMask = material;
+    return true;
+  };
+  const auto indexedSection = mesher.buildCutSurface(
+      solidSectionSource,
+      0,
+      7,
+      accloud::render3d::CutSurfaceBoundary::Upper,
+      indexedSectionOptions);
+  ok &= require(
+      indexedSection.ok
+          && indexedSection.decodedLayerCount == 1
+          && semanticSurfaceCount(
+                 std::vector<accloud::photons::MeshChunk>{indexedSection.chunk},
+                 accloud::photons::PackedSurfaceSemantic::Support)
+                 > 0,
+      "cut surfaces must use the global support index without decoding heuristic neighbours");
 
   const auto invalidSection = mesher.buildCutSurface(
       islandSectionSource,

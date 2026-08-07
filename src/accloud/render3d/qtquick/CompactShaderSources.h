@@ -10,6 +10,7 @@ uniform vec3 u_pitch;
 uniform float u_baseLayer;
 out vec3 v_normal;
 out float v_worldZ;
+flat out uint v_semantic;
 
 uint readBits(uint offset, uint count) {
   uint mask = (1u << count) - 1u;
@@ -94,6 +95,7 @@ void main() {
   vec3 position = corner == 0 ? p0 : (corner == 1 ? p1 : (corner == 2 ? p2 : p3));
   v_normal = normal;
   v_worldZ = position.z;
+  v_semantic = readBits(60u, 1u);
   gl_Position = u_mvp * vec4(position, 1.0);
 }
 )glsl";
@@ -102,7 +104,10 @@ inline constexpr char kCompactFragmentShader[] = R"glsl(
 #version 330 core
 in vec3 v_normal;
 in float v_worldZ;
+flat in uint v_semantic;
 uniform vec4 u_meshColor;
+uniform vec4 u_supportColor;
+uniform bool u_supportColoringEnabled;
 uniform vec3 u_lightDirection;
 uniform vec2 u_clipZ;
 uniform float u_clipEpsilon;
@@ -121,7 +126,10 @@ void main() {
   }
   float diffuse = abs(dot(normalize(v_normal), -u_lightDirection));
   float light = 0.28 + 0.72 * diffuse;
-  fragColor = vec4(u_meshColor.rgb * light, u_meshColor.a);
+  vec4 materialColor = u_supportColoringEnabled && v_semantic == 1u
+                           ? u_supportColor
+                           : u_meshColor;
+  fragColor = vec4(materialColor.rgb * light, materialColor.a);
 }
 )glsl";
 

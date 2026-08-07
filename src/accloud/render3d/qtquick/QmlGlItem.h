@@ -25,12 +25,14 @@ class PwszArchiveReader;
 namespace accloud::render3d {
 
 class GlFramebufferRenderer;
+struct SupportAnalysisResult;
 
 class QmlGlItem : public QQuickFramebufferObject {
   Q_OBJECT
   Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
   Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
   Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
+  Q_PROPERTY(QString loadingPhase READ loadingPhase NOTIFY loadingPhaseChanged)
   Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
   Q_PROPERTY(QString machineName READ machineName NOTIFY documentChanged)
   Q_PROPERTY(int totalLayers READ totalLayers NOTIFY documentChanged)
@@ -42,6 +44,8 @@ class QmlGlItem : public QQuickFramebufferObject {
   Q_PROPERTY(qulonglong triangleCount READ triangleCount NOTIFY meshStatsChanged)
   Q_PROPERTY(QColor backgroundColor READ backgroundColor WRITE setBackgroundColor NOTIFY backgroundColorChanged)
   Q_PROPERTY(QColor meshColor READ meshColor WRITE setMeshColor NOTIFY meshColorChanged)
+  Q_PROPERTY(QColor supportColor READ supportColor WRITE setSupportColor NOTIFY supportColorChanged)
+  Q_PROPERTY(bool supportColoringEnabled READ supportColoringEnabled WRITE setSupportColoringEnabled NOTIFY supportColoringEnabledChanged)
 
 public:
   explicit QmlGlItem(QQuickItem* parent = nullptr);
@@ -54,6 +58,7 @@ public:
 
   [[nodiscard]] bool loading() const noexcept { return loading_; }
   [[nodiscard]] qreal progress() const noexcept { return progress_; }
+  [[nodiscard]] QString loadingPhase() const { return loadingPhase_; }
   [[nodiscard]] QString errorString() const { return errorString_; }
   [[nodiscard]] QString machineName() const { return machineName_; }
   [[nodiscard]] int totalLayers() const noexcept { return totalLayers_; }
@@ -65,12 +70,18 @@ public:
   [[nodiscard]] qulonglong triangleCount() const noexcept { return triangleCount_; }
   [[nodiscard]] QColor backgroundColor() const { return backgroundColor_; }
   [[nodiscard]] QColor meshColor() const { return meshColor_; }
+  [[nodiscard]] QColor supportColor() const { return supportColor_; }
+  [[nodiscard]] bool supportColoringEnabled() const noexcept {
+    return supportColoringEnabled_;
+  }
 
   void setFirstLayer(int layer);
   void setLastLayer(int layer);
   void setWorkerCount(int count);
   void setBackgroundColor(const QColor& color);
   void setMeshColor(const QColor& color);
+  void setSupportColor(const QColor& color);
+  void setSupportColoringEnabled(bool enabled);
 
   Q_INVOKABLE void load();
   Q_INVOKABLE void orbitPixels(qreal deltaX, qreal deltaY);
@@ -82,6 +93,7 @@ signals:
   void sourcePathChanged();
   void loadingChanged();
   void progressChanged();
+  void loadingPhaseChanged();
   void errorStringChanged();
   void documentChanged();
   void visibleRangeChanged();
@@ -89,6 +101,8 @@ signals:
   void meshStatsChanged();
   void backgroundColorChanged();
   void meshColorChanged();
+  void supportColorChanged();
+  void supportColoringEnabledChanged();
 
 private:
   friend class GlFramebufferRenderer;
@@ -112,6 +126,7 @@ private:
     int lastLayer = 0;
     int totalLayers = 0;
     std::shared_ptr<photons::pwsz::PwszArchiveReader> reader;
+    std::shared_ptr<const SupportAnalysisResult> supportAnalysis;
   };
 
   void stopWorker();
@@ -126,18 +141,24 @@ private:
       QString machineName,
       std::shared_ptr<photons::pwsz::PwszArchiveReader> reader);
   void applyProgress(std::uint64_t generation, qreal progress);
+  void applyLoadingPhase(std::uint64_t generation, QString phase);
   void applyChunkStats(
       std::uint64_t generation,
       const photons::MeshBounds& bounds,
       std::size_t triangles);
   void applyGpuFailure(std::uint64_t generation, QString errorString);
-  void finishLoad(std::uint64_t generation, QString errorString, bool cancelled);
+  void finishLoad(
+      std::uint64_t generation,
+      QString errorString,
+      bool cancelled,
+      std::shared_ptr<const SupportAnalysisResult> supportAnalysis = {});
   void includeBounds(const photons::MeshBounds& bounds) noexcept;
   void scheduleRender();
 
   QString sourcePath_;
   bool loading_ = false;
   qreal progress_ = 0.0;
+  QString loadingPhase_;
   QString errorString_;
   QString machineName_;
   int totalLayers_ = 0;
@@ -149,12 +170,16 @@ private:
   qulonglong triangleCount_ = 0;
   QColor backgroundColor_{QStringLiteral("#171a1f")};
   QColor meshColor_{QStringLiteral("#55b7c6")};
+  QColor supportColor_{QStringLiteral("#f28c28")};
+  bool supportColoringEnabled_ = true;
   photons::MeshBounds bounds_;
   OrbitCamera camera_;
   bool cameraTouched_ = false;
   std::uint64_t sceneGeneration_ = 0;
   std::shared_ptr<UploadQueue> uploadQueue_;
   std::shared_ptr<photons::pwsz::PwszArchiveReader> archiveReader_;
+  std::shared_ptr<const SupportAnalysisResult> supportAnalysis_;
+  bool sceneHasSupportSemantics_ = false;
   std::atomic<std::uint64_t> cutGeneration_{0};
   std::mutex cutRequestMutex_;
   std::mutex cutResultMutex_;

@@ -5,6 +5,7 @@
 #include <bit>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -30,9 +31,10 @@ struct WallSpan {
   std::uint32_t first = 0;
   std::uint32_t last = 0;
   int orientation = 0;
+  photons::PackedSurfaceSemantic semantic = photons::PackedSurfaceSemantic::Model;
 
   [[nodiscard]] auto key() const noexcept {
-    return std::tuple{axis, fixed, first, last, orientation};
+    return std::tuple{axis, fixed, first, last, orientation, semantic};
   }
   [[nodiscard]] bool operator<(const WallSpan& other) const noexcept {
     return key() < other.key();
@@ -58,11 +60,12 @@ void addXSurface(
     std::uint32_t y0,
     std::uint32_t y1,
     std::size_t globalZ0,
-    std::size_t globalZ1) {
+    std::size_t globalZ1,
+    photons::PackedSurfaceSemantic semantic) {
   const auto relativeZ0 = static_cast<std::uint32_t>(globalZ0 - chunk.layers.first);
   const auto relativeZ1 = static_cast<std::uint32_t>(globalZ1 - chunk.layers.first);
   chunk.surfaces.push_back(photons::packXSurface(
-      face, fixedX, y0, y1, relativeZ0, relativeZ1));
+      face, fixedX, y0, y1, relativeZ0, relativeZ1, semantic));
   includeQuadBounds(
       chunk,
       fixedX * chunk.pitchXMm,
@@ -80,11 +83,12 @@ void addYSurface(
     std::uint32_t x0,
     std::uint32_t x1,
     std::size_t globalZ0,
-    std::size_t globalZ1) {
+    std::size_t globalZ1,
+    photons::PackedSurfaceSemantic semantic) {
   const auto relativeZ0 = static_cast<std::uint32_t>(globalZ0 - chunk.layers.first);
   const auto relativeZ1 = static_cast<std::uint32_t>(globalZ1 - chunk.layers.first);
   chunk.surfaces.push_back(photons::packYSurface(
-      face, fixedY, x0, x1, relativeZ0, relativeZ1));
+      face, fixedY, x0, x1, relativeZ0, relativeZ1, semantic));
   includeQuadBounds(
       chunk,
       x0 * chunk.pitchXMm,
@@ -102,10 +106,11 @@ void addZSurface(
     std::uint32_t x0,
     std::uint32_t x1,
     std::uint32_t y0,
-    std::uint32_t y1) {
+    std::uint32_t y1,
+    photons::PackedSurfaceSemantic semantic) {
   const auto relativeZ = static_cast<std::uint32_t>(globalZ - chunk.layers.first);
   chunk.surfaces.push_back(photons::packZSurface(
-      face, relativeZ, x0, x1, y0, y1));
+      face, relativeZ, x0, x1, y0, y1, semantic));
   includeQuadBounds(
       chunk,
       x0 * chunk.pitchXMm,
@@ -158,6 +163,8 @@ std::vector<PixelRun> collectRuns(
 std::vector<PixelRun> rowDifferenceRuns(
     const BinaryMask& material,
     const BinaryMask* neighbour,
+    const BinaryMask* supportMask,
+    photons::PackedSurfaceSemantic semantic,
     std::uint32_t y) {
   return collectRuns(
       material.width(),
@@ -167,7 +174,14 @@ std::vector<PixelRun> rowDifferenceRuns(
         const std::uint64_t neighbourWord = neighbour == nullptr
                                                 ? 0u
                                                 : neighbour->rowWord(y, wordIndex);
-        return materialWord & ~neighbourWord;
+        const std::uint64_t exposed = materialWord & ~neighbourWord;
+        if (supportMask == nullptr) {
+          return semantic == photons::PackedSurfaceSemantic::Model ? exposed : 0u;
+        }
+        const std::uint64_t supportWord = supportMask->rowWord(y, wordIndex);
+        return semantic == photons::PackedSurfaceSemantic::Support
+                   ? exposed & supportWord
+                   : exposed & ~supportWord;
       });
 }
 
@@ -175,66 +189,319 @@ void emitHorizontalSurface(
     MeshChunk& chunk,
     const BinaryMask& material,
     const BinaryMask* neighbour,
+    const BinaryMask* supportMask,
     std::size_t globalZ,
     bool top) {
-  using Run = PixelRun;
-  std::map<Run, std::uint32_t> active;
+  for (const auto semantic : {photons::PackedSurfaceSemantic::Model,
+                              photons::PackedSurfaceSemantic::Support}) {
+    if (semantic == photons::PackedSurfaceSemantic::Support && supportMask == nullptr) {
+      continue;
+    }
+    using Run = PixelRun;
+    std::map<Run, std::uint32_t> active;
 
-  const auto emitRectangle = [&](const Run& run,
-                                 std::uint32_t firstY,
-                                 std::uint32_t endY) {
-    const std::uint32_t y0 = material.height() - endY;
-    const std::uint32_t y1 = material.height() - firstY;
-    addZSurface(
-        chunk,
-        top ? photons::PackedSurfaceFace::PositiveZ
-            : photons::PackedSurfaceFace::NegativeZ,
-        globalZ,
-        run.first,
-        run.second,
-        y0,
-        y1);
-  };
+    const auto emitRectangle = [&](const Run& run,
+                                   std::uint32_t firstY,
+                                   std::uint32_t endY) {
+      const std::uint32_t y0 = material.height() - endY;
+      const std::uint32_t y1 = material.height() - firstY;
+      addZSurface(
+          chunk,
+          top ? photons::PackedSurfaceFace::PositiveZ
+              : photons::PackedSurfaceFace::NegativeZ,
+          globalZ,
+          run.first,
+          run.second,
+          y0,
+          y1,
+          semantic);
+    };
 
-  for (std::uint32_t y = 0; y < material.height(); ++y) {
-    const auto runs = rowDifferenceRuns(material, neighbour, y);
-    std::set<Run> current(runs.begin(), runs.end());
+    for (std::uint32_t y = 0; y < material.height(); ++y) {
+      const auto runs = rowDifferenceRuns(material, neighbour, supportMask, semantic, y);
+      std::set<Run> current(runs.begin(), runs.end());
 
-    for (auto iterator = active.begin(); iterator != active.end();) {
-      if (!current.contains(iterator->first)) {
-        emitRectangle(iterator->first, iterator->second, y);
-        iterator = active.erase(iterator);
-      } else {
-        ++iterator;
+      for (auto iterator = active.begin(); iterator != active.end();) {
+        if (!current.contains(iterator->first)) {
+          emitRectangle(iterator->first, iterator->second, y);
+          iterator = active.erase(iterator);
+        } else {
+          ++iterator;
+        }
+      }
+      for (const auto& run : runs) {
+        active.try_emplace(run, y);
       }
     }
-    for (const auto& run : runs) {
-      active.try_emplace(run, y);
-    }
-  }
 
-  for (const auto& [run, firstY] : active) {
-    emitRectangle(run, firstY, material.height());
+    for (const auto& [run, firstY] : active) {
+      emitRectangle(run, firstY, material.height());
+    }
   }
 }
 
-std::set<WallSpan> collectXWalls(const BinaryMask& material) {
+struct ComponentRun {
+  std::uint32_t y = 0;
+  std::uint32_t first = 0;
+  std::uint32_t last = 0;
+  std::size_t label = 0;
+};
+
+class DisjointSet {
+public:
+  std::size_t add() {
+    const std::size_t index = parent_.size();
+    parent_.push_back(index);
+    rank_.push_back(0);
+    return index;
+  }
+
+  std::size_t find(std::size_t value) {
+    while (parent_[value] != value) {
+      parent_[value] = parent_[parent_[value]];
+      value = parent_[value];
+    }
+    return value;
+  }
+
+  void unite(std::size_t left, std::size_t right) {
+    left = find(left);
+    right = find(right);
+    if (left == right) {
+      return;
+    }
+    if (rank_[left] < rank_[right]) {
+      std::swap(left, right);
+    }
+    parent_[right] = left;
+    if (rank_[left] == rank_[right]) {
+      ++rank_[left];
+    }
+  }
+
+private:
+  std::vector<std::size_t> parent_;
+  std::vector<std::uint8_t> rank_;
+};
+
+std::size_t countMaskPixelsInRun(
+    const BinaryMask* mask,
+    std::uint32_t y,
+    std::uint32_t first,
+    std::uint32_t last) {
+  if (mask == nullptr || first >= last) {
+    return 0;
+  }
+  const std::size_t firstWord = first / 64u;
+  const std::size_t lastWord = (last - 1u) / 64u;
+  std::size_t count = 0;
+  for (std::size_t wordIndex = firstWord; wordIndex <= lastWord; ++wordIndex) {
+    const std::uint32_t wordFirst = static_cast<std::uint32_t>(wordIndex * 64u);
+    const std::uint32_t localFirst = first > wordFirst ? first - wordFirst : 0u;
+    const std::uint32_t localLast = std::min<std::uint32_t>(64u, last - wordFirst);
+    const std::uint64_t lowMask = localFirst == 0u
+                                      ? std::numeric_limits<std::uint64_t>::max()
+                                      : ~((std::uint64_t{1} << localFirst) - 1u);
+    const std::uint64_t highMask = localLast == 64u
+                                       ? std::numeric_limits<std::uint64_t>::max()
+                                       : (std::uint64_t{1} << localLast) - 1u;
+    count += static_cast<std::size_t>(
+        std::popcount(mask->rowWord(y, wordIndex) & lowMask & highMask));
+  }
+  return count;
+}
+
+struct ComponentStats {
+  std::size_t area = 0;
+  std::size_t previousOverlap = 0;
+  std::size_t nextOverlap = 0;
+  std::uint32_t minX = std::numeric_limits<std::uint32_t>::max();
+  std::uint32_t maxX = 0;
+  std::uint32_t minY = std::numeric_limits<std::uint32_t>::max();
+  std::uint32_t maxY = 0;
+};
+
+BinaryMask classifySupportPixels(
+    const BinaryMask& material,
+    const BinaryMask* previous,
+    const BinaryMask* next,
+    std::size_t layer,
+    const MeshBuildOptions& options) {
+  BinaryMask support(material.width(), material.height());
+  if (!options.classifySupports || material.count() == 0) {
+    return support;
+  }
+
+  std::vector<ComponentRun> runs;
+  std::vector<std::size_t> previousRow;
+  DisjointSet sets;
+  for (std::uint32_t y = 0; y < material.height(); ++y) {
+    const auto rowRuns = collectRuns(
+        material.width(),
+        material.wordsPerRow(),
+        [&](std::size_t wordIndex) { return material.rowWord(y, wordIndex); });
+    std::vector<std::size_t> currentRow;
+    currentRow.reserve(rowRuns.size());
+    std::size_t previousCursor = 0;
+    for (const auto& rowRun : rowRuns) {
+      const std::size_t label = sets.add();
+      const std::size_t runIndex = runs.size();
+      runs.push_back(ComponentRun{y, rowRun.first, rowRun.second, label});
+      currentRow.push_back(runIndex);
+
+      while (previousCursor < previousRow.size()
+             && runs[previousRow[previousCursor]].last <= rowRun.first) {
+        ++previousCursor;
+      }
+      for (std::size_t cursor = previousCursor; cursor < previousRow.size(); ++cursor) {
+        const auto& upper = runs[previousRow[cursor]];
+        if (upper.first >= rowRun.second) {
+          break;
+        }
+        sets.unite(label, upper.label);
+      }
+    }
+    previousRow = std::move(currentRow);
+  }
+
+  if (runs.empty()) {
+    return support;
+  }
+
+  std::map<std::size_t, ComponentStats> components;
+  for (auto& run : runs) {
+    run.label = sets.find(run.label);
+    auto& stats = components[run.label];
+    const std::size_t length = run.last - run.first;
+    stats.area += length;
+    stats.previousOverlap += countMaskPixelsInRun(
+        previous, run.y, run.first, run.last);
+    stats.nextOverlap += countMaskPixelsInRun(next, run.y, run.first, run.last);
+    stats.minX = std::min(stats.minX, run.first);
+    stats.maxX = std::max(stats.maxX, run.last);
+    stats.minY = std::min(stats.minY, run.y);
+    stats.maxY = std::max(stats.maxY, run.y + 1u);
+  }
+
+  std::size_t largestArea = 0;
+  for (const auto& [label, stats] : components) {
+    (void)label;
+    largestArea = std::max(largestArea, stats.area);
+  }
+
+  std::set<std::size_t> supportComponents;
+  const double pixelAreaMm2 = options.pitchXMm * options.pitchYMm;
+  const double zMm = static_cast<double>(layer) * options.pitchZMm;
+  for (const auto& [label, stats] : components) {
+    const double widthMm = static_cast<double>(stats.maxX - stats.minX) * options.pitchXMm;
+    const double heightMm = static_cast<double>(stats.maxY - stats.minY) * options.pitchYMm;
+    const double areaMm2 = static_cast<double>(stats.area) * pixelAreaMm2;
+    const double previousRatio = stats.area == 0
+                                     ? 0.0
+                                     : static_cast<double>(stats.previousOverlap)
+                                           / static_cast<double>(stats.area);
+    const double nextRatio = stats.area == 0
+                                 ? 0.0
+                                 : static_cast<double>(stats.nextOverlap)
+                                       / static_cast<double>(stats.area);
+    const bool narrow = widthMm <= options.supportMaximumSpanMm
+                        && heightMm <= options.supportMaximumSpanMm
+                        && areaMm2 <= options.supportMaximumAreaMm2;
+    const bool stableBelow = previous == nullptr || previousRatio >= 0.35;
+    const bool stableAbove = next == nullptr || nextRatio >= 0.35;
+    const bool separatedFromMain = components.size() > 1
+                                   && stats.area * 3u <= largestArea;
+    const bool supportStem = narrow && stableBelow && stableAbove
+                             && separatedFromMain;
+
+    // A broad early component that contracts sharply into material above is a
+    // conservative raft-transition signal. Only the detected transition layer
+    // is tagged; ambiguous lower layers deliberately remain Model.
+    const bool raftTransition = zMm <= options.supportRaftMaximumHeightMm
+                                && next != nullptr
+                                && nextRatio >= 0.05
+                                && nextRatio <= 0.45
+                                && (previous == nullptr || previousRatio >= 0.70)
+                                && areaMm2 > options.supportMaximumAreaMm2;
+    if (supportStem || raftTransition) {
+      supportComponents.insert(label);
+    }
+  }
+
+  for (const auto& run : runs) {
+    if (supportComponents.contains(run.label)) {
+      support.setRun(
+          static_cast<std::size_t>(run.y) * material.width() + run.first,
+          run.last - run.first);
+    }
+  }
+  return support;
+}
+
+bool buildSupportMask(
+    const BinaryMask& material,
+    const BinaryMask* previous,
+    const BinaryMask* next,
+    std::size_t layer,
+    const MeshBuildOptions& options,
+    BinaryMask& support,
+    std::string& error) {
+  support = BinaryMask(material.width(), material.height());
+  if (!options.classifySupports) {
+    return true;
+  }
+  if (options.supportMaskProvider) {
+    if (!options.supportMaskProvider(layer, material, support, error)) {
+      return false;
+    }
+    if (support.width() != material.width()
+        || support.height() != material.height()) {
+      error = "support semantic mask dimensions differ from the material mask";
+      return false;
+    }
+    for (std::uint32_t y = 0; y < material.height(); ++y) {
+      for (std::size_t word = 0; word < material.wordsPerRow(); ++word) {
+        if ((support.rowWord(y, word) & ~material.rowWord(y, word)) != 0u) {
+          error = "support semantic mask contains pixels outside material";
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  support = classifySupportPixels(material, previous, next, layer, options);
+  return true;
+}
+
+std::set<WallSpan> collectXWalls(
+    const BinaryMask& material,
+    const BinaryMask* supportMask) {
   struct ActiveWall {
     int orientation = 0;
     std::uint32_t firstY = 0;
+    photons::PackedSurfaceSemantic semantic = photons::PackedSurfaceSemantic::Model;
   };
 
   std::set<WallSpan> walls;
-  std::map<std::uint32_t, ActiveWall> active;
+  using WallKey = std::pair<std::uint32_t, photons::PackedSurfaceSemantic>;
+  std::map<WallKey, ActiveWall> active;
   for (std::uint32_t y = 0; y < material.height(); ++y) {
-    std::map<std::uint32_t, int> rowWalls;
+    std::map<WallKey, int> rowWalls;
     const auto materialRuns = collectRuns(
         material.width(),
         material.wordsPerRow(),
         [&](std::size_t wordIndex) { return material.rowWord(y, wordIndex); });
     for (const auto& run : materialRuns) {
-      rowWalls[run.first] = -1;
-      rowWalls[run.second] = 1;
+      const auto leftSemantic = supportMask != nullptr
+                                    && supportMask->testUnchecked(run.first, y)
+                                    ? photons::PackedSurfaceSemantic::Support
+                                    : photons::PackedSurfaceSemantic::Model;
+      const auto rightSemantic = supportMask != nullptr
+                                     && supportMask->testUnchecked(run.second - 1u, y)
+                                     ? photons::PackedSurfaceSemantic::Support
+                                     : photons::PackedSurfaceSemantic::Model;
+      rowWalls[{run.first, leftSemantic}] = -1;
+      rowWalls[{run.second, rightSemantic}] = 1;
     }
 
     for (auto iterator = active.begin(); iterator != active.end();) {
@@ -242,69 +509,93 @@ std::set<WallSpan> collectXWalls(const BinaryMask& material) {
       if (found == rowWalls.end() || found->second != iterator->second.orientation) {
         walls.insert(WallSpan{
             WallAxis::X,
-            iterator->first,
+            iterator->first.first,
             iterator->second.firstY,
             y,
             iterator->second.orientation,
+            iterator->second.semantic,
         });
         iterator = active.erase(iterator);
       } else {
         ++iterator;
       }
     }
-    for (const auto& [x, orientation] : rowWalls) {
-      active.try_emplace(x, ActiveWall{orientation, y});
+    for (const auto& [key, orientation] : rowWalls) {
+      active.try_emplace(key, ActiveWall{orientation, y, key.second});
     }
   }
 
-  for (const auto& [x, wall] : active) {
+  for (const auto& [key, wall] : active) {
     walls.insert(WallSpan{
         WallAxis::X,
-        x,
+        key.first,
         wall.firstY,
         material.height(),
         wall.orientation,
+        wall.semantic,
     });
   }
   return walls;
 }
 
-std::set<WallSpan> collectYWalls(const BinaryMask& material) {
+std::set<WallSpan> collectYWalls(
+    const BinaryMask& material,
+    const BinaryMask* supportMask) {
   std::set<WallSpan> walls;
   for (std::uint32_t boundaryY = 0; boundaryY <= material.height(); ++boundaryY) {
     const bool hasAbove = boundaryY > 0;
     const bool hasBelow = boundaryY < material.height();
 
-    const auto positiveRuns = collectRuns(
-        material.width(),
-        material.wordsPerRow(),
-        [&](std::size_t wordIndex) {
-          const std::uint64_t above = hasAbove
-                                          ? material.rowWord(boundaryY - 1, wordIndex)
-                                          : 0u;
-          const std::uint64_t below = hasBelow
-                                          ? material.rowWord(boundaryY, wordIndex)
-                                          : 0u;
-          return below & ~above;
-        });
-    for (const auto& run : positiveRuns) {
-      walls.insert(WallSpan{WallAxis::Y, boundaryY, run.first, run.second, 1});
-    }
+    for (const auto semantic : {photons::PackedSurfaceSemantic::Model,
+                                photons::PackedSurfaceSemantic::Support}) {
+      if (semantic == photons::PackedSurfaceSemantic::Support && supportMask == nullptr) {
+        continue;
+      }
+      const auto positiveRuns = collectRuns(
+          material.width(),
+          material.wordsPerRow(),
+          [&](std::size_t wordIndex) {
+            const std::uint64_t above = hasAbove
+                                            ? material.rowWord(boundaryY - 1, wordIndex)
+                                            : 0u;
+            const std::uint64_t below = hasBelow
+                                            ? material.rowWord(boundaryY, wordIndex)
+                                            : 0u;
+            const std::uint64_t semanticWord = supportMask == nullptr || !hasBelow
+                                                   ? 0u
+                                                   : supportMask->rowWord(boundaryY, wordIndex);
+            const std::uint64_t exposed = below & ~above;
+            return semantic == photons::PackedSurfaceSemantic::Support
+                       ? exposed & semanticWord
+                       : exposed & ~semanticWord;
+          });
+      for (const auto& run : positiveRuns) {
+        walls.insert(WallSpan{
+            WallAxis::Y, boundaryY, run.first, run.second, 1, semantic});
+      }
 
-    const auto negativeRuns = collectRuns(
-        material.width(),
-        material.wordsPerRow(),
-        [&](std::size_t wordIndex) {
-          const std::uint64_t above = hasAbove
-                                          ? material.rowWord(boundaryY - 1, wordIndex)
-                                          : 0u;
-          const std::uint64_t below = hasBelow
-                                          ? material.rowWord(boundaryY, wordIndex)
-                                          : 0u;
-          return above & ~below;
-        });
-    for (const auto& run : negativeRuns) {
-      walls.insert(WallSpan{WallAxis::Y, boundaryY, run.first, run.second, -1});
+      const auto negativeRuns = collectRuns(
+          material.width(),
+          material.wordsPerRow(),
+          [&](std::size_t wordIndex) {
+            const std::uint64_t above = hasAbove
+                                            ? material.rowWord(boundaryY - 1, wordIndex)
+                                            : 0u;
+            const std::uint64_t below = hasBelow
+                                            ? material.rowWord(boundaryY, wordIndex)
+                                            : 0u;
+            const std::uint64_t semanticWord = supportMask == nullptr || !hasAbove
+                                                   ? 0u
+                                                   : supportMask->rowWord(boundaryY - 1, wordIndex);
+            const std::uint64_t exposed = above & ~below;
+            return semantic == photons::PackedSurfaceSemantic::Support
+                       ? exposed & semanticWord
+                       : exposed & ~semanticWord;
+          });
+      for (const auto& run : negativeRuns) {
+        walls.insert(WallSpan{
+            WallAxis::Y, boundaryY, run.first, run.second, -1, semantic});
+      }
     }
   }
   return walls;
@@ -325,7 +616,8 @@ void emitWall(
         rasterHeight - wall.last,
         rasterHeight - wall.first,
         globalZ0,
-        globalZ1);
+        globalZ1,
+        wall.semantic);
     return;
   }
 
@@ -337,7 +629,8 @@ void emitWall(
       wall.first,
       wall.last,
       globalZ0,
-      globalZ1);
+      globalZ1,
+      wall.semantic);
 }
 
 using ActiveWalls = std::map<WallSpan, std::size_t>;
@@ -393,22 +686,43 @@ struct TaskBuildResult {
   std::string error;
 };
 
-std::vector<std::size_t> makeSampledLayers(
+struct SampledLayerPlan {
+  std::vector<std::size_t> layers;
+  std::size_t baseSampleCount = 0;
+  std::size_t forcedSemanticSampleCount = 0;
+};
+
+SampledLayerPlan makeSampledLayerPlan(
     photons::LayerRange range,
-    std::size_t layerStride) {
-  std::vector<std::size_t> sampledLayers;
-  sampledLayers.reserve((range.count() + layerStride - 1) / layerStride + 1);
+    std::size_t layerStride,
+    const std::vector<std::size_t>& forcedSampleLayers) {
+  SampledLayerPlan plan;
+  plan.layers.reserve(
+      (range.count() + layerStride - 1) / layerStride
+      + forcedSampleLayers.size() + 1);
   for (std::size_t layer = range.first;;) {
-    sampledLayers.push_back(layer);
+    plan.layers.push_back(layer);
     if (range.last - layer < layerStride) {
       break;
     }
     layer += layerStride;
   }
-  if (sampledLayers.back() != range.last) {
-    sampledLayers.push_back(range.last);
+  if (plan.layers.back() != range.last) {
+    plan.layers.push_back(range.last);
   }
-  return sampledLayers;
+  plan.baseSampleCount = plan.layers.size();
+
+  for (const auto layer : forcedSampleLayers) {
+    if (layer >= range.first && layer <= range.last) {
+      plan.layers.push_back(layer);
+    }
+  }
+  std::sort(plan.layers.begin(), plan.layers.end());
+  plan.layers.erase(
+      std::unique(plan.layers.begin(), plan.layers.end()),
+      plan.layers.end());
+  plan.forcedSemanticSampleCount = plan.layers.size() - plan.baseSampleCount;
+  return plan;
 }
 
 std::vector<MeshTask> makeTasks(
@@ -546,11 +860,30 @@ TaskBuildResult buildTask(
       nextMask = nullptr;
     }
 
-    emitHorizontalSurface(result.chunk, *current, previousMask, layer, false);
-    emitHorizontalSurface(result.chunk, *current, nextMask, segmentEndExclusive, true);
+    BinaryMask support;
+    std::string supportError;
+    if (!buildSupportMask(
+            *current,
+            previousMask,
+            nextMask,
+            layer,
+            options,
+            support,
+            supportError)) {
+      result.error = supportError.empty()
+                         ? "support semantic materialization failed"
+                         : std::move(supportError);
+      return result;
+    }
+    const BinaryMask* supportMask = options.classifySupports ? &support : nullptr;
 
-    auto walls = collectXWalls(*current);
-    const auto yWalls = collectYWalls(*current);
+    emitHorizontalSurface(
+        result.chunk, *current, previousMask, supportMask, layer, false);
+    emitHorizontalSurface(
+        result.chunk, *current, nextMask, supportMask, segmentEndExclusive, true);
+
+    auto walls = collectXWalls(*current, supportMask);
+    const auto yWalls = collectYWalls(*current, supportMask);
     walls.insert(yWalls.begin(), yWalls.end());
     updateActiveWalls(
         result.chunk,
@@ -641,10 +974,46 @@ CutSurfaceBuildResult LayerStackMesher::buildCutSurface(
   result.chunk.pitchXMm = static_cast<float>(options.pitchXMm);
   result.chunk.pitchYMm = static_cast<float>(options.pitchYMm);
   result.chunk.pitchZMm = static_cast<float>(options.pitchZMm);
+  std::optional<BinaryMask> previous;
+  std::optional<BinaryMask> next;
+  if (options.classifySupports && !options.supportMaskProvider) {
+    if (maskLayer >= options.layerStride) {
+      previous = source.loadMask(maskLayer - options.layerStride, loadError);
+      if (!previous) {
+        result.error = std::move(loadError);
+        return result;
+      }
+      ++result.decodedLayerCount;
+    }
+    if (maskLayer + options.layerStride < source.layerCount()) {
+      next = source.loadMask(maskLayer + options.layerStride, loadError);
+      if (!next) {
+        result.error = std::move(loadError);
+        return result;
+      }
+      ++result.decodedLayerCount;
+    }
+  }
+  BinaryMask support;
+  std::string supportError;
+  if (!buildSupportMask(
+          *mask,
+          previous ? &*previous : nullptr,
+          next ? &*next : nullptr,
+          maskLayer,
+          options,
+          support,
+          supportError)) {
+    result.error = supportError.empty()
+                       ? "support semantic materialization failed"
+                       : std::move(supportError);
+    return result;
+  }
   emitHorizontalSurface(
       result.chunk,
       *mask,
       nullptr,
+      options.classifySupports ? &support : nullptr,
       planeLayer,
       boundary == CutSurfaceBoundary::Upper);
   result.ok = true;
@@ -687,7 +1056,16 @@ MeshBuildResult LayerStackMesher::build(
     return result;
   }
 
-  const auto sampledLayers = makeSampledLayers(range, options.layerStride);
+  const std::vector<std::size_t> noForcedSampleLayers;
+  const auto& forcedSampleLayers = options.classifySupports
+                                       ? options.forcedSampleLayers
+                                       : noForcedSampleLayers;
+  const auto samplePlan = makeSampledLayerPlan(
+      range, options.layerStride, forcedSampleLayers);
+  const auto& sampledLayers = samplePlan.layers;
+  result.baseSampleCount = samplePlan.baseSampleCount;
+  result.forcedSemanticSampleCount = samplePlan.forcedSemanticSampleCount;
+  result.effectiveSampleCount = sampledLayers.size();
   const auto tasks = makeTasks(sampledLayers, range, options.chunkLayerCount);
   result.effectiveWorkerCount = std::min(options.workerCount, tasks.size());
   result.workerStats.resize(result.effectiveWorkerCount);

@@ -131,6 +131,8 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     render3d/core/LayerVisibility.cpp
     render3d/core/LayerSectionCache.cpp
     render3d/core/OrbitCamera.cpp
+    render3d/analysis/SupportAnalyzer.cpp
+    render3d/analysis/SupportAnalysisDiagnostics.cpp
     render3d/meshing/LayerStackMesher.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
@@ -323,6 +325,12 @@ if(ACCLOUD_ENABLE_QT)
           ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.cpp
           ${ACCLOUD_SRC_ROOT}/app/UiClickTracer.h
       )
+      if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
+        list(APPEND ACCLOUD_APP_QT_SOURCES
+            ${ACCLOUD_SRC_ROOT}/app/SupportAnalysisBridge.cpp
+            ${ACCLOUD_SRC_ROOT}/app/SupportAnalysisBridge.h
+        )
+      endif()
     endif()
 
     if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
@@ -357,6 +365,7 @@ if(ACCLOUD_ENABLE_QT)
               ${ACCLOUD_SRC_ROOT}/app/AppI18nBridge.cpp
               ${ACCLOUD_SRC_ROOT}/app/CloudBridge.cpp
               ${ACCLOUD_SRC_ROOT}/app/SessionImportBridge.cpp
+              ${ACCLOUD_SRC_ROOT}/app/SupportAnalysisBridge.cpp
               ${ACCLOUD_I18N_QML_FILES}
           RESOURCE_PREFIX "/i18n"
       )
@@ -514,6 +523,26 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_experimental_viewer)
   add_test(NAME accloud_layer_stack_mesher COMMAND accloud_layer_stack_mesher_tests)
 
+  add_executable(accloud_support_analyzer_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_support_analyzer.cpp)
+  target_include_directories(accloud_support_analyzer_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_support_analyzer_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer)
+  add_test(NAME accloud_support_analyzer COMMAND accloud_support_analyzer_tests)
+
+  add_executable(accloud_support_analysis_diagnostics_tests
+      ${ACCLOUD_TESTS_ROOT}/photons/test_support_analysis_diagnostics.cpp)
+  target_include_directories(accloud_support_analysis_diagnostics_tests PRIVATE
+      ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_support_analysis_diagnostics_tests PRIVATE
+      accloud_domain
+      accloud_experimental_viewer
+      nlohmann_json::nlohmann_json
+      ZLIB::ZLIB)
+  add_test(NAME accloud_support_analysis_diagnostics
+           COMMAND accloud_support_analysis_diagnostics_tests)
+
   add_executable(accloud_render_pipeline_tests
       ${ACCLOUD_TESTS_ROOT}/photons/test_render_pipeline.cpp)
   target_include_directories(accloud_render_pipeline_tests PRIVATE ${ACCLOUD_SRC_ROOT})
@@ -530,6 +559,18 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_experimental_viewer)
   add_test(NAME accloud_viewer_controls COMMAND accloud_viewer_controls_tests)
 
+  add_executable(accloud_support_analysis_probe
+      ${ACCLOUD_TOOLS_ROOT}/support_analysis_probe.cpp)
+  target_include_directories(accloud_support_analysis_probe PRIVATE ${ACCLOUD_SRC_ROOT})
+  target_link_libraries(accloud_support_analysis_probe PRIVATE
+      accloud_domain
+      accloud_experimental_viewer
+      nlohmann_json::nlohmann_json
+      ZLIB::ZLIB)
+  if(ACCLOUD_DEBUG)
+    add_dependencies(accloud_cli accloud_support_analysis_probe)
+  endif()
+
   add_executable(accloud_render3d_worker_benchmark
       ${ACCLOUD_TOOLS_ROOT}/render3d_worker_benchmark.cpp)
   target_include_directories(accloud_render3d_worker_benchmark PRIVATE ${ACCLOUD_SRC_ROOT})
@@ -545,6 +586,8 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       accloud_pw0_decode
       accloud_pwsz_reader
       accloud_layer_stack_mesher
+      accloud_support_analyzer
+      accloud_support_analysis_diagnostics
       accloud_render_pipeline
       accloud_viewer_controls
       accloud_render3d_worker_benchmark_selftest

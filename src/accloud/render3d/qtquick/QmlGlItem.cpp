@@ -1,6 +1,7 @@
 #include "render3d/qtquick/QmlGlItem.h"
 
 #include "render3d/qtquick/CompactShaderSources.h"
+#include "render3d/analysis/SupportAnalyzer.h"
 #include "render3d/core/LayerSectionCache.h"
 
 #include "infra/logging/JsonlLogger.h"
@@ -95,8 +96,76 @@ QVector3D toVector(const Vec3& value) {
 
 constexpr std::size_t kViewerLayerStride = 2;
 
-std::size_t sampledMaskLayer(std::size_t layer) {
-  return (layer / kViewerLayerStride) * kViewerLayerStride;
+std::size_t sampledMaskLayer(
+    std::size_t layer,
+    const SupportAnalysisResult* supportAnalysis = nullptr) {
+  std::size_t sampled = (layer / kViewerLayerStride) * kViewerLayerStride;
+  if (supportAnalysis == nullptr || supportAnalysis->forcedSampleLayers.empty()) {
+    return sampled;
+  }
+  const auto upper = std::upper_bound(
+      supportAnalysis->forcedSampleLayers.begin(),
+      supportAnalysis->forcedSampleLayers.end(),
+      layer);
+  if (upper != supportAnalysis->forcedSampleLayers.begin()) {
+    sampled = std::max(sampled, *std::prev(upper));
+  }
+  return sampled;
+}
+
+std::size_t sampledLayerCount(std::size_t totalLayers) {
+  if (totalLayers == 0) {
+    return 0;
+  }
+  const std::size_t lastLayer = totalLayers - 1;
+  return 1 + (lastLayer + kViewerLayerStride - 1) / kViewerLayerStride;
+}
+
+std::size_t forcedSemanticSampleCount(
+    std::size_t totalLayers,
+    const std::vector<std::size_t>& forcedLayers) {
+  if (totalLayers == 0) {
+    return 0;
+  }
+  const std::size_t lastLayer = totalLayers - 1;
+  return static_cast<std::size_t>(std::count_if(
+      forcedLayers.begin(), forcedLayers.end(), [&](std::size_t layer) {
+        return layer < totalLayers
+               && layer != lastLayer
+               && (layer % kViewerLayerStride) != 0u;
+      }));
+}
+
+bool materializeSupportMask(
+    const SupportAnalysisResult& analysis,
+    std::size_t layer,
+    const photons::BinaryMask& material,
+    photons::BinaryMask& supportMask,
+    std::string& error) {
+  if (layer >= analysis.layers.size()) {
+    error = "support semantic index does not cover the requested layer";
+    return false;
+  }
+
+  std::vector<SemanticRun> runs;
+  if (!SupportAnalyzer{}.materializeLayerSemantics(
+          material,
+          analysis.layers[layer],
+          runs,
+          error)) {
+    return false;
+  }
+
+  supportMask = photons::BinaryMask(material.width(), material.height());
+  for (const auto& run : runs) {
+    if (run.semantic == MaterialSemantic::Model) {
+      continue;
+    }
+    supportMask.setRun(
+        static_cast<std::size_t>(run.y) * material.width() + run.firstX,
+        run.lastX - run.firstX);
+  }
+  return true;
 }
 
 bool intersects(const photons::LayerRange& left, int firstLayer, int lastLayer) {
@@ -189,6 +258,8 @@ public:
     pitchZMm_ = static_cast<float>(viewer->layerHeightMm_);
     backgroundColor_ = viewer->backgroundColor_;
     meshColor_ = viewer->meshColor_;
+    supportColor_ = viewer->supportColor_;
+    supportColoringEnabled_ = viewer->supportColoringEnabled_;
     cameraPosition_ = toVector(viewer->camera_.position());
     cameraTarget_ = toVector(viewer->camera_.target());
     cameraDistance_ = static_cast<float>(viewer->camera_.distance());
@@ -262,6 +333,9 @@ public:
     program_->setUniformValue("u_mvp", mvp);
     program_->setUniformValue("u_meshColor", QVector4D(
         meshColor_.redF(), meshColor_.greenF(), meshColor_.blueF(), meshColor_.alphaF()));
+    program_->setUniformValue("u_supportColor", QVector4D(
+        supportColor_.redF(), supportColor_.greenF(), supportColor_.blueF(), supportColor_.alphaF()));
+    program_->setUniformValue("u_supportColoringEnabled", supportColoringEnabled_);
     program_->setUniformValue("u_lightDirection", QVector3D(-0.4F, -0.6F, -0.7F).normalized());
     program_->setUniformValue("u_clipZ", QVector2D(minimumZ, maximumZ));
     program_->setUniformValue("u_hasLowerCut", displayedFirstLayer_ > 1);
@@ -614,6 +688,8 @@ private:
   float cameraDistance_ = 100.0F;
   QColor backgroundColor_;
   QColor meshColor_;
+  QColor supportColor_;
+  bool supportColoringEnabled_ = true;
   QVector3D cameraPosition_;
   QVector3D cameraTarget_;
 };
@@ -710,6 +786,42 @@ void QmlGlItem::setMeshColor(const QColor& color) {
   scheduleRender();
 }
 
+void QmlGlItem::setSupportColor(const QColor& color) {
+  if (supportColor_ == color) {
+    return;
+  }
+  supportColor_ = color;
+  emit supportColorChanged();
+  scheduleRender();
+}
+
+void QmlGlItem::setSupportColoringEnabled(bool enabled) {
+  if (supportColoringEnabled_ == enabled) {
+    return;
+  }
+  supportColoringEnabled_ = enabled;
+  emit supportColoringEnabledChanged();
+
+  const bool requiresAnalysis = enabled
+                                && !loading_
+                                && totalLayers_ > 0
+                                && !sceneHasSupportSemantics_
+                                && !sourcePath_.trimmed().isEmpty();
+  trace3d(
+      logging::Level::kDebug,
+      "viewer",
+      "support_option_changed",
+      {},
+      {{"generation", text(sceneGeneration_)},
+       {"enabled", enabled ? "true" : "false"},
+       {"analysis_available", sceneHasSupportSemantics_ ? "true" : "false"},
+       {"reload_required", requiresAnalysis ? "true" : "false"}});
+  scheduleRender();
+  if (requiresAnalysis) {
+    QMetaObject::invokeMethod(this, [this] { load(); }, Qt::QueuedConnection);
+  }
+}
+
 void QmlGlItem::stopWorker() {
   if (!worker_.joinable()) {
     return;
@@ -751,6 +863,7 @@ void QmlGlItem::requestCutSurfaceRebuild() {
           lastLayer_,
           totalLayers_,
           archiveReader_,
+          supportAnalysis_,
       };
     } else {
       cutRequest_.reset();
@@ -811,8 +924,33 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
     options.pitchYMm = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(options.pitchXMm));
     options.pitchZMm = meta.pitchZMm.value_or(0.05);
     options.chunkLayerCount = 1;
-    options.layerStride = 1;
+    options.layerStride = kViewerLayerStride;
     options.workerCount = 1;
+    options.classifySupports = static_cast<bool>(request.supportAnalysis);
+    if (request.supportAnalysis) {
+      const auto analysis = request.supportAnalysis;
+      const auto sceneGeneration = request.sceneGeneration;
+      const auto cutGeneration = request.generation;
+      options.supportMaskProvider = [analysis, sceneGeneration, cutGeneration](
+          std::size_t layer,
+          const photons::BinaryMask& material,
+          photons::BinaryMask& supportMask,
+          std::string& error) {
+        const bool ok = materializeSupportMask(
+            *analysis, layer, material, supportMask, error);
+        if (!ok) {
+          trace3d(
+              logging::Level::kError,
+              "support_analysis",
+              "materialization_failed",
+              error,
+              {{"generation", text(sceneGeneration)},
+               {"cut_generation", text(cutGeneration)},
+               {"layer", text(layer + 1)}});
+        }
+        return ok;
+      };
+    }
 
     LayerStackMesher mesher;
     std::vector<photons::MeshChunk> surfaces;
@@ -888,13 +1026,15 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
 
     if (request.firstLayer > 1) {
       const auto planeLayer = static_cast<std::size_t>(request.firstLayer - 1);
-      const auto maskLayer = sampledMaskLayer(planeLayer);
+      const auto maskLayer = sampledMaskLayer(
+          planeLayer, request.supportAnalysis.get());
       buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Lower);
     }
     if (!failed && request.lastLayer < request.totalLayers) {
       const auto planeLayer = static_cast<std::size_t>(request.lastLayer);
       const auto materialLayer = static_cast<std::size_t>(request.lastLayer - 1);
-      const auto maskLayer = sampledMaskLayer(materialLayer);
+      const auto maskLayer = sampledMaskLayer(
+          materialLayer, request.supportAnalysis.get());
       buildBoundary(maskLayer, planeLayer, CutSurfaceBoundary::Upper);
     }
 
@@ -995,6 +1135,7 @@ void QmlGlItem::runCutWorker(std::stop_token stopToken) {
 void QmlGlItem::resetDocumentState() {
   loading_ = true;
   progress_ = 0.0;
+  loadingPhase_ = tr("Creating 3D view…");
   errorString_.clear();
   machineName_.clear();
   totalLayers_ = 0;
@@ -1007,6 +1148,8 @@ void QmlGlItem::resetDocumentState() {
   cameraTouched_ = false;
   uploadQueue_->clear();
   archiveReader_.reset();
+  supportAnalysis_.reset();
+  sceneHasSupportSemantics_ = false;
   {
     std::scoped_lock lock(cutRequestMutex_);
     cutGeneration_.fetch_add(1, std::memory_order_release);
@@ -1018,6 +1161,7 @@ void QmlGlItem::resetDocumentState() {
   ++sceneGeneration_;
   emit loadingChanged();
   emit progressChanged();
+  emit loadingPhaseChanged();
   emit errorStringChanged();
   emit documentChanged();
   emit visibleRangeChanged();
@@ -1030,6 +1174,7 @@ void QmlGlItem::load() {
   resetDocumentState();
   const std::uint64_t generation = sceneGeneration_;
   const int workerCount = workerCount_;
+  const bool analyzeSupports = supportColoringEnabled_;
   const QString inputPath = localPathFromInput(sourcePath_).trimmed();
   trace3d(
       logging::Level::kDebug,
@@ -1038,7 +1183,8 @@ void QmlGlItem::load() {
       {},
       {{"generation", text(generation)},
        {"layer_step", text(kViewerLayerStride)},
-       {"worker_count", text(workerCount)}});
+       {"worker_count", text(workerCount)},
+       {"support_analysis_enabled", analyzeSupports ? "true" : "false"}});
   if (inputPath.isEmpty()) {
     trace3d(
         logging::Level::kWarn,
@@ -1053,7 +1199,8 @@ void QmlGlItem::load() {
   const auto queue = uploadQueue_;
   QPointer<QmlGlItem> guard(this);
   worker_ = std::jthread(
-      [guard, queue, generation, inputPath, workerCount](std::stop_token stopToken) {
+      [guard, queue, generation, inputPath, workerCount, analyzeSupports](
+          std::stop_token stopToken) {
         const auto loadStarted = std::chrono::steady_clock::now();
         const auto post = [&](auto callback) {
           if (guard) {
@@ -1135,6 +1282,163 @@ void QmlGlItem::load() {
           return;
         }
 
+        const std::size_t analysisWork = analyzeSupports ? reader->layerCount() : 0u;
+        const std::size_t baseMeshWork = sampledLayerCount(reader->layerCount());
+        std::size_t meshWork = baseMeshWork;
+        std::size_t totalWork = analysisWork + meshWork;
+        const qreal analysisCompletionFloor = totalWork == 0
+                                                  ? 0.0
+                                                  : static_cast<qreal>(analysisWork)
+                                                        / static_cast<qreal>(totalWork);
+        std::shared_ptr<const SupportAnalysisResult> supportAnalysis;
+
+        if (analyzeSupports) {
+          post([generation](QmlGlItem& item) {
+            item.applyLoadingPhase(generation, QmlGlItem::tr("Analyzing supports…"));
+          });
+
+          SupportAnalysisOptions analysisOptions;
+          analysisOptions.pitchXMillimetres = static_cast<double>(pitchX);
+          analysisOptions.pitchYMillimetres = static_cast<double>(pitchY);
+          analysisOptions.pitchZMillimetres = static_cast<double>(pitchZ);
+          const auto analysisStarted = std::chrono::steady_clock::now();
+          trace3d(
+              logging::Level::kDebug,
+              "support_analysis",
+              "started",
+              {},
+              {{"generation", text(generation)},
+               {"source_layers", text(reader->layerCount())},
+               {"width", text(reader->width())},
+               {"height", text(reader->height())}});
+
+          int lastAnalysisReportedPercent = -1;
+          int lastAnalysisLoggedDecile = -1;
+          SupportAnalysisCallbacks analysisCallbacks;
+          analysisCallbacks.isCancelled = [&] { return stopToken.stop_requested(); };
+          analysisCallbacks.progress = [&](std::size_t completed, std::size_t total) {
+            const int percent = total == 0
+                                    ? 100
+                                    : static_cast<int>((completed * 100) / total);
+            const int decile = percent / 10;
+            if (decile != lastAnalysisLoggedDecile || completed == total) {
+              lastAnalysisLoggedDecile = decile;
+              trace3d(
+                  logging::Level::kDebug,
+                  "support_analysis",
+                  "progress",
+                  {},
+                  {{"generation", text(generation)},
+                   {"completed_layers", text(completed)},
+                   {"total_layers", text(total)},
+                   {"percent", text(percent)},
+                   {"duration_ms", text(elapsedMilliseconds(analysisStarted))}});
+            }
+            if (percent == lastAnalysisReportedPercent && completed != total) {
+              return;
+            }
+            lastAnalysisReportedPercent = percent;
+            post([generation,
+                  completed,
+                  totalWork](QmlGlItem& item) {
+              const qreal value = totalWork == 0
+                                      ? 1.0
+                                      : static_cast<qreal>(completed)
+                                            / static_cast<qreal>(totalWork);
+              item.applyProgress(generation, value);
+            });
+          };
+
+          auto analysisResult = SupportAnalyzer{}.analyze(
+              *reader,
+              analysisOptions,
+              analysisCallbacks);
+          const bool analysisCancelled = analysisResult.cancelled
+                                         || stopToken.stop_requested();
+          if (!analysisResult.ok) {
+            trace3d(
+                analysisCancelled ? logging::Level::kWarn : logging::Level::kError,
+                "support_analysis",
+                analysisCancelled ? "cancelled" : "failed",
+                analysisResult.error,
+                {{"generation", text(generation)},
+                 {"duration_ms", text(elapsedMilliseconds(analysisStarted))},
+                 {"source_layers", text(reader->layerCount())}});
+            post([generation,
+                  analysisCancelled,
+                  message = QString::fromStdString(analysisResult.error)](
+                     QmlGlItem& item) mutable {
+              item.finishLoad(
+                  generation,
+                  std::move(message),
+                  analysisCancelled);
+            });
+            return;
+          }
+
+          const auto& summary = analysisResult.summary;
+          trace3d(
+              logging::Level::kDebug,
+              "support_analysis",
+              "phase_detected",
+              {},
+              {{"generation", text(generation)},
+               {"raft_last_layer", text(summary.raftLastLayer + 1u)},
+               {"first_model_layer", text(summary.firstModelLayer + 1u)},
+               {"last_support_layer", text(summary.lastSupportLayer + 1u)}});
+          trace3d(
+              logging::Level::kDebug,
+              "support_analysis",
+              "completed",
+              {},
+              {{"generation", text(generation)},
+               {"duration_ms", text(elapsedMilliseconds(analysisStarted))},
+               {"source_layers", text(reader->layerCount())},
+               {"components", text(summary.componentCount)},
+               {"candidate_nodes", text(summary.candidateNodeCount)},
+               {"accepted_nodes", text(summary.acceptedNodeCount)},
+               {"continuations", text(summary.continuationEdgeCount)},
+               {"splits", text(summary.splitEdgeCount)},
+               {"braces", text(summary.braceEdgeCount)},
+               {"model_contacts", text(summary.modelContactEdgeCount)},
+               {"raft_runs", text(summary.raftRunCount)},
+               {"support_runs", text(summary.supportRunCount)},
+               {"free_support_runs", text(summary.freeSupportRunCount)},
+               {"projected_support_runs", text(summary.projectedSupportRunCount)},
+               {"projected_contact_pixels", text(summary.projectedContactPixelCount)},
+               {"rejected_projection_runs", text(summary.rejectedProjectionRunCount)},
+               {"rejected_growth_pixels", text(summary.rejectedGrowthPixelCount)},
+               {"untapered_model_contacts", text(summary.untaperedModelContactCount)},
+               {"contacts_without_valid_projection",
+                text(summary.contactsWithoutValidProjectionCount)},
+               {"maximum_contact_growth_ratio",
+                text(summary.maximumContactGrowthRatio)},
+               {"terminal_support_stops", text(summary.terminalSupportStopCount)},
+               {"expanding_model_contacts",
+                text(summary.expandingModelContactCount)},
+               {"maximum_model_expansion_ratio",
+                text(summary.maximumModelExpansionRatio)},
+               {"forced_semantic_samples",
+                text(summary.forcedSemanticSampleCount)}});
+          supportAnalysis = std::make_shared<SupportAnalysisResult>(
+              std::move(analysisResult));
+          meshWork = baseMeshWork + forcedSemanticSampleCount(
+              reader->layerCount(), supportAnalysis->forcedSampleLayers);
+          totalWork = analysisWork + meshWork;
+        } else {
+          trace3d(
+              logging::Level::kDebug,
+              "support_analysis",
+              "skipped",
+              {},
+              {{"generation", text(generation)},
+               {"reason", "option_disabled"}});
+        }
+
+        post([generation](QmlGlItem& item) {
+          item.applyLoadingPhase(generation, QmlGlItem::tr("Creating 3D view…"));
+        });
+
         LayerStackMesher mesher;
         MeshBuildOptions options;
         options.pitchXMm = pitchX;
@@ -1147,6 +1451,29 @@ void QmlGlItem::load() {
             static_cast<int>(kMinimumMeshWorkerCount),
             static_cast<int>(kMaximumMeshWorkerCount)));
         options.cutSurfaceMode = CutSurfaceMode::Open;
+        options.classifySupports = static_cast<bool>(supportAnalysis);
+        if (supportAnalysis) {
+          const auto analysis = supportAnalysis;
+          options.forcedSampleLayers = analysis->forcedSampleLayers;
+          options.supportMaskProvider = [analysis, generation](
+              std::size_t layer,
+              const photons::BinaryMask& material,
+              photons::BinaryMask& supportMask,
+              std::string& providerError) {
+            const bool ok = materializeSupportMask(
+                *analysis, layer, material, supportMask, providerError);
+            if (!ok) {
+              trace3d(
+                  logging::Level::kError,
+                  "support_analysis",
+                  "materialization_failed",
+                  providerError,
+                  {{"generation", text(generation)},
+                   {"layer", text(layer + 1)}});
+            }
+            return ok;
+          };
+        }
 
         const auto meshStarted = std::chrono::steady_clock::now();
         std::size_t generatedChunks = 0;
@@ -1163,7 +1490,11 @@ void QmlGlItem::load() {
              {"source_layers", text(reader->layerCount())},
              {"layer_step", text(options.layerStride)},
              {"chunk_layers", text(options.chunkLayerCount)},
-             {"requested_workers", text(options.workerCount)}});
+             {"requested_workers", text(options.workerCount)},
+             {"support_semantics", supportAnalysis ? "global" : "disabled"},
+             {"base_sample_count", text(baseMeshWork)},
+             {"forced_semantic_sample_count", text(meshWork - baseMeshWork)},
+             {"effective_sample_count", text(meshWork)}});
 
         int lastReportedPercent = -1;
         int lastLoggedDecile = -1;
@@ -1189,11 +1520,16 @@ void QmlGlItem::load() {
             return;
           }
           lastReportedPercent = percent;
-          post([generation, value = total == 0
-                                        ? 1.0
-                                        : static_cast<qreal>(completed)
-                                              / static_cast<qreal>(total)](QmlGlItem& item) {
-            item.applyProgress(generation, value);
+          post([generation,
+                analysisWork,
+                analysisCompletionFloor,
+                completed,
+                totalWork](QmlGlItem& item) {
+            const qreal rawValue = totalWork == 0
+                                       ? 1.0
+                                       : static_cast<qreal>(analysisWork + completed)
+                                             / static_cast<qreal>(totalWork);
+            item.applyProgress(generation, std::max(analysisCompletionFloor, rawValue));
           });
         };
         callbacks.consumeChunk = [&](photons::MeshChunk&& chunk) {
@@ -1262,6 +1598,11 @@ void QmlGlItem::load() {
              {"layer_step", text(options.layerStride)},
              {"requested_workers", text(options.workerCount)},
              {"effective_workers", text(result.effectiveWorkerCount)},
+             {"support_semantics", supportAnalysis ? "global" : "disabled"},
+             {"base_sample_count", text(result.baseSampleCount)},
+             {"forced_semantic_sample_count",
+              text(result.forcedSemanticSampleCount)},
+             {"effective_sample_count", text(result.effectiveSampleCount)},
              {"chunks", text(generatedChunks)},
              {"surface_quads", text(generatedSurfaceQuads)},
              {"triangles", text(generatedTriangles)},
@@ -1286,8 +1627,13 @@ void QmlGlItem::load() {
         }
         post([generation,
               cancelled,
+              supportAnalysis,
               message = QString::fromStdString(result.error)](QmlGlItem& item) mutable {
-          item.finishLoad(generation, std::move(message), cancelled);
+          item.finishLoad(
+              generation,
+              std::move(message),
+              cancelled,
+              std::move(supportAnalysis));
         });
       });
 }
@@ -1321,6 +1667,16 @@ void QmlGlItem::applyProgress(std::uint64_t generation, qreal progress) {
   }
   progress_ = bounded;
   emit progressChanged();
+}
+
+void QmlGlItem::applyLoadingPhase(
+    std::uint64_t generation,
+    QString phase) {
+  if (generation != sceneGeneration_ || loadingPhase_ == phase) {
+    return;
+  }
+  loadingPhase_ = std::move(phase);
+  emit loadingPhaseChanged();
 }
 
 void QmlGlItem::includeBounds(const photons::MeshBounds& bounds) noexcept {
@@ -1367,6 +1723,8 @@ void QmlGlItem::applyGpuFailure(
   }
   cutRequestChanged_.notify_all();
   loading_ = false;
+  supportAnalysis_.reset();
+  sceneHasSupportSemantics_ = false;
   errorString_ = std::move(errorString);
   ++sceneGeneration_;
   trace3d(
@@ -1384,15 +1742,20 @@ void QmlGlItem::applyGpuFailure(
 void QmlGlItem::finishLoad(
     std::uint64_t generation,
     QString errorString,
-    bool cancelled) {
+    bool cancelled,
+    std::shared_ptr<const SupportAnalysisResult> supportAnalysis) {
   if (generation != sceneGeneration_ || cancelled) {
     return;
   }
   loading_ = false;
   if (!errorString.isEmpty()) {
+    supportAnalysis_.reset();
+    sceneHasSupportSemantics_ = false;
     errorString_ = std::move(errorString);
     emit errorStringChanged();
   } else {
+    supportAnalysis_ = std::move(supportAnalysis);
+    sceneHasSupportSemantics_ = static_cast<bool>(supportAnalysis_);
     progress_ = 1.0;
     if (!cameraTouched_ && bounds_.valid()) {
       camera_.fit(bounds_);
