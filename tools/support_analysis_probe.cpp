@@ -406,6 +406,10 @@ int main(int argc, char** argv) {
       {"braces", result.summary.braceEdgeCount},
       {"model_contacts", result.summary.modelContactEdgeCount},
       {"forced_semantic_samples", result.summary.forcedSemanticSampleCount},
+      {"reverse_model_seeds", result.summary.reverseModelSeedCount},
+      {"reverse_model_continuations", result.summary.reverseModelContinuationCount},
+      {"bidirectional_mixed_components",
+       result.summary.bidirectionalMixedComponentCount},
   };
 
   output["forced_sample_layers"] = nlohmann::json::array();

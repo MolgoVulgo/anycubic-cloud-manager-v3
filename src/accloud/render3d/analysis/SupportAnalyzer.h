@@ -56,6 +56,8 @@ enum class SupportDecisionReason : std::uint8_t {
   ContactConfirmedAbrupt,
   ContactConfirmedProgressive,
   MixedSemanticProjection,
+  BidirectionalModelContinuation,
+  BidirectionalMixedReconciliation,
   RejectedSupportPath,
 };
 
@@ -99,9 +101,10 @@ struct SupportAnalysisOptions {
 
   std::size_t minimumTrackLayers = 3;
   std::size_t taperLookbackLayers = 8;
-  // A support-to-model transition is never committed on its first local
-  // growth. Candidate matter must persist and keep expanding across this many
-  // consecutive source layers before its first layer is reclassified as model.
+  // The bottom-up pass never treats first local growth as sufficient evidence
+  // for a support/model boundary. A candidate must persist across this many
+  // native layers before it becomes forward contact evidence for reconciliation
+  // with the descending model pass.
   std::size_t modelContactConfirmationLayers = 2;
 
   double raftMaximumChangedPixelRatio = 0.001;
@@ -159,6 +162,11 @@ struct SupportDecisionTrace {
   std::size_t alignedOverlapPixels = 0;
   std::size_t addedPixelsAfterAlignment = 0;
   std::size_t removedPixelsAfterAlignment = 0;
+  std::size_t modelLineageOverlapPixels = 0;
+  std::size_t reverseModelEvidencePixels = 0;
+  std::size_t reverseSupportCorePixels = 0;
+  std::size_t finalSupportPixels = 0;
+  std::size_t finalModelPixels = 0;
   double centreDistancePixels = 0.0;
   double materialDistancePixels = 0.0;
   double primaryParentCoverageRatio = 0.0;
@@ -168,6 +176,8 @@ struct SupportDecisionTrace {
   double motionResidualPixels = 0.0;
   double alignedOverlapRatio = 0.0;
   double alignedIntersectionOverUnion = 0.0;
+  double modelLineageShiftXPixels = 0.0;
+  double modelLineageShiftYPixels = 0.0;
   double parentAreaRatio = 0.0;
   double pendingStartAreaRatio = 0.0;
   std::size_t pendingContactLength = 0;
@@ -182,6 +192,10 @@ struct SupportDecisionTrace {
   bool terminalTaperReboundOnParent = false;
   bool supportFusionContinuation = false;
   bool supportMotionContinuation = false;
+  bool modelLineageContinued = false;
+  bool reverseModelLineageContinued = false;
+  bool reverseModelSeed = false;
+  bool bidirectionalConflict = false;
   bool contactCandidate = false;
   bool contactConfirmed = false;
   bool rootedInRaft = false;
@@ -217,6 +231,9 @@ struct SupportAnalysisSummary {
   std::size_t braceEdgeCount = 0;
   std::size_t modelContactEdgeCount = 0;
   std::size_t forcedSemanticSampleCount = 0;
+  std::size_t reverseModelSeedCount = 0;
+  std::size_t reverseModelContinuationCount = 0;
+  std::size_t bidirectionalMixedComponentCount = 0;
 };
 
 struct SupportAnalysisResult {

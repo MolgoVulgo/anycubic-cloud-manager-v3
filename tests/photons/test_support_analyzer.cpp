@@ -3,6 +3,7 @@
 #include "render3d/analysis/SupportAnalyzer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <optional>
@@ -230,6 +231,9 @@ bool sameSemanticClassification(
       || a.splitEdgeCount != b.splitEdgeCount
       || a.braceEdgeCount != b.braceEdgeCount
       || a.modelContactEdgeCount != b.modelContactEdgeCount
+      || a.reverseModelSeedCount != b.reverseModelSeedCount
+      || a.reverseModelContinuationCount != b.reverseModelContinuationCount
+      || a.bidirectionalMixedComponentCount != b.bidirectionalMixedComponentCount
       || left.layers.size() != right.layers.size()
       || left.nodes.size() != right.nodes.size()
       || left.edges.size() != right.edges.size()
@@ -346,10 +350,10 @@ std::vector<accloud::photons::BinaryMask> makeBranchedSupportScene() {
 }
 
 std::vector<accloud::photons::BinaryMask> makeUntaperedContactScene() {
-  constexpr std::uint32_t width = 32;
+  constexpr std::uint32_t width = 64;
   constexpr std::uint32_t height = 24;
   std::vector<accloud::photons::BinaryMask> layers;
-  for (int index = 0; index < 8; ++index) {
+  for (int index = 0; index < 10; ++index) {
     layers.emplace_back(width, height);
   }
   fillRect(layers[0], 4, 18, 28, 23);
@@ -359,6 +363,10 @@ std::vector<accloud::photons::BinaryMask> makeUntaperedContactScene() {
   }
   fillRect(layers[6], 8, 6, 25, 19);
   fillRect(layers[7], 7, 5, 26, 19);
+  // Keep this local support-continuation fixture physically consistent with
+  // the bidirectional invariant: the global top is model matter, not support.
+  fillRect(layers[8], 50, 2, 60, 10);
+  fillRect(layers[9], 50, 2, 60, 10);
   return layers;
 }
 
@@ -437,7 +445,7 @@ std::vector<accloud::photons::BinaryMask> makeTranslatedTaperContinuationScene()
   constexpr std::uint32_t width = 80;
   constexpr std::uint32_t height = 32;
   std::vector<accloud::photons::BinaryMask> layers;
-  for (int index = 0; index < 12; ++index) {
+  for (int index = 0; index < 14; ++index) {
     layers.emplace_back(width, height);
   }
 
@@ -447,7 +455,7 @@ std::vector<accloud::photons::BinaryMask> makeTranslatedTaperContinuationScene()
   // A raft-rooted support narrows persistently, then continues diagonally while
   // its raster section grows gradually. The centre moves farther than the old
   // absolute four-pixel heuristic, but centre-aligned shapes remain the same
-  // support profile. This models Torus node 143 -> 169.
+  // support profile. This is a generic moving-support continuity case.
   fillRect(layers[2], 20, 24, 40, 25); // 20 pixels.
   fillRect(layers[3], 21, 23, 39, 24); // 18 pixels.
   fillRect(layers[4], 22, 22, 38, 23); // 16 pixels.
@@ -458,6 +466,8 @@ std::vector<accloud::photons::BinaryMask> makeTranslatedTaperContinuationScene()
   fillRect(layers[9], 39, 17, 54, 18); // 15 pixels.
   fillRect(layers[10], 45, 16, 61, 17); // 16 pixels: cumulative > 1.2.
   fillRect(layers[11], 52, 15, 69, 16); // 17 pixels.
+  fillRect(layers[12], 3, 3, 10, 9);
+  fillRect(layers[13], 3, 3, 10, 9);
   return layers;
 }
 
@@ -475,15 +485,15 @@ std::vector<accloud::photons::BinaryMask> makeDelayedTerminalContactScene() {
     addSquare(layers[layer], 32, 30, 2);
   }
   // A separate model island is already established before the terminal
-  // sequence, matching the mixed-phase context of Beetle layers 632-637.
+  // sequence so the support evolves inside a generic mixed model/support phase.
   for (int layer = 5; layer < 15; ++layer) {
     fillRect(layers[layer], 2, 4, 12, 14);
   }
   addSquare(layers[6], 32, 28, 1);
   addSquare(layers[7], 32, 27, 0);
 
-  // Regression modelled on Beetle layers 632-637: the first expansion after a
-  // narrow section is still a terminal support shape. It remains below the
+  // A first expansion after a narrow section can still be a terminal support
+  // shape. It remains below the
   // confirmed-contact growth threshold and must be committed back to support,
   // not used as the retroactive start of model matter.
   layers[8].set(31, 26, true);
@@ -513,7 +523,7 @@ std::vector<accloud::photons::BinaryMask> makeStaleTaperPlateauScene() {
   constexpr std::uint32_t width = 64;
   constexpr std::uint32_t height = 36;
   std::vector<accloud::photons::BinaryMask> layers;
-  for (int index = 0; index < 12; ++index) {
+  for (int index = 0; index < 14; ++index) {
     layers.emplace_back(width, height);
   }
   fillRect(layers[0], 3, 30, 61, 35);
@@ -536,6 +546,8 @@ std::vector<accloud::photons::BinaryMask> makeStaleTaperPlateauScene() {
   fillRect(layers[9], 24, 20, 37, 21);  // 13
   fillRect(layers[10], 22, 19, 40, 20); // 18
   fillRect(layers[11], 20, 18, 41, 19); // 21
+  fillRect(layers[12], 3, 3, 10, 9);
+  fillRect(layers[13], 3, 3, 10, 9);
   return layers;
 }
 
@@ -841,7 +853,7 @@ std::vector<accloud::photons::BinaryMask> makePersistentMixedSemanticScene() {
   }
 
   // A second raft-rooted support remains active beside the model.
-  for (int layer = 2; layer < 15; ++layer) {
+  for (int layer = 2; layer < 14; ++layer) {
     addSquare(layers[layer], 34, 30 - static_cast<std::uint32_t>((layer - 2) / 3), 2);
   }
 
@@ -853,6 +865,45 @@ std::vector<accloud::photons::BinaryMask> makePersistentMixedSemanticScene() {
   fillRect(layers[9], 20, 25, 29, 28);
   for (int layer = 10; layer < 15; ++layer) {
     fillRect(layers[layer], 20, 25, 34, 28);
+  }
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeMovingMixedSemanticScene() {
+  constexpr std::uint32_t width = 84;
+  constexpr std::uint32_t height = 52;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 17; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 46, 81, 51);
+  fillRect(layers[1], 3, 46, 81, 51);
+
+  // Establish model matter independently on the left. The moving region below
+  // is therefore an already-confirmed model lineage before it joins a support.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 46, 1);
+  }
+  addSquare(layers[5], 10, 45, 0);
+  for (int layer = 6; layer < 17; ++layer) {
+    fillRect(layers[layer], 4, 10, 16, 45);
+  }
+
+  // A second raft-rooted support footprint remains stationary while a stable
+  // model island moves along its side. The model advances by four native
+  // pixels per layer, so several consecutive positions have no exact XY
+  // intersection. Once both regions share one component, the support footprint
+  // must remain support and the independently established model lineage must
+  // keep following its bounded motion.
+  for (int layer = 2; layer < 16; ++layer) {
+    fillRect(layers[layer], 40, 13, 43, 45);
+  }
+  fillRect(layers[8], 38, 5, 41, 9);
+  fillRect(layers[9], 38, 5, 41, 9);
+  for (int layer = 10; layer < 17; ++layer) {
+    const auto firstY = 9u + static_cast<std::uint32_t>(layer - 10) * 4u;
+    fillRect(layers[layer], 38, firstY, 41, firstY + 4u);
   }
   return layers;
 }
@@ -1028,7 +1079,7 @@ int main() {
       persistentMixedSource, testOptions());
   ok &= require(persistentMixed.ok,
                 "persistent mixed-semantic analysis must succeed");
-  for (std::size_t layer = 10; layer < persistentMixedLayers.size(); ++layer) {
+  for (std::size_t layer = 10; layer + 1u < persistentMixedLayers.size(); ++layer) {
     ok &= require(
         pixelHasSemantic(
             analyzer, persistentMixedLayers[layer], persistentMixed.layers[layer],
@@ -1043,6 +1094,45 @@ int main() {
   ok &= require(
       persistentMixed.summary.projectedSupportRunCount > 0u,
       "mixed components must use partial support runs instead of a whole-component decision");
+
+  auto movingMixedLayers = makeMovingMixedSemanticScene();
+  VectorSource movingMixedSource(movingMixedLayers);
+  auto movingMixedOptions = testOptions();
+  movingMixedOptions.maximumLayerMotionPixels = 4.0;
+  movingMixedOptions.captureDecisionTrace = true;
+  const auto movingMixed = analyzer.analyze(
+      movingMixedSource, movingMixedOptions);
+  ok &= require(movingMixed.ok,
+                "moving mixed-semantic analysis must succeed");
+  for (std::size_t layer = 10; layer + 1u < movingMixedLayers.size(); ++layer) {
+    const auto firstY = 9u + static_cast<std::uint32_t>(layer - 10u) * 4u;
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, movingMixedLayers[layer], movingMixed.layers[layer],
+            39u, firstY + 1u, accloud::render3d::MaterialSemantic::Model),
+        "a confirmed model lineage must follow bounded native-layer motion inside a mixed component");
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, movingMixedLayers[layer], movingMixed.layers[layer],
+            42u, std::max<std::uint32_t>(14u, firstY + 1u), accloud::render3d::MaterialSemantic::Support),
+        "the predicted raft-rooted support footprint must remain support beside moving model matter");
+    ok &= require(
+        !movingMixed.layers[layer].projectedSupportRuns.empty(),
+        "a moving mixed component must keep an explicit partial support projection");
+  }
+  const auto movingMixedDecision = std::find_if(
+      movingMixed.decisions.begin(), movingMixed.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u
+               && decision.mixedSemanticProjection;
+      });
+  ok &= require(
+      movingMixedDecision != movingMixed.decisions.end()
+          && movingMixedDecision->modelLineageContinued
+          && movingMixedDecision->modelLineageOverlapPixels > 0u
+          && std::abs(movingMixedDecision->modelLineageShiftXPixels) <= 4.0
+          && std::abs(movingMixedDecision->modelLineageShiftYPixels) <= 4.0,
+      "mixed-semantic diagnostics must expose the bounded model-lineage motion used for the partition");
 
   auto pitchLowOptions = testOptions();
   pitchLowOptions.pitchZMillimetres = 0.01;
@@ -1065,7 +1155,7 @@ int main() {
   VectorSource untaperedSource(untaperedLayers);
   const auto untapered = analyzer.analyze(untaperedSource, testOptions());
   ok &= require(untapered.ok, "untapered contact analysis must succeed");
-  ok &= require(untapered.summary.firstModelLayer == 0u
+  ok &= require(untapered.summary.firstModelLayer == 8u
                     && untapered.summary.acceptedNodeCount > 0
                     && untapered.summary.lastSupportLayer == 7u,
                 "an established raft-rooted branch must remain support without a terminal taper");
@@ -1116,7 +1206,7 @@ int main() {
       translatedContinuationSource, translatedContinuationOptions);
   ok &= require(translatedContinuation.ok,
                 "translated tapered support analysis must succeed");
-  ok &= require(translatedContinuation.summary.firstModelLayer == 0u
+  ok &= require(translatedContinuation.summary.firstModelLayer == 12u
                     && translatedContinuation.summary.lastSupportLayer == 11u
                     && translatedContinuation.summary.modelContactEdgeCount == 0u,
                 "a translated support profile must not become model after cumulative growth");
@@ -1136,7 +1226,7 @@ int main() {
                     && translatedDecision->alignedOverlapRatio >= 0.85
                     && translatedDecision->motionResidualPixels
                            <= translatedContinuationOptions.maximumLayerMotionPixels,
-                "Torus-like motion must preserve support semantics and expose its diagnostic reason");
+                "translated support motion must preserve support semantics and expose its diagnostic reason");
 
   auto staleTaperLayers = makeStaleTaperPlateauScene();
   VectorSource staleTaperSource(staleTaperLayers);
@@ -1144,7 +1234,7 @@ int main() {
   staleTaperOptions.captureDecisionTrace = true;
   const auto staleTaper = analyzer.analyze(staleTaperSource, staleTaperOptions);
   ok &= require(staleTaper.ok, "stale taper plateau analysis must succeed");
-  ok &= require(staleTaper.summary.firstModelLayer == 0u
+  ok &= require(staleTaper.summary.firstModelLayer == 12u
                     && staleTaper.summary.modelContactEdgeCount == 0u
                     && staleTaper.summary.lastSupportLayer == 11u,
                 "an old abrupt reduction followed by a stable pillar must not become a terminal contact");

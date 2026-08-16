@@ -170,7 +170,12 @@ int main() {
       || !require(analysis.at("layers").size() == layers.size(),
                   "analysis layer count mismatch")
       || !require(!decisions.at("decisions").empty(),
-                  "decisions JSON is empty")) {
+                  "decisions JSON is empty")
+      || !require(
+          analysis.at("summary").contains("reverse_model_seeds")
+              && analysis.at("summary").contains("reverse_model_continuations")
+              && analysis.at("summary").contains("bidirectional_mixed_components"),
+          "bidirectional summary counters are missing")) {
     return 1;
   }
 
@@ -232,7 +237,41 @@ int main() {
       || !require(
           parentedDecision->at("surface_comparison").contains(
               "support_fusion_coverage_ratio"),
-          "support fusion coverage is missing")) {
+          "support fusion coverage is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "model_lineage_pixels"),
+          "model-lineage pixel count is missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "model_lineage_shift_pixels"),
+          "model-lineage motion is missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "model_lineage_continued"),
+          "model-lineage continuity flag is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "reverse_model_evidence_pixels"),
+          "reverse model-evidence pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "reverse_support_core_pixels"),
+          "reverse support-core pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "final_support_pixels")
+              && parentedDecision->at("surface_comparison").contains(
+                  "final_model_pixels"),
+          "final bidirectional semantic pixel counts are missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "reverse_model_lineage_continued")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "reverse_model_seed")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "bidirectional_conflict"),
+          "reverse-pass reconciliation flags are missing")) {
     return 1;
   }
 

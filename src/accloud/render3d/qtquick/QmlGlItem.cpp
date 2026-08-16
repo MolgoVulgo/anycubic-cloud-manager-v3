@@ -1282,7 +1282,9 @@ void QmlGlItem::load() {
           return;
         }
 
-        const std::size_t analysisWork = analyzeSupports ? reader->layerCount() : 0u;
+        const std::size_t analysisWork = analyzeSupports
+            ? reader->layerCount() * 2u
+            : 0u;
         const std::size_t baseMeshWork = sampledLayerCount(reader->layerCount());
         std::size_t meshWork = baseMeshWork;
         std::size_t totalWork = analysisWork + meshWork;
@@ -1419,7 +1421,12 @@ void QmlGlItem::load() {
                {"maximum_model_expansion_ratio",
                 text(summary.maximumModelExpansionRatio)},
                {"forced_semantic_samples",
-                text(summary.forcedSemanticSampleCount)}});
+                text(summary.forcedSemanticSampleCount)},
+               {"reverse_model_seeds", text(summary.reverseModelSeedCount)},
+               {"reverse_model_continuations",
+                text(summary.reverseModelContinuationCount)},
+               {"bidirectional_mixed_components",
+                text(summary.bidirectionalMixedComponentCount)}});
           supportAnalysis = std::make_shared<SupportAnalysisResult>(
               std::move(analysisResult));
           meshWork = baseMeshWork + forcedSemanticSampleCount(

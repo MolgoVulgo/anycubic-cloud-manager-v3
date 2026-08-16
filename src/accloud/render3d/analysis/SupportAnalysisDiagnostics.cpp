@@ -712,7 +712,12 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
          decision.terminalTaperDecreaseSteps},
         {"pending_start_ratio", decision.pendingStartAreaRatio},
         {"added_pixels_after_alignment", decision.addedPixelsAfterAlignment},
-        {"removed_pixels_after_alignment", decision.removedPixelsAfterAlignment}}},
+        {"removed_pixels_after_alignment", decision.removedPixelsAfterAlignment},
+        {"model_lineage_pixels", decision.modelLineageOverlapPixels},
+        {"reverse_model_evidence_pixels", decision.reverseModelEvidencePixels},
+        {"reverse_support_core_pixels", decision.reverseSupportCorePixels},
+        {"final_support_pixels", decision.finalSupportPixels},
+        {"final_model_pixels", decision.finalModelPixels}}},
       {"geometric_comparison",
        {{"overlap_pixels", decision.overlapPixels},
         {"aligned_overlap_pixels", decision.alignedOverlapPixels},
@@ -733,8 +738,16 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
          {{"x", decision.predictedMotionXPixels},
           {"y", decision.predictedMotionYPixels}}},
         {"motion_residual_pixels", decision.motionResidualPixels},
+        {"model_lineage_shift_pixels",
+         {{"x", decision.modelLineageShiftXPixels},
+          {"y", decision.modelLineageShiftYPixels}}},
         {"support_motion_continuation", decision.supportMotionContinuation},
         {"support_fusion_continuation", decision.supportFusionContinuation},
+        {"model_lineage_continued", decision.modelLineageContinued},
+        {"reverse_model_lineage_continued",
+         decision.reverseModelLineageContinued},
+        {"reverse_model_seed", decision.reverseModelSeed},
+        {"bidirectional_conflict", decision.bidirectionalConflict},
         {"overlaps_previous_model", decision.overlapsPreviousModel},
         {"near_previous_model", decision.nearPreviousModel},
         {"terminal_taper_on_parent", decision.terminalTaperOnParent},
@@ -783,6 +796,9 @@ nlohmann::json summaryJson(const SupportAnalysisSummary& summary) {
       {"braces", summary.braceEdgeCount},
       {"model_contacts", summary.modelContactEdgeCount},
       {"forced_semantic_samples", summary.forcedSemanticSampleCount},
+      {"reverse_model_seeds", summary.reverseModelSeedCount},
+      {"reverse_model_continuations", summary.reverseModelContinuationCount},
+      {"bidirectional_mixed_components", summary.bidirectionalMixedComponentCount},
   };
 }
 
@@ -844,6 +860,10 @@ const char* supportDecisionReasonCode(SupportDecisionReason reason) noexcept {
     return "contact_confirmed_progressive";
   case SupportDecisionReason::MixedSemanticProjection:
     return "mixed_semantic_projection";
+  case SupportDecisionReason::BidirectionalModelContinuation:
+    return "bidirectional_model_continuation";
+  case SupportDecisionReason::BidirectionalMixedReconciliation:
+    return "bidirectional_mixed_reconciliation";
   case SupportDecisionReason::RejectedSupportPath: return "rejected_support_path";
   }
   return "unknown";
@@ -881,6 +901,10 @@ const char* supportDecisionReasonText(SupportDecisionReason reason) noexcept {
     return "The local contact was confirmed by persistent cumulative growth above the terminal support tip.";
   case SupportDecisionReason::MixedSemanticProjection:
     return "Stable model matter and a raft-rooted support share one raster component; support runs were partitioned explicitly.";
+  case SupportDecisionReason::BidirectionalModelContinuation:
+    return "The descending model pass reaches this region and no surviving raft-rooted support core claims it after reconciliation.";
+  case SupportDecisionReason::BidirectionalMixedReconciliation:
+    return "Independent raft-rooted support and descending model provenance reach the same raster component; their pixel regions are preserved separately.";
   case SupportDecisionReason::RejectedSupportPath:
     return "The candidate path was not accepted as support, or a provisional contact did not persist.";
   }
