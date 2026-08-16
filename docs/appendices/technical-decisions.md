@@ -30,6 +30,8 @@ Status: `IMPLEMENTED` for recorded decisions, `PARTIAL` for open work.
 | D-019 | PWSZ `pw0Img` decoding uses mixed one/two-byte RLE and detects antialiasing from raster data. | Valid binary files contain only levels 0/15, while intermediate levels 1..14 are optional. |
 | D-020 | Viewer mesh is generated from material/void transitions between stacked layers and split into layer chunks. | This preserves exterior/interior surfaces, supports and holes while enabling dynamic Z-range selection. |
 | D-021 | The first desktop viewer backend uses `QQuickFramebufferObject` with Qt OpenGL and exact shader Z clipping. | It uses public Qt 6 APIs, matches the existing `render3d/gl` boundary, is enabled in development desktop presets and remains disabled in production. |
+| D-022 | The interactive PWSZ viewer uses a fixed one-layer-out-of-two preview and exposes no full-detail mode. | The viewer is an inspection aid; fixed stride-two is the accepted performance/visual compromise and never changes print data. |
+| D-023 | Optional support colouring uses two native-layer semantic passes before the stride-two mesh is built. | Bottom-up raft-rooted support evidence and top-down model evidence resolve ambiguous contacts; `forcedSampleLayers` retain validated transition planes while the original PWSZ exposure mask remains geometry truth. |
 
 ## Open items
 
@@ -39,10 +41,10 @@ Status: `IMPLEMENTED` for recorded decisions, `PARTIAL` for open work.
 | Cloud | Ensure every production UI action has an async path. | High |
 | MQTT | Expand printer-model coverage with observation records. | Medium |
 | MQTT | Keep topic discovery controlled and redacted. | Medium |
-| UI | Remove or hide draft dialogs from production paths until wired. | High |
+| UI | Keep active upload, direct-print and viewer workflows thin in QML and backed by typed C++ workflow boundaries. | High |
 | UI | Finish lazy loading and stream visibility rules. | High |
 | i18n | Complete classification and migration of visible strings. | Medium |
-| Viewer | Validate the per-file Qt/OpenGL path locally, then add GPU eviction, LOD/simplification and dynamic cut caps. | High |
+| Viewer | Validate the per-file Qt/OpenGL path locally on large PWSZ files, then add GPU eviction and LOD/simplification. | High |
 | Viewer | Add golden tests for real files and orientation regressions. | Medium |
 | Operations | Formalize debug bundle export with redaction. | Medium |
 

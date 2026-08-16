@@ -11,7 +11,7 @@ Ce projet n'est pas une application officielle Anycubic. Les endpoints, signatur
 - tableau de bord imprimantes, compatibilité et commandes distantes ;
 - connexion MQTT mTLS et store temps réel ;
 - cache local, miniatures, logs structurés redacted et interface bilingue ;
-- parsing Photon/PWMB partiel et viewer 3D PWSZ de développement fonctionnel mais expérimental ; l’intégration production reste désactivée.
+- parsing Photon/PWMB partiel et viewer 3D PWSZ de développement fonctionnel mais expérimental, avec aperçu fixe une couche sur deux et coloration support/pièce optionnelle issue d’une analyse en deux passes ; l’intégration production reste désactivée.
 
 ## Compiler et lancer
 

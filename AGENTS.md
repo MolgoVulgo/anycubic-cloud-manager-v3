@@ -25,7 +25,9 @@ Les documents sous `docs/FR/sources-techniques/` sont des matériaux historiques
 - ressources debug : `src/accloud/app/resources_debug.qrc` ;
 - fenêtre principale : `src/accloud/ui/qml/MainWindow.qml` ;
 - cloud : `src/accloud/infra/cloud/` ;
-- MQTT : `src/accloud/infra/mqtt/`, façade `src/accloud/app/MqttBridge.cpp` et cycle session/abonnements `src/accloud/app/mqtt/MqttBridgeSession.cpp`.
+- MQTT : `src/accloud/infra/mqtt/`, façade `src/accloud/app/MqttBridge.cpp` et cycle session/abonnements `src/accloud/app/mqtt/MqttBridgeSession.cpp` ;
+- viewer PWSZ expérimental : `src/accloud/render3d/`, `src/accloud/ui/qml/pages/VolumeViewerPage.qml` et `VolumeViewerDialog.qml` ;
+- analyse des supports : `src/accloud/render3d/analysis/SupportAnalyzer.*`, avec diagnostic debug via `SupportAnalysisBridge`.
 
 ## Invariants
 
@@ -36,16 +38,20 @@ Les documents sous `docs/FR/sources-techniques/` sont des matériaux historiques
 - Ne jamais journaliser tokens, cookies, sessions, clés privées ou URLs signées complètes.
 - Ne jamais inclure build, caches, logs, HAR, `session.json` ou secrets dans un patch.
 - Ne pas refondre une zone hors périmètre demandé.
+- Le viewer rapide utilise un pas fixe d’une couche sur deux ; aucun mode `layer_step = 1` n’est exposé par l’UI.
+- L’option Supports déclenche une analyse sémantique en deux passes natives (bas→haut depuis la fin du radeau, puis haut→bas depuis la dernière couche) avant le maillage stride-2 ; la géométrie matière reste issue du masque PWSZ d’origine.
 
 ## Commandes standard
 
-Depuis `accloud/` :
+Boucle de développement desktop depuis `accloud/` :
 
 ```bash
 cmake --preset default
 cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
+
+Le gate de clôture Qt complet reste `local-full`. Pour toute modification du viewer, utiliser en plus `experimental-viewer-core` puis `experimental-viewer-qt` selon le périmètre.
 
 ## Politique de modification
 

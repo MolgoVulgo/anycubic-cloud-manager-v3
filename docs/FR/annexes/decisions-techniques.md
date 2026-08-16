@@ -30,10 +30,12 @@ Statut : `IMPLEMENTE` pour les décisions, `PARTIEL` pour les chantiers.
 | D-019 | Le décodage PWSZ `pw0Img` utilise un RLE mixte un/deux octets et détecte l’antialiasing dans les rasters. | Les fichiers binaires valides ne contiennent que 0/15 ; les niveaux 1..14 restent optionnels. |
 | D-020 | Le mesh viewer est généré depuis les transitions matière/vide entre couches empilées et découpé en chunks de couches. | Cela conserve surfaces externes/internes, supports et trous tout en permettant une plage Z dynamique. |
 | D-021 | Le premier backend desktop utilise `QQuickFramebufferObject`, Qt OpenGL et un clipping Z exact dans le shader. | Il repose sur des API Qt 6 publiques, respecte la frontière `render3d/gl`, est activé dans les presets desktop de développement et reste désactivé en production. |
+| D-022 | Le viewer PWSZ interactif utilise une preview fixe d'une couche sur deux et n'expose aucun mode détail complet. | Le viewer sert à l'inspection ; le stride-2 fixe est le compromis performance/visuel retenu et ne modifie jamais les données d'impression. |
+| D-023 | La coloration optionnelle des supports utilise deux passes sémantiques sur les couches natives avant la construction du mesh stride-2. | Les indices support enracinés dans le radeau, puis les indices pièce descendants, lèvent les contacts ambigus ; `forcedSampleLayers` conserve les plans de transition validés tandis que le masque d'exposition PWSZ d'origine reste la vérité géométrique. |
 
 ## Points ouverts
 
-Cloud : fermer contrat sync par scope, async partout côté UI. MQTT : étendre couverture modèles et discovery redacted. UI : cacher/wirer dialogs draft, finir lazy loading. i18n : migration complète chaînes visibles. Viewer : valider localement le chemin Qt/OpenGL par fichier, puis ajouter éviction GPU, LOD/simplification et bouchons de coupe dynamiques. Ops : debug bundle redacted.
+Cloud : fermer contrat sync par scope, async partout côté UI. MQTT : étendre couverture modèles et discovery redacted. UI : maintenir les workflows actifs upload/impression directe/viewer fins côté QML et adossés à des frontières C++ typées, puis finir le lazy loading. i18n : migration complète des chaînes visibles. Viewer : valider localement le chemin Qt/OpenGL par fichier sur de gros PWSZ, puis ajouter éviction GPU et LOD/simplification. Ops : debug bundle redacted.
 
 ## Règle future
 

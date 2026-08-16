@@ -51,6 +51,50 @@ ctest --preset default -R '^accloud_mqtt_flow$' --output-on-failure
 ctest --preset default -R '^accloud_ui_qml' --output-on-failure
 ```
 
+## Inventaire CTest courant
+
+Le `accloud/CMakeLists.txt` courant enregistre les noms de tests suivants. Leur disponibilité dans un preset dépend toujours des options de build et des dépendances natives de ce preset ; cet inventaire sert de référence de noms/propriété et ne signifie pas que chaque preset exécute chaque test.
+
+```text
+accloud_ui_qml
+accloud_ui_qml_upload
+accloud_smoke
+accloud_ui_migration_check
+accloud_documentation_contract
+accloud_cloud_api_architecture
+accloud_cloud_bridge_architecture
+accloud_experimental_viewer_architecture
+accloud_local_cache_architecture
+accloud_mqtt_bridge_architecture
+accloud_experimental_viewer_scaffold
+accloud_pw0_decode
+accloud_pwsz_reader
+accloud_layer_stack_mesher
+accloud_support_analyzer
+accloud_support_analysis_diagnostics
+accloud_render_pipeline
+accloud_viewer_controls
+accloud_render3d_worker_benchmark_selftest
+accloud_render3d_shader_compile
+accloud_har_import
+accloud_direct_print_lifecycle
+accloud_cloud_files_delete
+accloud_cloud_api_support
+accloud_cloud_core_regressions
+accloud_thumbnail_candidates
+accloud_thumbnail_cache_policy
+accloud_thumbnail_validation
+accloud_pwsz_preview_archive
+accloud_pwsz_cloud_preview_update_order
+accloud_security_redaction
+accloud_jsonl_logger_timestamp
+accloud_dev_raw_traffic_log
+accloud_ui_models
+accloud_log_flow
+accloud_mqtt_flow
+accloud_mqtt_live_broker
+```
+
 Le logger de trafic brut réservé au mode développement possède son test de régression :
 
 ```bash
@@ -104,11 +148,11 @@ Isolation du viewer expérimental :
 cmake --preset experimental-viewer-core
 cmake --build --preset experimental-viewer-core --clean-first
 ctest --preset experimental-viewer-core \
-  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold|accloud_pw0_decode|accloud_pwsz_reader|accloud_layer_stack_mesher|accloud_render_pipeline|accloud_viewer_controls|accloud_cut_surface_transactions|accloud_render3d_worker_benchmark_selftest)$' \
+  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold|accloud_pw0_decode|accloud_pwsz_reader|accloud_layer_stack_mesher|accloud_support_analyzer|accloud_support_analysis_diagnostics|accloud_render_pipeline|accloud_viewer_controls|accloud_render3d_worker_benchmark_selftest)$' \
   --output-on-failure
 ```
 
-Le preset `default` active le viewer ; `dev-debug` et `local-full` héritent de cette valeur. `prod` et `protected-core` conservent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. Le preset `experimental-viewer-core` valide sans Qt le lecteur PWSZ, le décodage, le meshing, la file d'upload bornée, le plan de rendu par plage, les contrôles de caméra et la supersession transactionnelle des demandes rapides de surfaces de coupe. La garde d'architecture vérifie que les sources Qt/OpenGL restent derrière l'option de build, que l'action PWSZ par fichier est visible et que la production reste désactivée.
+Le preset `default` active le viewer ; `dev-debug` et `local-full` héritent de cette valeur. `prod` et `protected-core` conservent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. Le preset `experimental-viewer-core` valide sans Qt le lecteur PWSZ, le décodage, le meshing, l'analyseur de supports en deux passes, le contrat du bundle de diagnostic, la file d'upload bornée, le plan de rendu par plage, les contrôles de caméra, les surfaces de coupe dynamiques et l'auto-test du benchmark workers. La garde d'architecture vérifie que les sources Qt/OpenGL restent derrière l'option de build, que l'action PWSZ par fichier est visible et que la production reste désactivée.
 Validation locale Qt/OpenGL obligatoire pour toute modification du viewer desktop :
 
 ```bash
@@ -133,7 +177,7 @@ Benchmark manuel des workers sur un même PWSZ :
 
 Le benchmark ouvre une seule fois le même fichier et exécute le produit cartésien complet des tailles de chunks et nombres de workers demandés. Pour une taille de chunk donnée, tous les runs workers doivent produire la même signature compacte : chunks, rectangles de surface, triangles, octets compacts et octets équivalents de l'ancien maillage. Les nombres de chunks ne sont pas comparés entre tailles différentes. Il mesure le décodage PWSZ et le maillage CPU ; l'upload GPU et le rendu sont volontairement exclus. Les rapports `/tmp/beetle-workers.csv` et `/tmp/beetle-workers.jsonl` indiquent notamment `surface_quads`, `compact_bytes`, `legacy_equivalent_bytes`, `compression_ratio`, la taille de chunk, la durée totale et la latence du premier chunk. Le ratio attendu du chemin principal est exactement `15.0` : 8 octets compacts remplacent 120 octets de vertices/index historiques par rectangle. `--repeats 2` ou `3` améliore la stabilité statistique, inverse l’ordre de la matrice complète lors des répétitions paires et multiplie directement la durée du test. Le PWSZ reste externe au dépôt et ce benchmark réel n'est pas un test CTest bloquant. Le test CTest `accloud_render3d_worker_benchmark_selftest` valide la matrice, la stabilité géométrique et le ratio compact sur une source synthétique courte.
 
-Après une modification du chemin GPU compact, la validation locale Qt doit être complétée par un essai runtime sur `Beetle-2.pwsz` en **Détail complet** (`layer_step = 1`). La génération doit atteindre 100 %, l'application doit rester active et manipulable, et `render3d.jsonl` doit contenir des événements `gpu.compact_chunk_uploaded` avec `compression_ratio = 15`, sans `gpu.budget_exceeded`, `gpu.compact_upload_failed` ni arrêt `SIGABRT`. Le champ `resident_bytes` doit rester inférieur ou égal à `budget_bytes`. Cette validation runtime réelle complète les tests synthétiques ; elle ne doit pas être remplacée par le seul benchmark CPU.
+Après une modification du chemin GPU compact, la validation locale Qt doit être complétée par un essai runtime sur `Beetle-2.pwsz` avec le chemin normal de preview à pas fixe d'une couche sur deux (`layer_step = 2` dans les diagnostics Render3D ; aucun mode détail complet n'existe dans l'UI). La génération doit atteindre 100 %, l'application doit rester active et manipulable, et `render3d.jsonl` doit contenir des événements `gpu.compact_chunk_uploaded` avec `compression_ratio = 15`, sans `gpu.budget_exceeded`, `gpu.compact_upload_failed` ni arrêt `SIGABRT`. Le champ `resident_bytes` doit rester inférieur ou égal à `budget_bytes`. Avec **Supports** activé, le run doit aussi terminer les deux passes sémantiques sur les couches natives et conserver les `forcedSampleLayers` signalées aux transitions support/pièce validées. Cette validation runtime réelle complète les tests synthétiques ; elle ne doit pas être remplacée par le seul benchmark CPU.
 
 
 Ne pas inventer de commande absente de CMake. Les tests broker live exigent un environnement contrôlé et ne sont jamais couverts implicitement par un test unitaire local. L'exécution CTest par défaut classe `accloud_mqtt_live_broker` en **Skipped** tant que l'exécution live n'est pas explicitement activée.

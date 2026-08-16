@@ -11,8 +11,8 @@
 | `prod` | Release desktop build; debug tooling and experimental viewer excluded. |
 | `protected-core` | Offline portable core gate without Qt/QML/live services. |
 | `local-full` | Strict complete local Qt/QML/SQL/MQTT non-live gate. |
-| `experimental-viewer-core` | Isolated non-Qt PWSZ, meshing and viewer-core gate. |
-| `experimental-viewer-qt` | Strict Qt/OpenGL desktop viewer gate. |
+| `experimental-viewer-core` | Isolated non-Qt PWSZ, support-analysis, meshing and viewer-core gate. |
+| `experimental-viewer-qt` | Strict Qt/OpenGL desktop viewer gate, including QML integration. |
 
 Normal desktop build:
 
@@ -22,7 +22,7 @@ cmake --build --preset default
 ctest --preset default --output-on-failure
 ```
 
-The authoritative preset definitions are in `CMakePresets.json`; the documentation guard checks that every configure preset remains listed here and in the architecture guide.
+The authoritative preset definitions are in `CMakePresets.json`; the documentation guard checks that every configure preset remains listed here and in the architecture guide. The viewer core gate includes the support analyzer, diagnostic bundle contract and worker-benchmark self-test declared by CMake.
 
 ## Active paths
 

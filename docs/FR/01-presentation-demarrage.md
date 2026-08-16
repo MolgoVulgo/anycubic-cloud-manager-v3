@@ -12,7 +12,7 @@ Anycubic Cloud Manager V3 regroupe dans une interface desktop les fichiers cloud
 | Fichiers cloud et imprimantes | ACTIF / PARTIEL | Fonctions principales utilisables, compatibilité dépendante du cloud et du modèle. |
 | MQTT temps réel | ACTIF | État live reçu selon le contrat broker Anycubic observé. |
 | Impression distante | ACTIF / PARTIEL | HTTP initie la demande ; MQTT rapporte ensuite le résultat réel. |
-| Viewer Photon/PWMB | EXPÉRIMENTAL | Le parcours PWSZ de développement fonctionne de bout en bout ; les autres formats et la préparation production restent partiels. |
+| Viewer Photon/PWMB | EXPÉRIMENTAL | Le parcours PWSZ de développement fonctionne de bout en bout avec un aperçu fixe une couche sur deux ; la coloration optionnelle des supports utilise une analyse native en deux passes. Les autres formats et la préparation production restent partiels. |
 
 ## Parcours normal
 
@@ -91,7 +91,8 @@ tmp/               données temporaires et profil OpenSSL de compatibilité
 - Les champs varient selon les modèles et firmwares.
 - Une commande HTTP acceptée n'est pas une confirmation finale d'impression.
 - Les tests live exigent credentials, réseau et matériel mTLS contrôlés.
-- Le viewer reste expérimental.
+- Le viewer reste expérimental ; son aperçu normal est volontairement fixé à une couche source sur deux, sans mode UI en détail complet.
+- La coloration support/pièce est inférée par deux passes sémantiques et ne remplace jamais le masque d’exposition PWSZ d’origine comme vérité géométrique.
 
 ## Suite de lecture
 

@@ -314,6 +314,22 @@ def check_documented_build_and_test_inventory(root: Path, errors: list[str]) -> 
         if missing:
             errors.append(f"{relative} omits CMake viewer tests: {missing}")
 
+    all_tests = set(
+        re.findall(
+            r"add_test\s*\(\s*(?:NAME\s+)?(accloud_[A-Za-z0-9_]+)",
+            cmake,
+            flags=re.DOTALL,
+        )
+    )
+    for relative in (
+        "docs/07-development-tests-patches.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+    ):
+        text = read_text(root / relative)
+        missing = sorted(name for name in all_tests if name not in text)
+        if missing:
+            errors.append(f"{relative} omits registered CTest names: {missing}")
+
 
 def check_documentation_freshness_contract(root: Path, errors: list[str]) -> None:
     english_dev = read_text(root / "docs/07-development-tests-patches.md")
@@ -353,17 +369,39 @@ def check_documentation_freshness_contract(root: Path, errors: list[str]) -> Non
         "base expérimentale de viewer 3D",
         "complete viewer workflow is not closed",
         "workflow complet n'est pas finalisé",
+        "**Full detail**",
+        "**Détail complet**",
+        "accloud_cut_surface_transactions",
+        "dynamic cut caps",
+        "bouchons de coupe dynamiques",
+        "Remove or hide draft dialogs",
+        "cacher/wirer dialogs draft",
+        "Draft views",
+        "vues draft",
     )
-    for relative in (
+    current_viewer_docs = (
         "readme.md",
         "readme-FR.md",
         "docs/01-overview-and-start.md",
         "docs/FR/01-presentation-demarrage.md",
-    ):
+        "docs/02-architecture-runtime.md",
+        "docs/FR/02-architecture-runtime.md",
+        "docs/05-qml-ui.md",
+        "docs/FR/05-interface-qml.md",
+        "docs/07-development-tests-patches.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+        "docs/appendices/photon-viewer-formats.md",
+        "docs/FR/annexes/viewer-photon-formats.md",
+        "docs/appendices/technical-decisions.md",
+        "docs/FR/annexes/decisions-techniques.md",
+        "docs/appendices/ui-screens-cloud-client.md",
+        "docs/FR/annexes/ecrans-client-cloud.md",
+    )
+    for relative in current_viewer_docs:
         text = read_text(root / relative)
         for phrase in stale_viewer_phrases:
             if phrase in text:
-                errors.append(f"{relative} retains stale viewer status: {phrase!r}")
+                errors.append(f"{relative} retains stale viewer contract: {phrase!r}")
 
     ui_tests = (
         "accloud_local_cache_architecture",

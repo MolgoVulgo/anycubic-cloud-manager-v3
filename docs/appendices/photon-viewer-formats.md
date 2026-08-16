@@ -265,6 +265,7 @@ accloud_support_analyzer
 accloud_support_analysis_diagnostics
 accloud_render_pipeline
 accloud_viewer_controls
+accloud_render3d_worker_benchmark_selftest
 ```
 
 `accloud_support_analyzer` validates plate, grid and pad raft prefixes with bounded antialias variation, support-only and mixed phases, a rooted non-merging support forest, branch splits, layer-native braces, light/normal/heavy diameter independence, small and progressively growing first-part sections after a tapered tip, translated Torus-like taper continuations that must remain support, stable plateaus after an old taper that must not reopen a contact, multi-parent support fusions that remain support, rejection of false parents through empty bounding-box holes, structural-parent-only local contact decisions, PWSZ layer-height invariance of semantics, model-rooted supports, deferred contact until a branch has no structural child, persistent model lineage after a confirmed contact, bounded motion-aware model continuity through consecutive raster displacements, independent support-footprint prediction inside a mixed component, semantic partition of one raster-connected mixed model/support component, hollow-model rejection, deterministic compact component indices, cancellation and exact per-layer rematerialization.
