@@ -2682,28 +2682,46 @@ TestCase {
     }
 
     function test_viewer_build_modal_tracks_progress_and_hides_when_complete() {
+        var host = Qt.createQmlObject('import QtQuick 2.15; import QtQuick.Controls 2.15; ' +
+                                      'ApplicationWindow { width: 800; height: 500; visible: true }',
+                                      this, "viewerBuildModalHost")
+        tryCompare(host, "visible", true)
+        wait(0)
+
         var modal = createQmlObject("../../../ui/qml/components/ViewerBuildModal.qml", {
-            "width": 800,
-            "height": 500,
+            "width": host.contentItem.width,
+            "height": host.contentItem.height,
             "running": true,
             "progress": 0.42,
             "phaseText": "Analyzing supports…"
-        })
+        }, host.contentItem)
 
         var blocker = findObjectByName(modal, "viewerBuildInputBlocker")
         var card = findObjectByName(modal, "viewerBuildProgressCard")
         var title = findObjectByName(modal, "viewerBuildProgressTitle")
         var progressBar = findObjectByName(modal, "viewerBuildProgressBar")
         var percent = findObjectByName(modal, "viewerBuildProgressPercent")
+        var elapsed = findObjectByName(modal, "viewerBuildElapsedTime")
+        var cancelButton = findObjectByName(modal, "viewerBuildCancelButton")
+        var cancelRequests = 0
+        modal.cancelRequested.connect(function() { cancelRequests += 1 })
         verify(blocker !== null)
         verify(card !== null)
         verify(title !== null)
         verify(progressBar !== null)
         verify(percent !== null)
+        verify(elapsed !== null)
+        verify(cancelButton !== null)
+        compare(cancelButton.enabled, true)
         compare(modal.visible, true)
         compare(title.text, "Analyzing supports…")
         verify(Math.abs(progressBar.value - 0.42) < 0.001)
         compare(percent.text, "42%")
+        verify(String(elapsed.text).indexOf("Elapsed: ") === 0)
+        compare(modal.formatElapsed(65000), "01:05")
+        compare(modal.formatElapsed(3661000), "01:01:01")
+        mouseClick(cancelButton)
+        compare(cancelRequests, 1)
 
         modal.progress = 2.0
         compare(progressBar.value, 1.0)
@@ -2715,7 +2733,10 @@ TestCase {
 
         modal.running = false
         compare(modal.visible, false)
+        modal.elapsedMilliseconds = 65000
+        compare(elapsed.text, "Elapsed: 01:05")
         modal.destroy()
+        host.destroy()
     }
 
     function test_volume_viewer_dialog_print_closes_and_forwards_cloud_file() {
@@ -2740,12 +2761,15 @@ TestCase {
         var resetButton = findObjectByName(dialog, "viewerDialogResetButton")
         var fullscreenButton = findObjectByName(dialog, "viewerDialogFullscreenButton")
         var viewerPage = findObjectByName(dialog, "cloudFileVolumeViewerPage")
+        var viewerItem = findObjectByName(dialog, "volumeViewerItem")
         var supportsCheckBox = findObjectByName(dialog, "viewerSupportsCheckBox")
         var printButton = findObjectByName(dialog, "viewerDialogPrintButton")
         var closeButton = findObjectByName(dialog, "viewerDialogCloseButton")
         verify(resetButton !== null)
         verify(fullscreenButton !== null)
         verify(viewerPage !== null)
+        verify(viewerItem !== null)
+        verify(typeof viewerItem.cancelLoad === "function")
         verify(supportsCheckBox !== null)
         verify(printButton !== null)
         verify(closeButton !== null)

@@ -3,11 +3,14 @@
 #include "render3d/analysis/SupportAnalyzer.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -43,6 +46,56 @@ public:
 
 private:
   std::vector<accloud::photons::BinaryMask> layers_;
+};
+
+class TrackingSource final : public accloud::photons::LayerMaskSource {
+public:
+  TrackingSource(
+      std::vector<accloud::photons::BinaryMask> layers,
+      bool concurrentLoads)
+      : layers_(std::move(layers)), concurrentLoads_(concurrentLoads) {}
+
+  std::size_t layerCount() const noexcept override { return layers_.size(); }
+  std::uint32_t width() const noexcept override { return layers_.front().width(); }
+  std::uint32_t height() const noexcept override { return layers_.front().height(); }
+  bool supportsConcurrentMaskLoads() const noexcept override {
+    return concurrentLoads_;
+  }
+
+  std::optional<accloud::photons::BinaryMask> loadMask(
+      std::size_t layerNumber,
+      std::string& error) override {
+    if (layerNumber >= layers_.size()) {
+      error = "layer outside tracking support analyzer source";
+      return std::nullopt;
+    }
+    totalLoads_.fetch_add(1u, std::memory_order_relaxed);
+    const auto active = activeLoads_.fetch_add(1u, std::memory_order_relaxed) + 1u;
+    auto observed = maximumActiveLoads_.load(std::memory_order_relaxed);
+    while (active > observed
+           && !maximumActiveLoads_.compare_exchange_weak(
+               observed, active, std::memory_order_relaxed)) {
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    auto result = layers_[layerNumber];
+    activeLoads_.fetch_sub(1u, std::memory_order_relaxed);
+    return result;
+  }
+
+  [[nodiscard]] std::size_t maximumActiveLoads() const noexcept {
+    return maximumActiveLoads_.load(std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] std::size_t totalLoads() const noexcept {
+    return totalLoads_.load(std::memory_order_relaxed);
+  }
+
+private:
+  std::vector<accloud::photons::BinaryMask> layers_;
+  bool concurrentLoads_ = false;
+  std::atomic<std::size_t> activeLoads_{0u};
+  std::atomic<std::size_t> maximumActiveLoads_{0u};
+  std::atomic<std::size_t> totalLoads_{0u};
 };
 
 void fillRect(
@@ -908,6 +961,30 @@ std::vector<accloud::photons::BinaryMask> makeMovingMixedSemanticScene() {
   return layers;
 }
 
+std::vector<accloud::photons::BinaryMask> makeFragmentedBitsetScene() {
+  constexpr std::uint32_t width = 1536u;
+  constexpr std::uint32_t height = 28u;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 9; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 2u, 23u, width - 2u, 27u);
+  fillRect(layers[1], 2u, 23u, width - 2u, 27u);
+
+  for (std::size_t layer = 2u; layer < layers.size(); ++layer) {
+    for (std::uint32_t y = 5u; y < 22u; ++y) {
+      if ((y % 2u) != 0u) {
+        fillRect(layers[layer], 8u, y, width - 8u, y + 1u);
+        continue;
+      }
+      for (std::uint32_t x = 12u; x + 2u < width - 12u; x += 9u) {
+        fillRect(layers[layer], x, y, x + 2u, y + 1u);
+      }
+    }
+  }
+  return layers;
+}
+
 std::vector<accloud::photons::BinaryMask> makeHollowModelScene() {
   constexpr std::uint32_t width = 40;
   constexpr std::uint32_t height = 40;
@@ -1354,6 +1431,108 @@ int main() {
   }
   ok &= require(!modelLayerContainsSupport,
                 "the closed hollow shell must not be reclassified as support");
+
+  auto serialOptions = testOptions();
+  serialOptions.workerCount = 1u;
+  auto parallelOptions = testOptions();
+  parallelOptions.workerCount = 4u;
+  VectorSource serialWorkerSource(branchedLayers);
+  VectorSource parallelWorkerSource(branchedLayers);
+  const auto serialWorkers = analyzer.analyze(serialWorkerSource, serialOptions);
+  const auto parallelWorkers = analyzer.analyze(parallelWorkerSource, parallelOptions);
+  VectorSource parallelWorkerSourceRepeat(branchedLayers);
+  const auto parallelWorkersRepeat = analyzer.analyze(
+      parallelWorkerSourceRepeat, parallelOptions);
+  ok &= require(serialWorkers.ok && parallelWorkers.ok && parallelWorkersRepeat.ok
+                    && sameSemanticClassification(serialWorkers, parallelWorkers)
+                    && sameSemanticClassification(parallelWorkers, parallelWorkersRepeat),
+                "the shared worker scheduler must preserve deterministic support semantics across layer preparation, component decisions and lineage compute");
+
+  auto fragmentedBitsetLayers = makeFragmentedBitsetScene();
+  auto bitsetOptions = parallelOptions;
+  bitsetOptions.enableBitsetAcceleration = true;
+  auto runOnlyOptions = parallelOptions;
+  runOnlyOptions.enableBitsetAcceleration = false;
+  VectorSource bitsetSource(fragmentedBitsetLayers);
+  VectorSource runOnlySource(fragmentedBitsetLayers);
+  const auto bitsetResult = analyzer.analyze(bitsetSource, bitsetOptions);
+  const auto runOnlyResult = analyzer.analyze(runOnlySource, runOnlyOptions);
+  ok &= require(bitsetResult.ok && runOnlyResult.ok
+                    && sameSemanticClassification(bitsetResult, runOnlyResult),
+                "the hybrid CPU bitset/SIMD path must preserve the exact run-only semantic result on heavily fragmented rows");
+
+  TrackingSource concurrentTrackingSource(branchedLayers, true);
+  const auto concurrentTracking = analyzer.analyze(
+      concurrentTrackingSource, parallelOptions);
+  ok &= require(concurrentTracking.ok
+                    && concurrentTrackingSource.maximumActiveLoads() >= 2u
+                    && concurrentTrackingSource.maximumActiveLoads() <= 4u
+                    && concurrentTrackingSource.totalLoads() == branchedLayers.size(),
+                "the shared scheduler must prepare every native layer once while bounding the mask-preparation window to four concurrent loads");
+
+  auto wideWorkerOptions = parallelOptions;
+  wideWorkerOptions.workerCount = 16u;
+  TrackingSource wideWorkerTrackingSource(branchedLayers, true);
+  const auto wideWorkerTracking = analyzer.analyze(
+      wideWorkerTrackingSource, wideWorkerOptions);
+  ok &= require(wideWorkerTracking.ok
+                    && wideWorkerTrackingSource.maximumActiveLoads() >= 2u
+                    && wideWorkerTrackingSource.maximumActiveLoads() <= 4u
+                    && wideWorkerTrackingSource.totalLoads() == branchedLayers.size()
+                    && sameSemanticClassification(
+                        concurrentTracking, wideWorkerTracking),
+                "increasing semantic workers beyond four must not widen the retained layer-preparation window or change support semantics");
+
+  TrackingSource serializedTrackingSource(branchedLayers, false);
+  const auto serializedTracking = analyzer.analyze(
+      serializedTrackingSource, parallelOptions);
+  ok &= require(serializedTracking.ok
+                    && serializedTrackingSource.maximumActiveLoads() == 1u
+                    && serializedTrackingSource.totalLoads() == branchedLayers.size()
+                    && sameSemanticClassification(
+                        concurrentTracking, serializedTracking),
+                "non-concurrent mask sources must serialize one load per layer without changing semantics");
+
+  accloud::photons::BinaryMask denseComponentMask(128u, 8u);
+  constexpr std::size_t denseComponentCount = 24u;
+  for (std::size_t component = 0u; component < denseComponentCount; ++component) {
+    const auto firstX = static_cast<std::uint32_t>(2u + component * 5u);
+    fillRect(denseComponentMask, firstX, 2u, firstX + 2u, 4u);
+  }
+  accloud::render3d::LayerSemanticIndex denseComponentIndex;
+  denseComponentIndex.layer = 0u;
+  denseComponentIndex.phase = accloud::render3d::PrintPhase::ModelAndSupports;
+  for (std::size_t component = 1u; component < denseComponentCount; component += 2u) {
+    denseComponentIndex.supportComponentIds.push_back(
+        static_cast<std::uint32_t>(component));
+  }
+  std::vector<accloud::render3d::SemanticRun> denseComponentRuns;
+  std::string denseComponentError;
+  const bool denseComponentMaterialized = analyzer.materializeLayerSemantics(
+      denseComponentMask, denseComponentIndex, denseComponentRuns, denseComponentError);
+  bool denseComponentIdsStable = denseComponentMaterialized;
+  for (std::size_t component = 0u;
+       denseComponentIdsStable && component < denseComponentCount; ++component) {
+    const auto x = static_cast<std::uint32_t>(2u + component * 5u);
+    const bool emittedAsSupport = std::any_of(
+        denseComponentRuns.begin(), denseComponentRuns.end(),
+        [&](const auto& run) {
+          return run.semantic == accloud::render3d::MaterialSemantic::Support
+                 && run.y == 2u && x >= run.firstX && x < run.lastX;
+        });
+    denseComponentIdsStable = emittedAsSupport == ((component % 2u) != 0u);
+  }
+  ok &= require(
+      denseComponentIdsStable,
+      "dense connected-component indexing must preserve deterministic local component ids during semantic materialization");
+
+  auto invalidWorkerOptions = testOptions();
+  invalidWorkerOptions.workerCount = 0u;
+  VectorSource invalidWorkerSource(branchedLayers);
+  const auto invalidWorkers = analyzer.analyze(
+      invalidWorkerSource, invalidWorkerOptions);
+  ok &= require(!invalidWorkers.ok && !invalidWorkers.error.empty(),
+                "support analysis must reject an invalid worker count");
 
   VectorSource deterministicSourceA(branchedLayers);
   VectorSource deterministicSourceB(branchedLayers);

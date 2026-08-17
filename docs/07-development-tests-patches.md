@@ -51,49 +51,48 @@ ctest --preset default -R '^accloud_mqtt_flow$' --output-on-failure
 ctest --preset default -R '^accloud_ui_qml' --output-on-failure
 ```
 
-## Current CTest inventory
 
-The current `accloud/CMakeLists.txt` registers the following test names. Availability in one preset still depends on that preset's build options and native dependencies; this inventory is a name/ownership reference, not a claim that every preset executes every test.
+Registered CTest inventory declared by `accloud/CMakeLists.txt`:
 
-```text
-accloud_ui_qml
-accloud_ui_qml_upload
-accloud_smoke
-accloud_ui_migration_check
-accloud_documentation_contract
-accloud_cloud_api_architecture
-accloud_cloud_bridge_architecture
-accloud_experimental_viewer_architecture
-accloud_local_cache_architecture
-accloud_mqtt_bridge_architecture
-accloud_experimental_viewer_scaffold
-accloud_pw0_decode
-accloud_pwsz_reader
-accloud_layer_stack_mesher
-accloud_support_analyzer
-accloud_support_analysis_diagnostics
-accloud_render_pipeline
-accloud_viewer_controls
-accloud_render3d_worker_benchmark_selftest
-accloud_render3d_shader_compile
-accloud_har_import
-accloud_direct_print_lifecycle
-accloud_cloud_files_delete
-accloud_cloud_api_support
-accloud_cloud_core_regressions
-accloud_thumbnail_candidates
-accloud_thumbnail_cache_policy
-accloud_thumbnail_validation
-accloud_pwsz_preview_archive
-accloud_pwsz_cloud_preview_update_order
-accloud_security_redaction
-accloud_jsonl_logger_timestamp
-accloud_dev_raw_traffic_log
-accloud_ui_models
-accloud_log_flow
-accloud_mqtt_flow
-accloud_mqtt_live_broker
-```
+- `accloud_cloud_api_architecture`
+- `accloud_cloud_api_support`
+- `accloud_cloud_bridge_architecture`
+- `accloud_cloud_core_regressions`
+- `accloud_cloud_files_delete`
+- `accloud_dev_raw_traffic_log`
+- `accloud_direct_print_lifecycle`
+- `accloud_documentation_contract`
+- `accloud_experimental_viewer_architecture`
+- `accloud_experimental_viewer_scaffold`
+- `accloud_har_import`
+- `accloud_jsonl_logger_timestamp`
+- `accloud_layer_stack_mesher`
+- `accloud_local_cache_architecture`
+- `accloud_log_flow`
+- `accloud_mqtt_bridge_architecture`
+- `accloud_mqtt_flow`
+- `accloud_mqtt_live_broker`
+- `accloud_pw0_decode`
+- `accloud_pwsz_cloud_preview_update_order`
+- `accloud_pwsz_preview_archive`
+- `accloud_pwsz_reader`
+- `accloud_render3d_shader_compile`
+- `accloud_render3d_worker_benchmark_selftest`
+- `accloud_render_pipeline`
+- `accloud_security_redaction`
+- `accloud_smoke`
+- `accloud_support_analysis_diagnostics`
+- `accloud_support_analyzer`
+- `accloud_thumbnail_cache_policy`
+- `accloud_thumbnail_candidates`
+- `accloud_thumbnail_validation`
+- `accloud_ui_migration_check`
+- `accloud_ui_models`
+- `accloud_ui_qml`
+- `accloud_ui_qml_upload`
+- `accloud_viewer_controls`
+
+The list above is the complete set of registered test names in the current source tree. Availability in a concrete preset can still depend on build options and native dependencies; the preset-specific gates remain authoritative for what is executed.
 
 The dev-only raw traffic logger has its own regression test:
 
@@ -152,7 +151,7 @@ ctest --preset experimental-viewer-core \
   --output-on-failure
 ```
 
-The `default` preset enables the viewer, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The `experimental-viewer-core` preset validates the PWSZ reader, decoder, mesher, two-pass support analyzer, support-diagnostic bundle contract, bounded upload queue, range render plan, camera controls, dynamic cut surfaces and worker-benchmark self-test without Qt. The architecture guard verifies that Qt/OpenGL sources remain behind the build option, that the per-file PWSZ action is visible, and that production remains disabled.
+The `default` preset enables the viewer, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The `experimental-viewer-core` preset validates the PWSZ reader, decoder, mesher, bounded upload queue, range render plan, camera controls and transactional supersession of rapid cut-surface requests without Qt. The architecture guard verifies that Qt/OpenGL sources remain behind the build option, that the per-file PWSZ action is visible, and that production remains disabled.
 Mandatory local Qt/OpenGL validation for any desktop viewer change:
 
 ```bash
@@ -162,6 +161,18 @@ ctest --preset experimental-viewer-qt --output-on-failure
 ```
 
 This preset inherits `local-full`, requires native Qt dependencies, keeps `Qt6::OpenGL`, links the viewer to `accloud_cli` and also runs QML tests. `accloud-build-deps.zip` must not be imposed on the local workstation when `nlohmann_json` is already installed.
+The viewer Qt/OpenGL inventory also includes `accloud_render3d_shader_compile`; this test requires creation of an OpenGL 3.3 Core context before shader compilation. Failure to create that context is an environment failure and does not count as a successful shader validation.
+
+Support-analysis worker scheduling can be compared on the exact same PWSZ without changing the semantic result:
+
+```bash
+/usr/bin/time ./build/experimental-viewer-core/accloud_support_analysis_probe \
+  /path/to/input.pwsz --output /tmp/support-w1.json --workers 1
+/usr/bin/time ./build/experimental-viewer-core/accloud_support_analysis_probe \
+  /path/to/input.pwsz --output /tmp/support-w4.json --workers 4
+```
+
+After ignoring the `analysis_workers` field, both JSON outputs must be semantically identical. The analyzer decodes/describes each native layer exactly once, retains the compact descriptions for the reverse semantic pass, reuses each component's parent-match metrics within the current layer, and uses one persistent priority worker pool for low-priority layer preparation plus foreground forward classification, model-lineage and reverse-reconciliation batches. Foreground items are claimed dynamically by the configured workers while the coordinator commits results in deterministic component order. The retained native-mask preparation window is capped at four even when more semantic workers are selected. Allocation-sensitive structures are also reused: connected-component extraction keeps row buffers across scanlines, maps disjoint-set roots through a dense index instead of an ordered map, reserves each component's run storage from the exact run count, and `NodeState` references the immutable retained component instead of copying its native run vector. `SparseRunMask` merges rows in place and intersects only rows touched by the sparser operand; forward/reverse preparation vectors retain their capacities across layers. The `accloud_support_analyzer` test asserts one source `loadMask()` per native layer for both concurrent and serialized sources, verifies that even a 16-worker run never widens concurrent layer preparation beyond four masks, compares the 1-worker, 4-worker and wide-worker semantic graph/result, verifies deterministic local component identifiers on a dense disconnected-component materialization case, and compares the P5 hybrid bitset/SIMD path against the canonical run-only path on heavily fragmented rows. The diagnostic probe accepts `--no-bitsets` to disable only the hybrid row-bitset cache for A/B measurements; AVX2 scanline dispatch still retains its mandatory scalar fallback and does not alter the semantic contract. This measurement is separate from the mesh-worker benchmark below.
 
 Manual worker benchmark on one unchanged PWSZ file:
 
@@ -177,7 +188,7 @@ Manual worker benchmark on one unchanged PWSZ file:
 
 The benchmark opens the same file once and executes the full Cartesian matrix of requested chunk sizes and worker counts. For a given chunk size, all worker runs must produce the same compact signature: chunks, surface quads, triangles, compact bytes, and legacy-equivalent bytes. Chunk counts are not compared across different chunk sizes. It measures PWSZ decoding and CPU meshing; GPU upload and rendering are intentionally excluded. `/tmp/beetle-workers.csv` and `/tmp/beetle-workers.jsonl` report `surface_quads`, `compact_bytes`, `legacy_equivalent_bytes`, `compression_ratio`, chunk size, total duration, and first-chunk latency. The expected main-path ratio is exactly `15.0`: eight compact bytes replace 120 historical vertex/index bytes per rectangle. Using `--repeats 2` or `3` improves statistical stability, reverses the complete matrix order on even repeats, and multiplies the runtime accordingly. The PWSZ remains outside the repository and this real benchmark is not a blocking CTest test. `accloud_render3d_worker_benchmark_selftest` validates the matrix, geometry stability, and compact ratio with a short synthetic source.
 
-After a compact GPU-path change, the local Qt validation must include a runtime check with `Beetle-2.pwsz` on the normal fixed stride-two preview path (`layer_step = 2` in Render3D diagnostics; no full-detail UI mode exists). Generation must reach 100%, the application must remain alive and interactive, and `render3d.jsonl` must contain `gpu.compact_chunk_uploaded` events with `compression_ratio = 15`, without `gpu.budget_exceeded`, `gpu.compact_upload_failed`, or `SIGABRT`. `resident_bytes` must remain less than or equal to `budget_bytes`. With **Supports** enabled, the run must also complete both native-layer semantic passes and retain the reported `forcedSampleLayers` at validated support/model transitions. This real runtime check complements the synthetic tests and must not be replaced by the CPU-only benchmark.
+After a compact GPU-path change, the local Qt validation must include a runtime check with `Beetle-2.pwsz` using the viewer's active fixed stride (`layer_step = 2`). Generation must reach 100%, the application must remain alive and interactive, and `render3d.jsonl` must contain `gpu.compact_chunk_uploaded` events with `compression_ratio = 15`, without `gpu.budget_exceeded`, `gpu.compact_upload_failed`, or `SIGABRT`. `resident_bytes` must remain less than or equal to `budget_bytes`. When support analysis is enabled, the additional transition layers selected by the semantic analysis remain part of the normal stride-2 workflow. This real runtime check complements the synthetic tests and must not be replaced by the CPU-only benchmark.
 
 
 Do not invent commands that CMake does not declare. Live broker tests require a controlled environment and are never implied by a local unit test. The default CTest run reports `accloud_mqtt_live_broker` as **Skipped** unless live execution is explicitly enabled.

@@ -245,6 +245,7 @@ AppPageFrame {
             running: viewer.loading
             progress: viewer.progress
             phaseText: viewer.loadingPhase
+            onCancelRequested: viewer.cancelLoad()
         }
     }
 

@@ -84,6 +84,7 @@ public:
   void setSupportColoringEnabled(bool enabled);
 
   Q_INVOKABLE void load();
+  Q_INVOKABLE void cancelLoad();
   Q_INVOKABLE void orbitPixels(qreal deltaX, qreal deltaY);
   Q_INVOKABLE void panPixels(qreal deltaX, qreal deltaY);
   Q_INVOKABLE void zoomSteps(qreal steps);

@@ -11,6 +11,9 @@
 
 namespace accloud::render3d {
 
+inline constexpr std::size_t kMinimumSupportAnalysisWorkerCount = 1u;
+inline constexpr std::size_t kMaximumSupportAnalysisWorkerCount = 16u;
+
 enum class MaterialSemantic : std::uint8_t {
   Model,
   Support,
@@ -106,6 +109,19 @@ struct SupportAnalysisOptions {
   // native layers before it becomes forward contact evidence for reconciliation
   // with the descending model pass.
   std::size_t modelContactConfirmationLayers = 2;
+  // Size of the shared support-analysis worker pool. Low-priority preparation
+  // decodes/describes at most four upcoming native layers, while foreground
+  // batches compute independent component decisions, model lineage and reverse
+  // reconciliation from immutable adjacent-layer state. Layer order and all
+  // graph/semantic commits remain deterministic; the reverse traversal reuses
+  // the retained compact layer descriptions.
+  std::size_t workerCount = 1u;
+  // P5 CPU acceleration. Normal runtime keeps this enabled: fragmented sparse
+  // rows are promoted to compact 64-bit bitsets for overlap/intersection hot
+  // paths, with optional AVX2 word intersection on supported x86 CPUs and a
+  // portable scalar fallback everywhere else. The run representation remains
+  // authoritative and disabling this switch is reserved for diagnostics/tests.
+  bool enableBitsetAcceleration = true;
 
   double raftMaximumChangedPixelRatio = 0.001;
   // Support topology is evaluated in the native resin domain: raster pixels

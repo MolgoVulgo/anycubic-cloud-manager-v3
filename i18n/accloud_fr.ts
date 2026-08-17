@@ -4374,7 +4374,17 @@ Connexion cloud : </translation>
             <source>Creating 3D view…</source>
             <translation>Création de la vue 3D…</translation>
         </message>
-    </context>
+            <message>
+            <location filename="../ui/qml/components/ViewerBuildModal.qml" />
+            <source>Cancel</source>
+            <translation>Annuler</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/ViewerBuildModal.qml" />
+            <source>Elapsed: %1</source>
+            <translation>Temps écoulé : %1</translation>
+        </message>
+</context>
     <context>
         <name>VolumeViewerDialog</name>
         <message>

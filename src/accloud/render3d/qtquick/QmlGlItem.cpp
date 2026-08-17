@@ -1169,6 +1169,62 @@ void QmlGlItem::resetDocumentState() {
   scheduleRender();
 }
 
+void QmlGlItem::cancelLoad() {
+  if (!loading_) {
+    return;
+  }
+
+  const std::uint64_t cancelledGeneration = sceneGeneration_;
+  if (worker_.joinable()) {
+    worker_.request_stop();
+  }
+  uploadQueue_->clear();
+  {
+    std::scoped_lock lock(cutRequestMutex_);
+    cutGeneration_.fetch_add(1, std::memory_order_release);
+    cutRequest_.reset();
+    std::scoped_lock resultLock(cutResultMutex_);
+    readyCutBatch_.reset();
+  }
+  cutRequestChanged_.notify_all();
+
+  loading_ = false;
+  progress_ = 0.0;
+  loadingPhase_.clear();
+  errorString_.clear();
+  machineName_.clear();
+  totalLayers_ = 0;
+  firstLayer_ = 0;
+  lastLayer_ = 0;
+  layerHeightMm_ = 0.05;
+  loadedChunkCount_ = 0;
+  triangleCount_ = 0;
+  bounds_ = {};
+  camera_ = OrbitCamera{};
+  cameraTouched_ = false;
+  archiveReader_.reset();
+  supportAnalysis_.reset();
+  sceneHasSupportSemantics_ = false;
+  ++sceneGeneration_;
+
+  trace3d(
+      logging::Level::kInfo,
+      "viewer",
+      "load_cancel_requested",
+      {},
+      {{"cancelled_generation", text(cancelledGeneration)},
+       {"next_generation", text(sceneGeneration_)}});
+
+  emit loadingChanged();
+  emit progressChanged();
+  emit loadingPhaseChanged();
+  emit errorStringChanged();
+  emit documentChanged();
+  emit visibleRangeChanged();
+  emit meshStatsChanged();
+  scheduleRender();
+}
+
 void QmlGlItem::load() {
   stopWorker();
   resetDocumentState();
@@ -1303,6 +1359,10 @@ void QmlGlItem::load() {
           analysisOptions.pitchXMillimetres = static_cast<double>(pitchX);
           analysisOptions.pitchYMillimetres = static_cast<double>(pitchY);
           analysisOptions.pitchZMillimetres = static_cast<double>(pitchZ);
+          analysisOptions.workerCount = static_cast<std::size_t>(std::clamp(
+              workerCount,
+              static_cast<int>(kMinimumSupportAnalysisWorkerCount),
+              static_cast<int>(kMaximumSupportAnalysisWorkerCount)));
           const auto analysisStarted = std::chrono::steady_clock::now();
           trace3d(
               logging::Level::kDebug,
@@ -1312,7 +1372,10 @@ void QmlGlItem::load() {
               {{"generation", text(generation)},
                {"source_layers", text(reader->layerCount())},
                {"width", text(reader->width())},
-               {"height", text(reader->height())}});
+               {"height", text(reader->height())},
+               {"requested_workers", text(analysisOptions.workerCount)},
+               {"concurrent_mask_loads",
+                reader->supportsConcurrentMaskLoads() ? "true" : "false"}});
 
           int lastAnalysisReportedPercent = -1;
           int lastAnalysisLoggedDecile = -1;

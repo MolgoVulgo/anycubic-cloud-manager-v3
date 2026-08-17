@@ -518,6 +518,22 @@ ctest --preset default -R '^accloud_ui_models$' --output-on-failure
 ctest --preset default -R '^accloud_log_flow$' --output-on-failure
 ctest --preset default -R '^accloud_mqtt_flow$' --output-on-failure
 ctest --preset default -R '^accloud_ui_qml' --output-on-failure
+
+Si une validation Qt échoue sur :
+
+```text
+unable to create an OpenGL 3.3 context
+```
+
+alors :
+
+```text
+- qualifier cet échec comme une limitation de l'environnement Codex ;
+- ne pas le qualifier comme un échec fonctionnel du patch ;
+- le signaler explicitement comme faux négatif environnemental dans le rapport final ;
+- ne rien modifier au patch pour contourner cette absence de contexte OpenGL ;
+- considérer que cette erreur ne bloque pas la validation fonctionnelle du patch.
+```
 ```
 
 Presets connus :

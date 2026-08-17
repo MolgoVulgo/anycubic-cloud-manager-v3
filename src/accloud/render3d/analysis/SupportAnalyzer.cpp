@@ -3,19 +3,33 @@
 #include "domain/photons/BinaryMask.h"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <memory>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <map>
+#include <mutex>
 #include <numbers>
 #include <optional>
 #include <queue>
 #include <set>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#if (defined(__x86_64__) || defined(__i386__)) \
+    && (defined(__GNUC__) || defined(__clang__))
+#include <immintrin.h>
+#define ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH 1
+#else
+#define ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH 0
+#endif
 
 namespace accloud::render3d {
 namespace {
@@ -23,8 +37,239 @@ namespace {
 using photons::BinaryMask;
 using PixelRun = std::pair<std::uint32_t, std::uint32_t>;
 
+// P5 keeps sparse runs as the canonical representation, but promotes
+// sufficiently fragmented rows to a compact word bitset. Dense bitsets are
+// deliberately row-local and bounded relative to the number of sparse
+// intervals so a large mostly-empty resin layer cannot explode memory.
+constexpr std::size_t kBitsetMinimumIntervals = 128u;
+constexpr std::size_t kBitsetMaximumWordsPerInterval = 1u;
+
+struct HybridBitRow {
+  std::uint32_t firstWord = 0u;
+  std::vector<std::uint64_t> words;
+
+  [[nodiscard]] bool empty() const noexcept { return words.empty(); }
+  void clear() { words.clear(); }
+};
+
+std::uint64_t lowBitsMask(std::uint32_t bitCount) {
+  if (bitCount == 0u) {
+    return 0u;
+  }
+  if (bitCount >= 64u) {
+    return std::numeric_limits<std::uint64_t>::max();
+  }
+  return (std::uint64_t{1} << bitCount) - 1u;
+}
+
+std::uint64_t rangeBitsMask(std::uint32_t firstBit, std::uint32_t lastBit) {
+  if (firstBit >= lastBit || firstBit >= 64u) {
+    return 0u;
+  }
+  const auto lower = firstBit == 0u
+      ? std::numeric_limits<std::uint64_t>::max()
+      : std::numeric_limits<std::uint64_t>::max() << firstBit;
+  return lower & lowBitsMask(std::min<std::uint32_t>(64u, lastBit));
+}
+
+void setBitRowRange(
+    HybridBitRow& row,
+    std::uint32_t firstX,
+    std::uint32_t lastX) {
+  if (firstX >= lastX || row.words.empty()) {
+    return;
+  }
+  const auto firstWord = firstX / 64u;
+  const auto lastWord = (lastX - 1u) / 64u;
+  for (auto word = firstWord; word <= lastWord; ++word) {
+    if (word < row.firstWord
+        || static_cast<std::size_t>(word - row.firstWord) >= row.words.size()) {
+      continue;
+    }
+    const auto firstBit = word == firstWord ? firstX % 64u : 0u;
+    const auto lastBit = word == lastWord ? ((lastX - 1u) % 64u) + 1u : 64u;
+    row.words[word - row.firstWord] |= rangeBitsMask(firstBit, lastBit);
+  }
+}
+
+bool buildHybridBitRow(
+    const std::vector<PixelRun>& intervals,
+    HybridBitRow& output) {
+  output.clear();
+  if (intervals.size() < kBitsetMinimumIntervals) {
+    return false;
+  }
+  const auto firstWord = intervals.front().first / 64u;
+  const auto lastWordExclusive = (intervals.back().second + 63u) / 64u;
+  if (lastWordExclusive <= firstWord) {
+    return false;
+  }
+  const auto wordCount = static_cast<std::size_t>(lastWordExclusive - firstWord);
+  if (wordCount > intervals.size() * kBitsetMaximumWordsPerInterval
+      || wordCount * 4u > intervals.size()) {
+    return false;
+  }
+  output.firstWord = firstWord;
+  output.words.assign(wordCount, 0u);
+  for (const auto& interval : intervals) {
+    setBitRowRange(output, interval.first, interval.second);
+  }
+  return true;
+}
+
+std::size_t countHybridBitRowRange(
+    const HybridBitRow& row,
+    std::int64_t firstX,
+    std::int64_t lastX) {
+  if (row.empty() || firstX >= lastX || lastX <= 0) {
+    return 0u;
+  }
+  const auto rowFirst = static_cast<std::int64_t>(row.firstWord) * 64;
+  const auto rowLast = rowFirst + static_cast<std::int64_t>(row.words.size()) * 64;
+  firstX = std::max(firstX, rowFirst);
+  lastX = std::min(lastX, rowLast);
+  if (firstX >= lastX) {
+    return 0u;
+  }
+
+  const auto firstWord = static_cast<std::uint32_t>(firstX / 64);
+  const auto lastWord = static_cast<std::uint32_t>((lastX - 1) / 64);
+  std::size_t result = 0u;
+  for (auto word = firstWord; word <= lastWord; ++word) {
+    auto bits = row.words[word - row.firstWord];
+    const auto firstBit = word == firstWord
+        ? static_cast<std::uint32_t>(firstX % 64)
+        : 0u;
+    const auto lastBit = word == lastWord
+        ? static_cast<std::uint32_t>(((lastX - 1) % 64) + 1)
+        : 64u;
+    bits &= rangeBitsMask(firstBit, lastBit);
+    result += static_cast<std::size_t>(std::popcount(bits));
+  }
+  return result;
+}
+
+template <typename Emit>
+void forEachHybridBitRun(
+    const HybridBitRow& row,
+    std::int64_t firstX,
+    std::int64_t lastX,
+    Emit emit) {
+  if (row.empty() || firstX >= lastX || lastX <= 0) {
+    return;
+  }
+  const auto rowFirst = static_cast<std::int64_t>(row.firstWord) * 64;
+  const auto rowLast = rowFirst + static_cast<std::int64_t>(row.words.size()) * 64;
+  firstX = std::max(firstX, rowFirst);
+  lastX = std::min(lastX, rowLast);
+  if (firstX >= lastX) {
+    return;
+  }
+
+  const auto firstWord = static_cast<std::uint32_t>(firstX / 64);
+  const auto lastWord = static_cast<std::uint32_t>((lastX - 1) / 64);
+  std::optional<std::uint32_t> pendingFirst;
+  std::uint32_t pendingLast = 0u;
+  for (auto word = firstWord; word <= lastWord; ++word) {
+    auto bits = row.words[word - row.firstWord];
+    const auto firstBit = word == firstWord
+        ? static_cast<std::uint32_t>(firstX % 64)
+        : 0u;
+    const auto lastBit = word == lastWord
+        ? static_cast<std::uint32_t>(((lastX - 1) % 64) + 1)
+        : 64u;
+    bits &= rangeBitsMask(firstBit, lastBit);
+    while (bits != 0u) {
+      const auto startBit = static_cast<std::uint32_t>(std::countr_zero(bits));
+      const auto shifted = bits >> startBit;
+      const auto length = static_cast<std::uint32_t>(std::countr_one(shifted));
+      const auto absoluteFirst = word * 64u + startBit;
+      const auto absoluteLast = absoluteFirst + length;
+      if (pendingFirst && pendingLast == absoluteFirst) {
+        pendingLast = absoluteLast;
+      } else {
+        if (pendingFirst) {
+          emit(*pendingFirst, pendingLast);
+        }
+        pendingFirst = absoluteFirst;
+        pendingLast = absoluteLast;
+      }
+      const auto remaining = 64u - startBit;
+      if (length >= remaining) {
+        bits = 0u;
+      } else {
+        bits &= ~(((std::uint64_t{1} << length) - 1u) << startBit);
+      }
+    }
+  }
+  if (pendingFirst) {
+    emit(*pendingFirst, pendingLast);
+  }
+}
+
+void bitwiseAndWordsScalar(
+    const std::uint64_t* left,
+    const std::uint64_t* right,
+    std::uint64_t* output,
+    std::size_t count) {
+  for (std::size_t index = 0u; index < count; ++index) {
+    output[index] = left[index] & right[index];
+  }
+}
+
+#if ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH
+__attribute__((target("avx2")))
+void bitwiseAndWordsAvx2(
+    const std::uint64_t* left,
+    const std::uint64_t* right,
+    std::uint64_t* output,
+    std::size_t count) {
+  std::size_t index = 0u;
+  for (; index + 4u <= count; index += 4u) {
+    const auto a = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(left + index));
+    const auto b = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(right + index));
+    _mm256_storeu_si256(
+        reinterpret_cast<__m256i*>(output + index), _mm256_and_si256(a, b));
+  }
+  bitwiseAndWordsScalar(left + index, right + index, output + index, count - index);
+}
+
+bool cpuSupportsAvx2() {
+  static const bool supported = [] {
+    __builtin_cpu_init();
+    return __builtin_cpu_supports("avx2");
+  }();
+  return supported;
+}
+#endif
+
+void bitwiseAndWords(
+    const std::uint64_t* left,
+    const std::uint64_t* right,
+    std::uint64_t* output,
+    std::size_t count) {
+#if ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH
+  if (cpuSupportsAvx2()) {
+    bitwiseAndWordsAvx2(left, right, output, count);
+    return;
+  }
+#endif
+  bitwiseAndWordsScalar(left, right, output, count);
+}
+
 class DisjointSet {
 public:
+  void reserve(std::size_t capacity) {
+    parent_.reserve(capacity);
+    rank_.reserve(capacity);
+  }
+
+  [[nodiscard]] std::size_t size() const noexcept {
+    return parent_.size();
+  }
+
   std::size_t add() {
     const std::size_t index = parent_.size();
     parent_.push_back(index);
@@ -59,37 +304,90 @@ private:
   std::vector<std::uint8_t> rank_;
 };
 
-template <typename WordProvider>
-std::vector<PixelRun> collectRuns(
+void appendRunsFromWord(
     std::uint32_t width,
-    std::size_t wordsPerRow,
-    WordProvider wordProvider) {
-  std::vector<PixelRun> runs;
-  for (std::size_t wordIndex = 0; wordIndex < wordsPerRow; ++wordIndex) {
-    std::uint64_t word = wordProvider(wordIndex);
-    if (wordIndex + 1 == wordsPerRow && (width % 64u) != 0u) {
-      word &= (std::uint64_t{1} << (width % 64u)) - 1u;
+    std::size_t wordIndex,
+    std::uint64_t word,
+    std::vector<PixelRun>& runs) {
+  if (wordIndex * 64u >= width) {
+    return;
+  }
+  if ((wordIndex + 1u) * 64u > width && (width % 64u) != 0u) {
+    word &= lowBitsMask(width % 64u);
+  }
+  while (word != 0u) {
+    const auto firstBit = static_cast<std::uint32_t>(std::countr_zero(word));
+    const auto shifted = word >> firstBit;
+    const auto runLength = static_cast<std::uint32_t>(std::countr_one(shifted));
+    const auto first = static_cast<std::uint32_t>(wordIndex * 64u) + firstBit;
+    const auto last = std::min<std::uint32_t>(width, first + runLength);
+    if (!runs.empty() && runs.back().second == first) {
+      runs.back().second = last;
+    } else {
+      runs.emplace_back(first, last);
     }
-    while (word != 0u) {
-      const auto firstBit = static_cast<std::uint32_t>(std::countr_zero(word));
-      const auto shifted = word >> firstBit;
-      const auto runLength = static_cast<std::uint32_t>(std::countr_one(shifted));
-      const auto first = static_cast<std::uint32_t>(wordIndex * 64u) + firstBit;
-      const auto last = std::min<std::uint32_t>(width, first + runLength);
-      if (!runs.empty() && runs.back().second == first) {
-        runs.back().second = last;
-      } else {
-        runs.emplace_back(first, last);
-      }
-      const auto remaining = 64u - firstBit;
-      if (runLength >= remaining) {
-        word = 0u;
-      } else {
-        word &= ~(((std::uint64_t{1} << runLength) - 1u) << firstBit);
-      }
+    const auto remaining = 64u - firstBit;
+    if (runLength >= remaining) {
+      word = 0u;
+    } else {
+      word &= ~(((std::uint64_t{1} << runLength) - 1u) << firstBit);
     }
   }
-  return runs;
+}
+
+void collectRunsScalar(
+    std::uint32_t width,
+    const std::uint64_t* words,
+    std::size_t wordsPerRow,
+    std::vector<PixelRun>& runs) {
+  runs.clear();
+  for (std::size_t wordIndex = 0u; wordIndex < wordsPerRow; ++wordIndex) {
+    appendRunsFromWord(width, wordIndex, words[wordIndex], runs);
+  }
+}
+
+#if ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH
+__attribute__((target("avx2")))
+void collectRunsAvx2(
+    std::uint32_t width,
+    const std::uint64_t* words,
+    std::size_t wordsPerRow,
+    std::vector<PixelRun>& runs) {
+  runs.clear();
+  const auto partialLastWord = (width % 64u) != 0u;
+  const auto vectorWordCount = partialLastWord && wordsPerRow != 0u
+      ? wordsPerRow - 1u
+      : wordsPerRow;
+  std::size_t wordIndex = 0u;
+  for (; wordIndex + 4u <= vectorWordCount; wordIndex += 4u) {
+    const auto block = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(words + wordIndex));
+    if (_mm256_testz_si256(block, block) != 0) {
+      continue;
+    }
+    appendRunsFromWord(width, wordIndex + 0u, words[wordIndex + 0u], runs);
+    appendRunsFromWord(width, wordIndex + 1u, words[wordIndex + 1u], runs);
+    appendRunsFromWord(width, wordIndex + 2u, words[wordIndex + 2u], runs);
+    appendRunsFromWord(width, wordIndex + 3u, words[wordIndex + 3u], runs);
+  }
+  for (; wordIndex < wordsPerRow; ++wordIndex) {
+    appendRunsFromWord(width, wordIndex, words[wordIndex], runs);
+  }
+}
+#endif
+
+void collectRuns(
+    std::uint32_t width,
+    const std::uint64_t* words,
+    std::size_t wordsPerRow,
+    std::vector<PixelRun>& runs) {
+#if ACCLOUD_SUPPORT_HAS_X86_AVX2_DISPATCH
+  if (cpuSupportsAvx2()) {
+    collectRunsAvx2(width, words, wordsPerRow, runs);
+    return;
+  }
+#endif
+  collectRunsScalar(width, words, wordsPerRow, runs);
 }
 
 struct RawRun {
@@ -118,14 +416,30 @@ struct LayerDescription {
   std::vector<Component> components;
 };
 
+struct GridQueryScratch {
+  void begin(std::size_t stampCount) {
+    if (stamps.size() < stampCount) {
+      stamps.resize(stampCount, 0u);
+    }
+    result.clear();
+    if (++generation == 0u) {
+      std::fill(stamps.begin(), stamps.end(), 0u);
+      generation = 1u;
+    }
+  }
+
+  std::vector<std::uint32_t> stamps;
+  std::uint32_t generation = 0u;
+  std::vector<std::size_t> result;
+};
+
 class ComponentGridIndex {
 public:
   ComponentGridIndex(
       const LayerDescription* layer,
       const std::vector<bool>& selected,
       double marginPixels)
-      : componentCount_(layer == nullptr ? 0u : layer->components.size()),
-        stamps_(componentCount_, 0u) {
+      : componentCount_(layer == nullptr ? 0u : layer->components.size()) {
     if (layer == nullptr) {
       return;
     }
@@ -144,14 +458,12 @@ public:
     }
   }
 
-  [[nodiscard]] std::vector<std::size_t> query(const Component& component) {
-    std::vector<std::size_t> result;
+  [[nodiscard]] const std::vector<std::size_t>& query(
+      const Component& component,
+      GridQueryScratch& scratch) const {
+    scratch.begin(componentCount_);
     if (componentCount_ == 0u) {
-      return result;
-    }
-    if (++generation_ == 0u) {
-      std::fill(stamps_.begin(), stamps_.end(), 0u);
-      generation_ = 1u;
+      return scratch.result;
     }
     forEachCell(
         component.minX, component.minY, component.maxX, component.maxY,
@@ -161,14 +473,14 @@ public:
             return;
           }
           for (const auto index : iterator->second) {
-            if (stamps_[index] == generation_) {
+            if (scratch.stamps[index] == scratch.generation) {
               continue;
             }
-            stamps_[index] = generation_;
-            result.push_back(index);
+            scratch.stamps[index] = scratch.generation;
+            scratch.result.push_back(index);
           }
         });
-    return result;
+    return scratch.result;
   }
 
 private:
@@ -221,14 +533,20 @@ LayerDescription describeLayer(const BinaryMask& mask, std::size_t layer) {
   description.layer = layer;
 
   std::vector<RawRun> runs;
+  std::vector<PixelRun> rowRuns;
   std::vector<std::size_t> previousRow;
+  std::vector<std::size_t> currentRow;
   DisjointSet sets;
+  runs.reserve(mask.height());
+  sets.reserve(mask.height());
   for (std::uint32_t y = 0; y < mask.height(); ++y) {
-    const auto rowRuns = collectRuns(
-        mask.width(), mask.wordsPerRow(),
-        [&](std::size_t wordIndex) { return mask.rowWord(y, wordIndex); });
-    std::vector<std::size_t> currentRow;
-    currentRow.reserve(rowRuns.size());
+    const auto* rowWords = mask.words().data()
+        + static_cast<std::size_t>(y) * mask.wordsPerRow();
+    collectRuns(mask.width(), rowWords, mask.wordsPerRow(), rowRuns);
+    currentRow.clear();
+    if (currentRow.capacity() < rowRuns.size()) {
+      currentRow.reserve(rowRuns.size());
+    }
     std::size_t previousCursor = 0;
     for (const auto& [first, last] : rowRuns) {
       const auto label = sets.add();
@@ -248,18 +566,25 @@ LayerDescription describeLayer(const BinaryMask& mask, std::size_t layer) {
         sets.unite(label, upper.label);
       }
     }
-    previousRow = std::move(currentRow);
+    previousRow.swap(currentRow);
   }
 
-  std::map<std::size_t, std::size_t> componentIndex;
+  const auto invalidComponent = std::numeric_limits<std::size_t>::max();
+  std::vector<std::size_t> componentIndex(sets.size(), invalidComponent);
+  std::vector<std::size_t> componentRunCounts;
   for (auto& run : runs) {
     const auto root = sets.find(run.label);
-    auto [iterator, inserted] = componentIndex.try_emplace(root, description.components.size());
-    if (inserted) {
+    auto index = componentIndex[root];
+    if (index == invalidComponent) {
+      index = description.components.size();
+      componentIndex[root] = index;
       description.components.push_back(Component{});
-      description.components.back().localId = iterator->second;
+      description.components.back().localId = index;
+      componentRunCounts.push_back(0u);
     }
-    auto& component = description.components[iterator->second];
+    run.label = index;
+    ++componentRunCounts[index];
+    auto& component = description.components[index];
     const auto length = static_cast<std::size_t>(run.last - run.first);
     component.area += length;
     component.minX = std::min(component.minX, run.first);
@@ -269,7 +594,13 @@ LayerDescription describeLayer(const BinaryMask& mask, std::size_t layer) {
     component.centerX += (static_cast<double>(run.first + run.last - 1u) * 0.5)
                          * static_cast<double>(length);
     component.centerY += static_cast<double>(run.y) * static_cast<double>(length);
-    component.runs.push_back(SemanticRun{
+  }
+
+  for (std::size_t index = 0u; index < description.components.size(); ++index) {
+    description.components[index].runs.reserve(componentRunCounts[index]);
+  }
+  for (const auto& run : runs) {
+    description.components[run.label].runs.push_back(SemanticRun{
         run.y, run.first, run.last, MaterialSemantic::Model});
   }
 
@@ -283,6 +614,345 @@ LayerDescription describeLayer(const BinaryMask& mask, std::size_t layer) {
   }
   return description;
 }
+
+struct PreparedLayer {
+  std::size_t layer = 0u;
+  std::optional<BinaryMask> mask;
+  LayerDescription description;
+  std::string error;
+  bool ok = false;
+};
+
+// P4 uses one shared worker pool for the entire support-analysis pipeline. Layer
+// preparation is low-priority background work while per-component semantic work
+// is foreground work. The analysis thread remains the deterministic coordinator
+// and commits results in native component order. This avoids stacking an
+// independent layer-preparation pool on top of a semantic executor while still
+// allowing preparation to overlap the coordinator's ordered commit work.
+class SupportWorkScheduler {
+public:
+  using Task = std::function<void(std::size_t)>;
+
+  explicit SupportWorkScheduler(std::size_t workerCount)
+      : workerCount_(std::max<std::size_t>(1u, workerCount)) {
+    workers_.reserve(workerCount_);
+    for (std::size_t slot = 0u; slot < workerCount_; ++slot) {
+      workers_.emplace_back([this, slot] { workerMain(slot); });
+    }
+  }
+
+  SupportWorkScheduler(const SupportWorkScheduler&) = delete;
+  SupportWorkScheduler& operator=(const SupportWorkScheduler&) = delete;
+
+  ~SupportWorkScheduler() {
+    {
+      std::scoped_lock lock(mutex_);
+      stopping_ = true;
+    }
+    workAvailable_.notify_all();
+    for (auto& worker : workers_) {
+      if (worker.joinable()) {
+        worker.join();
+      }
+    }
+  }
+
+  [[nodiscard]] std::size_t workerCount() const noexcept {
+    return workerCount_;
+  }
+
+  [[nodiscard]] std::size_t backgroundWorkerCount() const noexcept {
+    return workers_.size();
+  }
+
+  void submitBackground(Task task) {
+    if (!task) {
+      return;
+    }
+    {
+      std::scoped_lock lock(mutex_);
+      backgroundTasks_.push_back(std::move(task));
+    }
+    workAvailable_.notify_one();
+  }
+
+  template <typename Callback>
+  void parallelFor(std::size_t itemCount, Callback&& callback) {
+    if (itemCount == 0u) {
+      return;
+    }
+    if (workers_.empty()) {
+      for (std::size_t index = 0u; index < itemCount; ++index) {
+        callback(index, 0u);
+      }
+      return;
+    }
+
+    struct BatchState {
+      std::function<void(std::size_t, std::size_t)> callback;
+      std::atomic<std::size_t> nextItem{0u};
+      std::size_t remainingTickets = 0u;
+      std::size_t itemCount = 0u;
+      std::mutex completionMutex;
+      std::condition_variable completion;
+    };
+
+    auto batch = std::make_shared<BatchState>();
+    batch->callback = std::forward<Callback>(callback);
+    batch->itemCount = itemCount;
+    const auto ticketCount = std::min(workers_.size(), itemCount);
+    batch->remainingTickets = ticketCount;
+
+    auto executeBatch = [batch](std::size_t slot) {
+      while (true) {
+        const auto index = batch->nextItem.fetch_add(1u, std::memory_order_relaxed);
+        if (index >= batch->itemCount) {
+          return;
+        }
+        batch->callback(index, slot);
+      }
+    };
+
+    {
+      std::scoped_lock lock(mutex_);
+      for (std::size_t ticket = 0u; ticket < ticketCount; ++ticket) {
+        foregroundTasks_.push_back(
+            [batch, executeBatch](std::size_t slot) {
+              executeBatch(slot);
+              bool complete = false;
+              {
+                std::scoped_lock lock(batch->completionMutex);
+                if (batch->remainingTickets != 0u) {
+                  --batch->remainingTickets;
+                }
+                complete = batch->remainingTickets == 0u;
+              }
+              if (complete) {
+                batch->completion.notify_one();
+              }
+            });
+      }
+    }
+    workAvailable_.notify_all();
+
+    std::unique_lock lock(batch->completionMutex);
+    batch->completion.wait(lock, [&] {
+      return batch->remainingTickets == 0u;
+    });
+  }
+
+private:
+  void workerMain(std::size_t slot) {
+    while (true) {
+      Task task;
+      {
+        std::unique_lock lock(mutex_);
+        workAvailable_.wait(lock, [&] {
+          return stopping_ || !foregroundTasks_.empty() || !backgroundTasks_.empty();
+        });
+        if (stopping_) {
+          return;
+        }
+        if (!foregroundTasks_.empty()) {
+          task = std::move(foregroundTasks_.front());
+          foregroundTasks_.pop_front();
+        } else {
+          task = std::move(backgroundTasks_.front());
+          backgroundTasks_.pop_front();
+        }
+      }
+      task(slot);
+    }
+  }
+
+  std::size_t workerCount_ = 1u;
+  std::mutex mutex_;
+  std::condition_variable workAvailable_;
+  std::deque<Task> foregroundTasks_;
+  std::deque<Task> backgroundTasks_;
+  std::vector<std::thread> workers_;
+  bool stopping_ = false;
+};
+
+inline constexpr std::size_t kMaximumSupportPreparationWindow = 4u;
+
+// The semantic classifier has strict layer-to-layer dependencies, but loading
+// and connected-component extraction for a layer are independent. This helper
+// submits a bounded ordered preparation window to the shared scheduler. At most
+// four unconsumed material masks are retained, regardless of the semantic worker
+// count. The forward
+// consumer moves each compact connected-component description into the analysis
+// cache so the reverse semantic traversal can reuse it without decoding the
+// PWSZ again.
+class OrderedLayerPreparer {
+public:
+  OrderedLayerPreparer(
+      photons::LayerMaskSource& source,
+      std::size_t firstLayer,
+      std::size_t layerCount,
+      bool descending,
+      bool retainMask,
+      SupportWorkScheduler& scheduler)
+      : source_(source),
+        scheduler_(scheduler),
+        firstLayer_(firstLayer),
+        layerCount_(layerCount),
+        descending_(descending),
+        retainMask_(retainMask),
+        concurrentLoads_(source.supportsConcurrentMaskLoads()),
+        effectiveBackgroundWorkerCount_(std::min(
+            {scheduler.backgroundWorkerCount(),
+             layerCount,
+             kMaximumSupportPreparationWindow})),
+        ready_(layerCount) {
+    outstandingCapacity_ = effectiveBackgroundWorkerCount_;
+    scheduleAvailable();
+  }
+
+  OrderedLayerPreparer(const OrderedLayerPreparer&) = delete;
+  OrderedLayerPreparer& operator=(const OrderedLayerPreparer&) = delete;
+
+  void dropRetainedMasks() {
+    retainMask_.store(false, std::memory_order_relaxed);
+    std::scoped_lock lock(mutex_);
+    for (std::size_t ordinal = nextConsume_; ordinal < ready_.size(); ++ordinal) {
+      if (ready_[ordinal]) {
+        ready_[ordinal]->mask.reset();
+      }
+    }
+  }
+
+  ~OrderedLayerPreparer() {
+    if (effectiveBackgroundWorkerCount_ == 0u) {
+      return;
+    }
+    std::unique_lock lock(mutex_);
+    stopping_ = true;
+    condition_.wait(lock, [&] { return scheduledTaskCount_ == 0u; });
+  }
+
+  [[nodiscard]] PreparedLayer next() {
+    if (nextConsume_ >= layerCount_) {
+      PreparedLayer result;
+      result.error = "support analysis layer preparation exhausted";
+      return result;
+    }
+
+    if (effectiveBackgroundWorkerCount_ == 0u) {
+      return prepare(nextConsume_++);
+    }
+
+    std::unique_lock lock(mutex_);
+    const std::size_t ordinal = nextConsume_;
+    condition_.wait(lock, [&] {
+      return ready_[ordinal].has_value();
+    });
+    PreparedLayer result = std::move(*ready_[ordinal]);
+    ready_[ordinal].reset();
+    ++nextConsume_;
+    if (outstanding_ != 0u) {
+      --outstanding_;
+    }
+    lock.unlock();
+    scheduleAvailable();
+    return result;
+  }
+
+private:
+  [[nodiscard]] std::size_t layerForOrdinal(std::size_t ordinal) const {
+    return descending_ ? firstLayer_ - ordinal : firstLayer_ + ordinal;
+  }
+
+  [[nodiscard]] PreparedLayer prepare(std::size_t ordinal) {
+    PreparedLayer result;
+    result.layer = layerForOrdinal(ordinal);
+
+    std::optional<BinaryMask> mask;
+    if (concurrentLoads_) {
+      mask = source_.loadMask(result.layer, result.error);
+    } else {
+      std::scoped_lock lock(sourceLoadMutex_);
+      mask = source_.loadMask(result.layer, result.error);
+    }
+    if (!mask) {
+      if (result.error.empty()) {
+        result.error = "support analysis could not load a layer";
+      }
+      return result;
+    }
+
+    result.description = describeLayer(*mask, result.layer);
+    if (retainMask_.load(std::memory_order_relaxed)) {
+      result.mask = std::move(mask);
+    }
+    result.ok = true;
+    return result;
+  }
+
+  void scheduleAvailable() {
+    if (effectiveBackgroundWorkerCount_ == 0u) {
+      return;
+    }
+
+    std::vector<std::size_t> ordinals;
+    {
+      std::scoped_lock lock(mutex_);
+      if (stopping_) {
+        return;
+      }
+      while (nextAssign_ < layerCount_ && outstanding_ < outstandingCapacity_) {
+        ordinals.push_back(nextAssign_++);
+        ++outstanding_;
+        ++scheduledTaskCount_;
+      }
+    }
+
+    for (const auto ordinal : ordinals) {
+      scheduler_.submitBackground([this, ordinal](std::size_t) {
+        {
+          std::scoped_lock lock(mutex_);
+          if (stopping_) {
+            --scheduledTaskCount_;
+            condition_.notify_all();
+            return;
+          }
+        }
+
+        auto prepared = prepare(ordinal);
+        {
+          std::scoped_lock lock(mutex_);
+          if (!stopping_) {
+            if (!retainMask_.load(std::memory_order_relaxed)) {
+              prepared.mask.reset();
+            }
+            ready_[ordinal] = std::move(prepared);
+          }
+          --scheduledTaskCount_;
+        }
+        condition_.notify_all();
+      });
+    }
+  }
+
+  photons::LayerMaskSource& source_;
+  SupportWorkScheduler& scheduler_;
+  std::size_t firstLayer_ = 0u;
+  std::size_t layerCount_ = 0u;
+  bool descending_ = false;
+  std::atomic<bool> retainMask_{false};
+  bool concurrentLoads_ = false;
+  std::size_t effectiveBackgroundWorkerCount_ = 0u;
+  std::size_t outstandingCapacity_ = 0u;
+  std::size_t nextAssign_ = 0u;
+  std::size_t nextConsume_ = 0u;
+  std::size_t outstanding_ = 0u;
+  std::size_t scheduledTaskCount_ = 0u;
+  bool stopping_ = false;
+  std::mutex mutex_;
+  std::mutex sourceLoadMutex_;
+  std::condition_variable condition_;
+  std::vector<std::optional<PreparedLayer>> ready_;
+};
 
 double equivalentDiameterMillimetres(
     const Component& component,
@@ -401,21 +1071,20 @@ void canonicalizeSemanticRuns(
     }
     return left.lastX < right.lastX;
   });
-  std::vector<SemanticRun> merged;
-  merged.reserve(runs.size());
+  std::size_t write = 0u;
   for (const auto& run : runs) {
     if (run.firstX >= run.lastX) {
       continue;
     }
-    if (!merged.empty()
-        && merged.back().y == run.y
-        && run.firstX <= merged.back().lastX) {
-      merged.back().lastX = std::max(merged.back().lastX, run.lastX);
+    if (write != 0u
+        && runs[write - 1u].y == run.y
+        && run.firstX <= runs[write - 1u].lastX) {
+      runs[write - 1u].lastX = std::max(runs[write - 1u].lastX, run.lastX);
     } else {
-      merged.push_back(run);
+      runs[write++] = run;
     }
   }
-  runs = std::move(merged);
+  runs.resize(write);
 }
 
 std::size_t semanticRunPixelCount(const std::vector<SemanticRun>& runs) {
@@ -430,14 +1099,20 @@ std::size_t semanticRunPixelCount(const std::vector<SemanticRun>& runs) {
 
 class SparseRunMask {
 public:
-  explicit SparseRunMask(std::uint32_t height = 0u)
-      : rows_(height) {}
+  explicit SparseRunMask(
+      std::uint32_t height = 0u,
+      bool enableBitsetAcceleration = true)
+      : rows_(height),
+        bitRows_(height),
+        enableBitsetAcceleration_(enableBitsetAcceleration) {}
 
   void clear() {
     for (const auto y : touchedRows_) {
       rows_[y].clear();
+      bitRows_[y].clear();
     }
     touchedRows_.clear();
+    hasBitRows_ = false;
   }
 
   [[nodiscard]] bool empty() const noexcept {
@@ -446,7 +1121,10 @@ public:
 
   void swap(SparseRunMask& other) noexcept {
     rows_.swap(other.rows_);
+    bitRows_.swap(other.bitRows_);
     touchedRows_.swap(other.touchedRows_);
+    std::swap(enableBitsetAcceleration_, other.enableBitsetAcceleration_);
+    std::swap(hasBitRows_, other.hasBitRows_);
   }
 
   void addRuns(const std::vector<SemanticRun>& runs) {
@@ -460,6 +1138,17 @@ public:
       const SparseRunMask& selected) {
     for (const auto& run : source) {
       if (run.y >= rows_.size() || run.firstX >= run.lastX) {
+        continue;
+      }
+      const auto& selectedBits = selected.bitRows_[run.y];
+      if (selected.hasBitRows_ && !selectedBits.empty()) {
+        forEachHybridBitRun(
+            selectedBits,
+            static_cast<std::int64_t>(run.firstX),
+            static_cast<std::int64_t>(run.lastX),
+            [&](std::uint32_t first, std::uint32_t last) {
+              addInterval(run.y, first, last);
+            });
         continue;
       }
       const auto& selectedRow = selected.rows_[run.y];
@@ -512,7 +1201,30 @@ public:
           || run.firstX >= run.lastX) {
         continue;
       }
-      for (const auto& interval : rows_[static_cast<std::size_t>(selectedY)]) {
+      const auto y = static_cast<std::size_t>(selectedY);
+      const auto& selectedBits = bitRows_[y];
+      if (hasBitRows_ && !selectedBits.empty()) {
+        const auto selectedFirst = static_cast<std::int64_t>(run.firstX) - shiftX;
+        const auto selectedLast = static_cast<std::int64_t>(run.lastX) - shiftX;
+        forEachHybridBitRun(
+            selectedBits, selectedFirst, selectedLast,
+            [&](std::uint32_t first, std::uint32_t last) {
+              const auto shiftedFirst = static_cast<std::int64_t>(first) + shiftX;
+              const auto shiftedLast = static_cast<std::int64_t>(last) + shiftX;
+              if (shiftedFirst < shiftedLast
+                  && shiftedFirst >= 0
+                  && shiftedLast <= static_cast<std::int64_t>(
+                      std::numeric_limits<std::uint32_t>::max())) {
+                output.push_back(SemanticRun{
+                    run.y,
+                    static_cast<std::uint32_t>(shiftedFirst),
+                    static_cast<std::uint32_t>(shiftedLast),
+                    semantic});
+              }
+            });
+        continue;
+      }
+      for (const auto& interval : rows_[y]) {
         const auto shiftedFirst = static_cast<std::int64_t>(interval.first) + shiftX;
         const auto shiftedLast = static_cast<std::int64_t>(interval.second) + shiftX;
         if (shiftedLast <= static_cast<std::int64_t>(run.firstX)) {
@@ -548,7 +1260,16 @@ public:
           || run.firstX >= run.lastX) {
         continue;
       }
-      for (const auto& interval : rows_[static_cast<std::size_t>(selectedY)]) {
+      const auto y = static_cast<std::size_t>(selectedY);
+      const auto& selectedBits = bitRows_[y];
+      if (hasBitRows_ && !selectedBits.empty()) {
+        result += countHybridBitRowRange(
+            selectedBits,
+            static_cast<std::int64_t>(run.firstX) - shiftX,
+            static_cast<std::int64_t>(run.lastX) - shiftX);
+        continue;
+      }
+      for (const auto& interval : rows_[y]) {
         const auto shiftedFirst = static_cast<std::int64_t>(interval.first) + shiftX;
         const auto shiftedLast = static_cast<std::int64_t>(interval.second) + shiftX;
         if (shiftedLast <= static_cast<std::int64_t>(run.firstX)) {
@@ -597,21 +1318,18 @@ public:
     for (const auto y : touchedRows_) {
       auto& row = rows_[y];
       std::sort(row.begin(), row.end());
-      std::vector<PixelRun> merged;
-      merged.reserve(row.size());
+      std::size_t write = 0u;
       for (const auto& interval : row) {
-        if (!merged.empty() && interval.first <= merged.back().second) {
-          merged.back().second = std::max(merged.back().second, interval.second);
+        if (write != 0u && interval.first <= row[write - 1u].second) {
+          row[write - 1u].second = std::max(row[write - 1u].second, interval.second);
         } else {
-          merged.push_back(interval);
+          row[write++] = interval;
         }
       }
-      row = std::move(merged);
+      row.resize(write);
+      rebuildBitRow(y);
     }
     std::sort(touchedRows_.begin(), touchedRows_.end());
-    touchedRows_.erase(
-        std::unique(touchedRows_.begin(), touchedRows_.end()),
-        touchedRows_.end());
   }
 
   void assignFrom(const SparseRunMask& source) {
@@ -619,6 +1337,14 @@ public:
     for (const auto y : source.touchedRows_) {
       rows_[y] = source.rows_[y];
       touchedRows_.push_back(y);
+      if (enableBitsetAcceleration_) {
+        if (source.hasBitRows_ && !source.bitRows_[y].empty()) {
+          bitRows_[y] = source.bitRows_[y];
+          hasBitRows_ = true;
+        } else {
+          rebuildBitRow(y);
+        }
+      }
     }
   }
 
@@ -635,13 +1361,63 @@ public:
       const SparseRunMask& left,
       const SparseRunMask& right) {
     clear();
-    const auto height = static_cast<std::uint32_t>(rows_.size());
-    for (std::uint32_t y = 0; y < height; ++y) {
-      const auto& a = left.rows_[y];
-      const auto& b = right.rows_[y];
+    const auto* sparse = &left;
+    const auto* other = &right;
+    if (right.touchedRows_.size() < left.touchedRows_.size()) {
+      sparse = &right;
+      other = &left;
+    }
+    for (const auto y : sparse->touchedRows_) {
+      if (y >= rows_.size()) {
+        continue;
+      }
+      const auto& a = sparse->rows_[y];
+      const auto& b = other->rows_[y];
       if (a.empty() || b.empty()) {
         continue;
       }
+
+      if (enableBitsetAcceleration_
+          && sparse->hasBitRows_
+          && other->hasBitRows_
+          && !sparse->bitRows_[y].empty()
+          && !other->bitRows_[y].empty()) {
+        const auto& aBits = sparse->bitRows_[y];
+        const auto& bBits = other->bitRows_[y];
+        const auto firstWord = std::max(aBits.firstWord, bBits.firstWord);
+        const auto aLastWord = static_cast<std::uint64_t>(aBits.firstWord)
+            + aBits.words.size();
+        const auto bLastWord = static_cast<std::uint64_t>(bBits.firstWord)
+            + bBits.words.size();
+        const auto lastWord = std::min(aLastWord, bLastWord);
+        if (static_cast<std::uint64_t>(firstWord) < lastWord) {
+          auto& outputBits = bitRows_[y];
+          outputBits.firstWord = firstWord;
+          outputBits.words.assign(
+              static_cast<std::size_t>(lastWord - firstWord), 0u);
+          bitwiseAndWords(
+              aBits.words.data() + (firstWord - aBits.firstWord),
+              bBits.words.data() + (firstWord - bBits.firstWord),
+              outputBits.words.data(),
+              outputBits.words.size());
+          auto& output = rows_[y];
+          forEachHybridBitRun(
+              outputBits,
+              static_cast<std::int64_t>(firstWord) * 64,
+              static_cast<std::int64_t>(lastWord) * 64,
+              [&](std::uint32_t first, std::uint32_t last) {
+                output.emplace_back(first, last);
+              });
+          if (!output.empty()) {
+            touchedRows_.push_back(y);
+            hasBitRows_ = true;
+          } else {
+            outputBits.clear();
+          }
+          continue;
+        }
+      }
+
       auto& output = rows_[y];
       std::size_t ai = 0u;
       std::size_t bi = 0u;
@@ -659,6 +1435,7 @@ public:
       }
       if (!output.empty()) {
         touchedRows_.push_back(y);
+        rebuildBitRow(y);
       }
     }
   }
@@ -668,6 +1445,14 @@ public:
     std::size_t result = 0u;
     for (const auto& run : runs) {
       if (run.y >= rows_.size() || run.firstX >= run.lastX) {
+        continue;
+      }
+      const auto& bits = bitRows_[run.y];
+      if (hasBitRows_ && !bits.empty()) {
+        result += countHybridBitRowRange(
+            bits,
+            static_cast<std::int64_t>(run.firstX),
+            static_cast<std::int64_t>(run.lastX));
         continue;
       }
       const auto& row = rows_[run.y];
@@ -730,6 +1515,7 @@ private:
     if (row.empty()) {
       touchedRows_.push_back(y);
     }
+    bitRows_[y].clear();
     row.emplace_back(firstX, lastX);
   }
 
@@ -739,19 +1525,32 @@ private:
       if (row.empty()) {
         touchedRows_.push_back(y);
       }
+      bitRows_[y].clear();
       row.insert(row.end(), source.rows_[y].begin(), source.rows_[y].end());
     }
   }
 
+  void rebuildBitRow(std::uint32_t y) {
+    bitRows_[y].clear();
+    if (enableBitsetAcceleration_
+        && rows_[y].size() >= kBitsetMinimumIntervals
+        && buildHybridBitRow(rows_[y], bitRows_[y])) {
+      hasBitRows_ = true;
+    }
+  }
+
   std::vector<std::vector<PixelRun>> rows_;
+  std::vector<HybridBitRow> bitRows_;
   std::vector<std::uint32_t> touchedRows_;
+  bool enableBitsetAcceleration_ = true;
+  bool hasBitRows_ = false;
 };
 
 struct NodeState {
   std::size_t nodeId = 0;
   std::size_t parent = std::numeric_limits<std::size_t>::max();
   std::size_t depth = 1;
-  Component component;
+  const Component* component = nullptr;
   std::size_t runCount = 0;
   bool accepted = false;
   bool classifiedAsModel = false;
@@ -818,6 +1617,11 @@ ModelLineageMotion bestModelLineageMotion(
   };
   std::vector<CandidateShift> candidates;
   const auto radius = static_cast<std::int64_t>(maximumShiftPixels);
+  const auto diameter = static_cast<std::size_t>(maximumShiftPixels) * 2u + 1u;
+  if (diameter != 0u
+      && diameter <= std::numeric_limits<std::size_t>::max() / diameter) {
+    candidates.reserve(diameter * diameter);
+  }
   for (std::int64_t shiftY = -radius; shiftY <= radius; ++shiftY) {
     for (std::int64_t shiftX = -radius; shiftX <= radius; ++shiftX) {
       const auto overlap = previousStableModel.countTranslatedSet(
@@ -907,7 +1711,7 @@ SupportMotionComparison compareSupportMotion(
   }
 
   const auto& parentState = states[parentNode];
-  const auto& parent = parentState.component;
+  const auto& parent = *parentState.component;
   const double actualMotionX = current.centerX - parent.centerX;
   const double actualMotionY = current.centerY - parent.centerY;
   const auto alignmentX = static_cast<std::int64_t>(std::llround(actualMotionX));
@@ -935,7 +1739,7 @@ SupportMotionComparison compareSupportMotion(
   }
 
   if (parentState.parent != std::numeric_limits<std::size_t>::max()) {
-    const auto& grandParent = states[parentState.parent].component;
+    const auto& grandParent = *states[parentState.parent].component;
     comparison.hasMotionPrediction = true;
     comparison.predictedMotionX = parent.centerX - grandParent.centerX;
     comparison.predictedMotionY = parent.centerY - grandParent.centerY;
@@ -961,14 +1765,14 @@ public:
       const std::vector<std::size_t>& nodes,
       const std::vector<NodeState>& states,
       double marginPixels)
-      : stamps_(states.size(), 0u) {
+      : stampCount_(states.size()) {
     const auto margin = static_cast<std::uint32_t>(
         std::max(0.0, std::ceil(marginPixels)));
     for (const auto nodeId : nodes) {
       if (nodeId >= states.size()) {
         continue;
       }
-      const auto& component = states[nodeId].component;
+      const auto& component = *states[nodeId].component;
       const auto minX = component.minX > margin ? component.minX - margin : 0u;
       const auto minY = component.minY > margin ? component.minY - margin : 0u;
       const auto maxX = component.maxX + margin;
@@ -977,14 +1781,12 @@ public:
     }
   }
 
-  [[nodiscard]] std::vector<std::size_t> query(const Component& component) {
-    std::vector<std::size_t> result;
+  [[nodiscard]] const std::vector<std::size_t>& query(
+      const Component& component,
+      GridQueryScratch& scratch) const {
+    scratch.begin(stampCount_);
     if (cells_.empty()) {
-      return result;
-    }
-    if (++generation_ == 0u) {
-      std::fill(stamps_.begin(), stamps_.end(), 0u);
-      generation_ = 1u;
+      return scratch.result;
     }
     forEachCell(
         component.minX, component.minY, component.maxX, component.maxY,
@@ -994,14 +1796,14 @@ public:
             return;
           }
           for (const auto nodeId : iterator->second) {
-            if (stamps_[nodeId] == generation_) {
+            if (scratch.stamps[nodeId] == scratch.generation) {
               continue;
             }
-            stamps_[nodeId] = generation_;
-            result.push_back(nodeId);
+            scratch.stamps[nodeId] = scratch.generation;
+            scratch.result.push_back(nodeId);
           }
         });
-    return result;
+    return scratch.result;
   }
 
 private:
@@ -1043,9 +1845,8 @@ private:
     });
   }
 
+  std::size_t stampCount_ = 0u;
   std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells_;
-  std::vector<std::uint32_t> stamps_;
-  std::uint32_t generation_ = 0u;
 };
 
 struct Match {
@@ -1055,14 +1856,17 @@ struct Match {
   double materialDistance = std::numeric_limits<double>::infinity();
 };
 
-double minimumMaterialDistancePixels(
+struct ComponentPairMetrics {
+  std::size_t overlap = 0u;
+  double centreDistance = 0.0;
+  double materialDistance = std::numeric_limits<double>::infinity();
+  bool nearEnough = false;
+};
+
+double minimumSeparatedMaterialDistancePixels(
     const Component& left,
     const Component& right,
     double maximumDistance) {
-  const auto overlap = overlapPixels(left, right);
-  if (overlap != 0u) {
-    return 0.0;
-  }
   if (left.runs.empty() || right.runs.empty()) {
     return std::numeric_limits<double>::infinity();
   }
@@ -1108,35 +1912,44 @@ double minimumMaterialDistancePixels(
   return best;
 }
 
-bool nearEnough(
-    const Component& previous,
-    const Component& current,
-    const SupportAnalysisOptions& options) {
-  return minimumMaterialDistancePixels(
-             previous, current, options.maximumLayerMotionPixels)
-         <= options.maximumLayerMotionPixels;
+ComponentPairMetrics componentPairMetrics(
+    const Component& left,
+    const Component& right,
+    double maximumDistance) {
+  ComponentPairMetrics metrics;
+  metrics.overlap = overlapPixels(left, right);
+  metrics.materialDistance = metrics.overlap != 0u
+      ? 0.0
+      : minimumSeparatedMaterialDistancePixels(left, right, maximumDistance);
+  metrics.nearEnough = metrics.materialDistance <= maximumDistance;
+  if (metrics.nearEnough) {
+    metrics.centreDistance = centreDistancePixels(left, right);
+  }
+  return metrics;
 }
 
-std::vector<Match> matchingPreviousNodes(
+void matchingPreviousNodes(
     const Component& current,
     const std::vector<std::size_t>& previousNodes,
     const std::vector<NodeState>& states,
-    const SupportAnalysisOptions& options) {
-  std::vector<Match> matches;
+    const SupportAnalysisOptions& options,
+    std::vector<Match>& matches) {
+  matches.clear();
+  if (matches.capacity() < previousNodes.size()) {
+    matches.reserve(previousNodes.size());
+  }
   for (const auto nodeId : previousNodes) {
-    const auto& previous = states[nodeId].component;
-    if (!nearEnough(previous, current, options)) {
+    const auto& previous = *states[nodeId].component;
+    const auto metrics = componentPairMetrics(
+        previous, current, options.maximumLayerMotionPixels);
+    if (!metrics.nearEnough) {
       continue;
     }
-    const auto overlap = overlapPixels(previous, current);
     matches.push_back(Match{
         nodeId,
-        overlap,
-        centreDistancePixels(previous, current),
-        overlap == 0u
-            ? minimumMaterialDistancePixels(
-                  previous, current, options.maximumLayerMotionPixels)
-            : 0.0,
+        metrics.overlap,
+        metrics.centreDistance,
+        metrics.materialDistance,
     });
   }
   std::sort(matches.begin(), matches.end(), [](const Match& left, const Match& right) {
@@ -1151,7 +1964,6 @@ std::vector<Match> matchingPreviousNodes(
     }
     return left.previousNode < right.previousNode;
   });
-  return matches;
 }
 
 bool hasModelRootTaper(
@@ -1160,18 +1972,18 @@ bool hasModelRootTaper(
     const SupportAnalysisOptions& options) {
   std::size_t cursor = nodeId;
   std::size_t root = nodeId;
-  std::size_t maximumArea = states[nodeId].component.area;
+  std::size_t maximumArea = states[nodeId].component->area;
   std::size_t observed = 0;
   while (cursor != std::numeric_limits<std::size_t>::max()) {
     root = cursor;
-    maximumArea = std::max(maximumArea, states[cursor].component.area);
+    maximumArea = std::max(maximumArea, states[cursor].component->area);
     cursor = states[cursor].parent;
     ++observed;
   }
   if (observed < options.minimumTrackLayers || maximumArea == 0) {
     return false;
   }
-  const auto rootArea = states[root].component.area;
+  const auto rootArea = states[root].component->area;
   return maximumArea > rootArea
          && static_cast<double>(rootArea)
                 <= static_cast<double>(maximumArea) * options.modelRootTaperRatio;
@@ -1193,7 +2005,7 @@ TerminalTaperEvidence terminalTaperEvidence(
   if (nodeId >= states.size()) {
     return evidence;
   }
-  const auto finalArea = states[nodeId].component.area;
+  const auto finalArea = states[nodeId].component->area;
   if (finalArea == 0u) {
     return evidence;
   }
@@ -1203,7 +2015,7 @@ TerminalTaperEvidence terminalTaperEvidence(
   std::size_t cursor = nodeId;
   while (cursor != std::numeric_limits<std::size_t>::max()
          && newestToOldest.size() < options.taperLookbackLayers) {
-    newestToOldest.push_back(states[cursor].component.area);
+    newestToOldest.push_back(states[cursor].component->area);
     cursor = states[cursor].parent;
   }
   if (newestToOldest.size() < 2u) {
@@ -1263,15 +2075,15 @@ bool supportEvidenceStopsBefore(
     std::size_t upperArea,
     const std::vector<NodeState>& states,
     const SupportAnalysisOptions& options) {
-  if (lowerNode >= states.size() || states[lowerNode].component.area == 0u) {
+  if (lowerNode >= states.size() || states[lowerNode].component->area == 0u) {
     return false;
   }
   const auto structuralParent = states[lowerNode].parent;
   if (structuralParent != std::numeric_limits<std::size_t>::max()
       && structuralParent < states.size()
-      && states[structuralParent].component.area != 0u
-      && static_cast<double>(states[lowerNode].component.area)
-             > static_cast<double>(states[structuralParent].component.area)
+      && states[structuralParent].component->area != 0u
+      && static_cast<double>(states[lowerNode].component->area)
+             > static_cast<double>(states[structuralParent].component->area)
                    / options.terminalTaperStepRatio) {
     // The lower node is already on the expanding side of a previous minimum;
     // it cannot itself be the terminal support tip for this edge.
@@ -1285,7 +2097,7 @@ bool supportEvidenceStopsBefore(
     return false;
   }
   const double reboundRatio = static_cast<double>(upperArea)
-      / static_cast<double>(states[lowerNode].component.area);
+      / static_cast<double>(states[lowerNode].component->area);
   const double minimumRebound = options.terminalTaperStepRatio > 0.0
       ? 1.0 / options.terminalTaperStepRatio
       : 1.0;
@@ -1300,7 +2112,7 @@ std::size_t recentMaximumArea(
   std::size_t observed = 0;
   while (nodeId != std::numeric_limits<std::size_t>::max()
          && observed < lookbackLayers) {
-    maximumArea = std::max(maximumArea, states[nodeId].component.area);
+    maximumArea = std::max(maximumArea, states[nodeId].component->area);
     nodeId = states[nodeId].parent;
     ++observed;
   }
@@ -1341,7 +2153,7 @@ double branchDriftPixelsPerLayer(
   if (zLayers == 0) {
     return 0.0;
   }
-  return centreDistancePixels(lower.component, upper.component)
+  return centreDistancePixels(*lower.component, *upper.component)
          / static_cast<double>(zLayers);
 }
 
@@ -1362,6 +2174,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       || !(options.pitchZMillimetres > 0.0)
       || options.minimumTrackLayers == 0
       || options.modelContactConfirmationLayers < 2u
+      || options.workerCount < kMinimumSupportAnalysisWorkerCount
+      || options.workerCount > kMaximumSupportAnalysisWorkerCount
       || !(options.raftMaximumChangedPixelRatio >= 0.0
            && options.raftMaximumChangedPixelRatio < 1.0)
       || !(options.maximumLayerMotionPixels >= 0.0)
@@ -1385,41 +2199,136 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   std::vector<std::size_t> nodeDecisionIndices;
   const auto invalidDecision = std::numeric_limits<std::size_t>::max();
   std::vector<std::size_t> previousCandidateNodes;
-  std::optional<LayerDescription> previousLayer;
+  // P1 optimization: connected-component descriptions are produced once by
+  // the forward preparation window and retained for the descending semantic
+  // pass. Material masks remain bounded to the preparation window/raft check.
+  std::vector<LayerDescription> layerDescriptions(source.layerCount());
+  const LayerDescription* previousLayer = nullptr;
   std::vector<bool> previousModelComponents;
   std::optional<BinaryMask> firstRaftMask;
   std::size_t firstRaftArea = 0u;
   bool raftEnded = false;
   bool modelSeen = false;
-  SparseRunMask previousSemanticModel(source.height());
-  SparseRunMask previousPreviousStableSemanticModel(source.height());
-  SparseRunMask previousStableSemanticModel(source.height());
-  SparseRunMask previousStableModelEnvelope(source.height());
-  SparseRunMask currentSemanticModel(source.height());
-  SparseRunMask confirmedSemanticModel(source.height());
-  SparseRunMask propagatedSemanticModel(source.height());
-  SparseRunMask currentStableSemanticModel(source.height());
-  SparseRunMask stableSemanticIntersection(source.height());
-  SparseRunMask stableSemanticUnion(source.height());
-  SparseRunMask predictedSupportSemantic(source.height());
-  SparseRunMask parentSupportSemantic(source.height());
-  SparseRunMask selectedModelSemantic(source.height());
+  SparseRunMask previousSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask previousPreviousStableSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask previousStableSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask previousStableModelEnvelope(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask currentSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask confirmedSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask propagatedSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask currentStableSemanticModel(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask stableSemanticIntersection(source.height(), options.enableBitsetAcceleration);
+  SparseRunMask stableSemanticUnion(source.height(), options.enableBitsetAcceleration);
   const auto maximumModelLineageShift = static_cast<std::uint32_t>(
       std::max(0.0, std::ceil(options.maximumLayerMotionPixels)));
 
+  struct ForwardComponentPreparation {
+    std::vector<Match> matches;
+    SupportDecisionTrace decisionTrace;
+    bool overlapsPreviousModel = false;
+    bool nearPreviousModel = false;
+    bool isModel = false;
+    bool isSupportCandidate = false;
+    bool rootedInModel = false;
+    bool unparentedRaftSupport = false;
+    bool taperedExpansion = false;
+    SupportDecisionReason decisionReason = SupportDecisionReason::UnrelatedAfterModel;
+    std::vector<std::size_t> supportEvidenceParents;
+    std::vector<SemanticRun> supportEvidenceRuns;
+    bool supportEvidenceActive = false;
+  };
+  struct ReverseComponentPreparation {
+    std::size_t nodeId = std::numeric_limits<std::size_t>::max();
+    bool hasSupportEvidence = false;
+    bool protectSupportEvidence = false;
+    ModelLineageMotion modelLineage;
+    bool modelSeed = false;
+    std::vector<SemanticRun> modelRuns;
+    std::vector<SemanticRun> finalSupportRuns;
+    std::size_t supportCorePixels = 0u;
+    std::size_t modelPixels = 0u;
+  };
+  struct ForwardLineagePreparation {
+    bool wholeComponentModel = false;
+    bool confirmedWholeComponentModel = false;
+    bool hasSemanticProjection = false;
+    ModelLineageMotion modelLineage;
+    std::vector<SemanticRun> modelRuns;
+    std::vector<SemanticRun> projectedSupportRuns;
+  };
+  struct ForwardWorkerScratch {
+    ForwardWorkerScratch(std::uint32_t height, bool enableBitsets)
+        : parentSupport(height, enableBitsets) {}
+    SparseRunMask parentSupport;
+    GridQueryScratch supportQuery;
+    GridQueryScratch modelQuery;
+  };
+  struct ReverseWorkerScratch {
+    ReverseWorkerScratch(std::uint32_t height, bool enableBitsets)
+        : supportCore(height, enableBitsets),
+          componentModel(height, enableBitsets),
+          inheritedModel(height, enableBitsets) {}
+    SparseRunMask supportCore;
+    SparseRunMask componentModel;
+    SparseRunMask inheritedModel;
+    std::vector<SemanticRun> inheritedRuns;
+    std::vector<SemanticRun> inheritedOutsideSupport;
+  };
+  struct ForwardLineageWorkerScratch {
+    ForwardLineageWorkerScratch(std::uint32_t height, bool enableBitsets)
+        : predictedSupport(height, enableBitsets),
+          parentSupport(height, enableBitsets),
+          selectedModel(height, enableBitsets) {}
+    SparseRunMask predictedSupport;
+    SparseRunMask parentSupport;
+    SparseRunMask selectedModel;
+    std::vector<SemanticRun> exactModelRuns;
+    std::vector<SemanticRun> translatedModelRuns;
+  };
+
+
+  SupportWorkScheduler workScheduler(options.workerCount);
+  std::vector<ForwardWorkerScratch> forwardScratch;
+  forwardScratch.reserve(workScheduler.workerCount());
+  std::vector<ReverseWorkerScratch> reverseScratch;
+  reverseScratch.reserve(workScheduler.workerCount());
+  std::vector<ForwardLineageWorkerScratch> forwardLineageScratch;
+  forwardLineageScratch.reserve(workScheduler.workerCount());
+  for (std::size_t worker = 0u; worker < workScheduler.workerCount(); ++worker) {
+    forwardScratch.emplace_back(source.height(), options.enableBitsetAcceleration);
+    reverseScratch.emplace_back(source.height(), options.enableBitsetAcceleration);
+    forwardLineageScratch.emplace_back(source.height(), options.enableBitsetAcceleration);
+  }
+
+  OrderedLayerPreparer forwardPreparer(
+      source,
+      0u,
+      source.layerCount(),
+      false,
+      true,
+      workScheduler);
+  std::vector<std::size_t> currentCandidateNodes;
+  std::vector<std::size_t> currentComponentNodes;
+  std::vector<bool> currentIsModel;
+  std::vector<bool> previousHasStructuralChild;
+  std::vector<ForwardComponentPreparation> currentPreparations;
+  std::vector<ForwardLineagePreparation> currentLineagePreparations;
   for (std::size_t layer = 0; layer < source.layerCount(); ++layer) {
     if (callbacks.isCancelled && callbacks.isCancelled()) {
       result.cancelled = true;
       result.error = "support analysis cancelled";
       return result;
     }
-    std::string error;
-    auto mask = source.loadMask(layer, error);
-    if (!mask) {
-      result.error = error.empty() ? "support analysis could not load a layer" : error;
+    auto prepared = forwardPreparer.next();
+    if (!prepared.ok || (!raftEnded && !prepared.mask)) {
+      result.error = prepared.error.empty()
+          ? "support analysis could not load a layer"
+          : std::move(prepared.error);
       return result;
     }
-    auto current = describeLayer(*mask, layer);
+    auto mask = std::move(prepared.mask);
+    layerDescriptions[layer] = std::move(prepared.description);
+    auto& current = layerDescriptions[layer];
     result.summary.componentCount += current.components.size();
     if (layer == 0) {
       if (current.totalArea == 0) {
@@ -1464,7 +2373,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             result.decisions.push_back(trace);
           }
         }
-        previousLayer = std::move(current);
+        previousLayer = &current;
         previousModelComponents.assign(previousLayer->components.size(), false);
         previousCandidateNodes.clear();
         if (callbacks.progress) {
@@ -1473,259 +2382,333 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         continue;
       }
       raftEnded = true;
+      forwardPreparer.dropRetainedMasks();
+      firstRaftMask.reset();
     }
 
     result.layers[layer].layer = layer;
     const bool modelExistedBeforeLayer = modelSeen;
     const bool firstSupportLayer = layer == result.summary.raftLastLayer + 1u;
 
-    std::vector<std::size_t> currentCandidateNodes;
+    currentCandidateNodes.clear();
+    if (currentCandidateNodes.capacity() < current.components.size()) {
+      currentCandidateNodes.reserve(current.components.size());
+    }
     const auto invalidNode = std::numeric_limits<std::size_t>::max();
-    std::vector<std::size_t> currentComponentNodes(
-        current.components.size(), invalidNode);
-    std::vector<bool> currentIsModel(current.components.size(), false);
+    currentComponentNodes.assign(current.components.size(), invalidNode);
+    currentIsModel.assign(current.components.size(), false);
     const auto previousStateCount = states.size();
-    std::vector<bool> previousHasStructuralChild(previousStateCount, false);
+    previousHasStructuralChild.assign(previousStateCount, false);
     std::size_t maximumPreviousSupportArea = 0u;
     for (const auto nodeId : previousCandidateNodes) {
       maximumPreviousSupportArea = std::max(
-          maximumPreviousSupportArea, states[nodeId].component.area);
+          maximumPreviousSupportArea, states[nodeId].component->area);
     }
     ComponentGridIndex previousModelIndex(
-        previousLayer ? &*previousLayer : nullptr,
-        previousModelComponents,
-        options.maximumLayerMotionPixels);
+        previousLayer, previousModelComponents, options.maximumLayerMotionPixels);
     NodeGridIndex previousSupportIndex(
         previousCandidateNodes, states, options.maximumLayerMotionPixels);
     previousStableModelEnvelope.assignDilated(
         previousStableSemanticModel, maximumModelLineageShift);
+    currentPreparations.resize(current.components.size());
+    workScheduler.parallelFor(
+        current.components.size(),
+        [&](std::size_t index, std::size_t workerSlot) {
+          auto& preparation = currentPreparations[index];
+          preparation.matches.clear();
+          preparation.decisionTrace = SupportDecisionTrace{};
+          preparation.overlapsPreviousModel = false;
+          preparation.nearPreviousModel = false;
+          preparation.isModel = false;
+          preparation.isSupportCandidate = false;
+          preparation.rootedInModel = false;
+          preparation.unparentedRaftSupport = false;
+          preparation.taperedExpansion = false;
+          preparation.decisionReason = SupportDecisionReason::UnrelatedAfterModel;
+          preparation.supportEvidenceParents.clear();
+          preparation.supportEvidenceRuns.clear();
+          preparation.supportEvidenceActive = false;
+          const auto& component = current.components[index];
+          auto& workerScratch = forwardScratch[workerSlot];
+          const auto& nearbySupportNodes = previousSupportIndex.query(
+              component, workerScratch.supportQuery);
+          auto& matches = preparation.matches;
+          matchingPreviousNodes(
+              component, nearbySupportNodes, states, options, matches);
+
+          auto& decisionTrace = preparation.decisionTrace;
+          decisionTrace.layer = layer;
+          decisionTrace.componentId = component.localId;
+          decisionTrace.currentAreaPixels = component.area;
+          decisionTrace.minX = component.minX;
+          decisionTrace.minY = component.minY;
+          decisionTrace.maxX = component.maxX;
+          decisionTrace.maxY = component.maxY;
+          if (!matches.empty()) {
+            decisionTrace.parentNodeId = matches.front().previousNode;
+            decisionTrace.parentAreaPixels =
+                states[matches.front().previousNode].component->area;
+            decisionTrace.overlapPixels = matches.front().overlap;
+            decisionTrace.centreDistancePixels = matches.front().centreDistance;
+            decisionTrace.materialDistancePixels = matches.front().materialDistance;
+            if (decisionTrace.parentAreaPixels != 0u) {
+              decisionTrace.parentAreaRatio =
+                  static_cast<double>(decisionTrace.currentAreaPixels)
+                  / static_cast<double>(decisionTrace.parentAreaPixels);
+              decisionTrace.primaryParentCoverageRatio =
+                  static_cast<double>(decisionTrace.overlapPixels)
+                  / static_cast<double>(decisionTrace.parentAreaPixels);
+            }
+          }
+
+          const auto exactStableModelOverlap = previousStableSemanticModel.countSet(
+              component.runs);
+          const auto nearbyStableModelOverlap = previousStableModelEnvelope.countSet(
+              component.runs);
+          bool overlapsPreviousModel = exactStableModelOverlap != 0u;
+          bool nearPreviousModel = nearbyStableModelOverlap != 0u;
+          if (previousLayer) {
+            const auto& nearbyModelComponents = previousModelIndex.query(
+                component, workerScratch.modelQuery);
+            for (const auto previousIndex : nearbyModelComponents) {
+              const auto& previousComponent = previousLayer->components[previousIndex];
+              const auto metrics = componentPairMetrics(
+                  previousComponent, component, options.maximumLayerMotionPixels);
+              if (metrics.overlap != 0u) {
+                overlapsPreviousModel = true;
+                nearPreviousModel = true;
+                continue;
+              }
+              nearPreviousModel = nearPreviousModel || metrics.nearEnough;
+            }
+          }
+
+          std::size_t preservedSupportParentCount = 0u;
+          std::size_t preservedSupportPixels = 0u;
+          for (const auto& match : matches) {
+            const auto parentArea = states[match.previousNode].component->area;
+            if (parentArea == 0u || match.overlap == 0u) {
+              continue;
+            }
+            const double parentCoverage = static_cast<double>(match.overlap)
+                                          / static_cast<double>(parentArea);
+            if (parentCoverage >= options.minimumSupportParentCoverageRatio) {
+              ++preservedSupportParentCount;
+              preservedSupportPixels += match.overlap;
+            }
+          }
+          const double supportFusionCoverage = component.area == 0u
+              ? 0.0
+              : static_cast<double>(std::min(component.area, preservedSupportPixels))
+                    / static_cast<double>(component.area);
+          const bool supportFusionContinuation =
+              preservedSupportParentCount >= 2u
+              && supportFusionCoverage >= options.minimumSupportFusionCoverageRatio;
+
+          SupportMotionComparison supportMotion;
+          TerminalTaperEvidence parentTaperEvidence;
+          bool terminalTaperOnParent = false;
+          bool supportMotionContinuation = false;
+          bool taperedExpansion = false;
+          if (!matches.empty()) {
+            const auto& match = matches.front();
+            const auto& previousState = states[match.previousNode];
+            if (previousState.component->area != 0u
+                && component.area > previousState.component->area) {
+              const double expansion = static_cast<double>(component.area)
+                                       / static_cast<double>(previousState.component->area);
+              const bool rootedOnlyInModel =
+                  result.nodes[match.previousNode].rootedInModel
+                  && !result.nodes[match.previousNode].rootedInRaft;
+              const bool validModelRoot = !rootedOnlyInModel
+                                          || hasModelRootTaper(
+                                              match.previousNode, states, options);
+              parentTaperEvidence = terminalTaperEvidence(
+                  match.previousNode, states, options);
+              terminalTaperOnParent =
+                  previousState.depth >= options.minimumTrackLayers
+                  && validModelRoot
+                  && parentTaperEvidence.tapered;
+              if (terminalTaperOnParent && !supportFusionContinuation) {
+                supportMotion = compareSupportMotion(
+                    match.previousNode, component, states, options);
+                const bool displacedGrowth = expansion > 1.0
+                    && centreDistancePixels(*previousState.component, component)
+                           > options.maximumLayerMotionPixels;
+                const bool unexplainedDisplacedGrowth = displacedGrowth
+                    && !supportMotion.explainedBySupportMotion;
+                const bool growthMayOpenContact =
+                    expansion >= options.minimumModelExpansionRatio
+                    || unexplainedDisplacedGrowth;
+                taperedExpansion = growthMayOpenContact;
+                supportMotionContinuation = displacedGrowth
+                    && !growthMayOpenContact
+                    && supportMotion.explainedBySupportMotion;
+              }
+            }
+          }
+
+          std::size_t supportReferenceArea = 0u;
+          if (!matches.empty()) {
+            supportReferenceArea = recentMaximumArea(
+                matches.front().previousNode, states, options.taperLookbackLayers);
+          }
+          const bool plausibleSupportContinuation = !matches.empty()
+              && (taperedExpansion
+                  || (supportReferenceArea != 0u
+                      && static_cast<double>(component.area)
+                             <= static_cast<double>(supportReferenceArea)
+                                    * options.abruptModelExpansionRatio));
+          const bool modelDominantMerge = overlapsPreviousModel
+              && !plausibleSupportContinuation;
+          bool isModel = modelDominantMerge;
+          SupportDecisionReason decisionReason = modelDominantMerge
+              ? SupportDecisionReason::ModelDominantMerge
+              : SupportDecisionReason::UnrelatedAfterModel;
+
+          bool rootedInModel = false;
+          bool isSupportCandidate = false;
+          bool unparentedRaftSupport = false;
+          if (!isModel) {
+            if (!matches.empty() || firstSupportLayer) {
+              isSupportCandidate = true;
+              unparentedRaftSupport = firstSupportLayer && matches.empty();
+              decisionReason = unparentedRaftSupport
+                  ? SupportDecisionReason::FirstSupportLayer
+                  : (supportFusionContinuation
+                         ? SupportDecisionReason::SupportFusionContinuation
+                         : (supportMotionContinuation
+                                ? SupportDecisionReason::SupportMotionContinuation
+                                : SupportDecisionReason::SupportContinuation));
+            } else if (modelExistedBeforeLayer && nearPreviousModel) {
+              isSupportCandidate = true;
+              rootedInModel = true;
+              decisionReason = SupportDecisionReason::ModelRootCandidate;
+            } else if (!modelExistedBeforeLayer) {
+              const bool relativeModelExpansion = maximumPreviousSupportArea != 0u
+                  && static_cast<double>(component.area)
+                         >= static_cast<double>(maximumPreviousSupportArea)
+                                * options.abruptModelExpansionRatio;
+              if (relativeModelExpansion) {
+                isModel = true;
+                decisionReason =
+                    SupportDecisionReason::RelativeExpansionBeforeFirstModel;
+              } else {
+                isSupportCandidate = true;
+                unparentedRaftSupport = true;
+                decisionReason = SupportDecisionReason::SupportBornBeforeModel;
+              }
+            } else {
+              isModel = true;
+            }
+          }
+
+          decisionTrace.matchedSupportParentCount = matches.size();
+          decisionTrace.preservedSupportParentCount = preservedSupportParentCount;
+          decisionTrace.supportFusionCoverageRatio = supportFusionCoverage;
+          decisionTrace.supportFusionContinuation = supportFusionContinuation;
+          decisionTrace.terminalTaperDecreaseSteps =
+              parentTaperEvidence.meaningfulDecreaseSteps;
+          decisionTrace.immediateTerminalTaperOnParent = parentTaperEvidence.immediate;
+          decisionTrace.terminalTaperReboundOnParent =
+              parentTaperEvidence.reboundAfterTaper;
+          if (options.captureDecisionTrace) {
+            decisionTrace.matchedSupportParentNodeIds.reserve(matches.size());
+            decisionTrace.matchedSupportParentOverlapPixels.reserve(matches.size());
+            for (const auto& match : matches) {
+              decisionTrace.matchedSupportParentNodeIds.push_back(match.previousNode);
+              decisionTrace.matchedSupportParentOverlapPixels.push_back(match.overlap);
+            }
+          }
+          decisionTrace.overlapsPreviousModel = overlapsPreviousModel;
+          decisionTrace.nearPreviousModel = nearPreviousModel;
+          decisionTrace.alignedOverlapPixels = supportMotion.alignedOverlapPixels;
+          decisionTrace.addedPixelsAfterAlignment = supportMotion.addedPixels;
+          decisionTrace.removedPixelsAfterAlignment = supportMotion.removedPixels;
+          decisionTrace.predictedMotionXPixels = supportMotion.predictedMotionX;
+          decisionTrace.predictedMotionYPixels = supportMotion.predictedMotionY;
+          decisionTrace.motionResidualPixels = supportMotion.motionResidual;
+          decisionTrace.alignedOverlapRatio = supportMotion.alignedOverlapRatio;
+          decisionTrace.alignedIntersectionOverUnion =
+              supportMotion.alignedIntersectionOverUnion;
+          decisionTrace.terminalTaperOnParent = terminalTaperOnParent;
+          decisionTrace.supportMotionContinuation = supportMotionContinuation;
+          decisionTrace.recentSupportMaximumAreaPixels = supportReferenceArea;
+
+          preparation.overlapsPreviousModel = overlapsPreviousModel;
+          preparation.nearPreviousModel = nearPreviousModel;
+          preparation.isModel = isModel;
+          preparation.isSupportCandidate = isSupportCandidate;
+          preparation.rootedInModel = rootedInModel;
+          preparation.unparentedRaftSupport = unparentedRaftSupport;
+          preparation.taperedExpansion = taperedExpansion;
+          preparation.decisionReason = decisionReason;
+
+          if (isModel || !isSupportCandidate) {
+            return;
+          }
+
+          const bool supportEvidenceRoot = firstSupportLayer;
+          if (supportEvidenceRoot) {
+            preparation.supportEvidenceRuns = component.runs;
+          }
+          auto& parentSupportSemantic = workerScratch.parentSupport;
+          for (const auto& match : matches) {
+            if (match.previousNode >= states.size()
+                || !states[match.previousNode].supportEvidenceActive) {
+              continue;
+            }
+            const auto& parentEvidence = states[match.previousNode].supportEvidenceRuns;
+            if (parentEvidence.empty()) {
+              continue;
+            }
+            preparation.supportEvidenceParents.push_back(match.previousNode);
+            parentSupportSemantic.clear();
+            parentSupportSemantic.addRuns(parentEvidence);
+            parentSupportSemantic.normalize();
+            std::int64_t shiftX = 0;
+            std::int64_t shiftY = 0;
+            if (parentSupportSemantic.countSet(component.runs) == 0u) {
+              const auto supportLineage = bestModelLineageMotion(
+                  component, parentSupportSemantic, nullptr,
+                  maximumModelLineageShift);
+              if (supportLineage.continued) {
+                shiftX = supportLineage.shiftX;
+                shiftY = supportLineage.shiftY;
+              }
+            }
+            parentSupportSemantic.appendTranslatedIntersectionRuns(
+                component.runs, shiftX, shiftY,
+                MaterialSemantic::Support, preparation.supportEvidenceRuns);
+          }
+          canonicalizeSemanticRuns(
+              preparation.supportEvidenceRuns, MaterialSemantic::Support);
+          preparation.supportEvidenceActive = supportEvidenceRoot
+              || !preparation.supportEvidenceRuns.empty();
+          if (preparation.supportEvidenceActive && !nearPreviousModel) {
+            preparation.supportEvidenceRuns = component.runs;
+            canonicalizeSemanticRuns(
+                preparation.supportEvidenceRuns, MaterialSemantic::Support);
+          }
+        });
+
+    if (callbacks.isCancelled && callbacks.isCancelled()) {
+      result.cancelled = true;
+      result.error = "support analysis cancelled";
+      return result;
+    }
 
     for (std::size_t index = 0; index < current.components.size(); ++index) {
-      const auto nearbySupportNodes = previousSupportIndex.query(
-          current.components[index]);
-      const auto matches = matchingPreviousNodes(
-          current.components[index], nearbySupportNodes, states, options);
-
-      SupportDecisionTrace decisionTrace;
-      decisionTrace.layer = layer;
-      decisionTrace.componentId = current.components[index].localId;
-      decisionTrace.currentAreaPixels = current.components[index].area;
-      decisionTrace.minX = current.components[index].minX;
-      decisionTrace.minY = current.components[index].minY;
-      decisionTrace.maxX = current.components[index].maxX;
-      decisionTrace.maxY = current.components[index].maxY;
-      if (!matches.empty()) {
-        decisionTrace.parentNodeId = matches.front().previousNode;
-        decisionTrace.parentAreaPixels =
-            states[matches.front().previousNode].component.area;
-        decisionTrace.overlapPixels = matches.front().overlap;
-        decisionTrace.centreDistancePixels = matches.front().centreDistance;
-        decisionTrace.materialDistancePixels = matches.front().materialDistance;
-        if (decisionTrace.parentAreaPixels != 0u) {
-          decisionTrace.parentAreaRatio =
-              static_cast<double>(decisionTrace.currentAreaPixels)
-              / static_cast<double>(decisionTrace.parentAreaPixels);
-          decisionTrace.primaryParentCoverageRatio =
-              static_cast<double>(decisionTrace.overlapPixels)
-              / static_cast<double>(decisionTrace.parentAreaPixels);
-        }
-      }
-
-      const auto exactStableModelOverlap = previousStableSemanticModel.countSet(
-          current.components[index].runs);
-      const auto nearbyStableModelOverlap = previousStableModelEnvelope.countSet(
-          current.components[index].runs);
-      bool overlapsPreviousModel = exactStableModelOverlap != 0u;
-      bool nearPreviousModel = nearbyStableModelOverlap != 0u;
-      if (previousLayer) {
-        for (const auto previousIndex : previousModelIndex.query(
-                 current.components[index])) {
-          const auto& previousComponent = previousLayer->components[previousIndex];
-          const auto modelOverlap = overlapPixels(
-              previousComponent, current.components[index]);
-          if (modelOverlap != 0u) {
-            overlapsPreviousModel = true;
-            nearPreviousModel = true;
-            continue;
-          }
-          nearPreviousModel = nearPreviousModel
-                              || nearEnough(
-                                  previousComponent, current.components[index], options);
-        }
-      }
-
-      std::size_t preservedSupportParentCount = 0u;
-      std::size_t preservedSupportPixels = 0u;
-      for (const auto& match : matches) {
-        const auto parentArea = states[match.previousNode].component.area;
-        if (parentArea == 0u || match.overlap == 0u) {
-          continue;
-        }
-        const double parentCoverage = static_cast<double>(match.overlap)
-                                      / static_cast<double>(parentArea);
-        if (parentCoverage >= options.minimumSupportParentCoverageRatio) {
-          ++preservedSupportParentCount;
-          preservedSupportPixels += match.overlap;
-        }
-      }
-      const double supportFusionCoverage = current.components[index].area == 0u
-          ? 0.0
-          : static_cast<double>(std::min(
-                current.components[index].area, preservedSupportPixels))
-                / static_cast<double>(current.components[index].area);
-      const bool supportFusionContinuation =
-          preservedSupportParentCount >= 2u
-          && supportFusionCoverage >= options.minimumSupportFusionCoverageRatio;
-
-      SupportMotionComparison supportMotion;
-      TerminalTaperEvidence parentTaperEvidence;
-      bool terminalTaperOnParent = false;
-      bool supportMotionContinuation = false;
-      bool taperedExpansion = false;
-      if (!matches.empty()) {
-        // Only the best structural parent may open a support-to-model contact
-        // candidate. Secondary matches remain brace relations. A lateral move
-        // is never evidence of model matter by itself: the parent section is
-        // translated onto the current centre and its shape continuity is
-        // measured before a progressive contact may be opened.
-        const auto& match = matches.front();
-        const auto& previousState = states[match.previousNode];
-        if (previousState.component.area != 0u
-            && current.components[index].area > previousState.component.area) {
-          const double expansion = static_cast<double>(current.components[index].area)
-                                   / static_cast<double>(previousState.component.area);
-          const bool rootedOnlyInModel =
-              result.nodes[match.previousNode].rootedInModel
-              && !result.nodes[match.previousNode].rootedInRaft;
-          const bool validModelRoot = !rootedOnlyInModel
-                                      || hasModelRootTaper(
-                                          match.previousNode, states, options);
-          parentTaperEvidence = terminalTaperEvidence(
-              match.previousNode, states, options);
-          terminalTaperOnParent =
-              previousState.depth >= options.minimumTrackLayers
-              && validModelRoot
-              && parentTaperEvidence.tapered;
-          if (terminalTaperOnParent && !supportFusionContinuation) {
-            supportMotion = compareSupportMotion(
-                match.previousNode, current.components[index], states, options);
-            const bool displacedGrowth = expansion > 1.0
-                && centreDistancePixels(
-                       previousState.component, current.components[index])
-                       > options.maximumLayerMotionPixels;
-            const bool unexplainedDisplacedGrowth = displacedGrowth
-                && !supportMotion.explainedBySupportMotion;
-            const bool growthMayOpenContact =
-                expansion >= options.minimumModelExpansionRatio
-                || unexplainedDisplacedGrowth;
-            taperedExpansion = growthMayOpenContact;
-            supportMotionContinuation = displacedGrowth
-                && !growthMayOpenContact
-                && supportMotion.explainedBySupportMotion;
-          }
-        }
-      }
-
-      // A tracked branch keeps its support identity across local overlap with
-      // already established model matter. The overlap may come from a brace, a
-      // temporary raster merge or the beginning of a real contact. Only a
-      // model-dominant merge that is far larger than the recent support profile
-      // can bypass continuity, and never when a terminal taper has opened a
-      // provisional contact candidate.
-      std::size_t supportReferenceArea = 0u;
-      if (!matches.empty()) {
-        supportReferenceArea = recentMaximumArea(
-            matches.front().previousNode, states, options.taperLookbackLayers);
-      }
-      const bool plausibleSupportContinuation = !matches.empty()
-          && (taperedExpansion
-              || (supportReferenceArea != 0u
-                  && static_cast<double>(current.components[index].area)
-                         <= static_cast<double>(supportReferenceArea)
-                                * options.abruptModelExpansionRatio));
-      const bool modelDominantMerge = overlapsPreviousModel
-          && !plausibleSupportContinuation;
-      bool isModel = modelDominantMerge;
-      SupportDecisionReason decisionReason = modelDominantMerge
-          ? SupportDecisionReason::ModelDominantMerge
-          : SupportDecisionReason::UnrelatedAfterModel;
-
-      bool rootedInModel = false;
-      bool isSupportCandidate = false;
-      bool unparentedRaftSupport = false;
-      if (!isModel) {
-        if (!matches.empty() || firstSupportLayer) {
-          isSupportCandidate = true;
-          unparentedRaftSupport = firstSupportLayer && matches.empty();
-          decisionReason = unparentedRaftSupport
-              ? SupportDecisionReason::FirstSupportLayer
-              : (supportFusionContinuation
-                     ? SupportDecisionReason::SupportFusionContinuation
-                     : (supportMotionContinuation
-                            ? SupportDecisionReason::SupportMotionContinuation
-                            : SupportDecisionReason::SupportContinuation));
-        } else if (modelExistedBeforeLayer && nearPreviousModel) {
-          // A separate component born beside established model matter can be a
-          // model-rooted support. It remains only a candidate until both its
-          // narrow root and terminal taper are validated.
-          isSupportCandidate = true;
-          rootedInModel = true;
-          decisionReason = SupportDecisionReason::ModelRootCandidate;
-        } else if (!modelExistedBeforeLayer) {
-          const bool relativeModelExpansion = maximumPreviousSupportArea != 0u
-              && static_cast<double>(current.components[index].area)
-                     >= static_cast<double>(maximumPreviousSupportArea)
-                            * options.abruptModelExpansionRatio;
-          if (relativeModelExpansion) {
-            isModel = true;
-            decisionReason =
-                SupportDecisionReason::RelativeExpansionBeforeFirstModel;
-          } else {
-            // Before the first part contact, small disconnected components are
-            // still part of the support network (for example a discretised
-            // diagonal brace whose previous raster does not overlap).
-            isSupportCandidate = true;
-            unparentedRaftSupport = true;
-            decisionReason = SupportDecisionReason::SupportBornBeforeModel;
-          }
-        } else {
-          // Once model matter exists, an unrelated component is model unless it
-          // has an explicit support path or a narrow root beside the model.
-          isModel = true;
-        }
-      }
-
-      decisionTrace.matchedSupportParentCount = matches.size();
-      decisionTrace.preservedSupportParentCount = preservedSupportParentCount;
-      decisionTrace.supportFusionCoverageRatio = supportFusionCoverage;
-      decisionTrace.supportFusionContinuation = supportFusionContinuation;
-      decisionTrace.terminalTaperDecreaseSteps =
-          parentTaperEvidence.meaningfulDecreaseSteps;
-      decisionTrace.immediateTerminalTaperOnParent = parentTaperEvidence.immediate;
-      decisionTrace.terminalTaperReboundOnParent =
-          parentTaperEvidence.reboundAfterTaper;
-      if (options.captureDecisionTrace) {
-        decisionTrace.matchedSupportParentNodeIds.reserve(matches.size());
-        decisionTrace.matchedSupportParentOverlapPixels.reserve(matches.size());
-        for (const auto& match : matches) {
-          decisionTrace.matchedSupportParentNodeIds.push_back(match.previousNode);
-          decisionTrace.matchedSupportParentOverlapPixels.push_back(match.overlap);
-        }
-      }
-      decisionTrace.overlapsPreviousModel = overlapsPreviousModel;
-      decisionTrace.nearPreviousModel = nearPreviousModel;
-      decisionTrace.alignedOverlapPixels = supportMotion.alignedOverlapPixels;
-      decisionTrace.addedPixelsAfterAlignment = supportMotion.addedPixels;
-      decisionTrace.removedPixelsAfterAlignment = supportMotion.removedPixels;
-      decisionTrace.predictedMotionXPixels = supportMotion.predictedMotionX;
-      decisionTrace.predictedMotionYPixels = supportMotion.predictedMotionY;
-      decisionTrace.motionResidualPixels = supportMotion.motionResidual;
-      decisionTrace.alignedOverlapRatio = supportMotion.alignedOverlapRatio;
-      decisionTrace.alignedIntersectionOverUnion =
-          supportMotion.alignedIntersectionOverUnion;
-      decisionTrace.terminalTaperOnParent = terminalTaperOnParent;
-      decisionTrace.supportMotionContinuation = supportMotionContinuation;
-      decisionTrace.recentSupportMaximumAreaPixels = supportReferenceArea;
+      auto& preparation = currentPreparations[index];
+      auto& matches = preparation.matches;
+      auto decisionTrace = std::move(preparation.decisionTrace);
+      const bool isModel = preparation.isModel;
+      const auto decisionReason = preparation.decisionReason;
+      const bool isSupportCandidate = preparation.isSupportCandidate;
+      bool rootedInModel = preparation.rootedInModel;
+      const bool unparentedRaftSupport = preparation.unparentedRaftSupport;
+      const bool nearPreviousModel = preparation.nearPreviousModel;
+      const bool taperedExpansion = preparation.taperedExpansion;
 
       if (isModel) {
         currentIsModel[index] = true;
@@ -1763,49 +2746,11 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       state.branchOrigin = parent == std::numeric_limits<std::size_t>::max()
                                ? std::numeric_limits<std::size_t>::max()
                                : states[parent].branchOrigin;
-      state.component = current.components[index];
+      state.component = &current.components[index];
       state.runCount = current.components[index].runs.size();
-      const bool supportEvidenceRoot = firstSupportLayer;
-      if (supportEvidenceRoot) {
-        state.supportEvidenceRuns = current.components[index].runs;
-      }
-      for (const auto& match : matches) {
-        if (match.previousNode >= states.size()
-            || !states[match.previousNode].supportEvidenceActive) {
-          continue;
-        }
-        const auto& parentEvidence = states[match.previousNode].supportEvidenceRuns;
-        if (parentEvidence.empty()) {
-          continue;
-        }
-        state.supportEvidenceParents.push_back(match.previousNode);
-        parentSupportSemantic.clear();
-        parentSupportSemantic.addRuns(parentEvidence);
-        parentSupportSemantic.normalize();
-        std::int64_t shiftX = 0;
-        std::int64_t shiftY = 0;
-        if (parentSupportSemantic.countSet(current.components[index].runs) == 0u) {
-          const auto supportLineage = bestModelLineageMotion(
-              current.components[index], parentSupportSemantic, nullptr,
-              maximumModelLineageShift);
-          if (supportLineage.continued) {
-            shiftX = supportLineage.shiftX;
-            shiftY = supportLineage.shiftY;
-          }
-        }
-        parentSupportSemantic.appendTranslatedIntersectionRuns(
-            current.components[index].runs, shiftX, shiftY,
-            MaterialSemantic::Support, state.supportEvidenceRuns);
-      }
-      canonicalizeSemanticRuns(
-          state.supportEvidenceRuns, MaterialSemantic::Support);
-      state.supportEvidenceActive = supportEvidenceRoot
-                                    || !state.supportEvidenceRuns.empty();
-      if (state.supportEvidenceActive && !nearPreviousModel) {
-        state.supportEvidenceRuns = current.components[index].runs;
-        canonicalizeSemanticRuns(
-            state.supportEvidenceRuns, MaterialSemantic::Support);
-      }
+      state.supportEvidenceParents = std::move(preparation.supportEvidenceParents);
+      state.supportEvidenceRuns = std::move(preparation.supportEvidenceRuns);
+      state.supportEvidenceActive = preparation.supportEvidenceActive;
       states.push_back(std::move(state));
       currentComponentNodes[index] = nodeId;
 
@@ -1900,9 +2845,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         auto& currentState = states[nodeId];
         const auto& parentState = states[parent];
         if (parentState.pendingContactTip != invalidNode) {
-          const auto tipArea = states[parentState.pendingContactTip].component.area;
+          const auto tipArea = states[parentState.pendingContactTip].component->area;
           const bool remainsAboveTip = tipArea != 0u
-              && currentState.component.area >= tipArea;
+              && currentState.component->area >= tipArea;
           if (remainsAboveTip) {
             currentState.pendingContactTip = parentState.pendingContactTip;
             currentState.pendingContactStart = parentState.pendingContactStart;
@@ -1915,8 +2860,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           currentState.pendingContactLength = 1u;
           for (const auto& match : matches) {
             const auto& matchedState = states[match.previousNode];
-            if (matchedState.component.area == 0u
-                || currentState.component.area <= matchedState.component.area) {
+            if (matchedState.component->area == 0u
+                || currentState.component->area <= matchedState.component->area) {
               continue;
             }
             const bool rootedOnlyInModel =
@@ -1945,26 +2890,26 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               ? SupportDecisionReason::ContactCandidateOpened
               : SupportDecisionReason::ContactCandidateContinued;
           const auto startArea =
-              states[currentState.pendingContactStart].component.area;
+              states[currentState.pendingContactStart].component->area;
           if (startArea != 0u) {
             trace.pendingStartAreaRatio =
-                static_cast<double>(currentState.component.area)
+                static_cast<double>(currentState.component->area)
                 / static_cast<double>(startArea);
           }
         }
 
         const auto pendingTipArea = currentState.pendingContactTip == invalidNode
             ? 0u
-            : states[currentState.pendingContactTip].component.area;
+            : states[currentState.pendingContactTip].component->area;
         const auto pendingStartArea = currentState.pendingContactStart == invalidNode
             ? 0u
-            : states[currentState.pendingContactStart].component.area;
+            : states[currentState.pendingContactStart].component->area;
         const bool abruptLocalContact = pendingTipArea != 0u
             && static_cast<double>(pendingStartArea)
                    >= static_cast<double>(pendingTipArea)
                           * options.abruptModelExpansionRatio;
         const bool cumulativeGrowthConfirmed = pendingStartArea != 0u
-            && static_cast<double>(currentState.component.area)
+            && static_cast<double>(currentState.component->area)
                    >= static_cast<double>(pendingStartArea)
                           * options.minimumModelExpansionRatio;
         const bool persistenceConfirmed = currentState.pendingContactLength
@@ -1992,7 +2937,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               trace.pendingContactLength = currentState.pendingContactLength;
               if (pendingStartArea != 0u) {
                 trace.pendingStartAreaRatio =
-                    static_cast<double>(currentState.component.area)
+                    static_cast<double>(currentState.component->area)
                     / static_cast<double>(pendingStartArea);
               }
             }
@@ -2009,11 +2954,11 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             }
             tipState.modelContact = true;
             tipState.contactLayer = result.nodes[startNode].layer;
-            tipState.contactModelPixelCount = states[startNode].component.area;
-            tipState.contactModelExpansionRatio = tipState.component.area == 0u
+            tipState.contactModelPixelCount = states[startNode].component->area;
+            tipState.contactModelExpansionRatio = tipState.component->area == 0u
                 ? 0.0
-                : static_cast<double>(states[startNode].component.area)
-                      / static_cast<double>(tipState.component.area);
+                : static_cast<double>(states[startNode].component->area)
+                      / static_cast<double>(tipState.component->area);
             result.edges.push_back(SupportGraphEdge{
                 contactTip, contactTip, SupportEdgeKind::ModelContact});
             ++result.summary.modelContactEdgeCount;
@@ -2036,8 +2981,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           modelSeen = true;
         } else if (currentState.pendingContactTip != invalidNode
                    && persistenceConfirmed) {
-          const bool stillGrowing = currentState.component.area
-                                    > parentState.component.area;
+          const bool stillGrowing = currentState.component->area
+                                    > parentState.component->area;
           const bool confirmationWindowExhausted =
               currentState.pendingContactLength >= options.taperLookbackLayers;
           if (!stillGrowing || confirmationWindowExhausted) {
@@ -2075,10 +3020,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           && previousHasStructuralChild[previousNode]) {
         continue;
       }
-      const auto& previousComponent = states[previousNode].component;
+      const auto& previousComponent = *states[previousNode].component;
       for (std::size_t index = 0; index < current.components.size(); ++index) {
-        if (!currentIsModel[index]
-            || !nearEnough(previousComponent, current.components[index], options)) {
+        const auto& matches = currentPreparations[index].matches;
+        const bool matchesPreviousNode = std::any_of(
+            matches.begin(), matches.end(), [&](const Match& match) {
+              return match.previousNode == previousNode;
+            });
+        if (!currentIsModel[index] || !matchesPreviousNode) {
           continue;
         }
         states[previousNode].modelContact = true;
@@ -2096,100 +3045,131 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
 
     // Preserve semantic continuity independently from the whole-component
-    // graph decision. A component may contain both an established model region
-    // and a raft-rooted support after a temporary raster fusion. Model lineage
-    // is tracked as a sparse pixel region, not rediscovered from a whole-
-    // component boolean on every layer. The previous stable model mask may move
-    // within the same native-layer motion envelope; translated model pixels are
-    // accepted only outside the support footprint predicted from raft-rooted
-    // parent branches. Exact model overlap keeps priority at the contact itself.
-    // The remaining pixels stay attached to the support branch and are emitted
-    // as projected support runs.
+    // graph decision. P4 moves the expensive lineage search into the shared
+    // scheduler as a second read-only compute stage for the current layer. All
+    // mutations of graph state, diagnostics and aggregate sparse masks still
+    // happen below in original component order.
     currentSemanticModel.clear();
     confirmedSemanticModel.clear();
     propagatedSemanticModel.clear();
-    for (std::size_t index = 0; index < current.components.size(); ++index) {
+    currentLineagePreparations.resize(current.components.size());
+    workScheduler.parallelFor(
+        current.components.size(),
+        [&](std::size_t index, std::size_t workerSlot) {
+          const auto& component = current.components[index];
+          const auto nodeId = currentComponentNodes[index];
+          auto& preparation = currentLineagePreparations[index];
+          preparation.wholeComponentModel = false;
+          preparation.confirmedWholeComponentModel = false;
+          preparation.hasSemanticProjection = false;
+          preparation.modelLineage = ModelLineageMotion{};
+          preparation.modelRuns.clear();
+          preparation.projectedSupportRuns.clear();
+
+          if (currentIsModel[index]) {
+            preparation.wholeComponentModel = true;
+            preparation.confirmedWholeComponentModel =
+                nodeId != invalidNode && states[nodeId].classifiedAsModel;
+            return;
+          }
+          if (nodeId == invalidNode) {
+            preparation.wholeComponentModel = modelSeen;
+            return;
+          }
+
+          if (previousStableModelEnvelope.countSet(component.runs) == 0u) {
+            return;
+          }
+          preparation.modelLineage = bestModelLineageMotion(
+              component, previousStableSemanticModel,
+              &previousPreviousStableSemanticModel,
+              maximumModelLineageShift);
+          if (!preparation.modelLineage.continued) {
+            return;
+          }
+
+          auto& scratch = forwardLineageScratch[workerSlot];
+          scratch.exactModelRuns.clear();
+          scratch.translatedModelRuns.clear();
+          previousStableSemanticModel.appendTranslatedIntersectionRuns(
+              component.runs,
+              0,
+              0,
+              MaterialSemantic::Model,
+              scratch.exactModelRuns);
+          previousStableSemanticModel.appendTranslatedIntersectionRuns(
+              component.runs,
+              preparation.modelLineage.shiftX,
+              preparation.modelLineage.shiftY,
+              MaterialSemantic::Model,
+              scratch.translatedModelRuns);
+
+          scratch.predictedSupport.clear();
+          const auto& semanticMatches = currentPreparations[index].matches;
+          for (const auto& match : semanticMatches) {
+            const auto& parentState = states[match.previousNode];
+            const auto& supportRuns = parentState.hasSemanticProjection
+                ? parentState.projectedSupportRuns
+                : parentState.component->runs;
+            scratch.parentSupport.clear();
+            scratch.parentSupport.addRuns(supportRuns);
+            scratch.parentSupport.normalize();
+            const auto supportLineage = bestModelLineageMotion(
+                component, scratch.parentSupport, nullptr,
+                maximumModelLineageShift);
+            const auto supportShiftX = supportLineage.continued
+                ? supportLineage.shiftX
+                : 0;
+            const auto supportShiftY = supportLineage.continued
+                ? supportLineage.shiftY
+                : 0;
+            scratch.predictedSupport.addShiftedRuns(
+                supportRuns, supportShiftX, supportShiftY);
+          }
+          scratch.predictedSupport.normalize();
+          scratch.predictedSupport.appendClearRuns(
+              scratch.translatedModelRuns,
+              MaterialSemantic::Model,
+              preparation.modelRuns);
+          preparation.modelRuns.insert(
+              preparation.modelRuns.end(),
+              scratch.exactModelRuns.begin(),
+              scratch.exactModelRuns.end());
+          canonicalizeSemanticRuns(
+              preparation.modelRuns, MaterialSemantic::Model);
+          if (preparation.modelRuns.empty()) {
+            return;
+          }
+
+          scratch.selectedModel.clear();
+          scratch.selectedModel.addRuns(preparation.modelRuns);
+          scratch.selectedModel.normalize();
+          scratch.selectedModel.appendClearRuns(
+              component.runs,
+              MaterialSemantic::Support,
+              preparation.projectedSupportRuns);
+          canonicalizeSemanticRuns(
+              preparation.projectedSupportRuns, MaterialSemantic::Support);
+          preparation.hasSemanticProjection = true;
+        });
+
+    for (std::size_t index = 0u; index < current.components.size(); ++index) {
+      const auto& component = current.components[index];
       const auto nodeId = currentComponentNodes[index];
-      if (currentIsModel[index]) {
-        currentSemanticModel.addRuns(current.components[index].runs);
-        if (nodeId != invalidNode && states[nodeId].classifiedAsModel) {
-          confirmedSemanticModel.addRuns(current.components[index].runs);
+      auto& preparation = currentLineagePreparations[index];
+      if (preparation.wholeComponentModel) {
+        currentSemanticModel.addRuns(component.runs);
+        if (preparation.confirmedWholeComponentModel) {
+          confirmedSemanticModel.addRuns(component.runs);
         }
         continue;
       }
-      if (nodeId == invalidNode) {
-        if (modelSeen) {
-          currentSemanticModel.addRuns(current.components[index].runs);
-        }
+      if (!preparation.hasSemanticProjection) {
         continue;
       }
 
-      ModelLineageMotion modelLineage;
-      if (previousStableModelEnvelope.countSet(current.components[index].runs) != 0u) {
-        modelLineage = bestModelLineageMotion(
-            current.components[index], previousStableSemanticModel,
-            &previousPreviousStableSemanticModel,
-            maximumModelLineageShift);
-      }
-      if (!modelLineage.continued) {
-        continue;
-      }
-
-      std::vector<SemanticRun> exactModelRuns;
-      std::vector<SemanticRun> translatedModelRuns;
-      std::vector<SemanticRun> selectedModelRuns;
-      previousStableSemanticModel.appendTranslatedIntersectionRuns(
-          current.components[index].runs,
-          0,
-          0,
-          MaterialSemantic::Model,
-          exactModelRuns);
-      previousStableSemanticModel.appendTranslatedIntersectionRuns(
-          current.components[index].runs,
-          modelLineage.shiftX,
-          modelLineage.shiftY,
-          MaterialSemantic::Model,
-          translatedModelRuns);
-
-      predictedSupportSemantic.clear();
-      const auto nearbySupportNodes = previousSupportIndex.query(
-          current.components[index]);
-      const auto semanticMatches = matchingPreviousNodes(
-          current.components[index], nearbySupportNodes, states, options);
-      for (const auto& match : semanticMatches) {
-        const auto& parentState = states[match.previousNode];
-        const auto& supportRuns = parentState.hasSemanticProjection
-            ? parentState.projectedSupportRuns
-            : parentState.component.runs;
-        parentSupportSemantic.clear();
-        parentSupportSemantic.addRuns(supportRuns);
-        parentSupportSemantic.normalize();
-        const auto supportLineage = bestModelLineageMotion(
-            current.components[index], parentSupportSemantic, nullptr,
-            maximumModelLineageShift);
-        const auto supportShiftX = supportLineage.continued
-            ? supportLineage.shiftX
-            : 0;
-        const auto supportShiftY = supportLineage.continued
-            ? supportLineage.shiftY
-            : 0;
-        predictedSupportSemantic.addShiftedRuns(
-            supportRuns, supportShiftX, supportShiftY);
-      }
-      predictedSupportSemantic.normalize();
-      predictedSupportSemantic.appendClearRuns(
-          translatedModelRuns,
-          MaterialSemantic::Model,
-          selectedModelRuns);
-      selectedModelRuns.insert(
-          selectedModelRuns.end(), exactModelRuns.begin(), exactModelRuns.end());
-      canonicalizeSemanticRuns(selectedModelRuns, MaterialSemantic::Model);
-      if (selectedModelRuns.empty()) {
-        continue;
-      }
-
-      currentSemanticModel.addRuns(selectedModelRuns);
-      propagatedSemanticModel.addRuns(selectedModelRuns);
+      currentSemanticModel.addRuns(preparation.modelRuns);
+      propagatedSemanticModel.addRuns(preparation.modelRuns);
       auto& state = states[nodeId];
       state.hasSemanticProjection = true;
       if (options.captureDecisionTrace
@@ -2198,21 +3178,15 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         auto& trace = result.decisions[nodeDecisionIndices[nodeId]];
         trace.mixedSemanticProjection = true;
         trace.modelLineageContinued = true;
-        trace.modelLineageOverlapPixels = semanticRunPixelCount(selectedModelRuns);
-        trace.modelLineageShiftXPixels = static_cast<double>(modelLineage.shiftX);
-        trace.modelLineageShiftYPixels = static_cast<double>(modelLineage.shiftY);
+        trace.modelLineageOverlapPixels = semanticRunPixelCount(
+            preparation.modelRuns);
+        trace.modelLineageShiftXPixels = static_cast<double>(
+            preparation.modelLineage.shiftX);
+        trace.modelLineageShiftYPixels = static_cast<double>(
+            preparation.modelLineage.shiftY);
         trace.reason = SupportDecisionReason::MixedSemanticProjection;
       }
-      state.projectedSupportRuns.clear();
-      selectedModelSemantic.clear();
-      selectedModelSemantic.addRuns(selectedModelRuns);
-      selectedModelSemantic.normalize();
-      selectedModelSemantic.appendClearRuns(
-          current.components[index].runs,
-          MaterialSemantic::Support,
-          state.projectedSupportRuns);
-      canonicalizeSemanticRuns(
-          state.projectedSupportRuns, MaterialSemantic::Support);
+      state.projectedSupportRuns = std::move(preparation.projectedSupportRuns);
     }
     currentSemanticModel.normalize();
     confirmedSemanticModel.normalize();
@@ -2232,20 +3206,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     previousPreviousStableSemanticModel.assignFrom(previousStableSemanticModel);
     previousStableSemanticModel.swap(currentStableSemanticModel);
 
-    for (const auto previousNode : previousCandidateNodes) {
-      std::vector<SemanticRun>().swap(states[previousNode].component.runs);
-    }
-    previousCandidateNodes = std::move(currentCandidateNodes);
-    previousLayer = std::move(current);
-    previousModelComponents = std::move(currentIsModel);
+    previousCandidateNodes.swap(currentCandidateNodes);
+    previousLayer = &current;
+    previousModelComponents.swap(currentIsModel);
     if (callbacks.progress) {
       callbacks.progress(layer + 1, source.layerCount() * 2u);
     }
   }
 
-  for (const auto previousNode : previousCandidateNodes) {
-    std::vector<SemanticRun>().swap(states[previousNode].component.runs);
-  }
 
   // All graph nodes before the first observed model layer are support matter by
   // construction: they belong to the continuous topology that starts on the
@@ -2407,7 +3375,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       }
     } else {
       layer.supportComponentIds.push_back(
-          static_cast<std::uint32_t>(state.component.localId));
+          static_cast<std::uint32_t>(state.component->localId));
       result.summary.freeSupportRunCount += state.runCount;
       result.summary.lastSupportLayer = std::max(
           result.summary.lastSupportLayer, result.nodes[state.nodeId].layer);
@@ -2428,7 +3396,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       if (state.contactModelExpansionRatio > 1.0) {
         ++result.summary.expandingModelContactCount;
       }
-      const auto terminalPixels = states[state.nodeId].component.area;
+      const auto terminalPixels = states[state.nodeId].component->area;
       if (state.contactModelPixelCount > terminalPixels) {
         result.summary.rejectedGrowthPixelCount +=
             state.contactModelPixelCount - terminalPixels;
@@ -2459,7 +3427,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         source.layerCount());
     for (const auto& state : states) {
       const auto nodeLayer = result.nodes[state.nodeId].layer;
-      nodeByLayer[nodeLayer].emplace(state.component.localId, state.nodeId);
+      nodeByLayer[nodeLayer].emplace(state.component->localId, state.nodeId);
     }
 
     std::vector<std::unordered_map<std::size_t, std::size_t>> decisionByLayer;
@@ -2487,15 +3455,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.summary.reverseModelContinuationCount = 0u;
     result.summary.bidirectionalMixedComponentCount = 0u;
 
-    SparseRunMask upperModel(source.height());
-    SparseRunMask upperUpperModel(source.height());
-    SparseRunMask upperModelEnvelope(source.height());
-    SparseRunMask currentModel(source.height());
-    SparseRunMask componentModel(source.height());
-    SparseRunMask supportCore(source.height());
-    SparseRunMask inheritedModel(source.height());
+    SparseRunMask upperModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperUpperModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperModelEnvelope(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask currentModel(source.height(), options.enableBitsetAcceleration);
     std::vector<std::size_t> reverseLayerMaterialRunCount(source.layerCount(), 0u);
     std::vector<std::size_t> reverseLayerWholeSupportRunCount(source.layerCount(), 0u);
+    std::vector<ReverseComponentPreparation> reversePreparations;
     std::size_t reverseCompleted = 0u;
 
     for (std::size_t reverse = source.layerCount();
@@ -2507,15 +3473,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         return result;
       }
 
-      std::string error;
-      auto mask = source.loadMask(layer, error);
-      if (!mask) {
-        result.error = error.empty()
-            ? "support reverse analysis could not load a layer"
-            : error;
-        return result;
-      }
-      auto current = describeLayer(*mask, layer);
+      const auto& current = layerDescriptions[layer];
       for (const auto& component : current.components) {
         reverseLayerMaterialRunCount[layer] += component.runs.size();
       }
@@ -2524,132 +3482,167 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
       std::size_t layerSupportPixels = 0u;
       std::size_t layerModelPixels = 0u;
-      for (const auto& component : current.components) {
-        const auto nodeIterator = nodeByLayer[layer].find(component.localId);
-        const auto reverseInvalidNode = std::numeric_limits<std::size_t>::max();
-        const std::size_t nodeId = nodeIterator == nodeByLayer[layer].end()
-            ? reverseInvalidNode
-            : nodeIterator->second;
-        const bool hasSupportEvidence = nodeId != reverseInvalidNode
-            && nodeId < states.size()
-            && states[nodeId].supportEvidenceActive
-            && !states[nodeId].supportEvidenceRuns.empty();
-        // A contact already confirmed by the forward graph is evidence that
-        // the support provenance stops before this component. The reverse pass
-        // must still reach the component before that evidence is trusted, but
-        // once it does, protecting the old support core would recreate the
-        // one-pass failure by keeping part of the model as support.
-        const bool protectSupportEvidence = hasSupportEvidence
-            && !states[nodeId].classifiedAsModel;
+      reversePreparations.resize(current.components.size());
+      workScheduler.parallelFor(
+          current.components.size(),
+          [&](std::size_t index, std::size_t workerSlot) {
+            const auto& component = current.components[index];
+            auto& preparation = reversePreparations[index];
+            preparation.nodeId = std::numeric_limits<std::size_t>::max();
+            preparation.hasSupportEvidence = false;
+            preparation.protectSupportEvidence = false;
+            preparation.modelLineage = ModelLineageMotion{};
+            preparation.modelSeed = false;
+            preparation.modelRuns.clear();
+            preparation.finalSupportRuns.clear();
+            preparation.supportCorePixels = 0u;
+            preparation.modelPixels = 0u;
+            auto& scratch = reverseScratch[workerSlot];
+            auto& supportCore = scratch.supportCore;
+            auto& componentModel = scratch.componentModel;
+            auto& inheritedModel = scratch.inheritedModel;
+            auto& inheritedRuns = scratch.inheritedRuns;
+            auto& inheritedOutsideSupport = scratch.inheritedOutsideSupport;
+            inheritedRuns.clear();
+            inheritedOutsideSupport.clear();
 
-        supportCore.clear();
-        if (protectSupportEvidence) {
-          supportCore.addRuns(states[nodeId].supportEvidenceRuns);
-          supportCore.normalize();
-        }
-        ModelLineageMotion modelLineage;
-        if (!upperModel.empty()
-            && upperModelEnvelope.countSet(component.runs) != 0u) {
-          modelLineage = bestModelLineageMotion(
-              component, upperModel,
-              upperUpperModel.empty() ? nullptr : &upperUpperModel,
-              maximumModelLineageShift,
-              protectSupportEvidence ? &supportCore : nullptr);
-        }
+            const auto nodeIterator = nodeByLayer[layer].find(component.localId);
+            const auto reverseInvalidNode = std::numeric_limits<std::size_t>::max();
+            const std::size_t nodeId = nodeIterator == nodeByLayer[layer].end()
+                ? reverseInvalidNode
+                : nodeIterator->second;
+            const bool hasSupportEvidence = nodeId != reverseInvalidNode
+                && nodeId < states.size()
+                && states[nodeId].supportEvidenceActive
+                && !states[nodeId].supportEvidenceRuns.empty();
+            const bool protectSupportEvidence = hasSupportEvidence
+                && !states[nodeId].classifiedAsModel;
 
-        // The final native layer is the primary reverse source of truth. A
-        // disconnected model island may end below the global top, so a new
-        // reverse lineage can also start on unclaimed matter, but never below
-        // the earliest model layer established by the bottom-up pass. This
-        // preserves multi-island parts without turning pre-model support noise
-        // into premature model seeds.
-        const bool topLayerSeed = layer + 1u == source.layerCount();
-        const std::size_t independentModelSeedFloor = forwardModelObserved
-            ? forwardFirstModelLayer
-            : result.summary.raftLastLayer + 1u;
-        const bool boundedIndependentModelSeed = !topLayerSeed
-            && layer >= independentModelSeedFloor
-            && !modelLineage.continued
-            && !hasSupportEvidence;
-        const bool modelSeed = topLayerSeed || boundedIndependentModelSeed;
+            preparation.nodeId = nodeId;
+            preparation.hasSupportEvidence = hasSupportEvidence;
+            preparation.protectSupportEvidence = protectSupportEvidence;
 
-        componentModel.clear();
-        supportCore.clear();
-        inheritedModel.clear();
-        std::vector<SemanticRun> modelRuns;
-        std::vector<SemanticRun> finalSupportRuns;
-        std::size_t supportCorePixels = 0u;
-
-        if (modelSeed) {
-          modelRuns = component.runs;
-          canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
-        } else if (modelLineage.continued) {
-          std::vector<SemanticRun> inheritedRuns;
-          upperModel.appendTranslatedIntersectionRuns(
-              component.runs,
-              modelLineage.shiftX,
-              modelLineage.shiftY,
-              MaterialSemantic::Model,
-              inheritedRuns);
-          canonicalizeSemanticRuns(inheritedRuns, MaterialSemantic::Model);
-          inheritedModel.addRuns(inheritedRuns);
-          inheritedModel.normalize();
-
-          if (protectSupportEvidence) {
-            const auto& supportState = states[nodeId];
-            // Pass 1 already propagated a pixel-accurate support provenance
-            // into the current component. Rebuilding that core from only the
-            // immediate parent intersection erodes a moving/narrow support and
-            // lets reverse model matter leak through it one pixel at a time.
-            // Keep the current pass-1 core intact unless every active support
-            // provenance demonstrably terminates on the edge below this
-            // component. This is the actual two-pass arbitration point.
-            bool continuingSupportParent = supportState.supportEvidenceParents.empty();
-            for (const auto parentNode : supportState.supportEvidenceParents) {
-              if (parentNode >= states.size()
-                  || !states[parentNode].supportEvidenceActive) {
-                continue;
-              }
-              if (!supportEvidenceStopsBefore(
-                      parentNode, component.area, states, options)) {
-                continuingSupportParent = true;
-                break;
-              }
+            supportCore.clear();
+            if (protectSupportEvidence) {
+              supportCore.addRuns(states[nodeId].supportEvidenceRuns);
+              supportCore.normalize();
             }
-            if (continuingSupportParent) {
-              supportCore.addRuns(supportState.supportEvidenceRuns);
+            ModelLineageMotion modelLineage;
+            if (!upperModel.empty()
+                && upperModelEnvelope.countSet(component.runs) != 0u) {
+              modelLineage = bestModelLineageMotion(
+                  component, upperModel,
+                  upperUpperModel.empty() ? nullptr : &upperUpperModel,
+                  maximumModelLineageShift,
+                  protectSupportEvidence ? &supportCore : nullptr);
             }
-            supportCore.normalize();
-            supportCorePixels = supportCore.countSet(component.runs);
+            preparation.modelLineage = modelLineage;
 
-            std::vector<SemanticRun> inheritedOutsideSupport;
-            supportCore.appendClearRuns(
-                inheritedRuns,
-                MaterialSemantic::Model,
-                inheritedOutsideSupport);
-            canonicalizeSemanticRuns(
-                inheritedOutsideSupport, MaterialSemantic::Model);
-            if (!inheritedOutsideSupport.empty()) {
-              // Once reverse model provenance reaches matter outside the
-              // conservative support core, every remaining pixel of this
-              // connected component belongs to the model side of the conflict.
-              // The support core itself remains protected.
-              supportCore.appendClearRuns(
-                  component.runs,
-                  MaterialSemantic::Model,
-                  modelRuns);
+            const bool topLayerSeed = layer + 1u == source.layerCount();
+            const std::size_t independentModelSeedFloor = forwardModelObserved
+                ? forwardFirstModelLayer
+                : result.summary.raftLastLayer + 1u;
+            const bool boundedIndependentModelSeed = !topLayerSeed
+                && layer >= independentModelSeedFloor
+                && !modelLineage.continued
+                && !hasSupportEvidence;
+            const bool modelSeed = topLayerSeed || boundedIndependentModelSeed;
+            preparation.modelSeed = modelSeed;
+
+            componentModel.clear();
+            supportCore.clear();
+            inheritedModel.clear();
+            auto& modelRuns = preparation.modelRuns;
+            auto& finalSupportRuns = preparation.finalSupportRuns;
+            std::size_t supportCorePixels = 0u;
+
+            if (modelSeed) {
+              modelRuns = component.runs;
               canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
-            }
-          } else {
-            modelRuns = component.runs;
-            canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
-          }
-        }
+            } else if (modelLineage.continued) {
+              upperModel.appendTranslatedIntersectionRuns(
+                  component.runs,
+                  modelLineage.shiftX,
+                  modelLineage.shiftY,
+                  MaterialSemantic::Model,
+                  inheritedRuns);
+              canonicalizeSemanticRuns(inheritedRuns, MaterialSemantic::Model);
+              inheritedModel.addRuns(inheritedRuns);
+              inheritedModel.normalize();
 
-        componentModel.addRuns(modelRuns);
-        componentModel.normalize();
+              if (protectSupportEvidence) {
+                const auto& supportState = states[nodeId];
+                bool continuingSupportParent = supportState.supportEvidenceParents.empty();
+                for (const auto parentNode : supportState.supportEvidenceParents) {
+                  if (parentNode >= states.size()
+                      || !states[parentNode].supportEvidenceActive) {
+                    continue;
+                  }
+                  if (!supportEvidenceStopsBefore(
+                          parentNode, component.area, states, options)) {
+                    continuingSupportParent = true;
+                    break;
+                  }
+                }
+                if (continuingSupportParent) {
+                  supportCore.addRuns(supportState.supportEvidenceRuns);
+                }
+                supportCore.normalize();
+                supportCorePixels = supportCore.countSet(component.runs);
+
+                supportCore.appendClearRuns(
+                    inheritedRuns,
+                    MaterialSemantic::Model,
+                    inheritedOutsideSupport);
+                canonicalizeSemanticRuns(
+                    inheritedOutsideSupport, MaterialSemantic::Model);
+                if (!inheritedOutsideSupport.empty()) {
+                  supportCore.appendClearRuns(
+                      component.runs,
+                      MaterialSemantic::Model,
+                      modelRuns);
+                  canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+                }
+              } else {
+                modelRuns = component.runs;
+                canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+              }
+            }
+
+            componentModel.addRuns(modelRuns);
+            componentModel.normalize();
+            const auto modelPixels = semanticRunPixelCount(modelRuns);
+            if (protectSupportEvidence && modelPixels != 0u) {
+              componentModel.appendClearRuns(
+                  states[nodeId].supportEvidenceRuns,
+                  MaterialSemantic::Support,
+                  finalSupportRuns);
+              canonicalizeSemanticRuns(
+                  finalSupportRuns, MaterialSemantic::Support);
+            }
+            preparation.supportCorePixels = supportCorePixels;
+            preparation.modelPixels = modelPixels;
+          });
+
+      if (callbacks.isCancelled && callbacks.isCancelled()) {
+        result.cancelled = true;
+        result.error = "support analysis cancelled";
+        return result;
+      }
+
+      for (std::size_t index = 0u; index < current.components.size(); ++index) {
+        const auto& component = current.components[index];
+        auto& preparation = reversePreparations[index];
+        const auto nodeId = preparation.nodeId;
+        const bool protectSupportEvidence = preparation.protectSupportEvidence;
+        const auto& modelLineage = preparation.modelLineage;
+        const bool modelSeed = preparation.modelSeed;
+        const auto modelPixels = preparation.modelPixels;
+        const auto supportCorePixels = preparation.supportCorePixels;
+        auto& modelRuns = preparation.modelRuns;
+        auto& finalSupportRuns = preparation.finalSupportRuns;
+
         currentModel.addRuns(modelRuns);
-        const auto modelPixels = semanticRunPixelCount(modelRuns);
         layerModelPixels += modelPixels;
 
         if (protectSupportEvidence) {
@@ -2658,21 +3651,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 static_cast<std::uint32_t>(component.localId));
             reverseLayerWholeSupportRunCount[layer] += component.runs.size();
             layerSupportPixels += component.area;
-          } else {
-            componentModel.appendClearRuns(
-                states[nodeId].supportEvidenceRuns,
-                MaterialSemantic::Support,
-                finalSupportRuns);
-            canonicalizeSemanticRuns(
-                finalSupportRuns, MaterialSemantic::Support);
-            if (!finalSupportRuns.empty()) {
-              const auto supportPixels = semanticRunPixelCount(finalSupportRuns);
-              layerSupportPixels += supportPixels;
-              result.layers[layer].projectedSupportRuns.insert(
-                  result.layers[layer].projectedSupportRuns.end(),
-                  finalSupportRuns.begin(), finalSupportRuns.end());
-              ++result.summary.bidirectionalMixedComponentCount;
-            }
+          } else if (!finalSupportRuns.empty()) {
+            const auto supportPixels = semanticRunPixelCount(finalSupportRuns);
+            layerSupportPixels += supportPixels;
+            result.layers[layer].projectedSupportRuns.insert(
+                result.layers[layer].projectedSupportRuns.end(),
+                finalSupportRuns.begin(), finalSupportRuns.end());
+            ++result.summary.bidirectionalMixedComponentCount;
           }
         }
 
@@ -2781,27 +3766,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         std::unique(componentIds.begin(), componentIds.end()), componentIds.end());
 
     auto& projected = result.layers[layer].projectedSupportRuns;
-    std::sort(projected.begin(), projected.end(), [](const SemanticRun& left,
-                                                     const SemanticRun& right) {
-      if (left.y != right.y) {
-        return left.y < right.y;
-      }
-      if (left.firstX != right.firstX) {
-        return left.firstX < right.firstX;
-      }
-      return left.lastX < right.lastX;
-    });
-    std::vector<SemanticRun> merged;
-    for (const auto& run : projected) {
-      if (!merged.empty()
-          && merged.back().y == run.y
-          && run.firstX <= merged.back().lastX) {
-        merged.back().lastX = std::max(merged.back().lastX, run.lastX);
-      } else {
-        merged.push_back(run);
-      }
-    }
-    projected = std::move(merged);
+    canonicalizeSemanticRuns(projected, MaterialSemantic::Support);
     if (!reversePassExecuted) {
       result.summary.projectedSupportRunCount += projected.size();
     }
@@ -2865,18 +3830,18 @@ bool SupportAnalyzer::materializeLayerSemantics(
     }
     return left.lastX < right.lastX;
   });
-  std::vector<SemanticRun> merged;
+  std::size_t write = 0u;
   for (const auto& run : runs) {
-    if (!merged.empty()
-        && merged.back().semantic == run.semantic
-        && merged.back().y == run.y
-        && run.firstX <= merged.back().lastX) {
-      merged.back().lastX = std::max(merged.back().lastX, run.lastX);
+    if (write != 0u
+        && runs[write - 1u].semantic == run.semantic
+        && runs[write - 1u].y == run.y
+        && run.firstX <= runs[write - 1u].lastX) {
+      runs[write - 1u].lastX = std::max(runs[write - 1u].lastX, run.lastX);
     } else {
-      merged.push_back(run);
+      runs[write++] = run;
     }
   }
-  runs = std::move(merged);
+  runs.resize(write);
   error.clear();
   return true;
 }

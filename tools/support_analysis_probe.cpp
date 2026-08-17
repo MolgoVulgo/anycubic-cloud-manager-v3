@@ -53,6 +53,8 @@ struct Arguments {
   std::optional<std::filesystem::path> bundleDirectory;
   std::vector<DumpRequest> dumps;
   std::uint32_t downsample = 16;
+  std::size_t workerCount = 1u;
+  bool enableBitsetAcceleration = true;
   bool verifyMaterialization = false;
 };
 
@@ -102,6 +104,14 @@ std::optional<Arguments> parseArguments(int argc, char** argv) {
         return std::nullopt;
       }
       args.downsample = static_cast<std::uint32_t>(parsed);
+    } else if (option == "--workers" && index + 1 < argc) {
+      if (!parseUnsigned(argv[++index], args.workerCount)
+          || args.workerCount < accloud::render3d::kMinimumSupportAnalysisWorkerCount
+          || args.workerCount > accloud::render3d::kMaximumSupportAnalysisWorkerCount) {
+        return std::nullopt;
+      }
+    } else if (option == "--no-bitsets") {
+      args.enableBitsetAcceleration = false;
     } else if (option == "--verify-materialization") {
       args.verifyMaterialization = true;
     } else if (!args.outputJson && option.rfind("--", 0) != 0) {
@@ -286,7 +296,7 @@ int main(int argc, char** argv) {
     std::cerr << "usage: accloud_support_analysis_probe input.pwsz [output.json] "
                  "[--output file.json] [--bundle output-directory] "
                  "[--dump-layer N --dump-ppm file.ppm [--downsample N]] "
-                 "[--verify-materialization]\n";
+                 "[--workers N] [--no-bitsets] [--verify-materialization]\n";
     return 2;
   }
 
@@ -303,6 +313,8 @@ int main(int argc, char** argv) {
   options.pitchYMillimetres = meta.pitchYMm.value_or(meta.pitchXYMm.value_or(
       options.pitchXMillimetres));
   options.pitchZMillimetres = meta.pitchZMm.value_or(1.0);
+  options.workerCount = arguments->workerCount;
+  options.enableBitsetAcceleration = arguments->enableBitsetAcceleration;
   options.captureDecisionTrace = arguments->bundleDirectory.has_value();
 
   accloud::render3d::SupportAnalyzer analyzer;
@@ -375,6 +387,8 @@ int main(int argc, char** argv) {
   output["materialization_verified"] = materializationVerified;
   output["resolution"] = {reader.width(), reader.height()};
   output["layer_count"] = reader.layerCount();
+  output["analysis_workers"] = arguments->workerCount;
+  output["bitset_acceleration"] = arguments->enableBitsetAcceleration;
   output["pitch_mm"] = {
       options.pitchXMillimetres,
       options.pitchYMillimetres,

@@ -9,7 +9,50 @@ Rectangle {
     property bool running: false
     property real progress: 0.0
     property string phaseText: ""
+    property int elapsedMilliseconds: 0
+    property double startedAtMilliseconds: 0
     readonly property real boundedProgress: Math.max(0.0, Math.min(1.0, root.progress))
+    readonly property string elapsedText: root.formatElapsed(root.elapsedMilliseconds)
+    signal cancelRequested()
+
+    function formatElapsed(milliseconds) {
+        var totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
+        var hours = Math.floor(totalSeconds / 3600)
+        var minutes = Math.floor((totalSeconds % 3600) / 60)
+        var seconds = totalSeconds % 60
+        var mm = minutes < 10 ? "0" + minutes : "" + minutes
+        var ss = seconds < 10 ? "0" + seconds : "" + seconds
+        if (hours > 0) {
+            var hh = hours < 10 ? "0" + hours : "" + hours
+            return hh + ":" + mm + ":" + ss
+        }
+        return mm + ":" + ss
+    }
+
+    function restartElapsedTimer() {
+        root.startedAtMilliseconds = Date.now()
+        root.elapsedMilliseconds = 0
+    }
+
+    onRunningChanged: {
+        if (root.running) {
+            root.restartElapsedTimer()
+        } else if (root.startedAtMilliseconds > 0) {
+            root.elapsedMilliseconds = Math.max(0, Date.now() - root.startedAtMilliseconds)
+        }
+    }
+
+    Component.onCompleted: {
+        if (root.running)
+            root.restartElapsedTimer()
+    }
+
+    Timer {
+        interval: 250
+        repeat: true
+        running: root.running
+        onTriggered: root.elapsedMilliseconds = Math.max(0, Date.now() - root.startedAtMilliseconds)
+    }
 
     visible: root.running
     color: Theme.overlayScrim
@@ -89,6 +132,24 @@ Rectangle {
                 font.pixelSize: Theme.fontCaptionPx
                 horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
+            }
+
+            Text {
+                objectName: "viewerBuildElapsedTime"
+                text: qsTr("Elapsed: %1").arg(root.elapsedText)
+                color: Theme.fgSecondary
+                font.pixelSize: Theme.fontCaptionPx
+                horizontalAlignment: Text.AlignHCenter
+                Layout.fillWidth: true
+            }
+
+            AppButton {
+                objectName: "viewerBuildCancelButton"
+                text: qsTr("Cancel")
+                variant: "secondary"
+                enabled: root.running
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: root.cancelRequested()
             }
         }
     }
