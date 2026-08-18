@@ -14,6 +14,9 @@ option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + 
 option(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER
        "Build the isolated Photon/PWMB viewer core (not linked to the production runtime)"
        OFF)
+option(ACCLOUD_ENABLE_VULKAN_COMPUTE
+       "Enable optional Vulkan Compute acceleration for support analysis when the SDK/toolchain is available"
+       ON)
 
 if(ACCLOUD_ENABLE_QT)
   set(CMAKE_AUTOMOC ON)
@@ -133,6 +136,7 @@ set(ACCLOUD_EXPERIMENTAL_VIEWER_SOURCES
     render3d/core/OrbitCamera.cpp
     render3d/analysis/SupportAnalyzer.cpp
     render3d/analysis/SupportAnalysisDiagnostics.cpp
+    render3d/compute/SupportComputeBackend.cpp
     render3d/meshing/LayerStackMesher.cpp
     render3d/gl/Renderer.cpp
     render3d/gl/UploadQueue.cpp
@@ -225,6 +229,90 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       ZLIB::ZLIB)
   target_compile_definitions(accloud_experimental_viewer PRIVATE
       ACCLOUD_EXPERIMENTAL_VIEWER=1)
+
+  if(ACCLOUD_ENABLE_VULKAN_COMPUTE)
+    find_package(Vulkan QUIET)
+    set(_accloud_vulkan_shader_compiler "")
+    set(_accloud_vulkan_shader_compiler_kind "")
+    if(Vulkan_FOUND)
+      if(DEFINED Vulkan_GLSLC_EXECUTABLE AND EXISTS "${Vulkan_GLSLC_EXECUTABLE}")
+        set(_accloud_vulkan_shader_compiler "${Vulkan_GLSLC_EXECUTABLE}")
+        set(_accloud_vulkan_shader_compiler_kind "glslc")
+      else()
+        find_program(_accloud_glslc NAMES glslc)
+        if(_accloud_glslc)
+          set(_accloud_vulkan_shader_compiler "${_accloud_glslc}")
+          set(_accloud_vulkan_shader_compiler_kind "glslc")
+        else()
+          find_program(_accloud_glslang_validator NAMES glslangValidator)
+          if(_accloud_glslang_validator)
+            set(_accloud_vulkan_shader_compiler "${_accloud_glslang_validator}")
+            set(_accloud_vulkan_shader_compiler_kind "glslang")
+          endif()
+        endif()
+      endif()
+    endif()
+
+    if(Vulkan_FOUND AND _accloud_vulkan_shader_compiler)
+      set(_accloud_support_overlap_shader
+          "${ACCLOUD_SRC_ROOT}/render3d/compute/shaders/support_overlap.comp")
+      set(_accloud_support_overlap_spirv
+          "${CMAKE_BINARY_DIR}/generated/support_overlap.comp.spv")
+      set(_accloud_support_overlap_header
+          "${CMAKE_BINARY_DIR}/generated/SupportOverlapSpirv.h")
+      if(_accloud_vulkan_shader_compiler_kind STREQUAL "glslc")
+        add_custom_command(
+            OUTPUT "${_accloud_support_overlap_spirv}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/generated"
+            COMMAND "${_accloud_vulkan_shader_compiler}"
+                    -fshader-stage=compute
+                    "${_accloud_support_overlap_shader}"
+                    -o "${_accloud_support_overlap_spirv}"
+            DEPENDS "${_accloud_support_overlap_shader}"
+            VERBATIM)
+      else()
+        add_custom_command(
+            OUTPUT "${_accloud_support_overlap_spirv}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/generated"
+            COMMAND "${_accloud_vulkan_shader_compiler}"
+                    -V -S comp
+                    -o "${_accloud_support_overlap_spirv}"
+                    "${_accloud_support_overlap_shader}"
+            DEPENDS "${_accloud_support_overlap_shader}"
+            VERBATIM)
+      endif()
+      add_custom_command(
+          OUTPUT "${_accloud_support_overlap_header}"
+          COMMAND "${CMAKE_COMMAND}"
+                  "-DINPUT=${_accloud_support_overlap_spirv}"
+                  "-DOUTPUT=${_accloud_support_overlap_header}"
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+          DEPENDS
+              "${_accloud_support_overlap_spirv}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+          VERBATIM)
+      add_custom_target(accloud_support_overlap_spirv
+          DEPENDS "${_accloud_support_overlap_header}")
+      add_dependencies(accloud_experimental_viewer accloud_support_overlap_spirv)
+      target_sources(accloud_experimental_viewer PRIVATE
+          "${ACCLOUD_SRC_ROOT}/render3d/compute/VulkanSupportComputeBackend.cpp"
+          "${ACCLOUD_SRC_ROOT}/render3d/compute/VulkanSupportComputeBackend.h")
+      target_include_directories(accloud_experimental_viewer PRIVATE
+          "${CMAKE_BINARY_DIR}/generated")
+      target_link_libraries(accloud_experimental_viewer PRIVATE Vulkan::Vulkan)
+      target_compile_definitions(accloud_experimental_viewer PRIVATE
+          ACCLOUD_WITH_VULKAN_COMPUTE=1)
+      set(_accloud_vulkan_compute_enabled TRUE)
+      message(STATUS
+          "Support-analysis Vulkan Compute enabled (${_accloud_vulkan_shader_compiler_kind}: ${_accloud_vulkan_shader_compiler})")
+    elseif(Vulkan_FOUND)
+      message(STATUS
+          "Support-analysis Vulkan Compute disabled: Vulkan SDK found but no glslc/glslangValidator compiler is available")
+    else()
+      message(STATUS
+          "Support-analysis Vulkan Compute disabled: Vulkan SDK headers/library are unavailable")
+    endif()
+  endif()
 endif()
 
 add_executable(accloud_cli
@@ -438,6 +526,16 @@ enable_testing()
 add_test(NAME accloud_smoke COMMAND accloud_cli --smoke)
 set_tests_properties(accloud_smoke PROPERTIES LABELS "core")
 
+add_test(
+  NAME accloud_embed_spirv
+  COMMAND "${CMAKE_COMMAND}"
+          "-DACCLOUD_REPO_ROOT=${ACCLOUD_REPO_ROOT}"
+          "-DACCLOUD_BINARY_ROOT=${CMAKE_BINARY_DIR}"
+          -P "${ACCLOUD_TESTS_ROOT}/cmake/test_embed_spirv.cmake"
+)
+set_tests_properties(accloud_embed_spirv PROPERTIES
+  LABELS "static;experimental;viewer;vulkan")
+
 find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(
@@ -594,6 +692,20 @@ if(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER)
       PROPERTIES LABELS "core;experimental;viewer")
   set_tests_properties(accloud_render3d_worker_benchmark_selftest PROPERTIES
       LABELS "core;experimental;viewer;benchmark")
+
+  if(_accloud_vulkan_compute_enabled)
+    add_executable(accloud_support_compute_vulkan_tests
+        ${ACCLOUD_TESTS_ROOT}/photons/test_support_compute_vulkan.cpp)
+    target_include_directories(accloud_support_compute_vulkan_tests PRIVATE ${ACCLOUD_SRC_ROOT})
+    target_link_libraries(accloud_support_compute_vulkan_tests PRIVATE
+        accloud_domain
+        accloud_experimental_viewer)
+    add_test(NAME accloud_support_compute_vulkan
+             COMMAND accloud_support_compute_vulkan_tests)
+    set_tests_properties(accloud_support_compute_vulkan PROPERTIES
+        LABELS "experimental;viewer;vulkan;compute"
+        SKIP_RETURN_CODE 77)
+  endif()
 
   if(ACCLOUD_ENABLE_QT AND TARGET Qt6::Gui AND TARGET Qt6::OpenGL)
     add_executable(accloud_render3d_shader_tests

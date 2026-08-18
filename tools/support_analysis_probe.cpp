@@ -55,6 +55,9 @@ struct Arguments {
   std::uint32_t downsample = 16;
   std::size_t workerCount = 1u;
   bool enableBitsetAcceleration = true;
+  accloud::render3d::compute::SupportComputePreference computePreference =
+      accloud::render3d::compute::SupportComputePreference::Auto;
+  std::size_t vulkanMinimumAreaPixels = 32768u;
   bool verifyMaterialization = false;
 };
 
@@ -112,6 +115,21 @@ std::optional<Arguments> parseArguments(int argc, char** argv) {
       }
     } else if (option == "--no-bitsets") {
       args.enableBitsetAcceleration = false;
+    } else if (option == "--compute" && index + 1 < argc) {
+      const std::string backend = argv[++index];
+      if (backend == "auto") {
+        args.computePreference = accloud::render3d::compute::SupportComputePreference::Auto;
+      } else if (backend == "cpu") {
+        args.computePreference = accloud::render3d::compute::SupportComputePreference::Cpu;
+      } else if (backend == "vulkan") {
+        args.computePreference = accloud::render3d::compute::SupportComputePreference::Vulkan;
+      } else {
+        return std::nullopt;
+      }
+    } else if (option == "--vulkan-min-area" && index + 1 < argc) {
+      if (!parseUnsigned(argv[++index], args.vulkanMinimumAreaPixels)) {
+        return std::nullopt;
+      }
     } else if (option == "--verify-materialization") {
       args.verifyMaterialization = true;
     } else if (!args.outputJson && option.rfind("--", 0) != 0) {
@@ -296,7 +314,8 @@ int main(int argc, char** argv) {
     std::cerr << "usage: accloud_support_analysis_probe input.pwsz [output.json] "
                  "[--output file.json] [--bundle output-directory] "
                  "[--dump-layer N --dump-ppm file.ppm [--downsample N]] "
-                 "[--workers N] [--no-bitsets] [--verify-materialization]\n";
+                 "[--workers N] [--no-bitsets] [--compute auto|cpu|vulkan] "
+                 "[--vulkan-min-area N] [--verify-materialization]\n";
     return 2;
   }
 
@@ -315,6 +334,8 @@ int main(int argc, char** argv) {
   options.pitchZMillimetres = meta.pitchZMm.value_or(1.0);
   options.workerCount = arguments->workerCount;
   options.enableBitsetAcceleration = arguments->enableBitsetAcceleration;
+  options.computePreference = arguments->computePreference;
+  options.vulkanMinimumComponentAreaPixels = arguments->vulkanMinimumAreaPixels;
   options.captureDecisionTrace = arguments->bundleDirectory.has_value();
 
   accloud::render3d::SupportAnalyzer analyzer;
@@ -389,6 +410,14 @@ int main(int argc, char** argv) {
   output["layer_count"] = reader.layerCount();
   output["analysis_workers"] = arguments->workerCount;
   output["bitset_acceleration"] = arguments->enableBitsetAcceleration;
+  const char* computePreference = "auto";
+  if (arguments->computePreference == accloud::render3d::compute::SupportComputePreference::Cpu) {
+    computePreference = "cpu";
+  } else if (arguments->computePreference == accloud::render3d::compute::SupportComputePreference::Vulkan) {
+    computePreference = "vulkan";
+  }
+  output["compute_preference"] = computePreference;
+  output["vulkan_minimum_component_area_pixels"] = arguments->vulkanMinimumAreaPixels;
   output["pitch_mm"] = {
       options.pitchXMillimetres,
       options.pitchYMillimetres,
@@ -424,6 +453,21 @@ int main(int argc, char** argv) {
       {"reverse_model_continuations", result.summary.reverseModelContinuationCount},
       {"bidirectional_mixed_components",
        result.summary.bidirectionalMixedComponentCount},
+      {"vulkan_compute_compiled", result.summary.vulkanComputeCompiled},
+      {"vulkan_compute_active", result.summary.vulkanComputeActive},
+      {"vulkan_device", result.summary.vulkanDeviceName},
+      {"vulkan_eligible_jobs", result.summary.vulkanEligibleJobCount},
+      {"vulkan_submitted_jobs", result.summary.vulkanSubmittedJobCount},
+      {"vulkan_gpu_jobs", result.summary.vulkanGpuJobCount},
+      {"vulkan_cpu_fallback_jobs", result.summary.vulkanCpuFallbackJobCount},
+      {"vulkan_dispatches", result.summary.vulkanDispatchCount},
+      {"vulkan_dispatch_failures", result.summary.vulkanDispatchFailureCount},
+      {"vulkan_max_batch_jobs", result.summary.vulkanMaximumBatchJobCount},
+      {"vulkan_upload_bytes", result.summary.vulkanUploadBytes},
+      {"vulkan_readback_bytes", result.summary.vulkanReadbackBytes},
+      {"vulkan_host_prepare_us", result.summary.vulkanHostPreparationMicroseconds},
+      {"vulkan_queue_wait_us", result.summary.vulkanQueueWaitMicroseconds},
+      {"vulkan_batch_execution_us", result.summary.vulkanBatchExecutionMicroseconds},
   };
 
   output["forced_sample_layers"] = nlohmann::json::array();

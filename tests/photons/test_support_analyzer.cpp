@@ -1461,6 +1461,34 @@ int main() {
                     && sameSemanticClassification(bitsetResult, runOnlyResult),
                 "the hybrid CPU bitset/SIMD path must preserve the exact run-only semantic result on heavily fragmented rows");
 
+  auto cpuComputeOptions = parallelOptions;
+  cpuComputeOptions.computePreference =
+      accloud::render3d::compute::SupportComputePreference::Cpu;
+  VectorSource cpuComputeSource(branchedLayers);
+  bool computeStatusObserved = false;
+  bool computeStatusActive = true;
+  std::string computeStatusBackend;
+  accloud::render3d::SupportAnalysisCallbacks cpuComputeCallbacks;
+  cpuComputeCallbacks.computeStatus = [&](bool,
+                                          bool active,
+                                          const std::string& backend,
+                                          const std::string&,
+                                          const std::string&) {
+    computeStatusObserved = true;
+    computeStatusActive = active;
+    computeStatusBackend = backend;
+  };
+  const auto cpuComputeResult = analyzer.analyze(
+      cpuComputeSource, cpuComputeOptions, cpuComputeCallbacks);
+  ok &= require(cpuComputeResult.ok
+                    && !cpuComputeResult.summary.vulkanComputeActive
+                    && cpuComputeResult.summary.vulkanDispatchCount == 0u
+                    && computeStatusObserved
+                    && !computeStatusActive
+                    && computeStatusBackend == "cpu"
+                    && sameSemanticClassification(cpuComputeResult, parallelWorkers),
+                "forcing the CPU compute backend must preserve support semantics, perform no Vulkan dispatch and publish immediate compute status");
+
   TrackingSource concurrentTrackingSource(branchedLayers, true);
   const auto concurrentTracking = analyzer.analyze(
       concurrentTrackingSource, parallelOptions);

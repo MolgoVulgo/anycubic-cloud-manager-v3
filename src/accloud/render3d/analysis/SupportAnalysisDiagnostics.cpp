@@ -799,6 +799,21 @@ nlohmann::json summaryJson(const SupportAnalysisSummary& summary) {
       {"reverse_model_seeds", summary.reverseModelSeedCount},
       {"reverse_model_continuations", summary.reverseModelContinuationCount},
       {"bidirectional_mixed_components", summary.bidirectionalMixedComponentCount},
+      {"vulkan_compute_compiled", summary.vulkanComputeCompiled},
+      {"vulkan_compute_active", summary.vulkanComputeActive},
+      {"vulkan_device", summary.vulkanDeviceName},
+      {"vulkan_eligible_jobs", summary.vulkanEligibleJobCount},
+      {"vulkan_submitted_jobs", summary.vulkanSubmittedJobCount},
+      {"vulkan_gpu_jobs", summary.vulkanGpuJobCount},
+      {"vulkan_cpu_fallback_jobs", summary.vulkanCpuFallbackJobCount},
+      {"vulkan_dispatches", summary.vulkanDispatchCount},
+      {"vulkan_dispatch_failures", summary.vulkanDispatchFailureCount},
+      {"vulkan_max_batch_jobs", summary.vulkanMaximumBatchJobCount},
+      {"vulkan_upload_bytes", summary.vulkanUploadBytes},
+      {"vulkan_readback_bytes", summary.vulkanReadbackBytes},
+      {"vulkan_host_prepare_us", summary.vulkanHostPreparationMicroseconds},
+      {"vulkan_queue_wait_us", summary.vulkanQueueWaitMicroseconds},
+      {"vulkan_batch_execution_us", summary.vulkanBatchExecutionMicroseconds},
   };
 }
 

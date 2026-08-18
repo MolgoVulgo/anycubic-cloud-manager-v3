@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/photons/LayerMaskSource.h"
+#include "render3d/compute/SupportComputeBackend.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -122,6 +123,13 @@ struct SupportAnalysisOptions {
   // portable scalar fallback everywhere else. The run representation remains
   // authoritative and disabling this switch is reserved for diagnostics/tests.
   bool enableBitsetAcceleration = true;
+  // P6 selects Vulkan Compute opportunistically for expensive translated-mask
+  // overlap batches. Auto is the normal runtime mode and always falls back to
+  // the canonical CPU path when Vulkan is not compiled, not available, or the
+  // batch is too small to amortize transfer/dispatch cost.
+  compute::SupportComputePreference computePreference =
+      compute::SupportComputePreference::Auto;
+  std::size_t vulkanMinimumComponentAreaPixels = 32768u;
 
   double raftMaximumChangedPixelRatio = 0.001;
   // Support topology is evaluated in the native resin domain: raster pixels
@@ -159,6 +167,16 @@ struct SupportAnalysisOptions {
 struct SupportAnalysisCallbacks {
   std::function<bool()> isCancelled;
   std::function<void(std::size_t completedLayers, std::size_t totalLayers)> progress;
+  // Emitted once immediately after compute backend selection so runtime logs
+  // reveal whether Vulkan is actually active even when a long analysis is
+  // cancelled before the final summary is produced.
+  std::function<void(
+      bool compiled,
+      bool active,
+      const std::string& backend,
+      const std::string& device,
+      const std::string& diagnostic)> computeStatus;
+  std::function<void(const compute::SupportComputeTelemetry&)> computeTelemetry;
 };
 
 struct SupportDecisionTrace {
@@ -250,6 +268,21 @@ struct SupportAnalysisSummary {
   std::size_t reverseModelSeedCount = 0;
   std::size_t reverseModelContinuationCount = 0;
   std::size_t bidirectionalMixedComponentCount = 0;
+  bool vulkanComputeCompiled = false;
+  bool vulkanComputeActive = false;
+  std::string vulkanDeviceName;
+  std::size_t vulkanEligibleJobCount = 0;
+  std::size_t vulkanSubmittedJobCount = 0;
+  std::size_t vulkanGpuJobCount = 0;
+  std::size_t vulkanCpuFallbackJobCount = 0;
+  std::size_t vulkanDispatchCount = 0;
+  std::size_t vulkanDispatchFailureCount = 0;
+  std::size_t vulkanMaximumBatchJobCount = 0;
+  std::uint64_t vulkanUploadBytes = 0u;
+  std::uint64_t vulkanReadbackBytes = 0u;
+  std::uint64_t vulkanHostPreparationMicroseconds = 0u;
+  std::uint64_t vulkanQueueWaitMicroseconds = 0u;
+  std::uint64_t vulkanBatchExecutionMicroseconds = 0u;
 };
 
 struct SupportAnalysisResult {

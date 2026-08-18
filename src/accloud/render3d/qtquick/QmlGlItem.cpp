@@ -1379,8 +1379,28 @@ void QmlGlItem::load() {
 
           int lastAnalysisReportedPercent = -1;
           int lastAnalysisLoggedDecile = -1;
+          compute::SupportComputeTelemetry latestComputeTelemetry;
           SupportAnalysisCallbacks analysisCallbacks;
           analysisCallbacks.isCancelled = [&] { return stopToken.stop_requested(); };
+          analysisCallbacks.computeStatus = [&](bool compiled,
+                                                bool active,
+                                                const std::string& backend,
+                                                const std::string& device,
+                                                const std::string& diagnostic) {
+            trace3d(
+                logging::Level::kDebug,
+                "support_analysis",
+                "compute_status",
+                diagnostic,
+                {{"generation", text(generation)},
+                 {"vulkan_compute_compiled", compiled ? "true" : "false"},
+                 {"vulkan_compute_active", active ? "true" : "false"},
+                 {"compute_backend", backend},
+                 {"compute_device", device}});
+          };
+          analysisCallbacks.computeTelemetry = [&](const auto& telemetry) {
+            latestComputeTelemetry = telemetry;
+          };
           analysisCallbacks.progress = [&](std::size_t completed, std::size_t total) {
             const int percent = total == 0
                                     ? 100
@@ -1397,7 +1417,23 @@ void QmlGlItem::load() {
                    {"completed_layers", text(completed)},
                    {"total_layers", text(total)},
                    {"percent", text(percent)},
-                   {"duration_ms", text(elapsedMilliseconds(analysisStarted))}});
+                   {"duration_ms", text(elapsedMilliseconds(analysisStarted))},
+                   {"vulkan_eligible_jobs", text(latestComputeTelemetry.eligibleJobs)},
+                   {"vulkan_gpu_jobs", text(latestComputeTelemetry.completedGpuJobs)},
+                   {"vulkan_cpu_fallback_jobs",
+                    text(latestComputeTelemetry.cpuFallbackJobs)},
+                   {"vulkan_dispatches",
+                    text(latestComputeTelemetry.successfulDispatches)},
+                   {"vulkan_max_batch_jobs",
+                    text(latestComputeTelemetry.maximumBatchJobs)},
+                   {"vulkan_upload_bytes", text(latestComputeTelemetry.uploadBytes)},
+                   {"vulkan_readback_bytes", text(latestComputeTelemetry.readbackBytes)},
+                   {"vulkan_host_prepare_us",
+                    text(latestComputeTelemetry.hostPreparationNanoseconds / 1000u)},
+                   {"vulkan_queue_wait_us",
+                    text(latestComputeTelemetry.queueWaitNanoseconds / 1000u)},
+                   {"vulkan_batch_execution_us",
+                    text(latestComputeTelemetry.batchExecutionNanoseconds / 1000u)}});
             }
             if (percent == lastAnalysisReportedPercent && completed != total) {
               return;
@@ -1489,7 +1525,30 @@ void QmlGlItem::load() {
                {"reverse_model_continuations",
                 text(summary.reverseModelContinuationCount)},
                {"bidirectional_mixed_components",
-                text(summary.bidirectionalMixedComponentCount)}});
+                text(summary.bidirectionalMixedComponentCount)},
+               {"vulkan_compute_compiled",
+                summary.vulkanComputeCompiled ? "true" : "false"},
+               {"vulkan_compute_active",
+                summary.vulkanComputeActive ? "true" : "false"},
+               {"vulkan_device", summary.vulkanDeviceName},
+               {"vulkan_eligible_jobs", text(summary.vulkanEligibleJobCount)},
+               {"vulkan_submitted_jobs", text(summary.vulkanSubmittedJobCount)},
+               {"vulkan_gpu_jobs", text(summary.vulkanGpuJobCount)},
+               {"vulkan_cpu_fallback_jobs",
+                text(summary.vulkanCpuFallbackJobCount)},
+               {"vulkan_dispatches", text(summary.vulkanDispatchCount)},
+               {"vulkan_dispatch_failures",
+                text(summary.vulkanDispatchFailureCount)},
+               {"vulkan_max_batch_jobs",
+                text(summary.vulkanMaximumBatchJobCount)},
+               {"vulkan_upload_bytes", text(summary.vulkanUploadBytes)},
+               {"vulkan_readback_bytes", text(summary.vulkanReadbackBytes)},
+               {"vulkan_host_prepare_us",
+                text(summary.vulkanHostPreparationMicroseconds)},
+               {"vulkan_queue_wait_us",
+                text(summary.vulkanQueueWaitMicroseconds)},
+               {"vulkan_batch_execution_us",
+                text(summary.vulkanBatchExecutionMicroseconds)}});
           supportAnalysis = std::make_shared<SupportAnalysisResult>(
               std::move(analysisResult));
           meshWork = baseMeshWork + forcedSemanticSampleCount(

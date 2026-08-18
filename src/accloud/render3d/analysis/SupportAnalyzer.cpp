@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -51,6 +52,41 @@ struct HybridBitRow {
   [[nodiscard]] bool empty() const noexcept { return words.empty(); }
   void clear() { words.clear(); }
 };
+
+std::uint32_t lowBitsMask32(std::uint32_t bitCount) {
+  if (bitCount == 0u) {
+    return 0u;
+  }
+  if (bitCount >= 32u) {
+    return std::numeric_limits<std::uint32_t>::max();
+  }
+  return (std::uint32_t{1} << bitCount) - 1u;
+}
+
+void setDenseRange32(
+    std::span<std::uint32_t> words,
+    std::uint32_t wordsPerRow,
+    std::uint32_t row,
+    std::uint32_t firstX,
+    std::uint32_t lastX) {
+  if (firstX >= lastX || wordsPerRow == 0u) {
+    return;
+  }
+  const auto firstWord = firstX / 32u;
+  const auto lastWord = (lastX - 1u) / 32u;
+  const auto rowBase = static_cast<std::size_t>(row) * wordsPerRow;
+  for (auto word = firstWord; word <= lastWord; ++word) {
+    if (word >= wordsPerRow || rowBase + word >= words.size()) {
+      break;
+    }
+    const auto firstBit = word == firstWord ? firstX % 32u : 0u;
+    const auto lastBit = word == lastWord ? ((lastX - 1u) % 32u) + 1u : 32u;
+    const auto lower = firstBit == 0u
+        ? std::numeric_limits<std::uint32_t>::max()
+        : std::numeric_limits<std::uint32_t>::max() << firstBit;
+    words[rowBase + word] |= lower & lowBitsMask32(lastBit);
+  }
+}
 
 std::uint64_t lowBitsMask(std::uint32_t bitCount) {
   if (bitCount == 0u) {
@@ -1472,6 +1508,36 @@ public:
     return result;
   }
 
+  void rasterizeRegion(
+      std::uint32_t minX,
+      std::uint32_t minY,
+      std::uint32_t width,
+      std::uint32_t height,
+      std::uint32_t wordsPerRow,
+      std::span<std::uint32_t> output) const {
+    if (width == 0u || height == 0u || wordsPerRow == 0u) {
+      return;
+    }
+    const auto maxY = std::min<std::uint64_t>(
+        rows_.size(), static_cast<std::uint64_t>(minY) + height);
+    const auto maxX = static_cast<std::uint64_t>(minX) + width;
+    for (std::uint64_t y = minY; y < maxY; ++y) {
+      for (const auto& interval : rows_[static_cast<std::size_t>(y)]) {
+        const auto first = std::max<std::uint64_t>(interval.first, minX);
+        const auto last = std::min<std::uint64_t>(interval.second, maxX);
+        if (first >= last) {
+          continue;
+        }
+        setDenseRange32(
+            output,
+            wordsPerRow,
+            static_cast<std::uint32_t>(y - minY),
+            static_cast<std::uint32_t>(first - minX),
+            static_cast<std::uint32_t>(last - minX));
+      }
+    }
+  }
+
   void appendClearRuns(
       const std::vector<SemanticRun>& matterRuns,
       MaterialSemantic semantic,
@@ -1546,6 +1612,83 @@ private:
   bool hasBitRows_ = false;
 };
 
+struct TranslatedOverlapScratch {
+  std::vector<std::uint32_t> sourceWords;
+  std::vector<std::uint32_t> referenceWords;
+  std::vector<std::uint32_t> overlaps;
+};
+
+bool prepareTranslatedOverlapBatch(
+    const Component& current,
+    const SparseRunMask& reference,
+    std::uint32_t radius,
+    TranslatedOverlapScratch& scratch,
+    compute::TranslatedOverlapBatch& batch) {
+  if (current.runs.empty() || current.area == 0u || radius > 31u) {
+    return false;
+  }
+
+  const auto minX = current.minX > radius ? current.minX - radius : 0u;
+  const auto minY = current.minY > radius ? current.minY - radius : 0u;
+  const auto maxX64 = std::min<std::uint64_t>(
+      std::numeric_limits<std::uint32_t>::max(),
+      static_cast<std::uint64_t>(current.maxX) + radius);
+  const auto maxY64 = std::min<std::uint64_t>(
+      std::numeric_limits<std::uint32_t>::max(),
+      static_cast<std::uint64_t>(current.maxY) + radius);
+  if (maxX64 <= minX || maxY64 <= minY) {
+    return false;
+  }
+  const auto width = static_cast<std::uint32_t>(maxX64 - minX);
+  const auto height = static_cast<std::uint32_t>(maxY64 - minY);
+  const auto wordsPerRow = (width + 31u) / 32u;
+  const auto wordCount64 = static_cast<std::uint64_t>(wordsPerRow) * height;
+  // Bound temporary host-visible payloads. Two 64 MiB input buffers are enough
+  // for the largest normal resin frames while avoiding accidental unbounded
+  // allocations on malformed metadata.
+  constexpr std::uint64_t kMaximumDenseWords = (64ull * 1024ull * 1024ull)
+      / sizeof(std::uint32_t);
+  if (wordCount64 == 0u
+      || wordCount64 > kMaximumDenseWords
+      || wordCount64 > std::numeric_limits<std::size_t>::max()) {
+    return false;
+  }
+
+  const auto wordCount = static_cast<std::size_t>(wordCount64);
+  scratch.sourceWords.assign(wordCount, 0u);
+  scratch.referenceWords.assign(wordCount, 0u);
+  for (const auto& run : current.runs) {
+    if (run.y < minY
+        || run.y >= static_cast<std::uint64_t>(minY) + height
+        || run.firstX >= run.lastX) {
+      continue;
+    }
+    const auto first = std::max<std::uint64_t>(run.firstX, minX);
+    const auto last = std::min<std::uint64_t>(
+        run.lastX, static_cast<std::uint64_t>(minX) + width);
+    if (first >= last) {
+      continue;
+    }
+    setDenseRange32(
+        scratch.sourceWords,
+        wordsPerRow,
+        run.y - minY,
+        static_cast<std::uint32_t>(first - minX),
+        static_cast<std::uint32_t>(last - minX));
+  }
+  reference.rasterizeRegion(
+      minX, minY, width, height, wordsPerRow, scratch.referenceWords);
+
+  const auto diameter = static_cast<std::size_t>(radius) * 2u + 1u;
+  scratch.overlaps.assign(diameter * diameter, 0u);
+  batch.wordsPerRow = wordsPerRow;
+  batch.height = height;
+  batch.radius = radius;
+  batch.sourceWords = scratch.sourceWords;
+  batch.referenceWords = scratch.referenceWords;
+  return true;
+}
+
 struct NodeState {
   std::size_t nodeId = 0;
   std::size_t parent = std::numeric_limits<std::size_t>::max();
@@ -1604,7 +1747,10 @@ ModelLineageMotion bestModelLineageMotion(
     const SparseRunMask& previousStableModel,
     const SparseRunMask* previousPreviousStableModel,
     std::uint32_t maximumShiftPixels,
-    const SparseRunMask* competingSupport = nullptr) {
+    const SparseRunMask* competingSupport = nullptr,
+    compute::SupportComputeBackend* computeBackend = nullptr,
+    TranslatedOverlapScratch* computeScratch = nullptr,
+    std::size_t vulkanMinimumAreaPixels = std::numeric_limits<std::size_t>::max()) {
   ModelLineageMotion best;
   if (previousStableModel.empty()) {
     return best;
@@ -1622,10 +1768,40 @@ ModelLineageMotion bestModelLineageMotion(
       && diameter <= std::numeric_limits<std::size_t>::max() / diameter) {
     candidates.reserve(diameter * diameter);
   }
+  bool usedComputeBackend = false;
+  if (computeBackend != nullptr
+      && computeScratch != nullptr
+      && current.area >= vulkanMinimumAreaPixels
+      && maximumShiftPixels != 0u
+      && maximumShiftPixels <= 31u) {
+    computeBackend->recordEligibleJob();
+    compute::TranslatedOverlapBatch batch;
+    const auto preparationStarted = std::chrono::steady_clock::now();
+    if (prepareTranslatedOverlapBatch(
+            current, previousStableModel, maximumShiftPixels,
+            *computeScratch, batch)) {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      std::string computeError;
+      usedComputeBackend = computeBackend->translatedOverlaps(
+          batch, computeScratch->overlaps, computeError);
+    } else {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      computeBackend->recordCpuFallbackJob();
+    }
+  }
+
+  std::size_t candidateIndex = 0u;
   for (std::int64_t shiftY = -radius; shiftY <= radius; ++shiftY) {
-    for (std::int64_t shiftX = -radius; shiftX <= radius; ++shiftX) {
-      const auto overlap = previousStableModel.countTranslatedSet(
-          current.runs, shiftX, shiftY);
+    for (std::int64_t shiftX = -radius; shiftX <= radius; ++shiftX, ++candidateIndex) {
+      const auto overlap = usedComputeBackend
+          ? static_cast<std::size_t>(computeScratch->overlaps[candidateIndex])
+          : previousStableModel.countTranslatedSet(current.runs, shiftX, shiftY);
       if (overlap < best.overlapPixels) {
         continue;
       }
@@ -2194,6 +2370,35 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     return result;
   }
 
+  result.summary.vulkanComputeCompiled = compute::vulkanSupportComputeCompiled();
+  std::string computeDiagnostic;
+  auto computeBackend = compute::createSupportComputeBackend(
+      options.computePreference, computeDiagnostic);
+  if (options.computePreference == compute::SupportComputePreference::Vulkan
+      && !computeBackend) {
+    result.error = computeDiagnostic.empty()
+        ? "Vulkan compute was requested but is unavailable"
+        : computeDiagnostic;
+    return result;
+  }
+  result.summary.vulkanComputeActive = computeBackend != nullptr;
+  if (computeBackend) {
+    result.summary.vulkanDeviceName = computeBackend->deviceName();
+  }
+  if (callbacks.computeStatus) {
+    callbacks.computeStatus(
+        result.summary.vulkanComputeCompiled,
+        result.summary.vulkanComputeActive,
+        computeBackend ? computeBackend->name() : "cpu",
+        computeBackend ? computeBackend->deviceName() : "",
+        computeDiagnostic);
+  }
+  const auto publishComputeTelemetry = [&] {
+    if (computeBackend && callbacks.computeTelemetry) {
+      callbacks.computeTelemetry(computeBackend->telemetry());
+    }
+  };
+
   result.layers.resize(source.layerCount());
   std::vector<NodeState> states;
   std::vector<std::size_t> nodeDecisionIndices;
@@ -2260,6 +2465,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     ForwardWorkerScratch(std::uint32_t height, bool enableBitsets)
         : parentSupport(height, enableBitsets) {}
     SparseRunMask parentSupport;
+    TranslatedOverlapScratch computeOverlap;
     GridQueryScratch supportQuery;
     GridQueryScratch modelQuery;
   };
@@ -2271,6 +2477,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     SparseRunMask supportCore;
     SparseRunMask componentModel;
     SparseRunMask inheritedModel;
+    TranslatedOverlapScratch computeOverlap;
     std::vector<SemanticRun> inheritedRuns;
     std::vector<SemanticRun> inheritedOutsideSupport;
   };
@@ -2282,6 +2489,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     SparseRunMask predictedSupport;
     SparseRunMask parentSupport;
     SparseRunMask selectedModel;
+    TranslatedOverlapScratch computeOverlap;
     std::vector<SemanticRun> exactModelRuns;
     std::vector<SemanticRun> translatedModelRuns;
   };
@@ -2377,6 +2585,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         previousModelComponents.assign(previousLayer->components.size(), false);
         previousCandidateNodes.clear();
         if (callbacks.progress) {
+          publishComputeTelemetry();
           callbacks.progress(layer + 1, source.layerCount() * 2u);
         }
         continue;
@@ -2671,7 +2880,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             if (parentSupportSemantic.countSet(component.runs) == 0u) {
               const auto supportLineage = bestModelLineageMotion(
                   component, parentSupportSemantic, nullptr,
-                  maximumModelLineageShift);
+                  maximumModelLineageShift, nullptr,
+                  computeBackend.get(), &workerScratch.computeOverlap,
+                  options.vulkanMinimumComponentAreaPixels);
               if (supportLineage.continued) {
                 shiftX = supportLineage.shiftX;
                 shiftY = supportLineage.shiftY;
@@ -3080,15 +3291,17 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           if (previousStableModelEnvelope.countSet(component.runs) == 0u) {
             return;
           }
+          auto& scratch = forwardLineageScratch[workerSlot];
           preparation.modelLineage = bestModelLineageMotion(
               component, previousStableSemanticModel,
               &previousPreviousStableSemanticModel,
-              maximumModelLineageShift);
+              maximumModelLineageShift, nullptr,
+              computeBackend.get(), &scratch.computeOverlap,
+              options.vulkanMinimumComponentAreaPixels);
           if (!preparation.modelLineage.continued) {
             return;
           }
 
-          auto& scratch = forwardLineageScratch[workerSlot];
           scratch.exactModelRuns.clear();
           scratch.translatedModelRuns.clear();
           previousStableSemanticModel.appendTranslatedIntersectionRuns(
@@ -3116,7 +3329,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             scratch.parentSupport.normalize();
             const auto supportLineage = bestModelLineageMotion(
                 component, scratch.parentSupport, nullptr,
-                maximumModelLineageShift);
+                maximumModelLineageShift, nullptr,
+                computeBackend.get(), &scratch.computeOverlap,
+                options.vulkanMinimumComponentAreaPixels);
             const auto supportShiftX = supportLineage.continued
                 ? supportLineage.shiftX
                 : 0;
@@ -3210,6 +3425,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     previousLayer = &current;
     previousModelComponents.swap(currentIsModel);
     if (callbacks.progress) {
+      publishComputeTelemetry();
       callbacks.progress(layer + 1, source.layerCount() * 2u);
     }
   }
@@ -3534,7 +3750,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                   component, upperModel,
                   upperUpperModel.empty() ? nullptr : &upperUpperModel,
                   maximumModelLineageShift,
-                  protectSupportEvidence ? &supportCore : nullptr);
+                  protectSupportEvidence ? &supportCore : nullptr,
+                  computeBackend.get(), &scratch.computeOverlap,
+                  options.vulkanMinimumComponentAreaPixels);
             }
             preparation.modelLineage = modelLineage;
 
@@ -3721,6 +3939,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       upperModel.swap(currentModel);
       ++reverseCompleted;
       if (callbacks.progress) {
+        publishComputeTelemetry();
         callbacks.progress(
             source.layerCount() + reverseCompleted,
             source.layerCount() * 2u);
@@ -3776,10 +3995,28 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.summary.supportRunCount = result.summary.freeSupportRunCount
                                      + result.summary.projectedSupportRunCount;
     if (callbacks.progress) {
+      publishComputeTelemetry();
       callbacks.progress(source.layerCount() * 2u, source.layerCount() * 2u);
     }
   }
 
+  if (computeBackend) {
+    const auto telemetry = computeBackend->telemetry();
+    result.summary.vulkanEligibleJobCount = telemetry.eligibleJobs;
+    result.summary.vulkanSubmittedJobCount = telemetry.submittedJobs;
+    result.summary.vulkanGpuJobCount = telemetry.completedGpuJobs;
+    result.summary.vulkanCpuFallbackJobCount = telemetry.cpuFallbackJobs;
+    result.summary.vulkanDispatchCount = telemetry.successfulDispatches;
+    result.summary.vulkanDispatchFailureCount = telemetry.failedDispatches;
+    result.summary.vulkanMaximumBatchJobCount = telemetry.maximumBatchJobs;
+    result.summary.vulkanUploadBytes = telemetry.uploadBytes;
+    result.summary.vulkanReadbackBytes = telemetry.readbackBytes;
+    result.summary.vulkanHostPreparationMicroseconds =
+        telemetry.hostPreparationNanoseconds / 1000u;
+    result.summary.vulkanQueueWaitMicroseconds = telemetry.queueWaitNanoseconds / 1000u;
+    result.summary.vulkanBatchExecutionMicroseconds =
+        telemetry.batchExecutionNanoseconds / 1000u;
+  }
   result.ok = true;
   return result;
 }

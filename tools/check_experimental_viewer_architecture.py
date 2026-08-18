@@ -57,6 +57,24 @@ def normalized_cmake_sources(body: str) -> set[str]:
     return sources
 
 
+def target_cpp_sources(cmake: str, target: str) -> set[str]:
+    sources: set[str] = set()
+    pattern = re.compile(
+        rf"target_sources\({re.escape(target)}\s+PRIVATE(?P<body>.*?)\)",
+        flags=re.DOTALL,
+    )
+    for match in pattern.finditer(cmake):
+        for raw in match.group("body").splitlines():
+            line = raw.strip().strip('"')
+            if not line or line.startswith("#") or not line.endswith(".cpp"):
+                continue
+            prefix = "${ACCLOUD_SRC_ROOT}/"
+            if line.startswith(prefix):
+                line = line[len(prefix):]
+            sources.add(line)
+    return sources
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -123,13 +141,36 @@ def main() -> int:
         for path in (source_root / relative_root).rglob("*.cpp")
         if "render3d/qtquick/" not in str(path.relative_to(source_root))
     }
-    if experimental_sources != expected_sources:
-        missing = sorted(expected_sources - experimental_sources)
-        extra = sorted(experimental_sources - expected_sources)
+    conditional_experimental_sources = target_cpp_sources(
+        cmake, "accloud_experimental_viewer"
+    )
+    registered_experimental_sources = (
+        experimental_sources | conditional_experimental_sources
+    )
+    if registered_experimental_sources != expected_sources:
+        missing = sorted(expected_sources - registered_experimental_sources)
+        extra = sorted(registered_experimental_sources - expected_sources)
         if missing:
             errors.append(f"experimental source list is missing: {missing}")
         if extra:
             errors.append(f"experimental source list has unexpected entries: {extra}")
+
+    vulkan_backend = "render3d/compute/VulkanSupportComputeBackend.cpp"
+    if vulkan_backend not in conditional_experimental_sources:
+        errors.append(
+            "Vulkan support compute backend must remain conditionally attached "
+            "to accloud_experimental_viewer"
+        )
+    if vulkan_backend in experimental_sources:
+        errors.append(
+            "Vulkan support compute backend must not become an unconditional "
+            "experimental viewer source"
+        )
+    if any(
+        source.startswith("render3d/compute/")
+        for source in main_sources
+    ):
+        errors.append("support compute backend leaked into accloud_infra")
 
     expected_qt_sources = {
         "${ACCLOUD_SRC_ROOT}/render3d/qtquick/CompactShaderSources.h",
@@ -761,7 +802,7 @@ def main() -> int:
     print(
         "Experimental viewer architecture passed: default desktop exposes the "
         "per-file PWSZ action, production remains disabled, and "
-        f"{len(experimental_sources)} core sources plus {len(experimental_qt_sources)} Qt sources stay isolated behind the build option."
+        f"{len(registered_experimental_sources)} core sources plus {len(experimental_qt_sources)} Qt sources stay isolated behind the build option."
     )
     return 0
 

@@ -62,6 +62,7 @@ Registered CTest inventory declared by `accloud/CMakeLists.txt`:
 - `accloud_dev_raw_traffic_log`
 - `accloud_direct_print_lifecycle`
 - `accloud_documentation_contract`
+- `accloud_embed_spirv`
 - `accloud_experimental_viewer_architecture`
 - `accloud_experimental_viewer_scaffold`
 - `accloud_har_import`
@@ -83,6 +84,7 @@ Registered CTest inventory declared by `accloud/CMakeLists.txt`:
 - `accloud_smoke`
 - `accloud_support_analysis_diagnostics`
 - `accloud_support_analyzer`
+- `accloud_support_compute_vulkan`
 - `accloud_thumbnail_cache_policy`
 - `accloud_thumbnail_candidates`
 - `accloud_thumbnail_validation`
@@ -172,7 +174,20 @@ Support-analysis worker scheduling can be compared on the exact same PWSZ withou
   /path/to/input.pwsz --output /tmp/support-w4.json --workers 4
 ```
 
-After ignoring the `analysis_workers` field, both JSON outputs must be semantically identical. The analyzer decodes/describes each native layer exactly once, retains the compact descriptions for the reverse semantic pass, reuses each component's parent-match metrics within the current layer, and uses one persistent priority worker pool for low-priority layer preparation plus foreground forward classification, model-lineage and reverse-reconciliation batches. Foreground items are claimed dynamically by the configured workers while the coordinator commits results in deterministic component order. The retained native-mask preparation window is capped at four even when more semantic workers are selected. Allocation-sensitive structures are also reused: connected-component extraction keeps row buffers across scanlines, maps disjoint-set roots through a dense index instead of an ordered map, reserves each component's run storage from the exact run count, and `NodeState` references the immutable retained component instead of copying its native run vector. `SparseRunMask` merges rows in place and intersects only rows touched by the sparser operand; forward/reverse preparation vectors retain their capacities across layers. The `accloud_support_analyzer` test asserts one source `loadMask()` per native layer for both concurrent and serialized sources, verifies that even a 16-worker run never widens concurrent layer preparation beyond four masks, compares the 1-worker, 4-worker and wide-worker semantic graph/result, verifies deterministic local component identifiers on a dense disconnected-component materialization case, and compares the P5 hybrid bitset/SIMD path against the canonical run-only path on heavily fragmented rows. The diagnostic probe accepts `--no-bitsets` to disable only the hybrid row-bitset cache for A/B measurements; AVX2 scanline dispatch still retains its mandatory scalar fallback and does not alter the semantic contract. This measurement is separate from the mesh-worker benchmark below.
+After ignoring the `analysis_workers` field, both JSON outputs must be semantically identical. The analyzer decodes/describes each native layer exactly once, retains the compact descriptions for the reverse semantic pass, reuses each component's parent-match metrics within the current layer, and uses one persistent priority worker pool for low-priority layer preparation plus foreground forward classification, model-lineage and reverse-reconciliation batches. Foreground items are claimed dynamically by the configured workers while the coordinator commits results in deterministic component order. The retained native-mask preparation window is capped at four even when more semantic workers are selected. Allocation-sensitive structures are also reused: connected-component extraction keeps row buffers across scanlines, maps disjoint-set roots through a dense index instead of an ordered map, reserves each component's run storage from the exact run count, and `NodeState` references the immutable retained component instead of copying its native run vector. `SparseRunMask` merges rows in place and intersects only rows touched by the sparser operand; forward/reverse preparation vectors retain their capacities across layers. The `accloud_support_analyzer` test asserts one source `loadMask()` per native layer for both concurrent and serialized sources, verifies that even a 16-worker run never widens concurrent layer preparation beyond four masks, compares the 1-worker, 4-worker and wide-worker semantic graph/result, verifies deterministic local component identifiers on a dense disconnected-component materialization case, and compares the P5 hybrid bitset/SIMD path against the canonical run-only path on heavily fragmented rows. The diagnostic probe accepts `--no-bitsets` to disable only the hybrid row-bitset cache for A/B measurements; AVX2 scanline dispatch still retains its mandatory scalar fallback and does not alter the semantic contract. P6 also accepts `--compute auto|cpu|vulkan` and `--vulkan-min-area N`. `auto` is the runtime contract: when Vulkan headers/library plus `glslc` or `glslangValidator` are available at build time and a usable Vulkan compute queue exists at runtime, large translated-overlap batches from model-lineage search are dispatched to the GPU; otherwise the canonical CPU path is used automatically. `cpu` forces the reference path for A/B comparison. `vulkan` requires backend initialisation and fails analysis explicitly when no usable backend can be created, while an individual dispatch failure still falls back to CPU. The JSON summary reports `vulkan_compute_compiled`, `vulkan_compute_active`, the selected device, eligible/submitted/GPU/fallback jobs, dispatch counts, maximum coalesced batch size, transfer bytes and host/queue/execution timings. The static `accloud_embed_spirv` test executes `EmbedSpirv.cmake` with paths containing spaces and rejects `-DINPUT="..."` / `-DOUTPUT="..."` forms that embed quote characters in the CMake value and prevent SPIR-V header generation. When the Vulkan backend is compiled, the conditional `accloud_support_compute_vulkan` CTest compares the real shader result with an independent CPU reference over all translations and, for P6.1, launches concurrent jobs through the shared backend to verify identical results plus actual multi-job coalescing; it is skipped with return code 77 only when no runtime Vulkan compute device can be initialised. This measurement is separate from the mesh-worker benchmark below.
+
+`pwsz/obj_1_quant_1.pwsz` is the current long-running support-analysis performance reference. For P6.1 validation, run the exact same 16-worker analysis once with CPU compute and once with normal `auto` Vulkan selection, then compare the semantic output separately from the telemetry/timing fields:
+
+```bash
+/usr/bin/time ./build/experimental-viewer-qt/accloud_support_analysis_probe \
+  ../pwsz/obj_1_quant_1.pwsz /tmp/obj-support-cpu.json \
+  --workers 16 --compute cpu
+/usr/bin/time ./build/experimental-viewer-qt/accloud_support_analysis_probe \
+  ../pwsz/obj_1_quant_1.pwsz /tmp/obj-support-vulkan.json \
+  --workers 16 --compute auto
+```
+
+The Vulkan run must report `vulkan_compute_active=true`, `vulkan_gpu_jobs>0` and `vulkan_max_batch_jobs>1` before any wall-clock comparison is interpreted as a GPU benchmark. A run that falls back to CPU is functionally valid in `auto` mode but is not a Vulkan performance measurement.
 
 Manual worker benchmark on one unchanged PWSZ file:
 
