@@ -172,6 +172,107 @@ def main() -> int:
     ):
         errors.append("support compute backend leaked into accloud_infra")
 
+    support_compute_shader = read(
+        root / "src/accloud/render3d/compute/shaders/support_overlap.comp"
+    )
+    support_compute_header = read(
+        root / "src/accloud/render3d/compute/SupportComputeBackend.h"
+    )
+    p62_shader_tokens = (
+        "gl_WorkGroupID.z",
+        "gl_WorkGroupID.y",
+        "gl_WorkGroupID.x",
+        "atomicAdd(overlaps",
+        "INPUT_COMPACT_RUNS",
+        "runsPerTile",
+    )
+    for token in p62_shader_tokens:
+        if token not in support_compute_shader:
+            errors.append(
+                f"P6.2 support-compute shader is missing tiled/run token: {token}"
+            )
+    for token in ("TranslatedRunOverlapBatch", "submittedWorkgroups"):
+        if token not in support_compute_header:
+            errors.append(f"P6.2 support-compute contract is missing: {token}")
+
+    # Stabilisation contract: runtime exposes only CPU and Auto/hybrid modes.
+    # The low-level Vulkan backend remains testable, but the analyzer must not
+    # route through the regressed P6.4 layer-wide zero-shift bulk path.
+    preference_match = re.search(
+        r"enum class SupportComputePreference[^\{]*\{(?P<body>.*?)\};",
+        support_compute_header,
+        flags=re.DOTALL,
+    )
+    if preference_match is None:
+        errors.append("missing SupportComputePreference enum")
+    else:
+        preference_body = preference_match.group("body")
+        if "Auto" not in preference_body or "Cpu" not in preference_body:
+            errors.append("support compute preferences must retain Auto and Cpu")
+        if "Vulkan" in preference_body:
+            errors.append("full Vulkan runtime preference must remain removed")
+
+    support_analyzer = read(
+        root / "src/accloud/render3d/analysis/SupportAnalyzer.cpp"
+    )
+    if "runMaskOverlaps(" in support_analyzer:
+        errors.append(
+            "SupportAnalyzer must not route runtime semantics through the "
+            "regressed layer-wide runMaskOverlaps path"
+        )
+
+    support_probe = read(root / "tools/support_analysis_probe.cpp")
+    if "--compute auto|cpu|vulkan" in support_probe or 'backend == "vulkan"' in support_probe:
+        errors.append("support analysis probe must expose only --compute auto|cpu")
+    if "--compute auto|cpu" not in support_probe:
+        errors.append("support analysis probe must document --compute auto|cpu")
+
+    support_analysis_page = read(
+        root / "src/accloud/ui/qml/pages/SupportAnalysisPage.qml"
+    )
+    support_analysis_bridge = read(
+        root / "src/accloud/app/SupportAnalysisBridge.cpp"
+    )
+    support_analysis_diagnostics = read(
+        root / "src/accloud/render3d/analysis/SupportAnalysisDiagnostics.cpp"
+    )
+    for token in (
+        "supportAnalysisComputeModeCombo",
+        "Hybrid CPU + GPU",
+        "CPU only",
+        "supportAnalysisComputeStatusChip",
+        "supportAnalysisVulkanDeviceText",
+    ):
+        if token not in support_analysis_page:
+            errors.append(f"support-analysis debug UI is missing compute token: {token}")
+    if "--compute" not in support_analysis_bridge or "--workers" not in support_analysis_bridge:
+        errors.append("SupportAnalysisBridge must pass selected compute mode and worker count to the probe")
+    if "COMPUTE_STATUS " not in support_analysis_bridge or "COMPUTE_STATUS " not in support_probe:
+        errors.append("support-analysis probe/bridge must expose live compute backend status")
+    for token in (
+        '"worker_count"',
+        '"compute_preference"',
+        '"vulkan_minimum_component_area_pixels"',
+    ):
+        if token not in support_analysis_diagnostics:
+            errors.append(f"support-analysis bundle options are missing runtime token: {token}")
+
+    benchmark_path = root / "tools/benchmark_support_analysis.sh"
+    if not benchmark_path.is_file():
+        errors.append("missing standard CPU/hybrid support-analysis benchmark script")
+    else:
+        benchmark = read(benchmark_path)
+        if "--compute vulkan" in benchmark or "mode=gpu" in benchmark or "gpu)" in benchmark:
+            errors.append("support benchmark must not expose the removed full-GPU runtime mode")
+        if "compute_args=(--compute cpu)" not in benchmark:
+            errors.append("support benchmark must exercise the canonical CPU mode")
+        if "compute_args=(--compute auto)" not in benchmark:
+            errors.append("support benchmark must exercise the standard Auto/hybrid mode")
+        if "vulkan_semantic_layer_batch_calls" not in benchmark:
+            errors.append("support benchmark must guard the removed runtime semantic Vulkan batch")
+        if "CPU/hybrid semantic mismatch" not in benchmark:
+            errors.append("support benchmark must fail on CPU/hybrid semantic divergence")
+
     expected_qt_sources = {
         "${ACCLOUD_SRC_ROOT}/render3d/qtquick/CompactShaderSources.h",
         "${ACCLOUD_SRC_ROOT}/render3d/qtquick/QmlGlItem.cpp",

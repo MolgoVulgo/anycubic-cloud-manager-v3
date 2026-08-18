@@ -1445,8 +1445,12 @@ int main() {
       parallelWorkerSourceRepeat, parallelOptions);
   ok &= require(serialWorkers.ok && parallelWorkers.ok && parallelWorkersRepeat.ok
                     && sameSemanticClassification(serialWorkers, parallelWorkers)
-                    && sameSemanticClassification(parallelWorkers, parallelWorkersRepeat),
-                "the shared worker scheduler must preserve deterministic support semantics across layer preparation, component decisions and lineage compute");
+                    && sameSemanticClassification(parallelWorkers, parallelWorkersRepeat)
+                    && serialWorkers.summary.supportSemanticEvidenceLotCount == 1u
+                    && parallelWorkers.summary.supportSemanticEvidenceLotCount > 1u
+                    && parallelWorkers.summary.supportSemanticEvidenceLayerPairCount > 0u
+                    && parallelWorkers.summary.supportSemanticEvidenceEdgeCount > 0u,
+                "parallel semantic-evidence lots must preserve deterministic support semantics while constructing adjacent-layer continuity facts independently");
 
   auto fragmentedBitsetLayers = makeFragmentedBitsetScene();
   auto bitsetOptions = parallelOptions;
@@ -1468,6 +1472,11 @@ int main() {
   bool computeStatusObserved = false;
   bool computeStatusActive = true;
   std::string computeStatusBackend;
+  bool performanceTelemetryObserved = false;
+  accloud::render3d::SupportAnalysisPerformanceTelemetry lastPerformanceTelemetry;
+  std::size_t lastSupportProgressCompleted = 0u;
+  std::size_t lastSupportProgressTotal = 0u;
+  bool supportProgressMonotonic = true;
   accloud::render3d::SupportAnalysisCallbacks cpuComputeCallbacks;
   cpuComputeCallbacks.computeStatus = [&](bool,
                                           bool active,
@@ -1478,6 +1487,17 @@ int main() {
     computeStatusActive = active;
     computeStatusBackend = backend;
   };
+  cpuComputeCallbacks.performanceTelemetry = [&](const auto& telemetry) {
+    performanceTelemetryObserved = true;
+    lastPerformanceTelemetry = telemetry;
+  };
+  cpuComputeCallbacks.progress = [&](std::size_t completed, std::size_t total) {
+    supportProgressMonotonic = supportProgressMonotonic
+                               && completed >= lastSupportProgressCompleted
+                               && completed <= total;
+    lastSupportProgressCompleted = completed;
+    lastSupportProgressTotal = total;
+  };
   const auto cpuComputeResult = analyzer.analyze(
       cpuComputeSource, cpuComputeOptions, cpuComputeCallbacks);
   ok &= require(cpuComputeResult.ok
@@ -1486,8 +1506,37 @@ int main() {
                     && computeStatusObserved
                     && !computeStatusActive
                     && computeStatusBackend == "cpu"
+                    && performanceTelemetryObserved
+                    && lastPerformanceTelemetry.preparedLayerCount
+                           == branchedLayers.size()
+                    && lastPerformanceTelemetry.preparationWindowCapacity == 4u
+                    && lastPerformanceTelemetry.semanticEvidenceLotCount > 1u
+                    && lastPerformanceTelemetry.semanticEvidenceLayerPairCount > 0u
+                    && lastPerformanceTelemetry.semanticEvidenceEdgeCount > 0u
+                    && cpuComputeResult.summary.supportPreparedLayerCount
+                           == branchedLayers.size()
+                    && cpuComputeResult.summary.supportPreparationWindowCapacity == 4u
+                    && supportProgressMonotonic
+                    && lastSupportProgressCompleted <= lastSupportProgressTotal
+                    && lastSupportProgressTotal == branchedLayers.size() * 3u
                     && sameSemanticClassification(cpuComputeResult, parallelWorkers),
-                "forcing the CPU compute backend must preserve support semantics, perform no Vulkan dispatch and publish immediate compute status");
+                "forcing the CPU compute backend must preserve support semantics, perform no Vulkan dispatch and publish compute/performance telemetry");
+
+  auto hybridComputeOptions = parallelOptions;
+  hybridComputeOptions.computePreference =
+      accloud::render3d::compute::SupportComputePreference::Auto;
+  // Lower the translated-lineage threshold so a local Vulkan-enabled gate can
+  // exercise the hybrid backend even on this compact regression scene.
+  hybridComputeOptions.vulkanMinimumComponentAreaPixels = 1u;
+  VectorSource hybridComputeSource(branchedLayers);
+  const auto hybridComputeResult = analyzer.analyze(
+      hybridComputeSource, hybridComputeOptions);
+  ok &= require(hybridComputeResult.ok
+                    && sameSemanticClassification(
+                        cpuComputeResult, hybridComputeResult)
+                    && hybridComputeResult.summary.vulkanSemanticLayerBatchCallCount == 0u
+                    && hybridComputeResult.summary.vulkanSemanticLayerBatchJobCount == 0u,
+                "Auto/hybrid compute must preserve CPU support semantics and must never reactivate the retired P6.4 layer-wide semantic batch");
 
   TrackingSource concurrentTrackingSource(branchedLayers, true);
   const auto concurrentTracking = analyzer.analyze(
@@ -1495,8 +1544,10 @@ int main() {
   ok &= require(concurrentTracking.ok
                     && concurrentTrackingSource.maximumActiveLoads() >= 2u
                     && concurrentTrackingSource.maximumActiveLoads() <= 4u
-                    && concurrentTrackingSource.totalLoads() == branchedLayers.size(),
-                "the shared scheduler must prepare every native layer once while bounding the mask-preparation window to four concurrent loads");
+                    && concurrentTrackingSource.totalLoads() == branchedLayers.size()
+                    && concurrentTracking.summary.supportPreparationWindowCapacity == 4u
+                    && concurrentTracking.summary.supportMaximumPreparationInflight <= 4u,
+                "the adaptive preparation window must use the available four-worker pool without exceeding its worker bound");
 
   auto wideWorkerOptions = parallelOptions;
   wideWorkerOptions.workerCount = 16u;
@@ -1504,12 +1555,32 @@ int main() {
   const auto wideWorkerTracking = analyzer.analyze(
       wideWorkerTrackingSource, wideWorkerOptions);
   ok &= require(wideWorkerTracking.ok
-                    && wideWorkerTrackingSource.maximumActiveLoads() >= 2u
-                    && wideWorkerTrackingSource.maximumActiveLoads() <= 4u
+                    && wideWorkerTrackingSource.maximumActiveLoads() >= 5u
+                    && wideWorkerTrackingSource.maximumActiveLoads()
+                           <= branchedLayers.size()
                     && wideWorkerTrackingSource.totalLoads() == branchedLayers.size()
+                    && wideWorkerTracking.summary.supportPreparationWindowCapacity
+                           == branchedLayers.size()
+                    && wideWorkerTracking.summary.supportMaximumPreparationInflight
+                           == branchedLayers.size()
                     && sameSemanticClassification(
                         concurrentTracking, wideWorkerTracking),
-                "increasing semantic workers beyond four must not widen the retained layer-preparation window or change support semantics");
+                "a 16-worker run must widen preparation beyond four layers when the estimated mask budget permits it without changing semantics");
+
+  auto budgetLimitedOptions = wideWorkerOptions;
+  // 48x32 uses one 64-bit word per row => 256 bytes per native mask. A
+  // 512-byte budget therefore permits exactly two outstanding preparations.
+  budgetLimitedOptions.preparationMemoryBudgetBytes = 512u;
+  TrackingSource budgetLimitedTrackingSource(branchedLayers, true);
+  const auto budgetLimitedTracking = analyzer.analyze(
+      budgetLimitedTrackingSource, budgetLimitedOptions);
+  ok &= require(budgetLimitedTracking.ok
+                    && budgetLimitedTrackingSource.maximumActiveLoads() <= 2u
+                    && budgetLimitedTracking.summary.supportPreparationWindowCapacity == 2u
+                    && budgetLimitedTracking.summary.supportMaximumPreparationInflight <= 2u
+                    && sameSemanticClassification(
+                        concurrentTracking, budgetLimitedTracking),
+                "the adaptive preparation window must honor the native-mask memory budget independently of worker count");
 
   TrackingSource serializedTrackingSource(branchedLayers, false);
   const auto serializedTracking = analyzer.analyze(
@@ -1561,6 +1632,14 @@ int main() {
       invalidWorkerSource, invalidWorkerOptions);
   ok &= require(!invalidWorkers.ok && !invalidWorkers.error.empty(),
                 "support analysis must reject an invalid worker count");
+
+  auto invalidBudgetOptions = testOptions();
+  invalidBudgetOptions.preparationMemoryBudgetBytes = 0u;
+  VectorSource invalidBudgetSource(branchedLayers);
+  const auto invalidBudget = analyzer.analyze(
+      invalidBudgetSource, invalidBudgetOptions);
+  ok &= require(!invalidBudget.ok && !invalidBudget.error.empty(),
+                "support analysis must reject a zero preparation memory budget");
 
   VectorSource deterministicSourceA(branchedLayers);
   VectorSource deterministicSourceB(branchedLayers);

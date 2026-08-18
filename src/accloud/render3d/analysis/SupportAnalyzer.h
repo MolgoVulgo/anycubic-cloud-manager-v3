@@ -111,12 +111,17 @@ struct SupportAnalysisOptions {
   // with the descending model pass.
   std::size_t modelContactConfirmationLayers = 2;
   // Size of the shared support-analysis worker pool. Low-priority preparation
-  // decodes/describes at most four upcoming native layers, while foreground
-  // batches compute independent component decisions, model lineage and reverse
-  // reconciliation from immutable adjacent-layer state. Layer order and all
-  // graph/semantic commits remain deterministic; the reverse traversal reuses
-  // the retained compact layer descriptions.
+  // decodes/describes upcoming native layers while foreground batches compute
+  // independent component decisions, model lineage and reverse reconciliation
+  // from immutable adjacent-layer state. Layer order and all graph/semantic
+  // commits remain deterministic; the reverse traversal reuses the retained
+  // compact layer descriptions.
   std::size_t workerCount = 1u;
+  // P6.3 bounds the adaptive preparation window by estimated resident native
+  // mask bytes instead of a fixed four-layer cap. The scheduler can therefore
+  // use all configured workers on large workstation-class systems while still
+  // preventing unbounded mask retention on very high-resolution sources.
+  std::size_t preparationMemoryBudgetBytes = 256u * 1024u * 1024u;
   // P5 CPU acceleration. Normal runtime keeps this enabled: fragmented sparse
   // rows are promoted to compact 64-bit bitsets for overlap/intersection hot
   // paths, with optional AVX2 word intersection on supported x86 CPUs and a
@@ -124,9 +129,10 @@ struct SupportAnalysisOptions {
   // authoritative and disabling this switch is reserved for diagnostics/tests.
   bool enableBitsetAcceleration = true;
   // P6 selects Vulkan Compute opportunistically for expensive translated-mask
-  // overlap batches. Auto is the normal runtime mode and always falls back to
-  // the canonical CPU path when Vulkan is not compiled, not available, or the
-  // batch is too small to amortize transfer/dispatch cost.
+  // overlap batches. Auto is the standard hybrid runtime mode and always falls
+  // back to the canonical CPU path when Vulkan is not compiled, unavailable,
+  // or the batch is too small to amortize transfer/dispatch cost. Cpu is the
+  // only explicit override and keeps the whole semantic compute path on CPU.
   compute::SupportComputePreference computePreference =
       compute::SupportComputePreference::Auto;
   std::size_t vulkanMinimumComponentAreaPixels = 32768u;
@@ -164,6 +170,29 @@ struct SupportAnalysisOptions {
   bool captureDecisionTrace = false;
 };
 
+struct SupportAnalysisPerformanceTelemetry {
+  std::size_t preparationWindowCapacity = 0u;
+  std::size_t preparedLayerCount = 0u;
+  std::size_t maximumPreparationInflight = 0u;
+  std::uint64_t preparationLoadMicroseconds = 0u;
+  std::uint64_t preparationDescribeMicroseconds = 0u;
+  std::uint64_t forwardSemanticMicroseconds = 0u;
+  std::uint64_t reverseSemanticMicroseconds = 0u;
+  std::uint64_t forwardClassificationMicroseconds = 0u;
+  std::uint64_t forwardCommitMicroseconds = 0u;
+  std::uint64_t forwardLineageMicroseconds = 0u;
+  std::uint64_t forwardLineageCommitMicroseconds = 0u;
+  std::uint64_t reversePreparationMicroseconds = 0u;
+  std::uint64_t reverseCommitMicroseconds = 0u;
+  // P6.5 precomputes semantic-independent adjacency evidence between native
+  // layers in contiguous lots, then reconciles the ordered support/model state
+  // over that immutable graph. These counters expose the parallel graph stage.
+  std::uint64_t semanticEvidenceMicroseconds = 0u;
+  std::size_t semanticEvidenceLotCount = 0u;
+  std::size_t semanticEvidenceLayerPairCount = 0u;
+  std::size_t semanticEvidenceEdgeCount = 0u;
+};
+
 struct SupportAnalysisCallbacks {
   std::function<bool()> isCancelled;
   std::function<void(std::size_t completedLayers, std::size_t totalLayers)> progress;
@@ -177,6 +206,10 @@ struct SupportAnalysisCallbacks {
       const std::string& device,
       const std::string& diagnostic)> computeStatus;
   std::function<void(const compute::SupportComputeTelemetry&)> computeTelemetry;
+  // Published alongside progress so a cancelled long-running analysis still
+  // exposes whether time is being spent in mask loading, component extraction
+  // or the ordered semantic passes.
+  std::function<void(const SupportAnalysisPerformanceTelemetry&)> performanceTelemetry;
 };
 
 struct SupportDecisionTrace {
@@ -283,6 +316,29 @@ struct SupportAnalysisSummary {
   std::uint64_t vulkanHostPreparationMicroseconds = 0u;
   std::uint64_t vulkanQueueWaitMicroseconds = 0u;
   std::uint64_t vulkanBatchExecutionMicroseconds = 0u;
+  std::size_t vulkanRunSourceJobCount = 0u;
+  std::size_t vulkanResidentReferenceUploadCount = 0u;
+  std::size_t vulkanResidentReferenceReuseCount = 0u;
+  std::uint64_t vulkanSubmittedWorkgroupCount = 0u;
+  std::size_t vulkanSemanticLayerBatchCallCount = 0u;
+  std::size_t vulkanSemanticLayerBatchJobCount = 0u;
+  std::size_t supportPreparationWindowCapacity = 0u;
+  std::size_t supportPreparedLayerCount = 0u;
+  std::size_t supportMaximumPreparationInflight = 0u;
+  std::uint64_t supportPreparationLoadMicroseconds = 0u;
+  std::uint64_t supportPreparationDescribeMicroseconds = 0u;
+  std::uint64_t supportForwardSemanticMicroseconds = 0u;
+  std::uint64_t supportReverseSemanticMicroseconds = 0u;
+  std::uint64_t supportForwardClassificationMicroseconds = 0u;
+  std::uint64_t supportForwardCommitMicroseconds = 0u;
+  std::uint64_t supportForwardLineageMicroseconds = 0u;
+  std::uint64_t supportForwardLineageCommitMicroseconds = 0u;
+  std::uint64_t supportReversePreparationMicroseconds = 0u;
+  std::uint64_t supportReverseCommitMicroseconds = 0u;
+  std::uint64_t supportSemanticEvidenceMicroseconds = 0u;
+  std::size_t supportSemanticEvidenceLotCount = 0u;
+  std::size_t supportSemanticEvidenceLayerPairCount = 0u;
+  std::size_t supportSemanticEvidenceEdgeCount = 0u;
 };
 
 struct SupportAnalysisResult {

@@ -20,6 +20,34 @@ AppPageFrame {
     embeddedInTabsContainer: root.embeddedAnalysisInTabsContainer
     showSectionHeader: false
 
+    function syncExecutionSettings() {
+        if (!root.analysisBridge)
+            return
+        if (root.analysisBridge.workerCount !== undefined)
+            root.analysisBridge.workerCount = root.workerCount
+    }
+
+    function selectedComputeMode() {
+        if (!root.analysisBridge)
+            return "auto"
+        return String(root.analysisBridge.computeMode || "auto")
+    }
+
+    function executionStatusText() {
+        if (!root.analysisBridge)
+            return "CPU"
+        var analyzedMode = String(root.analysisBridge.analyzedComputeMode
+                                  || root.selectedComputeMode())
+        if (analyzedMode === "cpu")
+            return qsTr("CPU only")
+        if (root.analysisBridge.vulkanActive)
+            return qsTr("Hybrid CPU + GPU")
+        if (root.analysisBridge.running
+                && String(root.analysisBridge.computeDiagnostic || "").length === 0)
+            return qsTr("Hybrid CPU + GPU (initializing)")
+        return qsTr("Hybrid requested — CPU fallback")
+    }
+
     function localPathFromUrl(value) {
         var text = String(value || "")
         if (text.indexOf("file://") === 0) {
@@ -76,8 +104,10 @@ AppPageFrame {
         nameFilters: [qsTr("PWSZ files (*.pwsz)"), qsTr("All files (*)")]
         onAccepted: {
             sourceField.text = root.localPathFromUrl(selectedFile)
-            if (root.analysisBridge)
+            if (root.analysisBridge) {
+                root.syncExecutionSettings()
                 root.analysisBridge.analyze(sourceField.text)
+            }
         }
     }
 
@@ -97,8 +127,10 @@ AppPageFrame {
                 placeholderText: qsTr("Select a local .pwsz file")
                 text: root.analysisBridge ? String(root.analysisBridge.sourcePath || "") : ""
                 onAccepted: {
-                    if (root.analysisBridge)
+                    if (root.analysisBridge) {
+                        root.syncExecutionSettings()
                         root.analysisBridge.analyze(text)
+                    }
                 }
             }
 
@@ -117,7 +149,10 @@ AppPageFrame {
                 enabled: root.analysisBridge
                          && !root.analysisBridge.running
                          && sourceField.text.trim().length > 0
-                onClicked: root.analysisBridge.analyze(sourceField.text)
+                onClicked: {
+                    root.syncExecutionSettings()
+                    root.analysisBridge.analyze(sourceField.text)
+                }
             }
 
             AppButton {
@@ -125,6 +160,47 @@ AppPageFrame {
                 text: qsTr("Cancel")
                 visible: root.analysisBridge && root.analysisBridge.running
                 onClicked: root.analysisBridge.cancel()
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.gapRow
+
+            Text {
+                text: qsTr("Compute mode")
+                color: Theme.fgPrimary
+                font.bold: true
+            }
+
+            AppComboBox {
+                id: computeModeCombo
+                objectName: "supportAnalysisComputeModeCombo"
+                Layout.preferredWidth: 220
+                model: [qsTr("Hybrid CPU + GPU"), qsTr("CPU only")]
+                currentIndex: root.selectedComputeMode() === "cpu" ? 1 : 0
+                enabled: root.analysisBridge && !root.analysisBridge.running
+                onActivated: function(index) {
+                    if (root.analysisBridge)
+                        root.analysisBridge.computeMode = index === 1 ? "cpu" : "auto"
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: root.selectedComputeMode() === "cpu"
+                      ? qsTr("Canonical CPU path. Vulkan is disabled for support analysis.")
+                      : qsTr("CPU remains authoritative; Vulkan accelerates eligible lineage calculations.")
+                color: Theme.fgSecondary
+                font.pixelSize: Theme.fontCaptionPx
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                objectName: "supportAnalysisWorkerCountText"
+                text: qsTr("Workers: %1").arg(root.workerCount)
+                color: Theme.fgMuted
+                font.pixelSize: Theme.fontCaptionPx
             }
         }
 
@@ -164,6 +240,66 @@ AppPageFrame {
                 font.pixelSize: Theme.fontCaptionPx
                 elide: Text.ElideMiddle
                 Layout.maximumWidth: 360
+            }
+        }
+
+        RowLayout {
+            objectName: "supportAnalysisComputeStatusRow"
+            Layout.fillWidth: true
+            visible: root.analysisBridge
+                     && (root.analysisBridge.running || root.analysisBridge.layerCount > 0)
+            spacing: Theme.gapRow
+
+            StatusChip {
+                objectName: "supportAnalysisComputeStatusChip"
+                status: root.executionStatusText()
+                toneStatus: root.analysisBridge && root.analysisBridge.vulkanActive
+                            ? "ready"
+                            : (root.analysisBridge && root.analysisBridge.running
+                               && String(root.analysisBridge.analyzedComputeMode
+                                   || root.selectedComputeMode()) === "auto"
+                               ? "printing" : "offline")
+            }
+
+            Text {
+                objectName: "supportAnalysisVulkanDeviceText"
+                visible: root.analysisBridge && root.analysisBridge.vulkanActive
+                text: root.analysisBridge
+                      ? qsTr("GPU: %1").arg(String(root.analysisBridge.vulkanDevice || qsTr("unknown")))
+                      : ""
+                color: Theme.fgSecondary
+                font.pixelSize: Theme.fontCaptionPx
+                elide: Text.ElideRight
+                Layout.maximumWidth: 360
+            }
+
+            Text {
+                objectName: "supportAnalysisComputeCountersText"
+                visible: root.analysisBridge && root.analysisBridge.layerCount > 0
+                text: root.analysisBridge
+                      ? qsTr("GPU jobs: %1 · CPU fallbacks: %2 · preparation: %3 / %4")
+                            .arg(root.analysisBridge.vulkanGpuJobs)
+                            .arg(root.analysisBridge.vulkanCpuFallbackJobs)
+                            .arg(root.analysisBridge.maximumPreparationInflight)
+                            .arg(root.analysisBridge.preparationWindow)
+                      : ""
+                color: Theme.fgMuted
+                font.pixelSize: Theme.fontCaptionPx
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+                objectName: "supportAnalysisComputeDiagnosticText"
+                visible: root.analysisBridge
+                         && root.selectedComputeMode() === "auto"
+                         && !root.analysisBridge.vulkanActive
+                         && String(root.analysisBridge.computeDiagnostic || "").length > 0
+                text: root.analysisBridge ? String(root.analysisBridge.computeDiagnostic || "") : ""
+                color: Theme.fgMuted
+                font.pixelSize: Theme.fontCaptionPx
+                elide: Text.ElideMiddle
+                Layout.maximumWidth: 420
             }
         }
 
@@ -579,6 +715,10 @@ AppPageFrame {
             }
         }
     }
+
+    onAnalysisBridgeChanged: root.syncExecutionSettings()
+    onWorkerCountChanged: root.syncExecutionSettings()
+    Component.onCompleted: root.syncExecutionSettings()
 
     Connections {
         target: root.analysisBridge

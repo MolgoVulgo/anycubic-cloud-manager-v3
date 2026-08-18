@@ -20,6 +20,20 @@ class SupportAnalysisBridge final : public QObject {
   Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
   Q_PROPERTY(QString sourcePath READ sourcePath NOTIFY sourcePathChanged)
   Q_PROPERTY(QString bundlePath READ bundlePath NOTIFY bundlePathChanged)
+  Q_PROPERTY(QString computeMode READ computeMode WRITE setComputeMode NOTIFY computeModeChanged)
+  Q_PROPERTY(int workerCount READ workerCount WRITE setWorkerCount NOTIFY workerCountChanged)
+  Q_PROPERTY(QString analyzedComputeMode READ analyzedComputeMode NOTIFY bundleChanged)
+  Q_PROPERTY(bool vulkanCompiled READ vulkanCompiled NOTIFY computeStatusChanged)
+  Q_PROPERTY(bool vulkanActive READ vulkanActive NOTIFY computeStatusChanged)
+  Q_PROPERTY(QString computeBackend READ computeBackend NOTIFY computeStatusChanged)
+  Q_PROPERTY(QString vulkanDevice READ vulkanDevice NOTIFY computeStatusChanged)
+  Q_PROPERTY(QString computeDiagnostic READ computeDiagnostic NOTIFY computeStatusChanged)
+  Q_PROPERTY(qulonglong vulkanGpuJobs READ vulkanGpuJobs NOTIFY bundleChanged)
+  Q_PROPERTY(qulonglong vulkanCpuFallbackJobs READ vulkanCpuFallbackJobs NOTIFY bundleChanged)
+  Q_PROPERTY(qulonglong vulkanDispatches READ vulkanDispatches NOTIFY bundleChanged)
+  Q_PROPERTY(qulonglong vulkanDispatchFailures READ vulkanDispatchFailures NOTIFY bundleChanged)
+  Q_PROPERTY(int preparationWindow READ preparationWindow NOTIFY bundleChanged)
+  Q_PROPERTY(int maximumPreparationInflight READ maximumPreparationInflight NOTIFY bundleChanged)
   Q_PROPERTY(int layerCount READ layerCount NOTIFY bundleChanged)
   Q_PROPERTY(int currentLayer READ currentLayer WRITE setCurrentLayer NOTIFY currentLayerChanged)
   Q_PROPERTY(QUrl currentImageUrl READ currentImageUrl NOTIFY currentLayerChanged)
@@ -43,6 +57,20 @@ public:
   [[nodiscard]] QString errorString() const;
   [[nodiscard]] QString sourcePath() const;
   [[nodiscard]] QString bundlePath() const;
+  [[nodiscard]] QString computeMode() const;
+  [[nodiscard]] int workerCount() const noexcept;
+  [[nodiscard]] QString analyzedComputeMode() const;
+  [[nodiscard]] bool vulkanCompiled() const noexcept;
+  [[nodiscard]] bool vulkanActive() const noexcept;
+  [[nodiscard]] QString computeBackend() const;
+  [[nodiscard]] QString vulkanDevice() const;
+  [[nodiscard]] QString computeDiagnostic() const;
+  [[nodiscard]] qulonglong vulkanGpuJobs() const noexcept;
+  [[nodiscard]] qulonglong vulkanCpuFallbackJobs() const noexcept;
+  [[nodiscard]] qulonglong vulkanDispatches() const noexcept;
+  [[nodiscard]] qulonglong vulkanDispatchFailures() const noexcept;
+  [[nodiscard]] int preparationWindow() const noexcept;
+  [[nodiscard]] int maximumPreparationInflight() const noexcept;
   [[nodiscard]] int layerCount() const noexcept;
   [[nodiscard]] int currentLayer() const noexcept;
   [[nodiscard]] QUrl currentImageUrl() const;
@@ -58,6 +86,8 @@ public:
   [[nodiscard]] QVariantMap selectedRegion() const;
 
   Q_INVOKABLE void analyze(const QString& localPath);
+  void setComputeMode(const QString& mode);
+  void setWorkerCount(int count);
   Q_INVOKABLE bool openBundle(const QString& localPath);
   Q_INVOKABLE void cancel();
   Q_INVOKABLE void setCurrentLayer(int oneBasedLayer);
@@ -71,6 +101,9 @@ signals:
   void errorStringChanged();
   void sourcePathChanged();
   void bundlePathChanged();
+  void computeModeChanged();
+  void workerCountChanged();
+  void computeStatusChanged();
   void bundleChanged();
   void currentLayerChanged();
   void decisionSelectionChanged();
@@ -84,6 +117,11 @@ private:
   void consumeProcessOutput();
   void handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
   bool loadCurrentLayerData();
+  void resetComputeStatus();
+  void updateComputeStatus(bool compiled, bool active, const QString& backend,
+                           const QString& device, const QString& diagnostic);
+  [[nodiscard]] QJsonObject summaryObject() const;
+  [[nodiscard]] QJsonObject optionsObject() const;
   [[nodiscard]] QUrl currentDiagnosticImageUrl(const QString& panel) const;
   [[nodiscard]] QString currentDiagnosticPath(const QString& panel) const;
   [[nodiscard]] QString probeExecutable() const;
@@ -98,6 +136,13 @@ private:
   QString m_errorString;
   QString m_sourcePath;
   QString m_bundlePath;
+  QString m_computeMode = QStringLiteral("auto");
+  int m_workerCount = 4;
+  bool m_vulkanCompiled = false;
+  bool m_vulkanActive = false;
+  QString m_computeBackend = QStringLiteral("cpu");
+  QString m_vulkanDevice;
+  QString m_computeDiagnostic;
   int m_layerCount = 0;
   int m_currentLayer = 1;
   int m_selectedDecisionIndex = -1;

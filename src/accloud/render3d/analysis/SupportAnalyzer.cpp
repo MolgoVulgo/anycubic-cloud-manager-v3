@@ -476,22 +476,17 @@ public:
       const std::vector<bool>& selected,
       double marginPixels)
       : componentCount_(layer == nullptr ? 0u : layer->components.size()) {
-    if (layer == nullptr) {
-      return;
-    }
-    const auto margin = static_cast<std::uint32_t>(
-        std::max(0.0, std::ceil(marginPixels)));
-    for (std::size_t index = 0; index < layer->components.size(); ++index) {
-      if (index >= selected.size() || !selected[index]) {
-        continue;
-      }
-      const auto& component = layer->components[index];
-      const auto minX = component.minX > margin ? component.minX - margin : 0u;
-      const auto minY = component.minY > margin ? component.minY - margin : 0u;
-      const auto maxX = component.maxX + margin;
-      const auto maxY = component.maxY + margin;
-      add(index, minX, minY, maxX, maxY);
-    }
+    build(layer, &selected, marginPixels);
+  }
+
+  // P6.5 graph construction indexes every component of the previous native
+  // layer. Semantic filtering is deliberately deferred to reconciliation so
+  // adjacent-layer geometry can be computed independently in parallel lots.
+  ComponentGridIndex(
+      const LayerDescription* layer,
+      double marginPixels)
+      : componentCount_(layer == nullptr ? 0u : layer->components.size()) {
+    build(layer, nullptr, marginPixels);
   }
 
   [[nodiscard]] const std::vector<std::size_t>& query(
@@ -520,6 +515,29 @@ public:
   }
 
 private:
+  void build(
+      const LayerDescription* layer,
+      const std::vector<bool>* selected,
+      double marginPixels) {
+    if (layer == nullptr) {
+      return;
+    }
+    const auto margin = static_cast<std::uint32_t>(
+        std::max(0.0, std::ceil(marginPixels)));
+    for (std::size_t index = 0; index < layer->components.size(); ++index) {
+      if (selected != nullptr
+          && (index >= selected->size() || !(*selected)[index])) {
+        continue;
+      }
+      const auto& component = layer->components[index];
+      const auto minX = component.minX > margin ? component.minX - margin : 0u;
+      const auto minY = component.minY > margin ? component.minY - margin : 0u;
+      const auto maxX = component.maxX + margin;
+      const auto maxY = component.maxY + margin;
+      add(index, minX, minY, maxX, maxY);
+    }
+  }
+
   static constexpr std::uint32_t kCellSize = 128u;
 
   static std::uint64_t cellKey(std::uint32_t x, std::uint32_t y) {
@@ -657,6 +675,82 @@ struct PreparedLayer {
   LayerDescription description;
   std::string error;
   bool ok = false;
+};
+
+struct SupportPerformanceCounters {
+  std::atomic<std::uint64_t> preparationLoadMicroseconds{0u};
+  std::atomic<std::uint64_t> preparationDescribeMicroseconds{0u};
+  std::atomic<std::uint64_t> forwardSemanticMicroseconds{0u};
+  std::atomic<std::uint64_t> reverseSemanticMicroseconds{0u};
+  std::atomic<std::uint64_t> forwardClassificationMicroseconds{0u};
+  std::atomic<std::uint64_t> forwardCommitMicroseconds{0u};
+  std::atomic<std::uint64_t> forwardLineageMicroseconds{0u};
+  std::atomic<std::uint64_t> forwardLineageCommitMicroseconds{0u};
+  std::atomic<std::uint64_t> reversePreparationMicroseconds{0u};
+  std::atomic<std::uint64_t> reverseCommitMicroseconds{0u};
+  std::atomic<std::uint64_t> semanticEvidenceMicroseconds{0u};
+  std::atomic<std::size_t> semanticEvidenceEdgeCount{0u};
+  std::size_t semanticEvidenceLotCount = 0u;
+  std::size_t semanticEvidenceLayerPairCount = 0u;
+  std::atomic<std::size_t> preparedLayerCount{0u};
+  std::atomic<std::size_t> maximumPreparationInflight{0u};
+  std::size_t preparationWindowCapacity = 0u;
+
+  [[nodiscard]] SupportAnalysisPerformanceTelemetry snapshot() const noexcept {
+    SupportAnalysisPerformanceTelemetry result;
+    result.preparationWindowCapacity = preparationWindowCapacity;
+    result.preparedLayerCount = preparedLayerCount.load(std::memory_order_relaxed);
+    result.maximumPreparationInflight =
+        maximumPreparationInflight.load(std::memory_order_relaxed);
+    result.preparationLoadMicroseconds =
+        preparationLoadMicroseconds.load(std::memory_order_relaxed);
+    result.preparationDescribeMicroseconds =
+        preparationDescribeMicroseconds.load(std::memory_order_relaxed);
+    result.forwardSemanticMicroseconds =
+        forwardSemanticMicroseconds.load(std::memory_order_relaxed);
+    result.reverseSemanticMicroseconds =
+        reverseSemanticMicroseconds.load(std::memory_order_relaxed);
+    result.forwardClassificationMicroseconds =
+        forwardClassificationMicroseconds.load(std::memory_order_relaxed);
+    result.forwardCommitMicroseconds =
+        forwardCommitMicroseconds.load(std::memory_order_relaxed);
+    result.forwardLineageMicroseconds =
+        forwardLineageMicroseconds.load(std::memory_order_relaxed);
+    result.forwardLineageCommitMicroseconds =
+        forwardLineageCommitMicroseconds.load(std::memory_order_relaxed);
+    result.reversePreparationMicroseconds =
+        reversePreparationMicroseconds.load(std::memory_order_relaxed);
+    result.reverseCommitMicroseconds =
+        reverseCommitMicroseconds.load(std::memory_order_relaxed);
+    result.semanticEvidenceMicroseconds =
+        semanticEvidenceMicroseconds.load(std::memory_order_relaxed);
+    result.semanticEvidenceLotCount = semanticEvidenceLotCount;
+    result.semanticEvidenceLayerPairCount = semanticEvidenceLayerPairCount;
+    result.semanticEvidenceEdgeCount =
+        semanticEvidenceEdgeCount.load(std::memory_order_relaxed);
+    return result;
+  }
+};
+
+class ScopedAtomicMicrosecondTimer {
+public:
+  explicit ScopedAtomicMicrosecondTimer(std::atomic<std::uint64_t>& target)
+      : target_(target), started_(std::chrono::steady_clock::now()) {}
+
+  ScopedAtomicMicrosecondTimer(const ScopedAtomicMicrosecondTimer&) = delete;
+  ScopedAtomicMicrosecondTimer& operator=(const ScopedAtomicMicrosecondTimer&) = delete;
+
+  ~ScopedAtomicMicrosecondTimer() {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started_);
+    target_.fetch_add(
+        static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed.count())),
+        std::memory_order_relaxed);
+  }
+
+private:
+  std::atomic<std::uint64_t>& target_;
+  std::chrono::steady_clock::time_point started_;
 };
 
 // P4 uses one shared worker pool for the entire support-analysis pipeline. Layer
@@ -810,16 +904,46 @@ private:
   bool stopping_ = false;
 };
 
-inline constexpr std::size_t kMaximumSupportPreparationWindow = 4u;
+[[nodiscard]] std::size_t estimatedNativeMaskBytes(
+    std::uint32_t width,
+    std::uint32_t height) noexcept {
+  const auto wordsPerRow = (static_cast<std::size_t>(width) + 63u) / 64u;
+  if (height != 0u
+      && wordsPerRow > std::numeric_limits<std::size_t>::max() / height) {
+    return std::numeric_limits<std::size_t>::max();
+  }
+  const auto words = wordsPerRow * static_cast<std::size_t>(height);
+  if (words > std::numeric_limits<std::size_t>::max() / sizeof(std::uint64_t)) {
+    return std::numeric_limits<std::size_t>::max();
+  }
+  return words * sizeof(std::uint64_t);
+}
+
+[[nodiscard]] std::size_t adaptivePreparationWindow(
+    const photons::LayerMaskSource& source,
+    const SupportWorkScheduler& scheduler,
+    std::size_t layerCount,
+    std::size_t memoryBudgetBytes) noexcept {
+  if (layerCount == 0u) {
+    return 0u;
+  }
+  const auto maskBytes = estimatedNativeMaskBytes(source.width(), source.height());
+  const auto memoryLimited = maskBytes == 0u
+      ? scheduler.backgroundWorkerCount()
+      : std::max<std::size_t>(1u, memoryBudgetBytes / maskBytes);
+  return std::max<std::size_t>(
+      1u,
+      std::min({scheduler.backgroundWorkerCount(), layerCount, memoryLimited}));
+}
 
 // The semantic classifier has strict layer-to-layer dependencies, but loading
-// and connected-component extraction for a layer are independent. This helper
-// submits a bounded ordered preparation window to the shared scheduler. At most
-// four unconsumed material masks are retained, regardless of the semantic worker
-// count. The forward
-// consumer moves each compact connected-component description into the analysis
-// cache so the reverse semantic traversal can reuse it without decoding the
-// PWSZ again.
+// and connected-component extraction for a layer are independent. P6.3 sizes
+// this ordered background window from the configured worker count and an
+// estimated native-mask memory budget instead of imposing a fixed four-layer
+// cap. Foreground semantic work keeps priority in the shared scheduler, so the
+// wider window fills only from otherwise idle workers. The forward consumer
+// moves each compact connected-component description into the analysis cache so
+// the reverse semantic traversal can reuse it without decoding the PWSZ again.
 class OrderedLayerPreparer {
 public:
   OrderedLayerPreparer(
@@ -828,7 +952,9 @@ public:
       std::size_t layerCount,
       bool descending,
       bool retainMask,
-      SupportWorkScheduler& scheduler)
+      SupportWorkScheduler& scheduler,
+      std::size_t preparationMemoryBudgetBytes,
+      SupportPerformanceCounters& performance)
       : source_(source),
         scheduler_(scheduler),
         firstLayer_(firstLayer),
@@ -836,12 +962,12 @@ public:
         descending_(descending),
         retainMask_(retainMask),
         concurrentLoads_(source.supportsConcurrentMaskLoads()),
-        effectiveBackgroundWorkerCount_(std::min(
-            {scheduler.backgroundWorkerCount(),
-             layerCount,
-             kMaximumSupportPreparationWindow})),
+        effectiveBackgroundWorkerCount_(adaptivePreparationWindow(
+            source, scheduler, layerCount, preparationMemoryBudgetBytes)),
+        performance_(performance),
         ready_(layerCount) {
     outstandingCapacity_ = effectiveBackgroundWorkerCount_;
+    performance_.preparationWindowCapacity = outstandingCapacity_;
     scheduleAvailable();
   }
 
@@ -904,12 +1030,18 @@ private:
     result.layer = layerForOrdinal(ordinal);
 
     std::optional<BinaryMask> mask;
+    const auto loadStarted = std::chrono::steady_clock::now();
     if (concurrentLoads_) {
       mask = source_.loadMask(result.layer, result.error);
     } else {
       std::scoped_lock lock(sourceLoadMutex_);
       mask = source_.loadMask(result.layer, result.error);
     }
+    const auto loadElapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - loadStarted);
+    performance_.preparationLoadMicroseconds.fetch_add(
+        static_cast<std::uint64_t>(std::max<std::int64_t>(0, loadElapsed.count())),
+        std::memory_order_relaxed);
     if (!mask) {
       if (result.error.empty()) {
         result.error = "support analysis could not load a layer";
@@ -917,7 +1049,14 @@ private:
       return result;
     }
 
+    const auto describeStarted = std::chrono::steady_clock::now();
     result.description = describeLayer(*mask, result.layer);
+    const auto describeElapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - describeStarted);
+    performance_.preparationDescribeMicroseconds.fetch_add(
+        static_cast<std::uint64_t>(std::max<std::int64_t>(0, describeElapsed.count())),
+        std::memory_order_relaxed);
+    performance_.preparedLayerCount.fetch_add(1u, std::memory_order_relaxed);
     if (retainMask_.load(std::memory_order_relaxed)) {
       result.mask = std::move(mask);
     }
@@ -940,6 +1079,12 @@ private:
         ordinals.push_back(nextAssign_++);
         ++outstanding_;
         ++scheduledTaskCount_;
+        auto observed = performance_.maximumPreparationInflight.load(
+            std::memory_order_relaxed);
+        while (outstanding_ > observed
+               && !performance_.maximumPreparationInflight.compare_exchange_weak(
+                   observed, outstanding_, std::memory_order_relaxed)) {
+        }
       }
     }
 
@@ -978,6 +1123,7 @@ private:
   std::atomic<bool> retainMask_{false};
   bool concurrentLoads_ = false;
   std::size_t effectiveBackgroundWorkerCount_ = 0u;
+  SupportPerformanceCounters& performance_;
   std::size_t outstandingCapacity_ = 0u;
   std::size_t nextAssign_ = 0u;
   std::size_t nextConsume_ = 0u;
@@ -1616,7 +1762,76 @@ struct TranslatedOverlapScratch {
   std::vector<std::uint32_t> sourceWords;
   std::vector<std::uint32_t> referenceWords;
   std::vector<std::uint32_t> overlaps;
+  std::vector<compute::SupportComputeRun> sourceRuns;
 };
+
+struct ResidentReferenceScratch {
+  std::vector<std::uint32_t> words;
+  compute::TranslatedRunOverlapBatch batch;
+};
+
+bool prepareResidentReferenceBatch(
+    const SparseRunMask& reference,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t radius,
+    std::uint64_t referenceKey,
+    ResidentReferenceScratch& scratch) {
+  if (width == 0u || height == 0u || radius > 31u || reference.empty()) {
+    return false;
+  }
+  const auto wordsPerRow = (width + 31u) / 32u;
+  const auto wordCount64 = static_cast<std::uint64_t>(wordsPerRow) * height;
+  constexpr std::uint64_t kMaximumResidentWords = (128ull * 1024ull * 1024ull)
+      / sizeof(std::uint32_t);
+  if (wordCount64 == 0u
+      || wordCount64 > kMaximumResidentWords
+      || wordCount64 > std::numeric_limits<std::size_t>::max()) {
+    return false;
+  }
+  scratch.words.assign(static_cast<std::size_t>(wordCount64), 0u);
+  reference.rasterizeRegion(
+      0u, 0u, width, height, wordsPerRow, scratch.words);
+  scratch.batch.referenceKey = referenceKey;
+  scratch.batch.width = width;
+  scratch.batch.height = height;
+  scratch.batch.wordsPerRow = wordsPerRow;
+  scratch.batch.radius = radius;
+  scratch.batch.referenceWords = scratch.words;
+  scratch.batch.sourceRuns = {};
+  return true;
+}
+
+bool prepareTranslatedRunBatch(
+    const Component& current,
+    const compute::TranslatedRunOverlapBatch& residentReference,
+    TranslatedOverlapScratch& scratch,
+    compute::TranslatedRunOverlapBatch& batch) {
+  if (current.runs.empty() || current.area == 0u
+      || residentReference.referenceWords.empty()
+      || residentReference.referenceKey == 0u) {
+    return false;
+  }
+  scratch.sourceRuns.clear();
+  if (scratch.sourceRuns.capacity() < current.runs.size()) {
+    scratch.sourceRuns.reserve(current.runs.size());
+  }
+  for (const auto& run : current.runs) {
+    if (run.firstX >= run.lastX) {
+      continue;
+    }
+    scratch.sourceRuns.push_back(compute::SupportComputeRun{
+        run.y, run.firstX, run.lastX, 0u});
+  }
+  if (scratch.sourceRuns.empty()) {
+    return false;
+  }
+  const auto diameter = static_cast<std::size_t>(residentReference.radius) * 2u + 1u;
+  scratch.overlaps.assign(diameter * diameter, 0u);
+  batch = residentReference;
+  batch.sourceRuns = scratch.sourceRuns;
+  return true;
+}
 
 bool prepareTranslatedOverlapBatch(
     const Component& current,
@@ -1750,6 +1965,7 @@ ModelLineageMotion bestModelLineageMotion(
     const SparseRunMask* competingSupport = nullptr,
     compute::SupportComputeBackend* computeBackend = nullptr,
     TranslatedOverlapScratch* computeScratch = nullptr,
+    const compute::TranslatedRunOverlapBatch* residentReference = nullptr,
     std::size_t vulkanMinimumAreaPixels = std::numeric_limits<std::size_t>::max()) {
   ModelLineageMotion best;
   if (previousStableModel.empty()) {
@@ -1775,24 +1991,44 @@ ModelLineageMotion bestModelLineageMotion(
       && maximumShiftPixels != 0u
       && maximumShiftPixels <= 31u) {
     computeBackend->recordEligibleJob();
-    compute::TranslatedOverlapBatch batch;
     const auto preparationStarted = std::chrono::steady_clock::now();
-    if (prepareTranslatedOverlapBatch(
-            current, previousStableModel, maximumShiftPixels,
-            *computeScratch, batch)) {
-      const auto preparationEnded = std::chrono::steady_clock::now();
-      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-          std::chrono::duration_cast<std::chrono::nanoseconds>(
-              preparationEnded - preparationStarted).count()));
-      std::string computeError;
-      usedComputeBackend = computeBackend->translatedOverlaps(
-          batch, computeScratch->overlaps, computeError);
+    std::string computeError;
+    if (residentReference != nullptr
+        && residentReference->radius == maximumShiftPixels) {
+      compute::TranslatedRunOverlapBatch batch;
+      if (prepareTranslatedRunBatch(
+              current, *residentReference, *computeScratch, batch)) {
+        const auto preparationEnded = std::chrono::steady_clock::now();
+        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                preparationEnded - preparationStarted).count()));
+        usedComputeBackend = computeBackend->translatedRunOverlaps(
+            batch, computeScratch->overlaps, computeError);
+      } else {
+        const auto preparationEnded = std::chrono::steady_clock::now();
+        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                preparationEnded - preparationStarted).count()));
+        computeBackend->recordCpuFallbackJob();
+      }
     } else {
-      const auto preparationEnded = std::chrono::steady_clock::now();
-      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-          std::chrono::duration_cast<std::chrono::nanoseconds>(
-              preparationEnded - preparationStarted).count()));
-      computeBackend->recordCpuFallbackJob();
+      compute::TranslatedOverlapBatch batch;
+      if (prepareTranslatedOverlapBatch(
+              current, previousStableModel, maximumShiftPixels,
+              *computeScratch, batch)) {
+        const auto preparationEnded = std::chrono::steady_clock::now();
+        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                preparationEnded - preparationStarted).count()));
+        usedComputeBackend = computeBackend->translatedOverlaps(
+            batch, computeScratch->overlaps, computeError);
+      } else {
+        const auto preparationEnded = std::chrono::steady_clock::now();
+        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                preparationEnded - preparationStarted).count()));
+        computeBackend->recordCpuFallbackJob();
+      }
     }
   }
 
@@ -1935,96 +2171,6 @@ SupportMotionComparison compareSupportMotion(
   return comparison;
 }
 
-class NodeGridIndex {
-public:
-  NodeGridIndex(
-      const std::vector<std::size_t>& nodes,
-      const std::vector<NodeState>& states,
-      double marginPixels)
-      : stampCount_(states.size()) {
-    const auto margin = static_cast<std::uint32_t>(
-        std::max(0.0, std::ceil(marginPixels)));
-    for (const auto nodeId : nodes) {
-      if (nodeId >= states.size()) {
-        continue;
-      }
-      const auto& component = *states[nodeId].component;
-      const auto minX = component.minX > margin ? component.minX - margin : 0u;
-      const auto minY = component.minY > margin ? component.minY - margin : 0u;
-      const auto maxX = component.maxX + margin;
-      const auto maxY = component.maxY + margin;
-      add(nodeId, minX, minY, maxX, maxY);
-    }
-  }
-
-  [[nodiscard]] const std::vector<std::size_t>& query(
-      const Component& component,
-      GridQueryScratch& scratch) const {
-    scratch.begin(stampCount_);
-    if (cells_.empty()) {
-      return scratch.result;
-    }
-    forEachCell(
-        component.minX, component.minY, component.maxX, component.maxY,
-        [&](std::uint64_t key) {
-          const auto iterator = cells_.find(key);
-          if (iterator == cells_.end()) {
-            return;
-          }
-          for (const auto nodeId : iterator->second) {
-            if (scratch.stamps[nodeId] == scratch.generation) {
-              continue;
-            }
-            scratch.stamps[nodeId] = scratch.generation;
-            scratch.result.push_back(nodeId);
-          }
-        });
-    return scratch.result;
-  }
-
-private:
-  static constexpr std::uint32_t kCellSize = 128u;
-
-  static std::uint64_t cellKey(std::uint32_t x, std::uint32_t y) {
-    return (static_cast<std::uint64_t>(x) << 32u) | y;
-  }
-
-  template <typename Visitor>
-  static void forEachCell(
-      std::uint32_t minX,
-      std::uint32_t minY,
-      std::uint32_t maxX,
-      std::uint32_t maxY,
-      Visitor visitor) {
-    if (maxX <= minX || maxY <= minY) {
-      return;
-    }
-    const auto firstCellX = minX / kCellSize;
-    const auto firstCellY = minY / kCellSize;
-    const auto lastCellX = (maxX - 1u) / kCellSize;
-    const auto lastCellY = (maxY - 1u) / kCellSize;
-    for (std::uint32_t cellY = firstCellY; cellY <= lastCellY; ++cellY) {
-      for (std::uint32_t cellX = firstCellX; cellX <= lastCellX; ++cellX) {
-        visitor(cellKey(cellX, cellY));
-      }
-    }
-  }
-
-  void add(
-      std::size_t nodeId,
-      std::uint32_t minX,
-      std::uint32_t minY,
-      std::uint32_t maxX,
-      std::uint32_t maxY) {
-    forEachCell(minX, minY, maxX, maxY, [&](std::uint64_t key) {
-      cells_[key].push_back(nodeId);
-    });
-  }
-
-  std::size_t stampCount_ = 0u;
-  std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells_;
-};
-
 struct Match {
   std::size_t previousNode = 0;
   std::size_t overlap = 0;
@@ -2104,42 +2250,76 @@ ComponentPairMetrics componentPairMetrics(
   return metrics;
 }
 
-void matchingPreviousNodes(
-    const Component& current,
-    const std::vector<std::size_t>& previousNodes,
-    const std::vector<NodeState>& states,
-    const SupportAnalysisOptions& options,
-    std::vector<Match>& matches) {
-  matches.clear();
-  if (matches.capacity() < previousNodes.size()) {
-    matches.reserve(previousNodes.size());
+struct ComponentPairEvidence {
+  std::uint32_t previousComponent = 0u;
+  std::size_t overlap = 0u;
+  double centreDistance = 0.0;
+  double materialDistance = std::numeric_limits<double>::infinity();
+};
+
+struct AdjacentLayerEvidence {
+  std::vector<std::size_t> offsets;
+  std::vector<ComponentPairEvidence> pairs;
+
+  [[nodiscard]] std::span<const ComponentPairEvidence> forCurrent(
+      std::size_t currentComponent) const noexcept {
+    if (currentComponent + 1u >= offsets.size()) {
+      return {};
+    }
+    const auto first = offsets[currentComponent];
+    const auto last = offsets[currentComponent + 1u];
+    if (first > last || last > pairs.size()) {
+      return {};
+    }
+    return std::span<const ComponentPairEvidence>(pairs).subspan(first, last - first);
   }
-  for (const auto nodeId : previousNodes) {
-    const auto& previous = *states[nodeId].component;
-    const auto metrics = componentPairMetrics(
-        previous, current, options.maximumLayerMotionPixels);
-    if (!metrics.nearEnough) {
-      continue;
-    }
-    matches.push_back(Match{
-        nodeId,
-        metrics.overlap,
-        metrics.centreDistance,
-        metrics.materialDistance,
-    });
+};
+
+AdjacentLayerEvidence buildAdjacentLayerEvidence(
+    const LayerDescription& previous,
+    const LayerDescription& current,
+    double maximumDistance) {
+  AdjacentLayerEvidence evidence;
+  evidence.offsets.resize(current.components.size() + 1u, 0u);
+  if (previous.components.empty() || current.components.empty()) {
+    return evidence;
   }
-  std::sort(matches.begin(), matches.end(), [](const Match& left, const Match& right) {
-    if (left.overlap != right.overlap) {
-      return left.overlap > right.overlap;
+
+  ComponentGridIndex previousIndex(&previous, maximumDistance);
+  GridQueryScratch queryScratch;
+  std::vector<ComponentPairEvidence> currentPairs;
+  for (std::size_t currentIndex = 0u;
+       currentIndex < current.components.size(); ++currentIndex) {
+    currentPairs.clear();
+    const auto& component = current.components[currentIndex];
+    const auto& candidates = previousIndex.query(component, queryScratch);
+    currentPairs.reserve(candidates.size());
+    for (const auto previousIndexValue : candidates) {
+      if (previousIndexValue >= previous.components.size()) {
+        continue;
+      }
+      const auto metrics = componentPairMetrics(
+          previous.components[previousIndexValue], component, maximumDistance);
+      if (!metrics.nearEnough) {
+        continue;
+      }
+      currentPairs.push_back(ComponentPairEvidence{
+          static_cast<std::uint32_t>(previousIndexValue),
+          metrics.overlap,
+          metrics.centreDistance,
+          metrics.materialDistance,
+      });
     }
-    if (left.materialDistance != right.materialDistance) {
-      return left.materialDistance < right.materialDistance;
-    }
-    if (left.centreDistance != right.centreDistance) {
-      return left.centreDistance < right.centreDistance;
-    }
-    return left.previousNode < right.previousNode;
-  });
+    std::sort(
+        currentPairs.begin(), currentPairs.end(),
+        [](const auto& left, const auto& right) {
+          return left.previousComponent < right.previousComponent;
+        });
+    evidence.pairs.insert(
+        evidence.pairs.end(), currentPairs.begin(), currentPairs.end());
+    evidence.offsets[currentIndex + 1u] = evidence.pairs.size();
+  }
+  return evidence;
 }
 
 bool hasModelRootTaper(
@@ -2352,6 +2532,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       || options.modelContactConfirmationLayers < 2u
       || options.workerCount < kMinimumSupportAnalysisWorkerCount
       || options.workerCount > kMaximumSupportAnalysisWorkerCount
+      || options.preparationMemoryBudgetBytes == 0u
       || !(options.raftMaximumChangedPixelRatio >= 0.0
            && options.raftMaximumChangedPixelRatio < 1.0)
       || !(options.maximumLayerMotionPixels >= 0.0)
@@ -2374,13 +2555,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   std::string computeDiagnostic;
   auto computeBackend = compute::createSupportComputeBackend(
       options.computePreference, computeDiagnostic);
-  if (options.computePreference == compute::SupportComputePreference::Vulkan
-      && !computeBackend) {
-    result.error = computeDiagnostic.empty()
-        ? "Vulkan compute was requested but is unavailable"
-        : computeDiagnostic;
-    return result;
-  }
   result.summary.vulkanComputeActive = computeBackend != nullptr;
   if (computeBackend) {
     result.summary.vulkanDeviceName = computeBackend->deviceName();
@@ -2398,7 +2572,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       callbacks.computeTelemetry(computeBackend->telemetry());
     }
   };
-
   result.layers.resize(source.layerCount());
   std::vector<NodeState> states;
   std::vector<std::size_t> nodeDecisionIndices;
@@ -2466,8 +2639,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         : parentSupport(height, enableBitsets) {}
     SparseRunMask parentSupport;
     TranslatedOverlapScratch computeOverlap;
-    GridQueryScratch supportQuery;
-    GridQueryScratch modelQuery;
   };
   struct ReverseWorkerScratch {
     ReverseWorkerScratch(std::uint32_t height, bool enableBitsets)
@@ -2495,7 +2666,19 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   };
 
 
+  SupportPerformanceCounters performanceCounters;
   SupportWorkScheduler workScheduler(options.workerCount);
+  // P6.5 exposes three monotonic analysis phases to the viewer: immutable
+  // geometry/evidence preparation, forward reconciliation and reverse
+  // reconciliation. This avoids an apparent progress stall while all native
+  // LayerDescriptions are prepared before semantic commits begin.
+  const std::size_t supportProgressPhaseWork = source.layerCount();
+  const std::size_t supportProgressTotal = supportProgressPhaseWork * 3u;
+  const auto publishPerformanceTelemetry = [&] {
+    if (callbacks.performanceTelemetry) {
+      callbacks.performanceTelemetry(performanceCounters.snapshot());
+    }
+  };
   std::vector<ForwardWorkerScratch> forwardScratch;
   forwardScratch.reserve(workScheduler.workerCount());
   std::vector<ReverseWorkerScratch> reverseScratch;
@@ -2507,6 +2690,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     reverseScratch.emplace_back(source.height(), options.enableBitsetAcceleration);
     forwardLineageScratch.emplace_back(source.height(), options.enableBitsetAcceleration);
   }
+  ResidentReferenceScratch forwardResidentReference;
+  ResidentReferenceScratch reverseResidentReference;
+  std::uint64_t residentReferenceGeneration = 1u;
 
   OrderedLayerPreparer forwardPreparer(
       source,
@@ -2514,14 +2700,23 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       source.layerCount(),
       false,
       true,
-      workScheduler);
+      workScheduler,
+      options.preparationMemoryBudgetBytes,
+      performanceCounters);
   std::vector<std::size_t> currentCandidateNodes;
   std::vector<std::size_t> currentComponentNodes;
+  std::vector<std::size_t> previousComponentNodes;
   std::vector<bool> currentIsModel;
   std::vector<bool> previousHasStructuralChild;
   std::vector<ForwardComponentPreparation> currentPreparations;
   std::vector<ForwardLineagePreparation> currentLineagePreparations;
-  for (std::size_t layer = 0; layer < source.layerCount(); ++layer) {
+
+  // P6.5 separates immutable layer geometry from semantic reconciliation. All
+  // native layers are decoded/described once before classification, while the
+  // adaptive P6.3 window still bounds resident masks. Only the raft prefix
+  // needs raw masks; once its first differing layer is known retained masks are
+  // dropped immediately.
+  for (std::size_t layer = 0u; layer < source.layerCount(); ++layer) {
     if (callbacks.isCancelled && callbacks.isCancelled()) {
       result.cancelled = true;
       result.error = "support analysis cancelled";
@@ -2536,35 +2731,30 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
     auto mask = std::move(prepared.mask);
     layerDescriptions[layer] = std::move(prepared.description);
-    auto& current = layerDescriptions[layer];
-    result.summary.componentCount += current.components.size();
-    if (layer == 0) {
-      if (current.totalArea == 0) {
+    auto& description = layerDescriptions[layer];
+    result.summary.componentCount += description.components.size();
+
+    if (layer == 0u) {
+      if (description.totalArea == 0u) {
         result.error = "support analysis requires raft matter on the first layer";
         return result;
       }
       firstRaftMask = *mask;
-      firstRaftArea = current.totalArea;
+      firstRaftArea = description.totalArea;
     }
 
-    // The raft is the mandatory prefix starting at layer zero. Slicers may use
-    // a plate, a grid or independent pads, but the selected raft raster is
-    // repeated until support stems begin. The first different native mask is
-    // therefore the first support layer; no fixed layer window or area limit is
-    // involved in this decision.
     if (!raftEnded) {
       const auto maximumChangedPixels = static_cast<std::size_t>(std::ceil(
           static_cast<double>(firstRaftArea)
           * options.raftMaximumChangedPixelRatio));
-      const bool sameAsFirstRaft = layer == 0
-                                   || (firstRaftMask
-                                       && changedPixelCount(*mask, *firstRaftMask)
-                                              <= maximumChangedPixels);
+      const bool sameAsFirstRaft = layer == 0u
+          || (firstRaftMask
+              && changedPixelCount(*mask, *firstRaftMask) <= maximumChangedPixels);
       if (sameAsFirstRaft) {
         result.summary.raftLastLayer = layer;
         result.layers[layer].layer = layer;
         result.layers[layer].phase = PrintPhase::Raft;
-        for (const auto& component : current.components) {
+        for (const auto& component : description.components) {
           result.summary.raftRunCount += component.runs.size();
           if (options.captureDecisionTrace) {
             SupportDecisionTrace trace;
@@ -2581,12 +2771,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             result.decisions.push_back(trace);
           }
         }
-        previousLayer = &current;
-        previousModelComponents.assign(previousLayer->components.size(), false);
-        previousCandidateNodes.clear();
         if (callbacks.progress) {
           publishComputeTelemetry();
-          callbacks.progress(layer + 1, source.layerCount() * 2u);
+          publishPerformanceTelemetry();
+          callbacks.progress(layer + 1u, supportProgressTotal);
         }
         continue;
       }
@@ -2594,33 +2782,107 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       forwardPreparer.dropRetainedMasks();
       firstRaftMask.reset();
     }
+    if (callbacks.progress) {
+      publishComputeTelemetry();
+      publishPerformanceTelemetry();
+      callbacks.progress(layer + 1u, supportProgressTotal);
+    }
+  }
 
+  // Build one immutable geometric graph between adjacent native layers. Each
+  // contiguous lot is independent, including its boundary pair, so all lots
+  // can run simultaneously. The ordered forward/reverse passes below become a
+  // reconciliation engine over these facts instead of recomputing pair metrics
+  // while waiting on the previous semantic commit.
+  std::vector<AdjacentLayerEvidence> adjacentEvidence(source.layerCount());
+  const auto firstSemanticLayer = std::min(
+      source.layerCount(), result.summary.raftLastLayer + 1u);
+  const auto firstEvidenceLayer = std::min(
+      source.layerCount(), firstSemanticLayer + 1u);
+  const auto evidenceLayerPairCount = source.layerCount() > firstEvidenceLayer
+      ? source.layerCount() - firstEvidenceLayer
+      : 0u;
+  const auto evidenceLotCount = evidenceLayerPairCount == 0u
+      ? 0u
+      : std::min(workScheduler.workerCount(), evidenceLayerPairCount);
+  performanceCounters.semanticEvidenceLotCount = evidenceLotCount;
+  performanceCounters.semanticEvidenceLayerPairCount = evidenceLayerPairCount;
+  if (evidenceLotCount != 0u) {
+    ScopedAtomicMicrosecondTimer evidenceTimer(
+        performanceCounters.semanticEvidenceMicroseconds);
+    workScheduler.parallelFor(
+        evidenceLotCount,
+        [&](std::size_t lot, std::size_t) {
+          const auto beginOrdinal = evidenceLayerPairCount * lot / evidenceLotCount;
+          const auto endOrdinal = evidenceLayerPairCount * (lot + 1u) / evidenceLotCount;
+          std::size_t localEdgeCount = 0u;
+          for (auto ordinal = beginOrdinal; ordinal < endOrdinal; ++ordinal) {
+            const auto layer = firstEvidenceLayer + ordinal;
+            adjacentEvidence[layer] = buildAdjacentLayerEvidence(
+                layerDescriptions[layer - 1u],
+                layerDescriptions[layer],
+                options.maximumLayerMotionPixels);
+            localEdgeCount += adjacentEvidence[layer].pairs.size();
+          }
+          performanceCounters.semanticEvidenceEdgeCount.fetch_add(
+              localEdgeCount, std::memory_order_relaxed);
+        });
+  }
+  if (callbacks.isCancelled && callbacks.isCancelled()) {
+    result.cancelled = true;
+    result.error = "support analysis cancelled";
+    return result;
+  }
+
+  const auto invalidNode = std::numeric_limits<std::size_t>::max();
+  if (firstSemanticLayer != 0u && firstSemanticLayer <= source.layerCount()) {
+    previousLayer = &layerDescriptions[firstSemanticLayer - 1u];
+    previousModelComponents.assign(previousLayer->components.size(), false);
+    previousComponentNodes.assign(previousLayer->components.size(), invalidNode);
+  }
+
+  for (std::size_t layer = firstSemanticLayer;
+       layer < source.layerCount(); ++layer) {
+    if (callbacks.isCancelled && callbacks.isCancelled()) {
+      result.cancelled = true;
+      result.error = "support analysis cancelled";
+      return result;
+    }
+    ScopedAtomicMicrosecondTimer forwardSemanticTimer(
+        performanceCounters.forwardSemanticMicroseconds);
+    auto& current = layerDescriptions[layer];
     result.layers[layer].layer = layer;
     const bool modelExistedBeforeLayer = modelSeen;
-    const bool firstSupportLayer = layer == result.summary.raftLastLayer + 1u;
+    const bool firstSupportLayer = layer == firstSemanticLayer;
 
     currentCandidateNodes.clear();
     if (currentCandidateNodes.capacity() < current.components.size()) {
       currentCandidateNodes.reserve(current.components.size());
     }
-    const auto invalidNode = std::numeric_limits<std::size_t>::max();
     currentComponentNodes.assign(current.components.size(), invalidNode);
     currentIsModel.assign(current.components.size(), false);
-    const auto previousStateCount = states.size();
-    previousHasStructuralChild.assign(previousStateCount, false);
+    std::unordered_map<std::size_t, std::size_t> previousNodeLocalIndex;
+    previousNodeLocalIndex.reserve(previousCandidateNodes.size());
+    previousHasStructuralChild.assign(previousCandidateNodes.size(), false);
     std::size_t maximumPreviousSupportArea = 0u;
-    for (const auto nodeId : previousCandidateNodes) {
+    for (std::size_t local = 0u; local < previousCandidateNodes.size(); ++local) {
+      const auto nodeId = previousCandidateNodes[local];
+      previousNodeLocalIndex.emplace(nodeId, local);
       maximumPreviousSupportArea = std::max(
           maximumPreviousSupportArea, states[nodeId].component->area);
     }
-    ComponentGridIndex previousModelIndex(
-        previousLayer, previousModelComponents, options.maximumLayerMotionPixels);
-    NodeGridIndex previousSupportIndex(
-        previousCandidateNodes, states, options.maximumLayerMotionPixels);
     previousStableModelEnvelope.assignDilated(
         previousStableSemanticModel, maximumModelLineageShift);
+
+    // Stabilisation: exact and envelope zero-shift semantic overlaps stay on
+    // the canonical sparse CPU masks in both standard modes. Vulkan remains an
+    // opportunistic accelerator only for translated lineage kernels.
+
     currentPreparations.resize(current.components.size());
-    workScheduler.parallelFor(
+    {
+      ScopedAtomicMicrosecondTimer classificationTimer(
+          performanceCounters.forwardClassificationMicroseconds);
+      workScheduler.parallelFor(
         current.components.size(),
         [&](std::size_t index, std::size_t workerSlot) {
           auto& preparation = currentPreparations[index];
@@ -2639,11 +2901,41 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           preparation.supportEvidenceActive = false;
           const auto& component = current.components[index];
           auto& workerScratch = forwardScratch[workerSlot];
-          const auto& nearbySupportNodes = previousSupportIndex.query(
-              component, workerScratch.supportQuery);
           auto& matches = preparation.matches;
-          matchingPreviousNodes(
-              component, nearbySupportNodes, states, options, matches);
+          matches.clear();
+          const auto pairEvidence = adjacentEvidence[layer].forCurrent(index);
+          if (matches.capacity() < pairEvidence.size()) {
+            matches.reserve(pairEvidence.size());
+          }
+          for (const auto& pair : pairEvidence) {
+            const auto previousComponent =
+                static_cast<std::size_t>(pair.previousComponent);
+            if (previousComponent >= previousComponentNodes.size()) {
+              continue;
+            }
+            const auto previousNode = previousComponentNodes[previousComponent];
+            if (previousNode == invalidNode || previousNode >= states.size()) {
+              continue;
+            }
+            matches.push_back(Match{
+                previousNode,
+                pair.overlap,
+                pair.centreDistance,
+                pair.materialDistance,
+            });
+          }
+          std::sort(matches.begin(), matches.end(), [](const Match& left, const Match& right) {
+            if (left.overlap != right.overlap) {
+              return left.overlap > right.overlap;
+            }
+            if (left.materialDistance != right.materialDistance) {
+              return left.materialDistance < right.materialDistance;
+            }
+            if (left.centreDistance != right.centreDistance) {
+              return left.centreDistance < right.centreDistance;
+            }
+            return left.previousNode < right.previousNode;
+          });
 
           auto& decisionTrace = preparation.decisionTrace;
           decisionTrace.layer = layer;
@@ -2670,26 +2962,21 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             }
           }
 
-          const auto exactStableModelOverlap = previousStableSemanticModel.countSet(
-              component.runs);
-          const auto nearbyStableModelOverlap = previousStableModelEnvelope.countSet(
-              component.runs);
+          const auto exactStableModelOverlap =
+              previousStableSemanticModel.countSet(component.runs);
+          const auto nearbyStableModelOverlap =
+              previousStableModelEnvelope.countSet(component.runs);
           bool overlapsPreviousModel = exactStableModelOverlap != 0u;
           bool nearPreviousModel = nearbyStableModelOverlap != 0u;
-          if (previousLayer) {
-            const auto& nearbyModelComponents = previousModelIndex.query(
-                component, workerScratch.modelQuery);
-            for (const auto previousIndex : nearbyModelComponents) {
-              const auto& previousComponent = previousLayer->components[previousIndex];
-              const auto metrics = componentPairMetrics(
-                  previousComponent, component, options.maximumLayerMotionPixels);
-              if (metrics.overlap != 0u) {
-                overlapsPreviousModel = true;
-                nearPreviousModel = true;
-                continue;
-              }
-              nearPreviousModel = nearPreviousModel || metrics.nearEnough;
+          for (const auto& pair : pairEvidence) {
+            const auto previousComponent =
+                static_cast<std::size_t>(pair.previousComponent);
+            if (previousComponent >= previousModelComponents.size()
+                || !previousModelComponents[previousComponent]) {
+              continue;
             }
+            nearPreviousModel = true;
+            overlapsPreviousModel = overlapsPreviousModel || pair.overlap != 0u;
           }
 
           std::size_t preservedSupportParentCount = 0u;
@@ -2881,7 +3168,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               const auto supportLineage = bestModelLineageMotion(
                   component, parentSupportSemantic, nullptr,
                   maximumModelLineageShift, nullptr,
-                  computeBackend.get(), &workerScratch.computeOverlap,
+                  computeBackend.get(), &workerScratch.computeOverlap, nullptr,
                   options.vulkanMinimumComponentAreaPixels);
               if (supportLineage.continued) {
                 shiftX = supportLineage.shiftX;
@@ -2902,6 +3189,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 preparation.supportEvidenceRuns, MaterialSemantic::Support);
           }
         });
+    }
 
     if (callbacks.isCancelled && callbacks.isCancelled()) {
       result.cancelled = true;
@@ -2909,7 +3197,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       return result;
     }
 
-    for (std::size_t index = 0; index < current.components.size(); ++index) {
+    std::vector<std::uint32_t> currentStructuralChildCount(
+        previousCandidateNodes.size(), 0u);
+    std::vector<double> previousBranchDrift(
+        previousCandidateNodes.size(), std::numeric_limits<double>::quiet_NaN());
+    {
+      ScopedAtomicMicrosecondTimer commitTimer(
+          performanceCounters.forwardCommitMicroseconds);
+      for (std::size_t index = 0; index < current.components.size(); ++index) {
       auto& preparation = currentPreparations[index];
       auto& matches = preparation.matches;
       auto decisionTrace = std::move(preparation.decisionTrace);
@@ -2998,16 +3293,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       ++result.summary.candidateNodeCount;
 
       if (parent != std::numeric_limits<std::size_t>::max()) {
-        if (parent < previousHasStructuralChild.size()) {
-          previousHasStructuralChild[parent] = true;
+        std::uint32_t siblingCount = 1u;
+        const auto parentLocal = previousNodeLocalIndex.find(parent);
+        if (parentLocal != previousNodeLocalIndex.end()) {
+          previousHasStructuralChild[parentLocal->second] = true;
+          siblingCount = ++currentStructuralChildCount[parentLocal->second];
         }
-        std::size_t siblingCount = 0;
-        for (const auto candidateNode : currentCandidateNodes) {
-          if (states[candidateNode].parent == parent) {
-            ++siblingCount;
-          }
-        }
-        const auto edgeKind = siblingCount > 1
+        const auto edgeKind = siblingCount > 1u
                                   ? SupportEdgeKind::Split
                                   : SupportEdgeKind::Continuation;
         result.edges.push_back(SupportGraphEdge{parent, nodeId, edgeKind});
@@ -3023,10 +3315,22 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         // branches. Only one parent is retained. A secondary contact is kept
         // as a brace relation only when one of the two independent paths has
         // the validated layer-native lateral drift.
+        const double currentDrift = matches.size() > 1u
+            ? branchDriftPixelsPerLayer(nodeId, states)
+            : 0.0;
         for (std::size_t matchIndex = 1; matchIndex < matches.size(); ++matchIndex) {
           const auto other = matches[matchIndex].previousNode;
-          const double currentDrift = branchDriftPixelsPerLayer(nodeId, states);
-          const double otherDrift = branchDriftPixelsPerLayer(other, states);
+          double otherDrift = 0.0;
+          const auto otherLocal = previousNodeLocalIndex.find(other);
+          if (otherLocal != previousNodeLocalIndex.end()) {
+            auto& cachedDrift = previousBranchDrift[otherLocal->second];
+            if (std::isnan(cachedDrift)) {
+              cachedDrift = branchDriftPixelsPerLayer(other, states);
+            }
+            otherDrift = cachedDrift;
+          } else {
+            otherDrift = branchDriftPixelsPerLayer(other, states);
+          }
           if (currentDrift >= options.braceMinimumDriftPixelsPerLayer
               && currentDrift <= options.braceMaximumDriftPixelsPerLayer) {
             states[nodeId].supportContact = true;
@@ -3214,6 +3518,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           }
         }
       }
+      }
     }
 
     const bool layerContainsModel = std::any_of(
@@ -3224,35 +3529,48 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
 
     // A support branch with no structural continuation on this layer may end
-    // against any component already classified as model. The complete contact
-    // component stays model; support semantics stop on the preceding layer.
-    for (const auto previousNode : previousCandidateNodes) {
-      if (previousNode < previousHasStructuralChild.size()
-          && previousHasStructuralChild[previousNode]) {
+    // against any component already classified as model. P6.4 inverts the
+    // previous-node/current-component scan: record the first model component
+    // matched by each previous node once, then commit in the original
+    // previousCandidateNodes order. This preserves edge ordering while removing
+    // the quadratic layer scan on heavily fragmented prints.
+    const auto invalidContactComponent = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> firstModelContactComponent(
+        previousCandidateNodes.size(), invalidContactComponent);
+    for (std::size_t index = 0u; index < current.components.size(); ++index) {
+      if (!currentIsModel[index]) {
+        continue;
+      }
+      for (const auto& match : currentPreparations[index].matches) {
+        const auto previousLocal = previousNodeLocalIndex.find(match.previousNode);
+        if (previousLocal != previousNodeLocalIndex.end()
+            && firstModelContactComponent[previousLocal->second]
+                   == invalidContactComponent) {
+          firstModelContactComponent[previousLocal->second] = index;
+        }
+      }
+    }
+    for (std::size_t previousLocal = 0u;
+         previousLocal < previousCandidateNodes.size(); ++previousLocal) {
+      const auto previousNode = previousCandidateNodes[previousLocal];
+      if (previousHasStructuralChild[previousLocal]) {
+        continue;
+      }
+      const auto index = firstModelContactComponent[previousLocal];
+      if (index == invalidContactComponent) {
         continue;
       }
       const auto& previousComponent = *states[previousNode].component;
-      for (std::size_t index = 0; index < current.components.size(); ++index) {
-        const auto& matches = currentPreparations[index].matches;
-        const bool matchesPreviousNode = std::any_of(
-            matches.begin(), matches.end(), [&](const Match& match) {
-              return match.previousNode == previousNode;
-            });
-        if (!currentIsModel[index] || !matchesPreviousNode) {
-          continue;
-        }
-        states[previousNode].modelContact = true;
-        states[previousNode].contactLayer = layer;
-        states[previousNode].contactModelPixelCount = current.components[index].area;
-        states[previousNode].contactModelExpansionRatio = previousComponent.area == 0u
-            ? 0.0
-            : static_cast<double>(current.components[index].area)
-                  / static_cast<double>(previousComponent.area);
-        result.edges.push_back(SupportGraphEdge{
-            previousNode, previousNode, SupportEdgeKind::ModelContact});
-        ++result.summary.modelContactEdgeCount;
-        break;
-      }
+      states[previousNode].modelContact = true;
+      states[previousNode].contactLayer = layer;
+      states[previousNode].contactModelPixelCount = current.components[index].area;
+      states[previousNode].contactModelExpansionRatio = previousComponent.area == 0u
+          ? 0.0
+          : static_cast<double>(current.components[index].area)
+                / static_cast<double>(previousComponent.area);
+      result.edges.push_back(SupportGraphEdge{
+          previousNode, previousNode, SupportEdgeKind::ModelContact});
+      ++result.summary.modelContactEdgeCount;
     }
 
     // Preserve semantic continuity independently from the whole-component
@@ -3264,7 +3582,46 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     confirmedSemanticModel.clear();
     propagatedSemanticModel.clear();
     currentLineagePreparations.resize(current.components.size());
-    workScheduler.parallelFor(
+
+    // P6.2: the stable model mask is shared by every expensive lineage query on
+    // this layer. Rasterise it once in the native full-layer domain and let the
+    // Vulkan backend keep it resident while component sources are submitted as
+    // compact runs. Support-parent queries still use their component-local
+    // references and therefore retain the dense fallback path below.
+    const compute::TranslatedRunOverlapBatch* forwardResidentBatch = nullptr;
+    const bool forwardHasGpuCandidate = computeBackend != nullptr
+        && maximumModelLineageShift != 0u
+        && std::any_of(
+            current.components.begin(), current.components.end(),
+            [&](const Component& component) {
+              return component.area >= options.vulkanMinimumComponentAreaPixels;
+            });
+    if (forwardHasGpuCandidate && !previousStableSemanticModel.empty()) {
+      if (!forwardResidentReference.words.empty()
+          && forwardResidentReference.batch.referenceKey != 0u
+          && forwardResidentReference.batch.width == source.width()
+          && forwardResidentReference.batch.height == source.height()) {
+        forwardResidentReference.batch.radius = maximumModelLineageShift;
+        forwardResidentBatch = &forwardResidentReference.batch;
+      } else {
+        const auto preparationStarted = std::chrono::steady_clock::now();
+        if (prepareResidentReferenceBatch(
+                previousStableSemanticModel, source.width(), source.height(),
+                maximumModelLineageShift, residentReferenceGeneration++,
+                forwardResidentReference)) {
+          const auto preparationEnded = std::chrono::steady_clock::now();
+          computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  preparationEnded - preparationStarted).count()));
+          forwardResidentBatch = &forwardResidentReference.batch;
+        }
+      }
+    }
+
+    {
+      ScopedAtomicMicrosecondTimer lineageTimer(
+          performanceCounters.forwardLineageMicroseconds);
+      workScheduler.parallelFor(
         current.components.size(),
         [&](std::size_t index, std::size_t workerSlot) {
           const auto& component = current.components[index];
@@ -3288,7 +3645,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             return;
           }
 
-          if (previousStableModelEnvelope.countSet(component.runs) == 0u) {
+          const auto lineageEnvelopeOverlap =
+              previousStableModelEnvelope.countSet(component.runs);
+          if (lineageEnvelopeOverlap == 0u) {
             return;
           }
           auto& scratch = forwardLineageScratch[workerSlot];
@@ -3297,6 +3656,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               &previousPreviousStableSemanticModel,
               maximumModelLineageShift, nullptr,
               computeBackend.get(), &scratch.computeOverlap,
+              forwardResidentBatch,
               options.vulkanMinimumComponentAreaPixels);
           if (!preparation.modelLineage.continued) {
             return;
@@ -3330,7 +3690,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             const auto supportLineage = bestModelLineageMotion(
                 component, scratch.parentSupport, nullptr,
                 maximumModelLineageShift, nullptr,
-                computeBackend.get(), &scratch.computeOverlap,
+                computeBackend.get(), &scratch.computeOverlap, nullptr,
                 options.vulkanMinimumComponentAreaPixels);
             const auto supportShiftX = supportLineage.continued
                 ? supportLineage.shiftX
@@ -3367,8 +3727,12 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               preparation.projectedSupportRuns, MaterialSemantic::Support);
           preparation.hasSemanticProjection = true;
         });
+    }
 
-    for (std::size_t index = 0u; index < current.components.size(); ++index) {
+    {
+      ScopedAtomicMicrosecondTimer lineageCommitTimer(
+          performanceCounters.forwardLineageCommitMicroseconds);
+      for (std::size_t index = 0u; index < current.components.size(); ++index) {
       const auto& component = current.components[index];
       const auto nodeId = currentComponentNodes[index];
       auto& preparation = currentLineagePreparations[index];
@@ -3402,6 +3766,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         trace.reason = SupportDecisionReason::MixedSemanticProjection;
       }
       state.projectedSupportRuns = std::move(preparation.projectedSupportRuns);
+      }
     }
     currentSemanticModel.normalize();
     confirmedSemanticModel.normalize();
@@ -3421,12 +3786,20 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     previousPreviousStableSemanticModel.assignFrom(previousStableSemanticModel);
     previousStableSemanticModel.swap(currentStableSemanticModel);
 
+    for (std::size_t index = 0u; index < currentComponentNodes.size(); ++index) {
+      if (index < currentIsModel.size() && currentIsModel[index]) {
+        currentComponentNodes[index] = invalidNode;
+      }
+    }
+    previousComponentNodes.swap(currentComponentNodes);
     previousCandidateNodes.swap(currentCandidateNodes);
     previousLayer = &current;
     previousModelComponents.swap(currentIsModel);
     if (callbacks.progress) {
       publishComputeTelemetry();
-      callbacks.progress(layer + 1, source.layerCount() * 2u);
+      publishPerformanceTelemetry();
+      callbacks.progress(
+          supportProgressPhaseWork + layer + 1u, supportProgressTotal);
     }
   }
 
@@ -3682,6 +4055,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
     for (std::size_t reverse = source.layerCount();
          reverse-- > result.summary.raftLastLayer + 1u;) {
+      ScopedAtomicMicrosecondTimer reverseSemanticTimer(
+          performanceCounters.reverseSemanticMicroseconds);
       const std::size_t layer = reverse;
       if (callbacks.isCancelled && callbacks.isCancelled()) {
         result.cancelled = true;
@@ -3699,7 +4074,37 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       std::size_t layerSupportPixels = 0u;
       std::size_t layerModelPixels = 0u;
       reversePreparations.resize(current.components.size());
-      workScheduler.parallelFor(
+
+      // Stabilisation: reverse reconciliation uses the same canonical sparse
+      // zero-shift overlap path as forward reconciliation. This removes the
+      // accidental P6.4 layer batch that previously remained active in Auto.
+
+      const compute::TranslatedRunOverlapBatch* reverseResidentBatch = nullptr;
+      const bool reverseHasGpuCandidate = computeBackend != nullptr
+          && maximumModelLineageShift != 0u
+          && std::any_of(
+              current.components.begin(), current.components.end(),
+              [&](const Component& component) {
+                return component.area >= options.vulkanMinimumComponentAreaPixels;
+              });
+      if (reverseHasGpuCandidate && !upperModel.empty()) {
+        const auto preparationStarted = std::chrono::steady_clock::now();
+        if (prepareResidentReferenceBatch(
+                upperModel, source.width(), source.height(),
+                maximumModelLineageShift, residentReferenceGeneration++,
+                reverseResidentReference)) {
+          const auto preparationEnded = std::chrono::steady_clock::now();
+          computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  preparationEnded - preparationStarted).count()));
+          reverseResidentBatch = &reverseResidentReference.batch;
+        }
+      }
+
+      {
+        ScopedAtomicMicrosecondTimer reversePreparationTimer(
+            performanceCounters.reversePreparationMicroseconds);
+        workScheduler.parallelFor(
           current.components.size(),
           [&](std::size_t index, std::size_t workerSlot) {
             const auto& component = current.components[index];
@@ -3744,14 +4149,16 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               supportCore.normalize();
             }
             ModelLineageMotion modelLineage;
-            if (!upperModel.empty()
-                && upperModelEnvelope.countSet(component.runs) != 0u) {
+            const auto upperEnvelopeOverlap =
+                upperModelEnvelope.countSet(component.runs);
+            if (!upperModel.empty() && upperEnvelopeOverlap != 0u) {
               modelLineage = bestModelLineageMotion(
                   component, upperModel,
                   upperUpperModel.empty() ? nullptr : &upperUpperModel,
                   maximumModelLineageShift,
                   protectSupportEvidence ? &supportCore : nullptr,
                   computeBackend.get(), &scratch.computeOverlap,
+                  reverseResidentBatch,
                   options.vulkanMinimumComponentAreaPixels);
             }
             preparation.modelLineage = modelLineage;
@@ -3841,6 +4248,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             preparation.supportCorePixels = supportCorePixels;
             preparation.modelPixels = modelPixels;
           });
+      }
 
       if (callbacks.isCancelled && callbacks.isCancelled()) {
         result.cancelled = true;
@@ -3848,7 +4256,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         return result;
       }
 
-      for (std::size_t index = 0u; index < current.components.size(); ++index) {
+      {
+        ScopedAtomicMicrosecondTimer reverseCommitTimer(
+            performanceCounters.reverseCommitMicroseconds);
+        for (std::size_t index = 0u; index < current.components.size(); ++index) {
         const auto& component = current.components[index];
         auto& preparation = reversePreparations[index];
         const auto nodeId = preparation.nodeId;
@@ -3913,6 +4324,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             }
           }
         }
+        }
       }
       currentModel.normalize();
 
@@ -3940,9 +4352,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       ++reverseCompleted;
       if (callbacks.progress) {
         publishComputeTelemetry();
+        publishPerformanceTelemetry();
         callbacks.progress(
-            source.layerCount() + reverseCompleted,
-            source.layerCount() * 2u);
+            supportProgressPhaseWork * 2u + reverseCompleted,
+            supportProgressTotal);
       }
     }
     // `SupportsOnly` materialization deliberately treats every exposed run as
@@ -3996,9 +4409,46 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                                      + result.summary.projectedSupportRunCount;
     if (callbacks.progress) {
       publishComputeTelemetry();
-      callbacks.progress(source.layerCount() * 2u, source.layerCount() * 2u);
+      publishPerformanceTelemetry();
+      callbacks.progress(supportProgressTotal, supportProgressTotal);
     }
   }
+
+  const auto performanceTelemetry = performanceCounters.snapshot();
+  result.summary.supportPreparationWindowCapacity =
+      performanceTelemetry.preparationWindowCapacity;
+  result.summary.supportPreparedLayerCount = performanceTelemetry.preparedLayerCount;
+  result.summary.supportMaximumPreparationInflight =
+      performanceTelemetry.maximumPreparationInflight;
+  result.summary.supportPreparationLoadMicroseconds =
+      performanceTelemetry.preparationLoadMicroseconds;
+  result.summary.supportPreparationDescribeMicroseconds =
+      performanceTelemetry.preparationDescribeMicroseconds;
+  result.summary.supportForwardSemanticMicroseconds =
+      performanceTelemetry.forwardSemanticMicroseconds;
+  result.summary.supportReverseSemanticMicroseconds =
+      performanceTelemetry.reverseSemanticMicroseconds;
+  result.summary.supportForwardClassificationMicroseconds =
+      performanceTelemetry.forwardClassificationMicroseconds;
+  result.summary.supportForwardCommitMicroseconds =
+      performanceTelemetry.forwardCommitMicroseconds;
+  result.summary.supportForwardLineageMicroseconds =
+      performanceTelemetry.forwardLineageMicroseconds;
+  result.summary.supportForwardLineageCommitMicroseconds =
+      performanceTelemetry.forwardLineageCommitMicroseconds;
+  result.summary.supportReversePreparationMicroseconds =
+      performanceTelemetry.reversePreparationMicroseconds;
+  result.summary.supportReverseCommitMicroseconds =
+      performanceTelemetry.reverseCommitMicroseconds;
+  result.summary.supportSemanticEvidenceMicroseconds =
+      performanceTelemetry.semanticEvidenceMicroseconds;
+  result.summary.supportSemanticEvidenceLotCount =
+      performanceTelemetry.semanticEvidenceLotCount;
+  result.summary.supportSemanticEvidenceLayerPairCount =
+      performanceTelemetry.semanticEvidenceLayerPairCount;
+  result.summary.supportSemanticEvidenceEdgeCount =
+      performanceTelemetry.semanticEvidenceEdgeCount;
+  publishPerformanceTelemetry();
 
   if (computeBackend) {
     const auto telemetry = computeBackend->telemetry();
@@ -4016,6 +4466,16 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.summary.vulkanQueueWaitMicroseconds = telemetry.queueWaitNanoseconds / 1000u;
     result.summary.vulkanBatchExecutionMicroseconds =
         telemetry.batchExecutionNanoseconds / 1000u;
+    result.summary.vulkanRunSourceJobCount = telemetry.runSourceJobs;
+    result.summary.vulkanResidentReferenceUploadCount =
+        telemetry.residentReferenceUploads;
+    result.summary.vulkanResidentReferenceReuseCount =
+        telemetry.residentReferenceReuses;
+    result.summary.vulkanSubmittedWorkgroupCount = telemetry.submittedWorkgroups;
+    result.summary.vulkanSemanticLayerBatchCallCount =
+        telemetry.semanticLayerBatchCalls;
+    result.summary.vulkanSemanticLayerBatchJobCount =
+        telemetry.semanticLayerBatchJobs;
   }
   result.ok = true;
   return result;

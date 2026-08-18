@@ -172,10 +172,44 @@ int main() {
       || !require(!decisions.at("decisions").empty(),
                   "decisions JSON is empty")
       || !require(
+          analysis.at("options").at("worker_count") == options.workerCount
+              && analysis.at("options").at("compute_preference") == "auto"
+              && analysis.at("options").at("bitset_acceleration") == true
+              && analysis.at("options").contains("preparation_memory_budget_bytes")
+              && analysis.at("options").contains("vulkan_minimum_component_area_pixels"),
+          "analysis bundle compute/runtime options mismatch")
+      || !require(
+          summary.at("options").at("worker_count") == options.workerCount
+              && summary.at("options").at("compute_preference") == "auto",
+          "summary bundle compute/runtime options mismatch")
+      || !require(
           analysis.at("summary").contains("reverse_model_seeds")
               && analysis.at("summary").contains("reverse_model_continuations")
-              && analysis.at("summary").contains("bidirectional_mixed_components"),
-          "bidirectional summary counters are missing")) {
+              && analysis.at("summary").contains("bidirectional_mixed_components")
+              && analysis.at("summary").contains("vulkan_run_source_jobs")
+              && analysis.at("summary").contains("vulkan_resident_reference_uploads")
+              && analysis.at("summary").contains("vulkan_resident_reference_reuses")
+              && analysis.at("summary").contains("vulkan_submitted_workgroups")
+              && analysis.at("summary").contains("vulkan_semantic_layer_batch_calls")
+              && analysis.at("summary").contains("vulkan_semantic_layer_batch_jobs")
+              && analysis.at("summary").contains("support_preparation_window")
+              && analysis.at("summary").contains("support_prepared_layers")
+              && analysis.at("summary").contains("support_max_preparation_inflight")
+              && analysis.at("summary").contains("support_prepare_load_us")
+              && analysis.at("summary").contains("support_prepare_describe_us")
+              && analysis.at("summary").contains("support_forward_semantic_us")
+              && analysis.at("summary").contains("support_reverse_semantic_us")
+              && analysis.at("summary").contains("support_forward_classification_us")
+              && analysis.at("summary").contains("support_forward_commit_us")
+              && analysis.at("summary").contains("support_forward_lineage_us")
+              && analysis.at("summary").contains("support_forward_lineage_commit_us")
+              && analysis.at("summary").contains("support_reverse_prepare_us")
+              && analysis.at("summary").contains("support_reverse_commit_us")
+              && analysis.at("summary").contains("support_semantic_evidence_us")
+              && analysis.at("summary").contains("support_semantic_evidence_lots")
+              && analysis.at("summary").contains("support_semantic_evidence_layer_pairs")
+              && analysis.at("summary").contains("support_semantic_evidence_edges"),
+          "bidirectional/Vulkan/P6.5 performance summary counters are missing")) {
     return 1;
   }
 

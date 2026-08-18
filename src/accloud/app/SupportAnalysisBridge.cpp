@@ -63,6 +63,61 @@ QString SupportAnalysisBridge::phase() const { return m_phase; }
 QString SupportAnalysisBridge::errorString() const { return m_errorString; }
 QString SupportAnalysisBridge::sourcePath() const { return m_sourcePath; }
 QString SupportAnalysisBridge::bundlePath() const { return m_bundlePath; }
+QString SupportAnalysisBridge::computeMode() const { return m_computeMode; }
+int SupportAnalysisBridge::workerCount() const noexcept { return m_workerCount; }
+QString SupportAnalysisBridge::analyzedComputeMode() const {
+  const auto stored = optionsObject().value(QStringLiteral("compute_preference")).toString();
+  if (stored == QStringLiteral("auto") || stored == QStringLiteral("cpu")) {
+    return stored;
+  }
+  return m_running ? m_computeMode : QString{};
+}
+bool SupportAnalysisBridge::vulkanCompiled() const noexcept { return m_vulkanCompiled; }
+bool SupportAnalysisBridge::vulkanActive() const noexcept { return m_vulkanActive; }
+QString SupportAnalysisBridge::computeBackend() const { return m_computeBackend; }
+QString SupportAnalysisBridge::vulkanDevice() const { return m_vulkanDevice; }
+QString SupportAnalysisBridge::computeDiagnostic() const { return m_computeDiagnostic; }
+
+QJsonObject SupportAnalysisBridge::summaryObject() const {
+  return m_analysis.value(QStringLiteral("summary")).toObject();
+}
+
+QJsonObject SupportAnalysisBridge::optionsObject() const {
+  return m_analysis.value(QStringLiteral("options")).toObject();
+}
+
+qulonglong SupportAnalysisBridge::vulkanGpuJobs() const noexcept {
+  return static_cast<qulonglong>(
+      summaryObject().value(QStringLiteral("vulkan_gpu_jobs")).toDouble());
+}
+
+qulonglong SupportAnalysisBridge::vulkanCpuFallbackJobs() const noexcept {
+  return static_cast<qulonglong>(summaryObject()
+                                     .value(QStringLiteral("vulkan_cpu_fallback_jobs"))
+                                     .toDouble());
+}
+
+qulonglong SupportAnalysisBridge::vulkanDispatches() const noexcept {
+  return static_cast<qulonglong>(
+      summaryObject().value(QStringLiteral("vulkan_dispatches")).toDouble());
+}
+
+qulonglong SupportAnalysisBridge::vulkanDispatchFailures() const noexcept {
+  return static_cast<qulonglong>(summaryObject()
+                                     .value(QStringLiteral("vulkan_dispatch_failures"))
+                                     .toDouble());
+}
+
+int SupportAnalysisBridge::preparationWindow() const noexcept {
+  return summaryObject().value(QStringLiteral("support_preparation_window")).toInt();
+}
+
+int SupportAnalysisBridge::maximumPreparationInflight() const noexcept {
+  return summaryObject()
+      .value(QStringLiteral("support_max_preparation_inflight"))
+      .toInt();
+}
+
 int SupportAnalysisBridge::layerCount() const noexcept { return m_layerCount; }
 int SupportAnalysisBridge::currentLayer() const noexcept { return m_currentLayer; }
 
@@ -310,6 +365,55 @@ void SupportAnalysisBridge::clearDecisionSelection() {
   emit decisionSelectionChanged();
 }
 
+void SupportAnalysisBridge::setComputeMode(const QString& mode) {
+  if (m_running) {
+    return;
+  }
+  const auto normalized = mode.compare(QStringLiteral("cpu"), Qt::CaseInsensitive) == 0
+                              ? QStringLiteral("cpu")
+                              : QStringLiteral("auto");
+  if (m_computeMode == normalized) {
+    return;
+  }
+  m_computeMode = normalized;
+  emit computeModeChanged();
+}
+
+void SupportAnalysisBridge::setWorkerCount(int count) {
+  if (m_running) {
+    return;
+  }
+  const auto normalized = std::clamp(count, 1, 16);
+  if (m_workerCount == normalized) {
+    return;
+  }
+  m_workerCount = normalized;
+  emit workerCountChanged();
+}
+
+void SupportAnalysisBridge::resetComputeStatus() {
+  updateComputeStatus(false, false, QStringLiteral("cpu"), {}, {});
+}
+
+void SupportAnalysisBridge::updateComputeStatus(
+    bool compiled,
+    bool active,
+    const QString& backend,
+    const QString& device,
+    const QString& diagnostic) {
+  if (m_vulkanCompiled == compiled && m_vulkanActive == active
+      && m_computeBackend == backend && m_vulkanDevice == device
+      && m_computeDiagnostic == diagnostic) {
+    return;
+  }
+  m_vulkanCompiled = compiled;
+  m_vulkanActive = active;
+  m_computeBackend = backend.isEmpty() ? QStringLiteral("cpu") : backend;
+  m_vulkanDevice = device;
+  m_computeDiagnostic = diagnostic;
+  emit computeStatusChanged();
+}
+
 void SupportAnalysisBridge::analyze(const QString& localPath) {
   if (m_running) {
     return;
@@ -330,6 +434,7 @@ void SupportAnalysisBridge::analyze(const QString& localPath) {
   }
 
   resetBundle();
+  resetComputeStatus();
   setErrorString({});
   m_sourcePath = source.absoluteFilePath();
   emit sourcePathChanged();
@@ -356,6 +461,8 @@ void SupportAnalysisBridge::analyze(const QString& localPath) {
       m_sourcePath,
       QStringLiteral("--bundle"), m_bundlePath,
       QStringLiteral("--downsample"), QStringLiteral("16"),
+      QStringLiteral("--workers"), QString::number(m_workerCount),
+      QStringLiteral("--compute"), m_computeMode,
       QStringLiteral("--verify-materialization"),
   });
   m_process.start();
@@ -382,6 +489,28 @@ bool SupportAnalysisBridge::openBundle(const QString& localPath) {
 
   m_manifest = manifest;
   m_analysis = analysis;
+
+  const auto storedOptions = optionsObject();
+  const auto storedMode = storedOptions.value(QStringLiteral("compute_preference")).toString();
+  if ((storedMode == QStringLiteral("auto") || storedMode == QStringLiteral("cpu"))
+      && m_computeMode != storedMode) {
+    m_computeMode = storedMode;
+    emit computeModeChanged();
+  }
+  const auto storedWorkers = storedOptions.value(QStringLiteral("worker_count")).toInt();
+  if (storedWorkers > 0) {
+    const auto normalizedWorkers = std::clamp(storedWorkers, 1, 16);
+    if (m_workerCount != normalizedWorkers) {
+      m_workerCount = normalizedWorkers;
+      emit workerCountChanged();
+    }
+  }
+  const auto storedSummary = summaryObject();
+  const auto active = storedSummary.value(QStringLiteral("vulkan_compute_active")).toBool();
+  updateComputeStatus(
+      storedSummary.value(QStringLiteral("vulkan_compute_compiled")).toBool(),
+      active, active ? QStringLiteral("vulkan") : QStringLiteral("cpu"),
+      storedSummary.value(QStringLiteral("vulkan_device")).toString(), {});
 
   m_bundlePath = directory.absolutePath();
   m_sourcePath = manifest.value(QStringLiteral("source_path")).toString();
@@ -477,7 +606,24 @@ void SupportAnalysisBridge::consumeProcessOutput() {
   const auto lines = m_stderrBuffer.split('\n');
   m_stderrBuffer = lines.isEmpty() ? QString() : lines.last();
   for (int index = 0; index + 1 < lines.size(); ++index) {
-    const auto fields = lines.at(index).trimmed().split(' ', Qt::SkipEmptyParts);
+    const auto line = lines.at(index).trimmed();
+    const auto computePrefix = QStringLiteral("COMPUTE_STATUS ");
+    if (line.startsWith(computePrefix)) {
+      QJsonParseError parseError;
+      const auto document = QJsonDocument::fromJson(
+          line.mid(computePrefix.size()).toUtf8(), &parseError);
+      if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+        const auto status = document.object();
+        updateComputeStatus(
+            status.value(QStringLiteral("compiled")).toBool(),
+            status.value(QStringLiteral("active")).toBool(),
+            status.value(QStringLiteral("backend")).toString(),
+            status.value(QStringLiteral("device")).toString(),
+            status.value(QStringLiteral("diagnostic")).toString());
+      }
+      continue;
+    }
+    const auto fields = line.split(' ', Qt::SkipEmptyParts);
     if (fields.size() != 3) {
       continue;
     }

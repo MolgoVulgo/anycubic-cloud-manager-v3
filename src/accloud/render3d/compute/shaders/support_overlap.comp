@@ -1,9 +1,10 @@
 #version 450
 
-// One workgroup evaluates one translation for one component job. The 64 lanes
-// split the dense word range and reduce their partial popcounts in shared
-// memory. This turns the old "one long-running invocation per translation"
-// layout into thousands of concurrent invocations for normal 9x9 searches.
+// P6.2 exposes the native GPU parallelism instead of assigning an entire
+// component/translation pair to only 64 long-running lanes. One workgroup now
+// handles one tile of one translation of one job. Dense jobs tile words while
+// resident-reference jobs tile compact semantic runs. Lane 0 atomically reduces
+// each tile into the candidate overlap counter.
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std430) readonly buffer SourceBuffer {
@@ -15,28 +16,45 @@ layout(set = 0, binding = 1, std430) readonly buffer ReferenceBuffer {
 };
 
 struct JobDescriptor {
-  uint sourceWordOffset;
+  uint inputOffset;
   uint referenceWordOffset;
   uint wordsPerRow;
   uint height;
   uint radius;
   uint candidateCount;
   uint outputOffset;
-  uint wordCount;
+  uint elementCount;
+  uint width;
+  uint mode;
 };
 
 layout(set = 0, binding = 2, std430) readonly buffer JobBuffer {
   JobDescriptor jobs[];
 };
 
-layout(set = 0, binding = 3, std430) writeonly buffer OutputBuffer {
+layout(set = 0, binding = 3, std430) buffer OutputBuffer {
   uint overlaps[];
+};
+
+struct SupportRun {
+  uint y;
+  uint firstX;
+  uint lastX;
+  uint reserved;
+};
+
+layout(set = 0, binding = 4, std430) readonly buffer RunBuffer {
+  SupportRun sourceRuns[];
 };
 
 layout(push_constant) uniform Parameters {
   uint jobCount;
+  uint denseWordsPerTile;
+  uint runsPerTile;
 } params;
 
+const uint INPUT_DENSE_WORDS = 0u;
+const uint INPUT_COMPACT_RUNS = 1u;
 shared uint partialCounts[64];
 
 uint shiftedReferenceWord(
@@ -73,13 +91,60 @@ uint shiftedReferenceWord(
   return value;
 }
 
+uint countReferenceRange(
+    JobDescriptor job,
+    int sourceY,
+    int firstX,
+    int lastX,
+    int shiftX,
+    int shiftY) {
+  int referenceY = sourceY - shiftY;
+  if (referenceY < 0 || referenceY >= int(job.height)) {
+    return 0u;
+  }
+
+  int first = firstX - shiftX;
+  int last = lastX - shiftX;
+  first = max(first, 0);
+  last = min(last, int(job.width));
+  if (first >= last) {
+    return 0u;
+  }
+
+  uint firstWord = uint(first) >> 5u;
+  uint lastWord = uint(last - 1) >> 5u;
+  uint rowBase = job.referenceWordOffset + uint(referenceY) * job.wordsPerRow;
+  uint firstBit = uint(first) & 31u;
+  uint lastBitExclusive = uint(last) & 31u;
+
+  if (firstWord == lastWord) {
+    uint lowerMask = 0xffffffffu << firstBit;
+    uint upperMask = lastBitExclusive == 0u
+        ? 0xffffffffu
+        : ((1u << lastBitExclusive) - 1u);
+    return uint(bitCount(referenceWords[rowBase + firstWord]
+        & lowerMask & upperMask));
+  }
+
+  uint total = uint(bitCount(
+      referenceWords[rowBase + firstWord] & (0xffffffffu << firstBit)));
+  for (uint word = firstWord + 1u; word < lastWord; ++word) {
+    total += uint(bitCount(referenceWords[rowBase + word]));
+  }
+  uint upperMask = lastBitExclusive == 0u
+      ? 0xffffffffu
+      : ((1u << lastBitExclusive) - 1u);
+  total += uint(bitCount(referenceWords[rowBase + lastWord] & upperMask));
+  return total;
+}
+
 void main() {
-  uint jobIndex = gl_WorkGroupID.y;
+  uint jobIndex = gl_WorkGroupID.z;
   if (jobIndex >= params.jobCount) {
     return;
   }
   JobDescriptor job = jobs[jobIndex];
-  uint candidate = gl_WorkGroupID.x;
+  uint candidate = gl_WorkGroupID.y;
   if (candidate >= job.candidateCount) {
     return;
   }
@@ -87,26 +152,53 @@ void main() {
   uint diameter = job.radius * 2u + 1u;
   int shiftX = int(candidate % diameter) - int(job.radius);
   int shiftY = int(candidate / diameter) - int(job.radius);
-
   uint lane = gl_LocalInvocationID.x;
+  uint tile = gl_WorkGroupID.x;
   uint total = 0u;
-  for (uint flatWord = lane; flatWord < job.wordCount; flatWord += 64u) {
-    uint y = flatWord / job.wordsPerRow;
-    uint word = flatWord - y * job.wordsPerRow;
-    uint selected = sourceWords[job.sourceWordOffset + flatWord]
-        & shiftedReferenceWord(job, y, word, shiftX, shiftY);
-    total += uint(bitCount(selected));
+
+  if (job.mode == INPUT_DENSE_WORDS) {
+    uint tileBegin = tile * params.denseWordsPerTile;
+    if (tileBegin >= job.elementCount) {
+      return;
+    }
+    uint tileEnd = min(tileBegin + params.denseWordsPerTile, job.elementCount);
+    for (uint flatWord = tileBegin + lane;
+         flatWord < tileEnd;
+         flatWord += 64u) {
+      uint y = flatWord / job.wordsPerRow;
+      uint word = flatWord - y * job.wordsPerRow;
+      uint selected = sourceWords[job.inputOffset + flatWord]
+          & shiftedReferenceWord(job, y, word, shiftX, shiftY);
+      total += uint(bitCount(selected));
+    }
+  } else if (job.mode == INPUT_COMPACT_RUNS) {
+    uint tileBegin = tile * params.runsPerTile;
+    if (tileBegin >= job.elementCount) {
+      return;
+    }
+    uint tileEnd = min(tileBegin + params.runsPerTile, job.elementCount);
+    for (uint runIndex = tileBegin + lane;
+         runIndex < tileEnd;
+         runIndex += 64u) {
+      SupportRun run = sourceRuns[job.inputOffset + runIndex];
+      if (run.firstX < run.lastX) {
+        total += countReferenceRange(
+            job, int(run.y), int(run.firstX), int(run.lastX), shiftX, shiftY);
+      }
+    }
+  } else {
+    return;
   }
+
   partialCounts[lane] = total;
   barrier();
-
   for (uint stride = 32u; stride > 0u; stride >>= 1u) {
     if (lane < stride) {
       partialCounts[lane] += partialCounts[lane + stride];
     }
     barrier();
   }
-  if (lane == 0u) {
-    overlaps[job.outputOffset + candidate] = partialCounts[0];
+  if (lane == 0u && partialCounts[0] != 0u) {
+    atomicAdd(overlaps[job.outputOffset + candidate], partialCounts[0]);
   }
 }

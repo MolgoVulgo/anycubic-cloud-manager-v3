@@ -121,8 +121,6 @@ std::optional<Arguments> parseArguments(int argc, char** argv) {
         args.computePreference = accloud::render3d::compute::SupportComputePreference::Auto;
       } else if (backend == "cpu") {
         args.computePreference = accloud::render3d::compute::SupportComputePreference::Cpu;
-      } else if (backend == "vulkan") {
-        args.computePreference = accloud::render3d::compute::SupportComputePreference::Vulkan;
       } else {
         return std::nullopt;
       }
@@ -314,7 +312,7 @@ int main(int argc, char** argv) {
     std::cerr << "usage: accloud_support_analysis_probe input.pwsz [output.json] "
                  "[--output file.json] [--bundle output-directory] "
                  "[--dump-layer N --dump-ppm file.ppm [--downsample N]] "
-                 "[--workers N] [--no-bitsets] [--compute auto|cpu|vulkan] "
+                 "[--workers N] [--no-bitsets] [--compute auto|cpu] "
                  "[--vulkan-min-area N] [--verify-materialization]\n";
     return 2;
   }
@@ -340,6 +338,20 @@ int main(int argc, char** argv) {
 
   accloud::render3d::SupportAnalyzer analyzer;
   accloud::render3d::SupportAnalysisCallbacks analysisCallbacks;
+  analysisCallbacks.computeStatus = [](bool compiled,
+                                       bool active,
+                                       const std::string& backend,
+                                       const std::string& device,
+                                       const std::string& diagnostic) {
+    const nlohmann::json status = {
+        {"compiled", compiled},
+        {"active", active},
+        {"backend", backend},
+        {"device", device},
+        {"diagnostic", diagnostic},
+    };
+    std::cerr << "COMPUTE_STATUS " << status.dump() << '\n';
+  };
   analysisCallbacks.progress = [](std::size_t completed, std::size_t total) {
     std::cerr << "ANALYZE_PROGRESS " << completed << ' ' << total << '\n';
   };
@@ -410,13 +422,10 @@ int main(int argc, char** argv) {
   output["layer_count"] = reader.layerCount();
   output["analysis_workers"] = arguments->workerCount;
   output["bitset_acceleration"] = arguments->enableBitsetAcceleration;
-  const char* computePreference = "auto";
-  if (arguments->computePreference == accloud::render3d::compute::SupportComputePreference::Cpu) {
-    computePreference = "cpu";
-  } else if (arguments->computePreference == accloud::render3d::compute::SupportComputePreference::Vulkan) {
-    computePreference = "vulkan";
-  }
-  output["compute_preference"] = computePreference;
+  output["compute_preference"] =
+      arguments->computePreference == accloud::render3d::compute::SupportComputePreference::Cpu
+          ? "cpu"
+          : "auto";
   output["vulkan_minimum_component_area_pixels"] = arguments->vulkanMinimumAreaPixels;
   output["pitch_mm"] = {
       options.pitchXMillimetres,
@@ -468,6 +477,36 @@ int main(int argc, char** argv) {
       {"vulkan_host_prepare_us", result.summary.vulkanHostPreparationMicroseconds},
       {"vulkan_queue_wait_us", result.summary.vulkanQueueWaitMicroseconds},
       {"vulkan_batch_execution_us", result.summary.vulkanBatchExecutionMicroseconds},
+      {"vulkan_run_source_jobs", result.summary.vulkanRunSourceJobCount},
+      {"vulkan_resident_reference_uploads",
+       result.summary.vulkanResidentReferenceUploadCount},
+      {"vulkan_resident_reference_reuses",
+       result.summary.vulkanResidentReferenceReuseCount},
+      {"vulkan_submitted_workgroups", result.summary.vulkanSubmittedWorkgroupCount},
+      {"vulkan_semantic_layer_batch_calls",
+       result.summary.vulkanSemanticLayerBatchCallCount},
+      {"vulkan_semantic_layer_batch_jobs",
+       result.summary.vulkanSemanticLayerBatchJobCount},
+      {"support_preparation_window", result.summary.supportPreparationWindowCapacity},
+      {"support_prepared_layers", result.summary.supportPreparedLayerCount},
+      {"support_max_preparation_inflight", result.summary.supportMaximumPreparationInflight},
+      {"support_prepare_load_us", result.summary.supportPreparationLoadMicroseconds},
+      {"support_prepare_describe_us", result.summary.supportPreparationDescribeMicroseconds},
+      {"support_forward_semantic_us", result.summary.supportForwardSemanticMicroseconds},
+      {"support_reverse_semantic_us", result.summary.supportReverseSemanticMicroseconds},
+      {"support_forward_classification_us",
+       result.summary.supportForwardClassificationMicroseconds},
+      {"support_forward_commit_us", result.summary.supportForwardCommitMicroseconds},
+      {"support_forward_lineage_us", result.summary.supportForwardLineageMicroseconds},
+      {"support_forward_lineage_commit_us",
+       result.summary.supportForwardLineageCommitMicroseconds},
+      {"support_reverse_prepare_us", result.summary.supportReversePreparationMicroseconds},
+      {"support_reverse_commit_us", result.summary.supportReverseCommitMicroseconds},
+      {"support_semantic_evidence_us", result.summary.supportSemanticEvidenceMicroseconds},
+      {"support_semantic_evidence_lots", result.summary.supportSemanticEvidenceLotCount},
+      {"support_semantic_evidence_layer_pairs",
+       result.summary.supportSemanticEvidenceLayerPairCount},
+      {"support_semantic_evidence_edges", result.summary.supportSemanticEvidenceEdgeCount},
   };
 
   output["forced_sample_layers"] = nlohmann::json::array();

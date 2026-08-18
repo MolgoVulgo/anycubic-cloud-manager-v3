@@ -2847,6 +2847,20 @@ TestCase {
                                                     'property string errorString: "";' +
                                                     'property string sourcePath: "";' +
                                                     'property string bundlePath: "";' +
+                                                    'property string computeMode: "auto";' +
+                                                    'property int workerCount: 4;' +
+                                                    'property string analyzedComputeMode: "auto";' +
+                                                    'property bool vulkanCompiled: true;' +
+                                                    'property bool vulkanActive: true;' +
+                                                    'property string computeBackend: "vulkan";' +
+                                                    'property string vulkanDevice: "Test Vulkan GPU";' +
+                                                    'property string computeDiagnostic: "";' +
+                                                    'property int vulkanGpuJobs: 24;' +
+                                                    'property int vulkanCpuFallbackJobs: 3;' +
+                                                    'property int vulkanDispatches: 12;' +
+                                                    'property int vulkanDispatchFailures: 0;' +
+                                                    'property int preparationWindow: 16;' +
+                                                    'property int maximumPreparationInflight: 16;' +
                                                     'property int layerCount: 0;' +
                                                     'property int currentLayer: 1;' +
                                                     'property url currentImageUrl: "";' +
@@ -2887,6 +2901,20 @@ TestCase {
                                                     'property string errorString: "";' +
                                                     'property string sourcePath: "";' +
                                                     'property string bundlePath: "/tmp/bundle";' +
+                                                    'property string computeMode: "auto";' +
+                                                    'property int workerCount: 4;' +
+                                                    'property string analyzedComputeMode: "auto";' +
+                                                    'property bool vulkanCompiled: true;' +
+                                                    'property bool vulkanActive: true;' +
+                                                    'property string computeBackend: "vulkan";' +
+                                                    'property string vulkanDevice: "Test Vulkan GPU";' +
+                                                    'property string computeDiagnostic: "";' +
+                                                    'property int vulkanGpuJobs: 24;' +
+                                                    'property int vulkanCpuFallbackJobs: 3;' +
+                                                    'property int vulkanDispatches: 12;' +
+                                                    'property int vulkanDispatchFailures: 0;' +
+                                                    'property int preparationWindow: 16;' +
+                                                    'property int maximumPreparationInflight: 16;' +
                                                     'property int layerCount: 12;' +
                                                     'property int currentLayer: 4;' +
                                                     'property url currentImageUrl: "";' +
@@ -2901,7 +2929,9 @@ TestCase {
                                                     'property string currentDecisionJson: "[]";' +
                                                     'property string analysisJson: "{}";' +
                                                     'property string analyzedPath: "";' +
-                                                    'function analyze(path) { analyzedPath = String(path) } ' +
+                                                    'property string analyzedMode: "";' +
+                                                    'property int analyzedWorkers: 0;' +
+                                                    'function analyze(path) { analyzedPath = String(path); analyzedMode = computeMode; analyzedWorkers = workerCount } ' +
                                                     'function cancel() {} ' +
                                                     'function setCurrentLayer(layer) { currentLayer = Math.max(1, Math.min(layerCount, layer)) } ' +
                                                     'function selectCurrentComponent(x, y) { selectedDecisionIndex = 0; selectedNodeId = 42; selectedSemantic = "support"; selectedRegion = ({ valid: true, x: x, y: y, width: 0.1, height: 0.1 }); currentDecisionJson = JSON.stringify({ node_id: 42, choice: "support" }); return true } ' +
@@ -2912,7 +2942,8 @@ TestCase {
         var page = createQmlObject("../../../ui/qml/pages/SupportAnalysisPage.qml", {
             "width": 1280,
             "height": 820,
-            "analysisBridge": supportAnalysisBridge
+            "analysisBridge": supportAnalysisBridge,
+            "workerCount": 8
         })
         wait(0)
         verify(findObjectByName(page, "supportAnalysisSelectButton") !== null)
@@ -2932,6 +2963,22 @@ TestCase {
         verify(findObjectByName(page, "supportAnalysisNodesHitArea") !== null)
         verify(findObjectByName(page, "supportAnalysisJsonText") !== null)
 
+        var computeMode = findObjectByName(page, "supportAnalysisComputeModeCombo")
+        var computeStatus = findObjectByName(page, "supportAnalysisComputeStatusChip")
+        var computeCounters = findObjectByName(page, "supportAnalysisComputeCountersText")
+        verify(computeMode !== null)
+        verify(computeStatus !== null)
+        verify(computeCounters !== null)
+        compare(computeMode.currentIndex, 0)
+        compare(computeStatus.status, "Hybrid CPU + GPU")
+        compare(supportAnalysisBridge.workerCount, 8)
+        verify(String(computeCounters.text).indexOf("24") >= 0)
+
+        computeMode.currentIndex = 1
+        computeMode.activated(1)
+        compare(supportAnalysisBridge.computeMode, "cpu")
+        compare(computeStatus.status, "Hybrid CPU + GPU")
+
         page.selectDiagnosticAt({"x": 25, "y": 50}, {"width": 100, "height": 100})
         compare(supportAnalysisBridge.selectedNodeId, 42)
         compare(supportAnalysisBridge.selectedSemantic, "support")
@@ -2944,6 +2991,8 @@ TestCase {
         field.text = "/tmp/selected.pwsz"
         runButton.clicked()
         compare(supportAnalysisBridge.analyzedPath, "/tmp/selected.pwsz")
+        compare(supportAnalysisBridge.analyzedMode, "cpu")
+        compare(supportAnalysisBridge.analyzedWorkers, 8)
 
         var nextButton = findObjectByName(page, "supportAnalysisNextLayerButton")
         verify(nextButton !== null)

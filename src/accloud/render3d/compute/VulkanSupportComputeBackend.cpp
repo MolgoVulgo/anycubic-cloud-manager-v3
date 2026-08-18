@@ -22,27 +22,37 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 namespace accloud::render3d::compute {
 namespace {
 
-constexpr std::uint32_t kShaderLocalSize = 64u;
+constexpr std::uint32_t kDenseWordsPerTile = 4096u;
+constexpr std::uint32_t kRunsPerTile = 64u;
 constexpr std::size_t kMaximumBatchJobs = 64u;
 constexpr auto kCoalesceWindow = std::chrono::microseconds(250);
 
+enum class GpuInputMode : std::uint32_t {
+  DenseWords = 0u,
+  CompactRuns = 1u,
+};
+
 struct GpuJobDescriptor {
-  std::uint32_t sourceWordOffset = 0u;
+  std::uint32_t inputOffset = 0u;
   std::uint32_t referenceWordOffset = 0u;
   std::uint32_t wordsPerRow = 0u;
   std::uint32_t height = 0u;
   std::uint32_t radius = 0u;
   std::uint32_t candidateCount = 0u;
   std::uint32_t outputOffset = 0u;
-  std::uint32_t wordCount = 0u;
+  std::uint32_t elementCount = 0u;
+  std::uint32_t width = 0u;
+  std::uint32_t mode = static_cast<std::uint32_t>(GpuInputMode::DenseWords);
 };
-static_assert(sizeof(GpuJobDescriptor) == 32u);
+static_assert(sizeof(GpuJobDescriptor) == 40u);
+static_assert(sizeof(SupportComputeRun) == 16u);
 
 std::string vkFailure(const char* operation, VkResult result) {
   std::ostringstream stream;
@@ -92,6 +102,8 @@ public:
     destroyBuffer(readbackBuffer_);
     destroyBuffer(sourceBuffer_);
     destroyBuffer(referenceBuffer_);
+    destroyBuffer(residentReferenceBuffer_);
+    destroyBuffer(runBuffer_);
     destroyBuffer(jobBuffer_);
     destroyBuffer(outputBuffer_);
     if (device_ != VK_NULL_HANDLE && fence_ != VK_NULL_HANDLE) {
@@ -150,6 +162,7 @@ public:
     }
 
     auto request = std::make_shared<PendingRequest>();
+    request->kind = RequestKind::Dense;
     request->batch = batch;
     request->overlaps = overlaps;
     request->queuedAt = Clock::now();
@@ -171,6 +184,134 @@ public:
     return request->success;
   }
 
+  bool translatedRunOverlaps(
+      const TranslatedRunOverlapBatch& batch,
+      std::span<std::uint32_t> overlaps,
+      std::string& error) override {
+    error.clear();
+    if (!ready()) {
+      error = "Vulkan compute backend is not initialised";
+      recordFailedDispatch();
+      return false;
+    }
+    if (!validateRunBatch(batch, overlaps, error)) {
+      recordFailedDispatch();
+      return false;
+    }
+
+    auto request = std::make_shared<PendingRequest>();
+    request->kind = RequestKind::Runs;
+    request->runBatch = batch;
+    request->overlaps = overlaps;
+    request->queuedAt = Clock::now();
+    recordSubmittedJobs(1u);
+    {
+      std::lock_guard queueLock(queueMutex_);
+      if (!ready()) {
+        error = "Vulkan compute backend stopped before run submission";
+        recordFailedDispatch();
+        return false;
+      }
+      pending_.push_back(request);
+    }
+    queueCv_.notify_one();
+
+    std::unique_lock requestLock(request->mutex);
+    request->cv.wait(requestLock, [&] { return request->done; });
+    error = request->error;
+    return request->success;
+  }
+
+  bool runMaskOverlaps(
+      const RunMaskOverlapBatch& batch,
+      std::span<std::uint32_t> overlaps,
+      std::string& error) override {
+    error.clear();
+    if (batch.queries.empty()) {
+      return true;
+    }
+    if (!ready()) {
+      error = "Vulkan compute backend is not initialised";
+      recordFailedDispatch(batch.queries.size());
+      return false;
+    }
+    if (batch.referenceKey == 0u
+        || batch.width == 0u
+        || batch.height == 0u
+        || batch.wordsPerRow != (batch.width + 31u) / 32u
+        || overlaps.size() != batch.queries.size()) {
+      error = "Vulkan layer run-mask batch dimensions are invalid";
+      recordFailedDispatch(batch.queries.size());
+      return false;
+    }
+    const auto referenceWordCount = static_cast<std::uint64_t>(batch.wordsPerRow)
+        * static_cast<std::uint64_t>(batch.height);
+    if (referenceWordCount == 0u
+        || referenceWordCount > std::numeric_limits<std::size_t>::max()
+        || batch.referenceWords.size() != static_cast<std::size_t>(referenceWordCount)
+        || batch.sourceRuns.size() > std::numeric_limits<std::uint32_t>::max()) {
+      error = "Vulkan layer run-mask reference/source payload is invalid";
+      recordFailedDispatch(batch.queries.size());
+      return false;
+    }
+
+    std::vector<std::shared_ptr<PendingRequest>> requests;
+    requests.reserve(batch.queries.size());
+    const auto queuedAt = Clock::now();
+    for (std::size_t index = 0u; index < batch.queries.size(); ++index) {
+      const auto& query = batch.queries[index];
+      const auto firstRun = static_cast<std::size_t>(query.firstRun);
+      const auto runCount = static_cast<std::size_t>(query.runCount);
+      if (runCount == 0u
+          || firstRun > batch.sourceRuns.size()
+          || runCount > batch.sourceRuns.size() - firstRun) {
+        error = "Vulkan layer run-mask query range is invalid";
+        recordFailedDispatch(batch.queries.size());
+        return false;
+      }
+      auto request = std::make_shared<PendingRequest>();
+      request->kind = RequestKind::Runs;
+      request->runBatch.referenceKey = batch.referenceKey;
+      request->runBatch.width = batch.width;
+      request->runBatch.height = batch.height;
+      request->runBatch.wordsPerRow = batch.wordsPerRow;
+      request->runBatch.radius = 0u;
+      request->runBatch.sourceRuns = batch.sourceRuns.subspan(firstRun, runCount);
+      request->runBatch.referenceWords = batch.referenceWords;
+      request->overlaps = overlaps.subspan(index, 1u);
+      request->queuedAt = queuedAt;
+      requests.push_back(std::move(request));
+    }
+
+    recordSemanticLayerBatch(requests.size());
+    recordSubmittedJobs(requests.size());
+    {
+      std::lock_guard queueLock(queueMutex_);
+      if (!ready()) {
+        error = "Vulkan compute backend stopped before layer batch submission";
+        recordFailedDispatch(requests.size());
+        return false;
+      }
+      for (const auto& request : requests) {
+        pending_.push_back(request);
+      }
+    }
+    queueCv_.notify_all();
+
+    bool success = true;
+    std::string firstError;
+    for (const auto& request : requests) {
+      std::unique_lock requestLock(request->mutex);
+      request->cv.wait(requestLock, [&] { return request->done; });
+      if (!request->success && success) {
+        success = false;
+        firstError = request->error;
+      }
+    }
+    error = std::move(firstError);
+    return success;
+  }
+
 private:
   using Clock = std::chrono::steady_clock;
 
@@ -183,8 +324,15 @@ private:
     VkMemoryPropertyFlags properties = 0u;
   };
 
+  enum class RequestKind : std::uint8_t {
+    Dense,
+    Runs,
+  };
+
   struct PendingRequest {
+    RequestKind kind = RequestKind::Dense;
     TranslatedOverlapBatch batch;
+    TranslatedRunOverlapBatch runBatch;
     std::span<std::uint32_t> overlaps;
     Clock::time_point queuedAt{};
     std::mutex mutex;
@@ -228,9 +376,44 @@ private:
     return true;
   }
 
+  bool validateRunBatch(
+      const TranslatedRunOverlapBatch& batch,
+      std::span<std::uint32_t> overlaps,
+      std::string& error) const {
+    if (batch.referenceKey == 0u
+        || batch.width == 0u
+        || batch.height == 0u
+        || batch.wordsPerRow != (batch.width + 31u) / 32u
+        || batch.radius > 31u
+        || batch.sourceRuns.empty()) {
+      error = "Vulkan run-overlap batch dimensions are invalid";
+      return false;
+    }
+    const auto referenceWordCount = static_cast<std::uint64_t>(batch.wordsPerRow)
+        * static_cast<std::uint64_t>(batch.height);
+    if (referenceWordCount == 0u
+        || referenceWordCount > std::numeric_limits<std::size_t>::max()
+        || batch.referenceWords.size() != static_cast<std::size_t>(referenceWordCount)
+        || batch.sourceRuns.size() > std::numeric_limits<std::uint32_t>::max()) {
+      error = "Vulkan run-overlap reference/source payload is invalid";
+      return false;
+    }
+    const auto diameter = static_cast<std::uint64_t>(batch.radius) * 2u + 1u;
+    const auto candidateCount = diameter * diameter;
+    if (candidateCount == 0u
+        || candidateCount > std::numeric_limits<std::uint32_t>::max()
+        || overlaps.size() != static_cast<std::size_t>(candidateCount)) {
+      error = "Vulkan run-overlap output size is invalid";
+      return false;
+    }
+    return true;
+  }
+
   void dispatchLoop(std::stop_token stopToken) {
     while (!stopToken.stop_requested()) {
       std::vector<std::shared_ptr<PendingRequest>> requests;
+      RequestKind selectedKind = RequestKind::Dense;
+      std::uint64_t selectedReferenceKey = 0u;
       {
         std::unique_lock queueLock(queueMutex_);
         queueCv_.wait(queueLock, [&] {
@@ -240,23 +423,49 @@ private:
           break;
         }
 
+        selectedKind = pending_.front()->kind;
+        if (selectedKind == RequestKind::Runs) {
+          selectedReferenceKey = pending_.front()->runBatch.referenceKey;
+        }
         const auto deadline = Clock::now() + kCoalesceWindow;
         queueCv_.wait_until(queueLock, deadline, [&] {
-          return stopToken.stop_requested()
-              || pending_.size() >= kMaximumBatchJobs;
+          if (stopToken.stop_requested()) {
+            return true;
+          }
+          std::size_t matching = 0u;
+          for (const auto& request : pending_) {
+            const bool sameKind = request->kind == selectedKind;
+            const bool sameReference = selectedKind != RequestKind::Runs
+                || request->runBatch.referenceKey == selectedReferenceKey;
+            if (sameKind && sameReference && ++matching >= kMaximumBatchJobs) {
+              return true;
+            }
+          }
+          return false;
         });
         if (stopToken.stop_requested()) {
           break;
         }
 
-        const auto count = std::min(pending_.size(), kMaximumBatchJobs);
-        requests.reserve(count);
-        for (std::size_t index = 0u; index < count; ++index) {
-          requests.push_back(std::move(pending_.front()));
-          pending_.pop_front();
+        requests.reserve(std::min(pending_.size(), kMaximumBatchJobs));
+        for (auto iterator = pending_.begin();
+             iterator != pending_.end() && requests.size() < kMaximumBatchJobs;) {
+          const bool sameKind = (*iterator)->kind == selectedKind;
+          const bool sameReference = selectedKind != RequestKind::Runs
+              || (*iterator)->runBatch.referenceKey == selectedReferenceKey;
+          if (sameKind && sameReference) {
+            requests.push_back(std::move(*iterator));
+            iterator = pending_.erase(iterator);
+          } else {
+            ++iterator;
+          }
         }
       }
-      dispatchBatch(requests);
+      if (selectedKind == RequestKind::Runs) {
+        dispatchRunBatch(requests);
+      } else {
+        dispatchDenseBatch(requests);
+      }
     }
   }
 
@@ -294,7 +503,7 @@ private:
     }
   }
 
-  void dispatchBatch(const std::vector<std::shared_ptr<PendingRequest>>& requests) {
+  void dispatchDenseBatch(const std::vector<std::shared_ptr<PendingRequest>>& requests) {
     if (requests.empty()) {
       return;
     }
@@ -303,6 +512,7 @@ private:
     std::uint64_t totalReferenceWords = 0u;
     std::uint64_t totalOutputWords = 0u;
     std::uint32_t maximumCandidateCount = 0u;
+    std::uint32_t maximumTileCount = 0u;
     std::vector<GpuJobDescriptor> jobs;
     jobs.reserve(requests.size());
 
@@ -321,9 +531,11 @@ private:
           || totalReferenceWords > std::numeric_limits<std::uint32_t>::max()
           || totalOutputWords > std::numeric_limits<std::uint32_t>::max()
           || wordCount > std::numeric_limits<std::uint32_t>::max()) {
-        failBatch(requests, "Vulkan support-compute coalesced batch is too large");
+        failBatch(requests, "Vulkan support-compute coalesced dense batch is too large");
         return;
       }
+      const auto tileCount = static_cast<std::uint32_t>(
+          (wordCount + kDenseWordsPerTile - 1u) / kDenseWordsPerTile);
       jobs.push_back(GpuJobDescriptor{
           static_cast<std::uint32_t>(totalSourceWords),
           static_cast<std::uint32_t>(totalReferenceWords),
@@ -333,18 +545,21 @@ private:
           static_cast<std::uint32_t>(candidateCount),
           static_cast<std::uint32_t>(totalOutputWords),
           static_cast<std::uint32_t>(wordCount),
+          request->batch.wordsPerRow * 32u,
+          static_cast<std::uint32_t>(GpuInputMode::DenseWords),
       });
       totalSourceWords = nextSourceWords;
       totalReferenceWords = nextReferenceWords;
       totalOutputWords = nextOutputWords;
       maximumCandidateCount = std::max(
           maximumCandidateCount, static_cast<std::uint32_t>(candidateCount));
+      maximumTileCount = std::max(maximumTileCount, tileCount);
     }
 
     if (totalSourceWords > std::numeric_limits<std::uint32_t>::max()
         || totalReferenceWords > std::numeric_limits<std::uint32_t>::max()
         || totalOutputWords > std::numeric_limits<std::uint32_t>::max()) {
-      failBatch(requests, "Vulkan support-compute coalesced offsets overflow 32-bit storage");
+      failBatch(requests, "Vulkan support-compute dense offsets overflow 32-bit storage");
       return;
     }
 
@@ -356,11 +571,6 @@ private:
         * sizeof(GpuJobDescriptor);
     const VkDeviceSize outputBytes = static_cast<VkDeviceSize>(totalOutputWords)
         * sizeof(std::uint32_t);
-
-    // A storage-buffer descriptor may be smaller than the device's available
-    // memory. Keep coalescing opportunistic, but split an oversized group
-    // rather than turning a valid individual job into a CPU fallback merely
-    // because too many workers reached the dispatcher at the same time.
     const auto maximumStorageRange = static_cast<VkDeviceSize>(
         physicalDeviceProperties_.limits.maxStorageBufferRange);
     if (requests.size() > 1u
@@ -370,9 +580,9 @@ private:
             || outputBytes > maximumStorageRange)) {
       const auto middle = requests.begin()
           + static_cast<std::ptrdiff_t>(requests.size() / 2u);
-      dispatchBatch(std::vector<std::shared_ptr<PendingRequest>>(
+      dispatchDenseBatch(std::vector<std::shared_ptr<PendingRequest>>(
           requests.begin(), middle));
-      dispatchBatch(std::vector<std::shared_ptr<PendingRequest>>(
+      dispatchDenseBatch(std::vector<std::shared_ptr<PendingRequest>>(
           middle, requests.end()));
       return;
     }
@@ -380,7 +590,14 @@ private:
         || referenceBytes > maximumStorageRange
         || jobBytes > maximumStorageRange
         || outputBytes > maximumStorageRange) {
-      failBatch(requests, "Vulkan support-compute job exceeds maxStorageBufferRange");
+      failBatch(requests, "Vulkan support-compute dense job exceeds maxStorageBufferRange");
+      return;
+    }
+    if (maximumTileCount == 0u
+        || maximumTileCount > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[0]
+        || maximumCandidateCount > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[1]
+        || jobs.size() > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[2]) {
+      failBatch(requests, "Vulkan support-compute dense dispatch exceeds workgroup-count limits");
       return;
     }
 
@@ -414,13 +631,19 @@ private:
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             false, error)
         || !ensureBuffer(
+            runBuffer_, sizeof(SupportComputeRun),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            false, error)
+        || !ensureBuffer(
             jobBuffer_, jobBytes,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             false, error)
         || !ensureBuffer(
             outputBuffer_, outputBytes,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             false, error)) {
       failBatch(requests, error);
@@ -433,29 +656,23 @@ private:
     for (const auto& request : requests) {
       const auto bytes = static_cast<VkDeviceSize>(request->batch.sourceWords.size())
           * sizeof(std::uint32_t);
-      std::memcpy(
-          upload + sourceCursorBytes,
-          request->batch.sourceWords.data(),
-          static_cast<std::size_t>(bytes));
-      std::memcpy(
-          upload + referenceCursorBytes,
-          request->batch.referenceWords.data(),
-          static_cast<std::size_t>(bytes));
+      std::memcpy(upload + sourceCursorBytes, request->batch.sourceWords.data(),
+                  static_cast<std::size_t>(bytes));
+      std::memcpy(upload + referenceCursorBytes, request->batch.referenceWords.data(),
+                  static_cast<std::size_t>(bytes));
       sourceCursorBytes += bytes;
       referenceCursorBytes += bytes;
     }
-    std::memcpy(
-        upload + jobUploadOffset,
-        jobs.data(),
-        static_cast<std::size_t>(jobBytes));
+    std::memcpy(upload + jobUploadOffset, jobs.data(), static_cast<std::size_t>(jobBytes));
 
-    std::array<VkDescriptorBufferInfo, 4> bufferInfos{
+    std::array<VkDescriptorBufferInfo, 5> bufferInfos{
         VkDescriptorBufferInfo{sourceBuffer_.buffer, 0u, sourceBytes},
         VkDescriptorBufferInfo{referenceBuffer_.buffer, 0u, referenceBytes},
         VkDescriptorBufferInfo{jobBuffer_.buffer, 0u, jobBytes},
         VkDescriptorBufferInfo{outputBuffer_.buffer, 0u, outputBytes},
+        VkDescriptorBufferInfo{runBuffer_.buffer, 0u, sizeof(SupportComputeRun)},
     };
-    std::array<VkWriteDescriptorSet, 4> writes{};
+    std::array<VkWriteDescriptorSet, 5> writes{};
     for (std::uint32_t binding = 0u; binding < writes.size(); ++binding) {
       writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       writes[binding].dstSet = descriptorSet_;
@@ -481,54 +698,52 @@ private:
       return;
     }
 
-    std::array<VkBufferCopy, 3> inputCopies{
-        VkBufferCopy{0u, 0u, sourceBytes},
-        VkBufferCopy{referenceUploadOffset, 0u, referenceBytes},
-        VkBufferCopy{jobUploadOffset, 0u, jobBytes},
-    };
-    vkCmdCopyBuffer(
-        commandBuffer_, uploadBuffer_.buffer, sourceBuffer_.buffer,
-        1u, &inputCopies[0]);
-    vkCmdCopyBuffer(
-        commandBuffer_, uploadBuffer_.buffer, referenceBuffer_.buffer,
-        1u, &inputCopies[1]);
-    vkCmdCopyBuffer(
-        commandBuffer_, uploadBuffer_.buffer, jobBuffer_.buffer,
-        1u, &inputCopies[2]);
+    VkBufferCopy sourceCopy{0u, 0u, sourceBytes};
+    VkBufferCopy referenceCopy{referenceUploadOffset, 0u, referenceBytes};
+    VkBufferCopy jobCopy{jobUploadOffset, 0u, jobBytes};
+    vkCmdCopyBuffer(commandBuffer_, uploadBuffer_.buffer, sourceBuffer_.buffer, 1u, &sourceCopy);
+    vkCmdCopyBuffer(commandBuffer_, uploadBuffer_.buffer, referenceBuffer_.buffer, 1u, &referenceCopy);
+    vkCmdCopyBuffer(commandBuffer_, uploadBuffer_.buffer, jobBuffer_.buffer, 1u, &jobCopy);
+    vkCmdFillBuffer(commandBuffer_, outputBuffer_.buffer, 0u, outputBytes, 0u);
 
-    std::array<VkBufferMemoryBarrier, 3> inputBarriers{};
-    const std::array<VkBuffer, 3> inputBuffers{
-        sourceBuffer_.buffer, referenceBuffer_.buffer, jobBuffer_.buffer};
-    const std::array<VkDeviceSize, 3> inputSizes{sourceBytes, referenceBytes, jobBytes};
-    for (std::size_t index = 0u; index < inputBarriers.size(); ++index) {
-      auto& barrier = inputBarriers[index];
+    std::array<VkBufferMemoryBarrier, 4> barriers{};
+    const std::array<VkBuffer, 4> barrierBuffers{
+        sourceBuffer_.buffer, referenceBuffer_.buffer, jobBuffer_.buffer, outputBuffer_.buffer};
+    const std::array<VkDeviceSize, 4> barrierSizes{sourceBytes, referenceBytes, jobBytes, outputBytes};
+    for (std::size_t index = 0u; index < barriers.size(); ++index) {
+      auto& barrier = barriers[index];
       barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
       barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barrier.dstAccessMask = index == 3u
+          ? VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+          : VK_ACCESS_SHADER_READ_BIT;
       barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      barrier.buffer = inputBuffers[index];
+      barrier.buffer = barrierBuffers[index];
       barrier.offset = 0u;
-      barrier.size = inputSizes[index];
+      barrier.size = barrierSizes[index];
     }
     vkCmdPipelineBarrier(
-        commandBuffer_,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0u,
-        0u, nullptr,
-        static_cast<std::uint32_t>(inputBarriers.size()), inputBarriers.data(),
-        0u, nullptr);
+        commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u,
+        0u, nullptr, static_cast<std::uint32_t>(barriers.size()), barriers.data(), 0u, nullptr);
 
-    const std::uint32_t jobCount = static_cast<std::uint32_t>(jobs.size());
+    struct PushConstants {
+      std::uint32_t jobCount;
+      std::uint32_t denseWordsPerTile;
+      std::uint32_t runsPerTile;
+    } constants{
+        static_cast<std::uint32_t>(jobs.size()), kDenseWordsPerTile, kRunsPerTile};
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(
         commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_,
         0u, 1u, &descriptorSet_, 0u, nullptr);
     vkCmdPushConstants(
         commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
-        0u, sizeof(jobCount), &jobCount);
-    vkCmdDispatch(commandBuffer_, maximumCandidateCount, jobCount, 1u);
+        0u, sizeof(constants), &constants);
+    vkCmdDispatch(
+        commandBuffer_, maximumTileCount, maximumCandidateCount,
+        static_cast<std::uint32_t>(jobs.size()));
 
     VkBufferMemoryBarrier outputBarrier{};
     outputBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -540,18 +755,12 @@ private:
     outputBarrier.offset = 0u;
     outputBarrier.size = outputBytes;
     vkCmdPipelineBarrier(
-        commandBuffer_,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0u,
-        0u, nullptr,
-        1u, &outputBarrier,
-        0u, nullptr);
-
+        commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0u,
+        0u, nullptr, 1u, &outputBarrier, 0u, nullptr);
     VkBufferCopy outputCopy{0u, 0u, outputBytes};
     vkCmdCopyBuffer(
-        commandBuffer_, outputBuffer_.buffer, readbackBuffer_.buffer,
-        1u, &outputCopy);
+        commandBuffer_, outputBuffer_.buffer, readbackBuffer_.buffer, 1u, &outputCopy);
 
     VkBufferMemoryBarrier readbackBarrier{};
     readbackBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -563,13 +772,8 @@ private:
     readbackBarrier.offset = 0u;
     readbackBarrier.size = outputBytes;
     vkCmdPipelineBarrier(
-        commandBuffer_,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_HOST_BIT,
-        0u,
-        0u, nullptr,
-        1u, &readbackBarrier,
-        0u, nullptr);
+        commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0u,
+        0u, nullptr, 1u, &readbackBarrier, 0u, nullptr);
 
     status = vkEndCommandBuffer(commandBuffer_);
     if (status != VK_SUCCESS) {
@@ -581,7 +785,6 @@ private:
       failBatch(requests, vkFailure("vkResetFences", status));
       return;
     }
-
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1u;
@@ -604,14 +807,363 @@ private:
     for (std::size_t index = 0u; index < requests.size(); ++index) {
       const auto& job = jobs[index];
       std::memcpy(
-          requests[index]->overlaps.data(),
-          readback + job.outputOffset,
+          requests[index]->overlaps.data(), readback + job.outputOffset,
           static_cast<std::size_t>(job.candidateCount) * sizeof(std::uint32_t));
     }
 
     recordTransferBytes(
-        static_cast<std::uint64_t>(uploadBytes),
-        static_cast<std::uint64_t>(outputBytes));
+        static_cast<std::uint64_t>(uploadBytes), static_cast<std::uint64_t>(outputBytes));
+    recordSubmittedWorkgroups(
+        static_cast<std::uint64_t>(maximumTileCount) * maximumCandidateCount * jobs.size());
+    recordBatchExecution(nanoseconds(executionEnd - executionStart));
+    recordSuccessfulDispatch(requests.size());
+    for (const auto& request : requests) {
+      complete(request, true, {});
+    }
+  }
+
+  void dispatchRunBatch(const std::vector<std::shared_ptr<PendingRequest>>& requests) {
+    if (requests.empty()) {
+      return;
+    }
+    const auto& firstBatch = requests.front()->runBatch;
+    for (const auto& request : requests) {
+      if (request->kind != RequestKind::Runs
+          || request->runBatch.referenceKey != firstBatch.referenceKey
+          || request->runBatch.width != firstBatch.width
+          || request->runBatch.height != firstBatch.height
+          || request->runBatch.wordsPerRow != firstBatch.wordsPerRow
+          || request->runBatch.referenceWords.size() != firstBatch.referenceWords.size()) {
+        failBatch(requests, "Vulkan run batch contains incompatible resident references");
+        return;
+      }
+    }
+
+    std::uint64_t totalRuns = 0u;
+    std::uint64_t totalOutputWords = 0u;
+    std::uint32_t maximumCandidateCount = 0u;
+    std::uint32_t maximumTileCount = 0u;
+    std::vector<GpuJobDescriptor> jobs;
+    jobs.reserve(requests.size());
+    for (const auto& request : requests) {
+      const auto runCount = static_cast<std::uint64_t>(request->runBatch.sourceRuns.size());
+      const auto diameter = static_cast<std::uint64_t>(request->runBatch.radius) * 2u + 1u;
+      const auto candidateCount = diameter * diameter;
+      std::uint64_t nextRuns = 0u;
+      std::uint64_t nextOutput = 0u;
+      if (!checkedAdd(totalRuns, runCount, nextRuns)
+          || !checkedAdd(totalOutputWords, candidateCount, nextOutput)
+          || totalRuns > std::numeric_limits<std::uint32_t>::max()
+          || totalOutputWords > std::numeric_limits<std::uint32_t>::max()
+          || runCount > std::numeric_limits<std::uint32_t>::max()) {
+        failBatch(requests, "Vulkan support-compute run batch is too large");
+        return;
+      }
+      const auto tileCount = static_cast<std::uint32_t>(
+          (runCount + kRunsPerTile - 1u) / kRunsPerTile);
+      jobs.push_back(GpuJobDescriptor{
+          static_cast<std::uint32_t>(totalRuns),
+          0u,
+          request->runBatch.wordsPerRow,
+          request->runBatch.height,
+          request->runBatch.radius,
+          static_cast<std::uint32_t>(candidateCount),
+          static_cast<std::uint32_t>(totalOutputWords),
+          static_cast<std::uint32_t>(runCount),
+          request->runBatch.width,
+          static_cast<std::uint32_t>(GpuInputMode::CompactRuns),
+      });
+      totalRuns = nextRuns;
+      totalOutputWords = nextOutput;
+      maximumCandidateCount = std::max(
+          maximumCandidateCount, static_cast<std::uint32_t>(candidateCount));
+      maximumTileCount = std::max(maximumTileCount, tileCount);
+    }
+
+    const VkDeviceSize runBytes = static_cast<VkDeviceSize>(totalRuns)
+        * sizeof(SupportComputeRun);
+    const VkDeviceSize referenceBytes = static_cast<VkDeviceSize>(firstBatch.referenceWords.size())
+        * sizeof(std::uint32_t);
+    const VkDeviceSize jobBytes = static_cast<VkDeviceSize>(jobs.size())
+        * sizeof(GpuJobDescriptor);
+    const VkDeviceSize outputBytes = static_cast<VkDeviceSize>(totalOutputWords)
+        * sizeof(std::uint32_t);
+    const auto maximumStorageRange = static_cast<VkDeviceSize>(
+        physicalDeviceProperties_.limits.maxStorageBufferRange);
+    if (requests.size() > 1u
+        && (runBytes > maximumStorageRange
+            || referenceBytes > maximumStorageRange
+            || jobBytes > maximumStorageRange
+            || outputBytes > maximumStorageRange)) {
+      const auto middle = requests.begin()
+          + static_cast<std::ptrdiff_t>(requests.size() / 2u);
+      dispatchRunBatch(std::vector<std::shared_ptr<PendingRequest>>(
+          requests.begin(), middle));
+      dispatchRunBatch(std::vector<std::shared_ptr<PendingRequest>>(
+          middle, requests.end()));
+      return;
+    }
+    if (runBytes > maximumStorageRange
+        || referenceBytes > maximumStorageRange
+        || jobBytes > maximumStorageRange
+        || outputBytes > maximumStorageRange) {
+      failBatch(requests, "Vulkan support-compute run job exceeds maxStorageBufferRange");
+      return;
+    }
+    if (maximumTileCount == 0u
+        || maximumTileCount > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[0]
+        || maximumCandidateCount > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[1]
+        || jobs.size() > physicalDeviceProperties_.limits.maxComputeWorkGroupCount[2]) {
+      failBatch(requests, "Vulkan support-compute run dispatch exceeds workgroup-count limits");
+      return;
+    }
+
+    const auto batchStart = Clock::now();
+    for (const auto& request : requests) {
+      recordQueueWait(nanoseconds(batchStart - request->queuedAt));
+    }
+
+    const bool residentReusable = residentReferenceBuffer_.buffer != VK_NULL_HANDLE
+        && residentReferenceBuffer_.capacity >= referenceBytes
+        && residentReferenceKey_ == firstBatch.referenceKey
+        && residentReferenceWidth_ == firstBatch.width
+        && residentReferenceHeight_ == firstBatch.height
+        && residentReferenceWordsPerRow_ == firstBatch.wordsPerRow;
+    const bool uploadReference = !residentReusable;
+    const VkDeviceSize referenceUploadOffset = 0u;
+    const VkDeviceSize runUploadOffset = uploadReference ? referenceBytes : 0u;
+    const VkDeviceSize jobUploadOffset = runUploadOffset + runBytes;
+    const VkDeviceSize uploadBytes = jobUploadOffset + jobBytes;
+
+    std::string error;
+    if (!ensureBuffer(
+            uploadBuffer_, std::max<VkDeviceSize>(uploadBytes, 4u),
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            true, error)
+        || !ensureBuffer(
+            readbackBuffer_, outputBytes,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            true, error)
+        || !ensureBuffer(
+            sourceBuffer_, sizeof(std::uint32_t),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, error)
+        || !ensureBuffer(
+            residentReferenceBuffer_, referenceBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, error)
+        || !ensureBuffer(
+            runBuffer_, runBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, error)
+        || !ensureBuffer(
+            jobBuffer_, jobBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, error)
+        || !ensureBuffer(
+            outputBuffer_, outputBytes,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, error)) {
+      failBatch(requests, error);
+      return;
+    }
+
+    auto* upload = static_cast<std::byte*>(uploadBuffer_.mapped);
+    if (uploadReference) {
+      std::memcpy(
+          upload + referenceUploadOffset, firstBatch.referenceWords.data(),
+          static_cast<std::size_t>(referenceBytes));
+    }
+    VkDeviceSize runCursor = runUploadOffset;
+    for (const auto& request : requests) {
+      const auto bytes = static_cast<VkDeviceSize>(request->runBatch.sourceRuns.size())
+          * sizeof(SupportComputeRun);
+      std::memcpy(
+          upload + runCursor, request->runBatch.sourceRuns.data(),
+          static_cast<std::size_t>(bytes));
+      runCursor += bytes;
+    }
+    std::memcpy(upload + jobUploadOffset, jobs.data(), static_cast<std::size_t>(jobBytes));
+
+    std::array<VkDescriptorBufferInfo, 5> bufferInfos{
+        VkDescriptorBufferInfo{sourceBuffer_.buffer, 0u, sizeof(std::uint32_t)},
+        VkDescriptorBufferInfo{residentReferenceBuffer_.buffer, 0u, referenceBytes},
+        VkDescriptorBufferInfo{jobBuffer_.buffer, 0u, jobBytes},
+        VkDescriptorBufferInfo{outputBuffer_.buffer, 0u, outputBytes},
+        VkDescriptorBufferInfo{runBuffer_.buffer, 0u, runBytes},
+    };
+    std::array<VkWriteDescriptorSet, 5> writes{};
+    for (std::uint32_t binding = 0u; binding < writes.size(); ++binding) {
+      writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writes[binding].dstSet = descriptorSet_;
+      writes[binding].dstBinding = binding;
+      writes[binding].descriptorCount = 1u;
+      writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[binding].pBufferInfo = &bufferInfos[binding];
+    }
+    vkUpdateDescriptorSets(
+        device_, static_cast<std::uint32_t>(writes.size()), writes.data(), 0u, nullptr);
+
+    auto status = vkResetCommandBuffer(commandBuffer_, 0u);
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkResetCommandBuffer", status));
+      return;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    status = vkBeginCommandBuffer(commandBuffer_, &beginInfo);
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkBeginCommandBuffer", status));
+      return;
+    }
+
+    if (uploadReference) {
+      VkBufferCopy referenceCopy{referenceUploadOffset, 0u, referenceBytes};
+      vkCmdCopyBuffer(
+          commandBuffer_, uploadBuffer_.buffer, residentReferenceBuffer_.buffer,
+          1u, &referenceCopy);
+    }
+    VkBufferCopy runCopy{runUploadOffset, 0u, runBytes};
+    VkBufferCopy jobCopy{jobUploadOffset, 0u, jobBytes};
+    vkCmdCopyBuffer(commandBuffer_, uploadBuffer_.buffer, runBuffer_.buffer, 1u, &runCopy);
+    vkCmdCopyBuffer(commandBuffer_, uploadBuffer_.buffer, jobBuffer_.buffer, 1u, &jobCopy);
+    vkCmdFillBuffer(commandBuffer_, outputBuffer_.buffer, 0u, outputBytes, 0u);
+
+    std::array<VkBufferMemoryBarrier, 4> barriers{};
+    std::size_t barrierCount = 0u;
+    if (uploadReference) {
+      auto& barrier = barriers[barrierCount++];
+      barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+      barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.buffer = residentReferenceBuffer_.buffer;
+      barrier.offset = 0u;
+      barrier.size = referenceBytes;
+    }
+    for (const auto [buffer, size, access] : std::array{
+             std::tuple<VkBuffer, VkDeviceSize, VkAccessFlags>{
+                 runBuffer_.buffer, runBytes, VK_ACCESS_SHADER_READ_BIT},
+             std::tuple<VkBuffer, VkDeviceSize, VkAccessFlags>{
+                 jobBuffer_.buffer, jobBytes, VK_ACCESS_SHADER_READ_BIT},
+             std::tuple<VkBuffer, VkDeviceSize, VkAccessFlags>{
+                 outputBuffer_.buffer, outputBytes,
+                 VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT}}) {
+      auto& barrier = barriers[barrierCount++];
+      barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+      barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier.dstAccessMask = access;
+      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.buffer = buffer;
+      barrier.offset = 0u;
+      barrier.size = size;
+    }
+    vkCmdPipelineBarrier(
+        commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u,
+        0u, nullptr, static_cast<std::uint32_t>(barrierCount), barriers.data(), 0u, nullptr);
+
+    struct PushConstants {
+      std::uint32_t jobCount;
+      std::uint32_t denseWordsPerTile;
+      std::uint32_t runsPerTile;
+    } constants{
+        static_cast<std::uint32_t>(jobs.size()), kDenseWordsPerTile, kRunsPerTile};
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+    vkCmdBindDescriptorSets(
+        commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_,
+        0u, 1u, &descriptorSet_, 0u, nullptr);
+    vkCmdPushConstants(
+        commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
+        0u, sizeof(constants), &constants);
+    vkCmdDispatch(
+        commandBuffer_, maximumTileCount, maximumCandidateCount,
+        static_cast<std::uint32_t>(jobs.size()));
+
+    VkBufferMemoryBarrier outputBarrier{};
+    outputBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    outputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    outputBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    outputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    outputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    outputBarrier.buffer = outputBuffer_.buffer;
+    outputBarrier.offset = 0u;
+    outputBarrier.size = outputBytes;
+    vkCmdPipelineBarrier(
+        commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0u,
+        0u, nullptr, 1u, &outputBarrier, 0u, nullptr);
+    VkBufferCopy outputCopy{0u, 0u, outputBytes};
+    vkCmdCopyBuffer(commandBuffer_, outputBuffer_.buffer, readbackBuffer_.buffer, 1u, &outputCopy);
+    VkBufferMemoryBarrier readbackBarrier{};
+    readbackBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    readbackBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    readbackBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    readbackBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    readbackBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    readbackBarrier.buffer = readbackBuffer_.buffer;
+    readbackBarrier.offset = 0u;
+    readbackBarrier.size = outputBytes;
+    vkCmdPipelineBarrier(
+        commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0u,
+        0u, nullptr, 1u, &readbackBarrier, 0u, nullptr);
+
+    status = vkEndCommandBuffer(commandBuffer_);
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkEndCommandBuffer", status));
+      return;
+    }
+    status = vkResetFences(device_, 1u, &fence_);
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkResetFences", status));
+      return;
+    }
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1u;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+    const auto executionStart = Clock::now();
+    status = vkQueueSubmit(queue_, 1u, &submitInfo, fence_);
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkQueueSubmit", status));
+      return;
+    }
+    status = vkWaitForFences(
+        device_, 1u, &fence_, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
+    const auto executionEnd = Clock::now();
+    if (status != VK_SUCCESS) {
+      failBatch(requests, vkFailure("vkWaitForFences", status));
+      return;
+    }
+
+    const auto* readback = static_cast<const std::uint32_t*>(readbackBuffer_.mapped);
+    for (std::size_t index = 0u; index < requests.size(); ++index) {
+      const auto& job = jobs[index];
+      std::memcpy(
+          requests[index]->overlaps.data(), readback + job.outputOffset,
+          static_cast<std::size_t>(job.candidateCount) * sizeof(std::uint32_t));
+    }
+
+    if (uploadReference) {
+      residentReferenceKey_ = firstBatch.referenceKey;
+      residentReferenceWidth_ = firstBatch.width;
+      residentReferenceHeight_ = firstBatch.height;
+      residentReferenceWordsPerRow_ = firstBatch.wordsPerRow;
+      recordResidentReferenceUpload();
+    } else {
+      recordResidentReferenceReuse();
+    }
+    recordRunSourceJobs(requests.size());
+    recordTransferBytes(
+        static_cast<std::uint64_t>(uploadBytes), static_cast<std::uint64_t>(outputBytes));
+    recordSubmittedWorkgroups(
+        static_cast<std::uint64_t>(maximumTileCount) * maximumCandidateCount * jobs.size());
     recordBatchExecution(nanoseconds(executionEnd - executionStart));
     recordSuccessfulDispatch(requests.size());
     for (const auto& request : requests) {
@@ -710,7 +1262,7 @@ private:
     }
     vkGetDeviceQueue(device_, queueFamilyIndex_, 0u, &queue_);
 
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
     for (std::uint32_t binding = 0u; binding < bindings.size(); ++binding) {
       bindings[binding].binding = binding;
       bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -731,7 +1283,7 @@ private:
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushRange.offset = 0u;
-    pushRange.size = sizeof(std::uint32_t);
+    pushRange.size = sizeof(std::uint32_t) * 3u;
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1u;
@@ -776,7 +1328,7 @@ private:
 
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 4u;
+    poolSize.descriptorCount = 5u;
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1u;
@@ -952,8 +1504,14 @@ private:
   Buffer readbackBuffer_;
   Buffer sourceBuffer_;
   Buffer referenceBuffer_;
+  Buffer residentReferenceBuffer_;
+  Buffer runBuffer_;
   Buffer jobBuffer_;
   Buffer outputBuffer_;
+  std::uint64_t residentReferenceKey_ = 0u;
+  std::uint32_t residentReferenceWidth_ = 0u;
+  std::uint32_t residentReferenceHeight_ = 0u;
+  std::uint32_t residentReferenceWordsPerRow_ = 0u;
 
   std::mutex queueMutex_;
   std::condition_variable queueCv_;

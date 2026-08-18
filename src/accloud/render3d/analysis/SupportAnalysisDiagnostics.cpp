@@ -814,6 +814,36 @@ nlohmann::json summaryJson(const SupportAnalysisSummary& summary) {
       {"vulkan_host_prepare_us", summary.vulkanHostPreparationMicroseconds},
       {"vulkan_queue_wait_us", summary.vulkanQueueWaitMicroseconds},
       {"vulkan_batch_execution_us", summary.vulkanBatchExecutionMicroseconds},
+      {"vulkan_run_source_jobs", summary.vulkanRunSourceJobCount},
+      {"vulkan_resident_reference_uploads",
+       summary.vulkanResidentReferenceUploadCount},
+      {"vulkan_resident_reference_reuses",
+       summary.vulkanResidentReferenceReuseCount},
+      {"vulkan_submitted_workgroups", summary.vulkanSubmittedWorkgroupCount},
+      {"vulkan_semantic_layer_batch_calls",
+       summary.vulkanSemanticLayerBatchCallCount},
+      {"vulkan_semantic_layer_batch_jobs",
+       summary.vulkanSemanticLayerBatchJobCount},
+      {"support_preparation_window", summary.supportPreparationWindowCapacity},
+      {"support_prepared_layers", summary.supportPreparedLayerCount},
+      {"support_max_preparation_inflight", summary.supportMaximumPreparationInflight},
+      {"support_prepare_load_us", summary.supportPreparationLoadMicroseconds},
+      {"support_prepare_describe_us", summary.supportPreparationDescribeMicroseconds},
+      {"support_forward_semantic_us", summary.supportForwardSemanticMicroseconds},
+      {"support_reverse_semantic_us", summary.supportReverseSemanticMicroseconds},
+      {"support_forward_classification_us",
+       summary.supportForwardClassificationMicroseconds},
+      {"support_forward_commit_us", summary.supportForwardCommitMicroseconds},
+      {"support_forward_lineage_us", summary.supportForwardLineageMicroseconds},
+      {"support_forward_lineage_commit_us",
+       summary.supportForwardLineageCommitMicroseconds},
+      {"support_reverse_prepare_us", summary.supportReversePreparationMicroseconds},
+      {"support_reverse_commit_us", summary.supportReverseCommitMicroseconds},
+      {"support_semantic_evidence_us", summary.supportSemanticEvidenceMicroseconds},
+      {"support_semantic_evidence_lots", summary.supportSemanticEvidenceLotCount},
+      {"support_semantic_evidence_layer_pairs",
+       summary.supportSemanticEvidenceLayerPairCount},
+      {"support_semantic_evidence_edges", summary.supportSemanticEvidenceEdgeCount},
   };
 }
 
@@ -990,6 +1020,15 @@ bool SupportAnalysisBundleWriter::write(
   };
   analysis["summary"] = summaryJson(result.summary);
   analysis["options"] = {
+      {"worker_count", analysisOptions.workerCount},
+      {"preparation_memory_budget_bytes", analysisOptions.preparationMemoryBudgetBytes},
+      {"bitset_acceleration", analysisOptions.enableBitsetAcceleration},
+      {"compute_preference",
+       analysisOptions.computePreference == compute::SupportComputePreference::Cpu
+           ? "cpu"
+           : "auto"},
+      {"vulkan_minimum_component_area_pixels",
+       analysisOptions.vulkanMinimumComponentAreaPixels},
       {"minimum_track_layers", analysisOptions.minimumTrackLayers},
       {"taper_lookback_layers", analysisOptions.taperLookbackLayers},
       {"model_contact_confirmation_layers",

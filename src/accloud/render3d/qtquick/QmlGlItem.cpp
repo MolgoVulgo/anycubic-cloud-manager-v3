@@ -1338,8 +1338,10 @@ void QmlGlItem::load() {
           return;
         }
 
+        // P6.5 reports support analysis as geometry/evidence preparation plus
+        // the forward and reverse reconciliation phases.
         const std::size_t analysisWork = analyzeSupports
-            ? reader->layerCount() * 2u
+            ? reader->layerCount() * 3u
             : 0u;
         const std::size_t baseMeshWork = sampledLayerCount(reader->layerCount());
         std::size_t meshWork = baseMeshWork;
@@ -1380,6 +1382,7 @@ void QmlGlItem::load() {
           int lastAnalysisReportedPercent = -1;
           int lastAnalysisLoggedDecile = -1;
           compute::SupportComputeTelemetry latestComputeTelemetry;
+          SupportAnalysisPerformanceTelemetry latestPerformanceTelemetry;
           SupportAnalysisCallbacks analysisCallbacks;
           analysisCallbacks.isCancelled = [&] { return stopToken.stop_requested(); };
           analysisCallbacks.computeStatus = [&](bool compiled,
@@ -1400,6 +1403,9 @@ void QmlGlItem::load() {
           };
           analysisCallbacks.computeTelemetry = [&](const auto& telemetry) {
             latestComputeTelemetry = telemetry;
+          };
+          analysisCallbacks.performanceTelemetry = [&](const auto& telemetry) {
+            latestPerformanceTelemetry = telemetry;
           };
           analysisCallbacks.progress = [&](std::size_t completed, std::size_t total) {
             const int percent = total == 0
@@ -1433,7 +1439,53 @@ void QmlGlItem::load() {
                    {"vulkan_queue_wait_us",
                     text(latestComputeTelemetry.queueWaitNanoseconds / 1000u)},
                    {"vulkan_batch_execution_us",
-                    text(latestComputeTelemetry.batchExecutionNanoseconds / 1000u)}});
+                    text(latestComputeTelemetry.batchExecutionNanoseconds / 1000u)},
+                   {"vulkan_run_source_jobs",
+                    text(latestComputeTelemetry.runSourceJobs)},
+                   {"vulkan_resident_reference_uploads",
+                    text(latestComputeTelemetry.residentReferenceUploads)},
+                   {"vulkan_resident_reference_reuses",
+                    text(latestComputeTelemetry.residentReferenceReuses)},
+                   {"vulkan_submitted_workgroups",
+                    text(latestComputeTelemetry.submittedWorkgroups)},
+                   {"vulkan_semantic_layer_batch_calls",
+                    text(latestComputeTelemetry.semanticLayerBatchCalls)},
+                   {"vulkan_semantic_layer_batch_jobs",
+                    text(latestComputeTelemetry.semanticLayerBatchJobs)},
+                   {"support_preparation_window",
+                    text(latestPerformanceTelemetry.preparationWindowCapacity)},
+                   {"support_prepared_layers",
+                    text(latestPerformanceTelemetry.preparedLayerCount)},
+                   {"support_max_preparation_inflight",
+                    text(latestPerformanceTelemetry.maximumPreparationInflight)},
+                   {"support_prepare_load_us",
+                    text(latestPerformanceTelemetry.preparationLoadMicroseconds)},
+                   {"support_prepare_describe_us",
+                    text(latestPerformanceTelemetry.preparationDescribeMicroseconds)},
+                   {"support_forward_semantic_us",
+                    text(latestPerformanceTelemetry.forwardSemanticMicroseconds)},
+                   {"support_reverse_semantic_us",
+                    text(latestPerformanceTelemetry.reverseSemanticMicroseconds)},
+                   {"support_forward_classification_us",
+                    text(latestPerformanceTelemetry.forwardClassificationMicroseconds)},
+                   {"support_forward_commit_us",
+                    text(latestPerformanceTelemetry.forwardCommitMicroseconds)},
+                   {"support_forward_lineage_us",
+                    text(latestPerformanceTelemetry.forwardLineageMicroseconds)},
+                   {"support_forward_lineage_commit_us",
+                    text(latestPerformanceTelemetry.forwardLineageCommitMicroseconds)},
+                   {"support_reverse_prepare_us",
+                    text(latestPerformanceTelemetry.reversePreparationMicroseconds)},
+                   {"support_reverse_commit_us",
+                    text(latestPerformanceTelemetry.reverseCommitMicroseconds)},
+                   {"support_semantic_evidence_us",
+                    text(latestPerformanceTelemetry.semanticEvidenceMicroseconds)},
+                   {"support_semantic_evidence_lots",
+                    text(latestPerformanceTelemetry.semanticEvidenceLotCount)},
+                   {"support_semantic_evidence_layer_pairs",
+                    text(latestPerformanceTelemetry.semanticEvidenceLayerPairCount)},
+                   {"support_semantic_evidence_edges",
+                    text(latestPerformanceTelemetry.semanticEvidenceEdgeCount)}});
             }
             if (percent == lastAnalysisReportedPercent && completed != total) {
               return;
@@ -1548,7 +1600,51 @@ void QmlGlItem::load() {
                {"vulkan_queue_wait_us",
                 text(summary.vulkanQueueWaitMicroseconds)},
                {"vulkan_batch_execution_us",
-                text(summary.vulkanBatchExecutionMicroseconds)}});
+                text(summary.vulkanBatchExecutionMicroseconds)},
+               {"vulkan_run_source_jobs", text(summary.vulkanRunSourceJobCount)},
+               {"vulkan_resident_reference_uploads",
+                text(summary.vulkanResidentReferenceUploadCount)},
+               {"vulkan_resident_reference_reuses",
+                text(summary.vulkanResidentReferenceReuseCount)},
+               {"vulkan_submitted_workgroups",
+                text(summary.vulkanSubmittedWorkgroupCount)},
+               {"vulkan_semantic_layer_batch_calls",
+                text(summary.vulkanSemanticLayerBatchCallCount)},
+               {"vulkan_semantic_layer_batch_jobs",
+                text(summary.vulkanSemanticLayerBatchJobCount)},
+               {"support_preparation_window",
+                text(summary.supportPreparationWindowCapacity)},
+               {"support_prepared_layers", text(summary.supportPreparedLayerCount)},
+               {"support_max_preparation_inflight",
+                text(summary.supportMaximumPreparationInflight)},
+               {"support_prepare_load_us",
+                text(summary.supportPreparationLoadMicroseconds)},
+               {"support_prepare_describe_us",
+                text(summary.supportPreparationDescribeMicroseconds)},
+               {"support_forward_semantic_us",
+                text(summary.supportForwardSemanticMicroseconds)},
+               {"support_reverse_semantic_us",
+                text(summary.supportReverseSemanticMicroseconds)},
+               {"support_forward_classification_us",
+                text(summary.supportForwardClassificationMicroseconds)},
+               {"support_forward_commit_us",
+                text(summary.supportForwardCommitMicroseconds)},
+               {"support_forward_lineage_us",
+                text(summary.supportForwardLineageMicroseconds)},
+               {"support_forward_lineage_commit_us",
+                text(summary.supportForwardLineageCommitMicroseconds)},
+               {"support_reverse_prepare_us",
+                text(summary.supportReversePreparationMicroseconds)},
+               {"support_reverse_commit_us",
+                text(summary.supportReverseCommitMicroseconds)},
+               {"support_semantic_evidence_us",
+                text(summary.supportSemanticEvidenceMicroseconds)},
+               {"support_semantic_evidence_lots",
+                text(summary.supportSemanticEvidenceLotCount)},
+               {"support_semantic_evidence_layer_pairs",
+                text(summary.supportSemanticEvidenceLayerPairCount)},
+               {"support_semantic_evidence_edges",
+                text(summary.supportSemanticEvidenceEdgeCount)}});
           supportAnalysis = std::make_shared<SupportAnalysisResult>(
               std::move(analysisResult));
           meshWork = baseMeshWork + forcedSemanticSampleCount(

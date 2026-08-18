@@ -4116,6 +4116,61 @@ Cloud connection: </source>
             <source>No JSON loaded</source>
             <translation>No JSON loaded</translation>
         </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Compute mode</source>
+            <translation>Compute mode</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Hybrid CPU + GPU</source>
+            <translation>Hybrid CPU + GPU</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>CPU only</source>
+            <translation>CPU only</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Canonical CPU path. Vulkan is disabled for support analysis.</source>
+            <translation>Canonical CPU path. Vulkan is disabled for support analysis.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>CPU remains authoritative; Vulkan accelerates eligible lineage calculations.</source>
+            <translation>CPU remains authoritative; Vulkan accelerates eligible lineage calculations.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Workers: %1</source>
+            <translation>Workers: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Hybrid CPU + GPU (initializing)</source>
+            <translation>Hybrid CPU + GPU (initializing)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>Hybrid requested — CPU fallback</source>
+            <translation>Hybrid requested — CPU fallback</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>GPU: %1</source>
+            <translation>GPU: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>unknown</source>
+            <translation>unknown</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/SupportAnalysisPage.qml" />
+            <source>GPU jobs: %1 · CPU fallbacks: %2 · preparation: %3 / %4</source>
+            <translation>GPU jobs: %1 · CPU fallbacks: %2 · preparation: %3 / %4</translation>
+        </message>
     </context>
     <context>
         <name>SupportAnalysisBridge</name>

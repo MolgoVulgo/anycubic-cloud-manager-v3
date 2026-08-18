@@ -1,4 +1,5 @@
 #include "render3d/compute/SupportComputeBackend.h"
+#include "render3d/compute/VulkanSupportComputeBackend.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -69,13 +70,38 @@ std::vector<std::uint32_t> referenceOverlaps(
   return result;
 }
 
+std::vector<accloud::render3d::compute::SupportComputeRun> compactRuns(
+    const std::vector<std::uint32_t>& source,
+    std::uint32_t width,
+    std::uint32_t height) {
+  const auto wordsPerRow = (width + 31u) / 32u;
+  std::vector<accloud::render3d::compute::SupportComputeRun> runs;
+  for (std::uint32_t y = 0u; y < height; ++y) {
+    std::uint32_t x = 0u;
+    while (x < width) {
+      while (x < width && !pixel(source, wordsPerRow, width, height, x, y)) {
+        ++x;
+      }
+      if (x >= width) {
+        break;
+      }
+      const auto first = x;
+      while (x < width && pixel(source, wordsPerRow, width, height, x, y)) {
+        ++x;
+      }
+      runs.push_back(accloud::render3d::compute::SupportComputeRun{
+          y, first, x, 0u});
+    }
+  }
+  return runs;
+}
+
 } // namespace
 
 int main() {
   using namespace accloud::render3d::compute;
   std::string diagnostic;
-  auto backend = createSupportComputeBackend(
-      SupportComputePreference::Vulkan, diagnostic);
+  auto backend = createVulkanSupportComputeBackend(diagnostic);
   if (!backend) {
     std::cerr << "SKIP: " << diagnostic << '\n';
     return 77;
@@ -134,7 +160,98 @@ int main() {
     return 1;
   }
 
-  // P6.1 must coalesce concurrent component jobs and execute more than one
+  // P6.2 keeps the full reference resident and submits the source as compact
+  // runs. Run the same reference twice so the second request must reuse the
+  // device-local reference instead of uploading it again.
+  const auto runs = compactRuns(source, width, height);
+  TranslatedRunOverlapBatch runBatch;
+  runBatch.referenceKey = 0x1234u;
+  runBatch.width = width;
+  runBatch.height = height;
+  runBatch.wordsPerRow = wordsPerRow;
+  runBatch.radius = radius;
+  runBatch.sourceRuns = runs;
+  runBatch.referenceWords = reference;
+  std::vector<std::uint32_t> runActual(expected.size(), 0u);
+  if (!backend->translatedRunOverlaps(runBatch, runActual, error)) {
+    std::cerr << "Vulkan run dispatch failed: " << error << '\n';
+    return 1;
+  }
+  if (runActual != expected) {
+    std::cerr << "Vulkan run-overlap result differs from CPU reference\n";
+    return 1;
+  }
+  std::fill(runActual.begin(), runActual.end(), 0u);
+  if (!backend->translatedRunOverlaps(runBatch, runActual, error)
+      || runActual != expected) {
+    std::cerr << "Vulkan resident-reference reuse differs from CPU reference: "
+              << error << '\n';
+    return 1;
+  }
+  const auto runTelemetry = backend->telemetry();
+  if (runTelemetry.runSourceJobs != 2u
+      || runTelemetry.residentReferenceUploads != 1u
+      || runTelemetry.residentReferenceReuses < 1u
+      || runTelemetry.submittedWorkgroups == 0u) {
+    std::cerr << "unexpected P6.2 run/resident telemetry: run_jobs="
+              << runTelemetry.runSourceJobs
+              << " ref_uploads=" << runTelemetry.residentReferenceUploads
+              << " ref_reuses=" << runTelemetry.residentReferenceReuses
+              << " workgroups=" << runTelemetry.submittedWorkgroups << '\n';
+    return 1;
+  }
+
+  // P6.4 submits exact zero-shift semantic-mask overlaps for a whole layer in
+  // one API call. Use more than the backend's 64-job coalescing limit so the
+  // test also covers deterministic splitting into several Vulkan submissions.
+  constexpr std::size_t semanticBatchJobs = 96u;
+  std::vector<SupportComputeRun> semanticRuns;
+  std::vector<SupportComputeRunRange> semanticQueries;
+  semanticRuns.reserve(runs.size() * semanticBatchJobs);
+  semanticQueries.reserve(semanticBatchJobs);
+  for (std::size_t job = 0u; job < semanticBatchJobs; ++job) {
+    const auto firstRun = semanticRuns.size();
+    semanticRuns.insert(semanticRuns.end(), runs.begin(), runs.end());
+    semanticQueries.push_back(SupportComputeRunRange{
+        static_cast<std::uint32_t>(firstRun),
+        static_cast<std::uint32_t>(runs.size())});
+  }
+  RunMaskOverlapBatch semanticBatch;
+  semanticBatch.referenceKey = 0x5678u;
+  semanticBatch.width = width;
+  semanticBatch.height = height;
+  semanticBatch.wordsPerRow = wordsPerRow;
+  semanticBatch.sourceRuns = semanticRuns;
+  semanticBatch.queries = semanticQueries;
+  semanticBatch.referenceWords = reference;
+  const auto expectedZeroShift = referenceOverlaps(
+      source, reference, width, height, 0u).front();
+  std::vector<std::uint32_t> semanticActual(semanticBatchJobs, 0u);
+  if (!backend->runMaskOverlaps(semanticBatch, semanticActual, error)) {
+    std::cerr << "Vulkan semantic layer batch failed: " << error << '\n';
+    return 1;
+  }
+  for (std::size_t job = 0u; job < semanticActual.size(); ++job) {
+    if (semanticActual[job] != expectedZeroShift) {
+      std::cerr << "semantic layer batch job " << job
+                << " differs from CPU zero-shift reference\n";
+      return 1;
+    }
+  }
+  const auto semanticTelemetry = backend->telemetry();
+  if (semanticTelemetry.semanticLayerBatchCalls != 1u
+      || semanticTelemetry.semanticLayerBatchJobs != semanticBatchJobs
+      || semanticTelemetry.runSourceJobs < 2u + semanticBatchJobs
+      || semanticTelemetry.completedGpuJobs < 3u + semanticBatchJobs) {
+    std::cerr << "unexpected P6.4 semantic layer-batch telemetry: calls="
+              << semanticTelemetry.semanticLayerBatchCalls
+              << " jobs=" << semanticTelemetry.semanticLayerBatchJobs
+              << " run_jobs=" << semanticTelemetry.runSourceJobs
+              << " gpu_jobs=" << semanticTelemetry.completedGpuJobs << '\n';
+    return 1;
+  }
+
+  // P6.1/P6.2 must coalesce concurrent component jobs and execute more than one
   // job in a single Vulkan submission. The public API remains synchronous to
   // callers, but the backend dispatcher batches requests arriving from the
   // support-analysis worker pool.
@@ -167,12 +284,19 @@ int main() {
     }
   }
   const auto telemetry = backend->telemetry();
-  if (telemetry.submittedJobs != concurrentJobs + 1u
-      || telemetry.completedGpuJobs != concurrentJobs + 1u
+  const auto expectedJobs = concurrentJobs + 3u + semanticBatchJobs;
+  if (telemetry.submittedJobs != expectedJobs
+      || telemetry.completedGpuJobs != expectedJobs
       || telemetry.cpuFallbackJobs != 0u
       || telemetry.failedDispatches != 0u
       || telemetry.maximumBatchJobs < 2u
-      || telemetry.successfulDispatches >= concurrentJobs + 1u) {
+      || telemetry.successfulDispatches >= expectedJobs
+      || telemetry.runSourceJobs < 2u + semanticBatchJobs
+      || telemetry.residentReferenceUploads < 2u
+      || telemetry.residentReferenceReuses < 1u
+      || telemetry.submittedWorkgroups <= telemetry.completedGpuJobs
+      || telemetry.semanticLayerBatchCalls != 1u
+      || telemetry.semanticLayerBatchJobs != semanticBatchJobs) {
     std::cerr << "unexpected Vulkan coalescing telemetry: submitted="
               << telemetry.submittedJobs
               << " gpu_jobs=" << telemetry.completedGpuJobs
@@ -181,6 +305,6 @@ int main() {
               << " max_batch=" << telemetry.maximumBatchJobs << '\n';
     return 1;
   }
-  std::cout << "Vulkan support-compute overlap batch matches CPU reference\n";
+  std::cout << "Vulkan tiled/run-resident support-compute matches CPU reference\n";
   return 0;
 }
