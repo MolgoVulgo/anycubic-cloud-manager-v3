@@ -885,6 +885,51 @@ std::vector<accloud::photons::BinaryMask> makePrematureModelOverlapScene() {
   return layers;
 }
 
+std::vector<accloud::photons::BinaryMask> makeFreeSupportNearModelScene() {
+  constexpr std::uint32_t width = 56;
+  constexpr std::uint32_t height = 38;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 15; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 32, 53, 37);
+  fillRect(layers[1], 3, 32, 53, 37);
+
+  // Establish model matter on the left through a validated terminal contact.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 32, 1);
+  }
+  addSquare(layers[5], 10, 31, 0);
+  fillRect(layers[6], 3, 8, 15, 31);
+  fillRect(layers[7], 3, 8, 15, 31);
+
+  // Let the already-classified model expand toward the support faster than the
+  // stable pass-1 model mask can grow. On layer 9 the previous *component* is
+  // close enough to mark near_previous_model, while the stable model envelope
+  // still does not reach the support. This mirrors the curved Torus boundary:
+  // pass 1 has no model projection in the support component, but pass 2 can see
+  // model matter one layer above it.
+  fillRect(layers[8], 3, 8, 18, 31);
+  fillRect(layers[9], 3, 8, 19, 31);
+
+  // Independent raft-rooted support. Layer 9 widens one native pixel toward the
+  // nearby model while remaining physically separate from it.
+  for (int layer = 2; layer <= 8; ++layer) {
+    fillRect(layers[layer], 21, 20, 25, 33);
+  }
+  fillRect(layers[9], 20, 20, 25, 33);
+
+  // Real contact starts on layer 10. The descending pass therefore reaches the
+  // newly exposed layer-9 fringe, but that fringe must remain support because
+  // pass 1 still owns the complete free support component on layer 9.
+  for (int layer = 10; layer < 15; ++layer) {
+    fillRect(layers[layer], 3, 8, 23, 31);
+    fillRect(layers[layer], 20, 20, 25, 33);
+  }
+  return layers;
+}
+
 std::vector<accloud::photons::BinaryMask> makePersistentMixedSemanticScene() {
   constexpr std::uint32_t width = 52;
   constexpr std::uint32_t height = 38;
@@ -1218,6 +1263,57 @@ int main() {
                            prematureOverlap,
                            accloud::render3d::SupportNodeKind::Head) >= 2u,
                 "the support-to-model boundary must move to the confirmed contact after the terminal tip");
+
+  auto freeSupportNearModelLayers = makeFreeSupportNearModelScene();
+  VectorSource freeSupportNearModelSource(freeSupportNearModelLayers);
+  auto freeSupportNearModelOptions = testOptions();
+  freeSupportNearModelOptions.captureDecisionTrace = true;
+  const auto freeSupportNearModel = analyzer.analyze(
+      freeSupportNearModelSource, freeSupportNearModelOptions);
+  ok &= require(freeSupportNearModel.ok,
+                "free support near model analysis must succeed");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer,
+          freeSupportNearModelLayers[9],
+          freeSupportNearModel.layers[9],
+          20u,
+          24u,
+          accloud::render3d::MaterialSemantic::Support),
+      "new pixels of a free raft-rooted support must not become descending model evidence before contact");
+  const auto freeSupportNode = std::find_if(
+      freeSupportNearModel.nodes.begin(), freeSupportNearModel.nodes.end(),
+      [](const auto& node) {
+        return node.layer == 9u && node.rootedInRaft && node.areaPixels == 65u;
+      });
+  ok &= require(freeSupportNode != freeSupportNearModel.nodes.end(),
+                "the widened free support component must exist on the pre-contact layer");
+  if (freeSupportNode != freeSupportNearModel.nodes.end()) {
+    const auto freeSupportDecision = std::find_if(
+        freeSupportNearModel.decisions.begin(), freeSupportNearModel.decisions.end(),
+        [&](const auto& decision) {
+          return decision.nodeId == freeSupportNode->id;
+        });
+    ok &= require(
+        freeSupportDecision != freeSupportNearModel.decisions.end()
+            && !freeSupportDecision->contactCandidate
+            && !freeSupportDecision->contactConfirmed
+            && !freeSupportDecision->modelLineageContinued
+            && freeSupportDecision->reverseModelEvidencePixels == 0u
+            && freeSupportDecision->finalModelPixels == 0u
+            && freeSupportDecision->finalSupportPixels
+                   == freeSupportDecision->currentAreaPixels,
+        "pass 2 must preserve whole-support ownership until pass 1 establishes model/contact provenance");
+  }
+  const auto topLayerReverseSeed = std::find_if(
+      freeSupportNearModel.decisions.begin(), freeSupportNearModel.decisions.end(),
+      [&](const auto& decision) {
+        return decision.layer + 1u == freeSupportNearModelLayers.size()
+               && decision.reverseModelSeed;
+      });
+  ok &= require(
+      topLayerReverseSeed != freeSupportNearModel.decisions.end(),
+      "pass 2 must start on the same final native layer processed by pass 1");
 
   auto persistentMixedLayers = makePersistentMixedSemanticScene();
   VectorSource persistentMixedSource(persistentMixedLayers);

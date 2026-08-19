@@ -4055,8 +4055,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   // support/model runs.
   const std::size_t forwardFirstModelLayer = result.summary.firstModelLayer;
   const bool forwardModelObserved = forwardFirstModelLayer != 0u;
+  // Native-layer hand-off invariant: pass 2 starts on the exact native layer
+  // where pass 1 ended. This is deliberately independent from viewer sampling
+  // stride/parity; neither pass may skip or offset the shared top boundary.
+  const std::size_t passOneLastLayer = source.layerCount() - 1u;
+  const std::size_t passTwoFirstLayer = passOneLastLayer;
   const bool reversePassExecuted = result.summary.raftLastLayer + 1u
-                                   < source.layerCount();
+                                   <= passTwoFirstLayer;
   if (reversePassExecuted) {
     std::vector<std::unordered_map<std::size_t, std::size_t>> nodeByLayer(
         source.layerCount());
@@ -4099,7 +4104,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     std::vector<ReverseComponentPreparation> reversePreparations;
     std::size_t reverseCompleted = 0u;
 
-    for (std::size_t reverse = source.layerCount();
+    for (std::size_t reverse = passTwoFirstLayer + 1u;
          reverse-- > result.summary.raftLastLayer + 1u;) {
       ScopedAtomicMicrosecondTimer reverseSemanticTimer(
           performanceCounters.reverseSemanticMicroseconds);
@@ -4184,6 +4189,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 && !states[nodeId].supportEvidenceRuns.empty();
             const bool protectSupportEvidence = hasSupportEvidence
                 && !states[nodeId].classifiedAsModel;
+            const bool forwardOwnsWholeSupportComponent = protectSupportEvidence
+                && result.nodes[nodeId].rootedInRaft
+                && !states[nodeId].hasSemanticProjection
+                && states[nodeId].pendingContactTip == reverseInvalidNode;
 
             preparation.nodeId = nodeId;
             preparation.hasSupportEvidence = hasSupportEvidence;
@@ -4191,13 +4200,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
             supportCore.clear();
             if (protectSupportEvidence) {
-              supportCore.addRuns(states[nodeId].supportEvidenceRuns);
+              if (forwardOwnsWholeSupportComponent) {
+                supportCore.addRuns(component.runs);
+              } else {
+                supportCore.addRuns(states[nodeId].supportEvidenceRuns);
+              }
               supportCore.normalize();
             }
             ModelLineageMotion modelLineage;
             const auto upperEnvelopeOverlap =
                 upperModelEnvelope.countSet(component.runs);
-            if (!upperModel.empty() && upperEnvelopeOverlap != 0u) {
+            if (!forwardOwnsWholeSupportComponent
+                && !upperModel.empty() && upperEnvelopeOverlap != 0u) {
               modelLineage = bestTranslatedLineageMotion(
                   component, upperModel,
                   upperUpperModel.empty() ? nullptr : &upperUpperModel,
@@ -4209,7 +4223,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             }
             preparation.modelLineage = modelLineage;
 
-            const bool topLayerSeed = layer + 1u == source.layerCount();
+            const bool topLayerSeed = layer == passTwoFirstLayer;
             const std::size_t independentModelSeedFloor = forwardModelObserved
                 ? forwardFirstModelLayer
                 : result.summary.raftLastLayer + 1u;
