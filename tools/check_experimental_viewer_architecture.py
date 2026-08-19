@@ -221,6 +221,37 @@ def main() -> int:
             "regressed layer-wide runMaskOverlaps path"
         )
 
+    # P3 contract: accelerated overlap production is isolated from the
+    # deterministic semantic selector used by both support and model lineage
+    # tracking. The selector must never call a compute backend directly.
+    if "prepareTranslatedOverlapEvidence(" not in support_analyzer:
+        errors.append(
+            "SupportAnalyzer must isolate CPU/GPU translated-overlap evidence "
+            "preparation from semantic selection"
+        )
+    selector_match = re.search(
+        r"ModelLineageMotion\s+selectBestLineageMotion\s*\((?P<args>.*?)\)\s*\{(?P<body>.*?)\n\}",
+        support_analyzer,
+        flags=re.DOTALL,
+    )
+    if selector_match is None:
+        errors.append("missing deterministic selectBestLineageMotion semantic selector")
+    else:
+        selector_text = selector_match.group("args") + selector_match.group("body")
+        forbidden_selector_tokens = (
+            "SupportComputeBackend",
+            "computeBackend",
+            "translatedRunOverlaps",
+            "translatedOverlaps",
+            "recordEligibleJob",
+        )
+        for token in forbidden_selector_tokens:
+            if token in selector_text:
+                errors.append(
+                    "semantic lineage selector must not depend directly on compute backend: "
+                    + token
+                )
+
     support_probe = read(root / "tools/support_analysis_probe.cpp")
     if "--compute auto|cpu|vulkan" in support_probe or 'backend == "vulkan"' in support_probe:
         errors.append("support analysis probe must expose only --compute auto|cpu")

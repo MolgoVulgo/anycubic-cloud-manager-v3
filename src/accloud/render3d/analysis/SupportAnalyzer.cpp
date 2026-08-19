@@ -1957,16 +1957,83 @@ struct ModelLineageMotion {
   bool continued = false;
 };
 
-ModelLineageMotion bestModelLineageMotion(
+struct TranslatedOverlapEvidence {
+  std::span<const std::uint32_t> acceleratedOverlaps;
+};
+
+TranslatedOverlapEvidence prepareTranslatedOverlapEvidence(
+    const Component& current,
+    const SparseRunMask& previousStableModel,
+    std::uint32_t maximumShiftPixels,
+    compute::SupportComputeBackend* computeBackend,
+    TranslatedOverlapScratch* computeScratch,
+    const compute::TranslatedRunOverlapBatch* residentReference,
+    std::size_t vulkanMinimumAreaPixels) {
+  TranslatedOverlapEvidence evidence;
+  if (computeBackend == nullptr
+      || computeScratch == nullptr
+      || previousStableModel.empty()
+      || current.area < vulkanMinimumAreaPixels
+      || maximumShiftPixels == 0u
+      || maximumShiftPixels > 31u) {
+    return evidence;
+  }
+
+  computeBackend->recordEligibleJob();
+  const auto preparationStarted = std::chrono::steady_clock::now();
+  std::string computeError;
+  bool usedComputeBackend = false;
+  if (residentReference != nullptr
+      && residentReference->radius == maximumShiftPixels) {
+    compute::TranslatedRunOverlapBatch batch;
+    if (prepareTranslatedRunBatch(
+            current, *residentReference, *computeScratch, batch)) {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      usedComputeBackend = computeBackend->translatedRunOverlaps(
+          batch, computeScratch->overlaps, computeError);
+    } else {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      computeBackend->recordCpuFallbackJob();
+    }
+  } else {
+    compute::TranslatedOverlapBatch batch;
+    if (prepareTranslatedOverlapBatch(
+            current, previousStableModel, maximumShiftPixels,
+            *computeScratch, batch)) {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      usedComputeBackend = computeBackend->translatedOverlaps(
+          batch, computeScratch->overlaps, computeError);
+    } else {
+      const auto preparationEnded = std::chrono::steady_clock::now();
+      computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              preparationEnded - preparationStarted).count()));
+      computeBackend->recordCpuFallbackJob();
+    }
+  }
+
+  if (usedComputeBackend) {
+    evidence.acceleratedOverlaps = computeScratch->overlaps;
+  }
+  return evidence;
+}
+
+ModelLineageMotion selectBestLineageMotion(
     const Component& current,
     const SparseRunMask& previousStableModel,
     const SparseRunMask* previousPreviousStableModel,
     std::uint32_t maximumShiftPixels,
-    const SparseRunMask* competingSupport = nullptr,
-    compute::SupportComputeBackend* computeBackend = nullptr,
-    TranslatedOverlapScratch* computeScratch = nullptr,
-    const compute::TranslatedRunOverlapBatch* residentReference = nullptr,
-    std::size_t vulkanMinimumAreaPixels = std::numeric_limits<std::size_t>::max()) {
+    const SparseRunMask* competingSupport,
+    const TranslatedOverlapEvidence& overlapEvidence) {
   ModelLineageMotion best;
   if (previousStableModel.empty()) {
     return best;
@@ -1984,59 +2051,14 @@ ModelLineageMotion bestModelLineageMotion(
       && diameter <= std::numeric_limits<std::size_t>::max() / diameter) {
     candidates.reserve(diameter * diameter);
   }
-  bool usedComputeBackend = false;
-  if (computeBackend != nullptr
-      && computeScratch != nullptr
-      && current.area >= vulkanMinimumAreaPixels
-      && maximumShiftPixels != 0u
-      && maximumShiftPixels <= 31u) {
-    computeBackend->recordEligibleJob();
-    const auto preparationStarted = std::chrono::steady_clock::now();
-    std::string computeError;
-    if (residentReference != nullptr
-        && residentReference->radius == maximumShiftPixels) {
-      compute::TranslatedRunOverlapBatch batch;
-      if (prepareTranslatedRunBatch(
-              current, *residentReference, *computeScratch, batch)) {
-        const auto preparationEnded = std::chrono::steady_clock::now();
-        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                preparationEnded - preparationStarted).count()));
-        usedComputeBackend = computeBackend->translatedRunOverlaps(
-            batch, computeScratch->overlaps, computeError);
-      } else {
-        const auto preparationEnded = std::chrono::steady_clock::now();
-        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                preparationEnded - preparationStarted).count()));
-        computeBackend->recordCpuFallbackJob();
-      }
-    } else {
-      compute::TranslatedOverlapBatch batch;
-      if (prepareTranslatedOverlapBatch(
-              current, previousStableModel, maximumShiftPixels,
-              *computeScratch, batch)) {
-        const auto preparationEnded = std::chrono::steady_clock::now();
-        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                preparationEnded - preparationStarted).count()));
-        usedComputeBackend = computeBackend->translatedOverlaps(
-            batch, computeScratch->overlaps, computeError);
-      } else {
-        const auto preparationEnded = std::chrono::steady_clock::now();
-        computeBackend->recordHostPreparation(static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                preparationEnded - preparationStarted).count()));
-        computeBackend->recordCpuFallbackJob();
-      }
-    }
-  }
 
   std::size_t candidateIndex = 0u;
   for (std::int64_t shiftY = -radius; shiftY <= radius; ++shiftY) {
-    for (std::int64_t shiftX = -radius; shiftX <= radius; ++shiftX, ++candidateIndex) {
-      const auto overlap = usedComputeBackend
-          ? static_cast<std::size_t>(computeScratch->overlaps[candidateIndex])
+    for (std::int64_t shiftX = -radius; shiftX <= radius;
+         ++shiftX, ++candidateIndex) {
+      const auto overlap = candidateIndex < overlapEvidence.acceleratedOverlaps.size()
+          ? static_cast<std::size_t>(
+                overlapEvidence.acceleratedOverlaps[candidateIndex])
           : previousStableModel.countTranslatedSet(current.runs, shiftX, shiftY);
       if (overlap < best.overlapPixels) {
         continue;
@@ -2110,6 +2132,25 @@ ModelLineageMotion bestModelLineageMotion(
   }
   best.continued = true;
   return best;
+}
+
+ModelLineageMotion bestTranslatedLineageMotion(
+    const Component& current,
+    const SparseRunMask& previousStableModel,
+    const SparseRunMask* previousPreviousStableModel,
+    std::uint32_t maximumShiftPixels,
+    const SparseRunMask* competingSupport = nullptr,
+    compute::SupportComputeBackend* computeBackend = nullptr,
+    TranslatedOverlapScratch* computeScratch = nullptr,
+    const compute::TranslatedRunOverlapBatch* residentReference = nullptr,
+    std::size_t vulkanMinimumAreaPixels = std::numeric_limits<std::size_t>::max()) {
+  const auto overlapEvidence = prepareTranslatedOverlapEvidence(
+      current, previousStableModel, maximumShiftPixels,
+      computeBackend, computeScratch, residentReference,
+      vulkanMinimumAreaPixels);
+  return selectBestLineageMotion(
+      current, previousStableModel, previousPreviousStableModel,
+      maximumShiftPixels, competingSupport, overlapEvidence);
 }
 
 SupportMotionComparison compareSupportMotion(
@@ -3165,7 +3206,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             std::int64_t shiftX = 0;
             std::int64_t shiftY = 0;
             if (parentSupportSemantic.countSet(component.runs) == 0u) {
-              const auto supportLineage = bestModelLineageMotion(
+              const auto supportLineage = bestTranslatedLineageMotion(
                   component, parentSupportSemantic, nullptr,
                   maximumModelLineageShift, nullptr,
                   computeBackend.get(), &workerScratch.computeOverlap, nullptr,
@@ -3480,6 +3521,11 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           }
 
           currentIsModel[index] = true;
+          const auto removedParentLocal = previousNodeLocalIndex.find(parent);
+          if (removedParentLocal != previousNodeLocalIndex.end()
+              && currentStructuralChildCount[removedParentLocal->second] != 0u) {
+            --currentStructuralChildCount[removedParentLocal->second];
+          }
           if (!currentCandidateNodes.empty()
               && currentCandidateNodes.back() == nodeId) {
             currentCandidateNodes.pop_back();
@@ -3651,7 +3697,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             return;
           }
           auto& scratch = forwardLineageScratch[workerSlot];
-          preparation.modelLineage = bestModelLineageMotion(
+          preparation.modelLineage = bestTranslatedLineageMotion(
               component, previousStableSemanticModel,
               &previousPreviousStableSemanticModel,
               maximumModelLineageShift, nullptr,
@@ -3687,7 +3733,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             scratch.parentSupport.clear();
             scratch.parentSupport.addRuns(supportRuns);
             scratch.parentSupport.normalize();
-            const auto supportLineage = bestModelLineageMotion(
+            const auto supportLineage = bestTranslatedLineageMotion(
                 component, scratch.parentSupport, nullptr,
                 maximumModelLineageShift, nullptr,
                 computeBackend.get(), &scratch.computeOverlap, nullptr,
@@ -4152,7 +4198,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             const auto upperEnvelopeOverlap =
                 upperModelEnvelope.countSet(component.runs);
             if (!upperModel.empty() && upperEnvelopeOverlap != 0u) {
-              modelLineage = bestModelLineageMotion(
+              modelLineage = bestTranslatedLineageMotion(
                   component, upperModel,
                   upperUpperModel.empty() ? nullptr : &upperUpperModel,
                   maximumModelLineageShift,

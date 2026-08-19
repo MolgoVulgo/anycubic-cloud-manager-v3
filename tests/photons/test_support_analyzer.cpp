@@ -1013,11 +1013,80 @@ std::vector<accloud::photons::BinaryMask> makeHollowModelScene() {
   return layers;
 }
 
+
+std::vector<accloud::photons::BinaryMask> makeRetroactiveSiblingScene() {
+  constexpr std::uint32_t width = 48;
+  constexpr std::uint32_t height = 32;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 12; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 26, 45, 31);
+  fillRect(layers[1], 3, 26, 45, 31);
+
+  // One raft-rooted support body narrows to a real terminal tip.
+  fillRect(layers[2], 16, 24, 27, 25); // 11
+  fillRect(layers[3], 17, 23, 26, 24); // 9
+  fillRect(layers[4], 18, 22, 25, 23); // 7
+  fillRect(layers[5], 19, 21, 24, 22); // 5
+  fillRect(layers[6], 20, 20, 23, 21); // 3-pixel tip
+
+  // First growth opens a pending contact while remaining one support node.
+  fillRect(layers[7], 15, 19, 25, 20); // 10
+
+  // On the confirmation layer the same previous parent geometrically explains
+  // two disconnected children. The left child grows enough to be retroactively
+  // classified as model and is removed from currentCandidateNodes. The right
+  // child is only a two-pixel support continuation and must therefore remain
+  // the sole structural child of that parent.
+  fillRect(layers[8], 8, 18, 21, 19);  // 13 -> confirmed model
+  fillRect(layers[8], 23, 18, 25, 19); // 2 -> surviving support child
+
+  // Persistent model above the confirmed left contact; unrelated top matter
+  // keeps the descending model pass well-defined without touching the right
+  // support child.
+  fillRect(layers[9], 7, 8, 22, 19);
+  fillRect(layers[10], 6, 7, 23, 19);
+  fillRect(layers[11], 6, 7, 23, 19);
+  return layers;
+}
+
 } // namespace
 
 int main() {
   bool ok = true;
   accloud::render3d::SupportAnalyzer analyzer;
+
+  auto retroactiveSiblingLayers = makeRetroactiveSiblingScene();
+  VectorSource retroactiveSiblingSource(retroactiveSiblingLayers);
+  const auto retroactiveSibling = analyzer.analyze(
+      retroactiveSiblingSource, testOptions());
+  ok &= require(retroactiveSibling.ok,
+                "retroactive sibling analysis must succeed");
+  const auto survivingSibling = std::find_if(
+      retroactiveSibling.nodes.begin(), retroactiveSibling.nodes.end(),
+      [](const auto& node) {
+        return node.layer == 8u && node.areaPixels == 2u;
+      });
+  ok &= require(survivingSibling != retroactiveSibling.nodes.end(),
+                "the surviving two-pixel support sibling must exist");
+  if (survivingSibling != retroactiveSibling.nodes.end()) {
+    const bool hasContinuation = std::any_of(
+        retroactiveSibling.edges.begin(), retroactiveSibling.edges.end(),
+        [&](const auto& edge) {
+          return edge.upperNode == survivingSibling->id
+                 && edge.kind == accloud::render3d::SupportEdgeKind::Continuation;
+        });
+    const bool hasSplit = std::any_of(
+        retroactiveSibling.edges.begin(), retroactiveSibling.edges.end(),
+        [&](const auto& edge) {
+          return edge.upperNode == survivingSibling->id
+                 && edge.kind == accloud::render3d::SupportEdgeKind::Split;
+        });
+    ok &= require(hasContinuation && !hasSplit,
+                  "a sibling left after retroactive model removal must remain a continuation");
+  }
 
   auto branchedLayers = makeBranchedSupportScene();
   VectorSource branchedSource(branchedLayers);
