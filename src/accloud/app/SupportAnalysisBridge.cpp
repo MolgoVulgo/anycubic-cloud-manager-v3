@@ -13,7 +13,11 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace accloud {
 namespace {
@@ -33,6 +37,66 @@ bool readJsonObject(const QString& path, QJsonObject& output, QString& error) {
   }
   output = document.object();
   return true;
+}
+
+bool isSupportDiagnosticPixel(QRgb pixel) noexcept {
+  return qRed(pixel) == 80 && qGreen(pixel) == 184 && qBlue(pixel) == 198;
+}
+
+QVariantMap supportIslandRegion(const QImage& image, int startX, int startY) {
+  QVariantMap invalid{{QStringLiteral("valid"), false}};
+  if (image.isNull() || startX < 0 || startY < 0
+      || startX >= image.width() || startY >= image.height()
+      || !isSupportDiagnosticPixel(image.pixel(startX, startY))) {
+    return invalid;
+  }
+
+  const auto width = image.width();
+  const auto height = image.height();
+  std::vector<std::uint8_t> visited(
+      static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0u);
+  std::vector<std::pair<int, int>> pending;
+  pending.emplace_back(startX, startY);
+  visited[static_cast<std::size_t>(startY) * width + startX] = 1u;
+
+  int minX = startX;
+  int maxX = startX;
+  int minY = startY;
+  int maxY = startY;
+  std::size_t cursor = 0u;
+  constexpr std::array<std::pair<int, int>, 4> neighbours = {{
+      {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+  }};
+  while (cursor < pending.size()) {
+    const auto [x, y] = pending[cursor++];
+    minX = std::min(minX, x);
+    maxX = std::max(maxX, x);
+    minY = std::min(minY, y);
+    maxY = std::max(maxY, y);
+    for (const auto [dx, dy] : neighbours) {
+      const auto nx = x + dx;
+      const auto ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+        continue;
+      }
+      const auto index = static_cast<std::size_t>(ny) * width + nx;
+      if (visited[index] != 0u || !isSupportDiagnosticPixel(image.pixel(nx, ny))) {
+        continue;
+      }
+      visited[index] = 1u;
+      pending.emplace_back(nx, ny);
+    }
+  }
+
+  QVariantMap region;
+  region.insert(QStringLiteral("valid"), true);
+  region.insert(QStringLiteral("x"), static_cast<double>(minX) / width);
+  region.insert(QStringLiteral("y"), static_cast<double>(minY) / height);
+  region.insert(
+      QStringLiteral("width"), static_cast<double>(maxX - minX + 1) / width);
+  region.insert(
+      QStringLiteral("height"), static_cast<double>(maxY - minY + 1) / height);
+  return region;
 }
 
 } // namespace
@@ -214,7 +278,11 @@ QString SupportAnalysisBridge::currentDecisionJson() const {
                              .toArray();
   if (m_selectedDecisionIndex >= 0
       && m_selectedDecisionIndex < decisions.size()) {
-    return prettyJson(decisions.at(m_selectedDecisionIndex).toObject());
+    auto selected = decisions.at(m_selectedDecisionIndex).toObject();
+    if (!m_selectedSemanticRegion.isEmpty()) {
+      selected.insert(QStringLiteral("selected_region"), m_selectedSemanticRegion);
+    }
+    return prettyJson(selected);
   }
   return prettyJson(decisions);
 }
@@ -249,13 +317,32 @@ QString SupportAnalysisBridge::selectedSemantic() const {
       || m_selectedDecisionIndex >= decisions.size()) {
     return {};
   }
-  return decisions.at(m_selectedDecisionIndex)
-      .toObject()
-      .value(QStringLiteral("choice"))
-      .toString();
+  const auto decision = decisions.at(m_selectedDecisionIndex).toObject();
+  if (decision.value(QStringLiteral("state"))
+          .toObject()
+          .value(QStringLiteral("mixed_semantic_projection"))
+          .toBool()) {
+    return QStringLiteral("mixed");
+  }
+  return decision.value(QStringLiteral("choice")).toString();
+}
+
+QString SupportAnalysisBridge::selectedRegionId() const {
+  return m_selectedSemanticRegion.value(QStringLiteral("region_id")).toString();
+}
+
+QString SupportAnalysisBridge::selectedLineageId() const {
+  return m_selectedSemanticRegion.value(QStringLiteral("lineage_id")).toString();
+}
+
+QString SupportAnalysisBridge::selectedRegionSemantic() const {
+  return m_selectedSemanticRegion.value(QStringLiteral("semantic")).toString();
 }
 
 QVariantMap SupportAnalysisBridge::selectedRegion() const {
+  if (m_selectedRegionOverride.value(QStringLiteral("valid")).toBool()) {
+    return m_selectedRegionOverride;
+  }
   QVariantMap region{{QStringLiteral("valid"), false}};
   const auto decisions = m_currentLayerData
                              .value(QStringLiteral("decisions"))
@@ -337,6 +424,70 @@ bool SupportAnalysisBridge::selectCurrentComponent(
     return false;
   }
   const auto componentId = static_cast<int>(encoded - 1u);
+  QVariantMap regionOverride{{QStringLiteral("valid"), false}};
+  QJsonObject selectedSemanticRegion;
+
+  const auto regionPickPath = currentDiagnosticPath(QStringLiteral("region_pick_map"));
+  QImage regionPickMap(regionPickPath);
+  if (!regionPickMap.isNull() && regionPickMap.size() == pickMap.size()) {
+    const auto regionPixel = regionPickMap.pixel(x, y);
+    const auto regionSelectionId =
+        (static_cast<std::uint32_t>(qRed(regionPixel)) << 16u)
+        | (static_cast<std::uint32_t>(qGreen(regionPixel)) << 8u)
+        | static_cast<std::uint32_t>(qBlue(regionPixel));
+    if (regionSelectionId != 0u) {
+      const auto regions = m_currentLayerData
+                               .value(QStringLiteral("semantic_regions"))
+                               .toArray();
+      for (const auto& value : regions) {
+        const auto region = value.toObject();
+        if (region.value(QStringLiteral("selection_id")).toInt(-1)
+            != static_cast<int>(regionSelectionId)) {
+          continue;
+        }
+        selectedSemanticRegion = region;
+        const auto diagnostic = m_currentLayerData
+                                    .value(QStringLiteral("diagnostic"))
+                                    .toObject();
+        const auto imageSize = diagnostic
+                                   .value(QStringLiteral("image_size_pixels"))
+                                   .toObject();
+        const auto bounds = region
+                                .value(QStringLiteral("diagnostic_bounds_pixels"))
+                                .toObject();
+        const auto width = imageSize.value(QStringLiteral("width")).toDouble();
+        const auto height = imageSize.value(QStringLiteral("height")).toDouble();
+        if (width > 0.0 && height > 0.0) {
+          const auto minX = bounds.value(QStringLiteral("min_x")).toDouble();
+          const auto minY = bounds.value(QStringLiteral("min_y")).toDouble();
+          const auto maxX = bounds.value(QStringLiteral("max_x")).toDouble();
+          const auto maxY = bounds.value(QStringLiteral("max_y")).toDouble();
+          regionOverride = {
+              {QStringLiteral("valid"), true},
+              {QStringLiteral("x"), std::clamp(minX / width, 0.0, 1.0)},
+              {QStringLiteral("y"), std::clamp(minY / height, 0.0, 1.0)},
+              {QStringLiteral("width"),
+               std::clamp((maxX - minX) / width, 0.0, 1.0)},
+              {QStringLiteral("height"),
+               std::clamp((maxY - minY) / height, 0.0, 1.0)},
+              {QStringLiteral("region_id"),
+               region.value(QStringLiteral("region_id")).toString()},
+              {QStringLiteral("lineage_id"),
+               region.value(QStringLiteral("lineage_id")).toString()},
+              {QStringLiteral("semantic"),
+               region.value(QStringLiteral("semantic")).toString()},
+          };
+        }
+        break;
+      }
+    }
+  }
+  const auto semanticPath = currentDiagnosticPath(QStringLiteral("semantic_result"));
+  QImage semanticMap(semanticPath);
+  if (selectedSemanticRegion.isEmpty() && !semanticMap.isNull()
+      && semanticMap.size() == pickMap.size()) {
+    regionOverride = supportIslandRegion(semanticMap, x, y);
+  }
   const auto decisions = m_currentLayerData
                              .value(QStringLiteral("decisions"))
                              .toArray();
@@ -347,7 +498,12 @@ bool SupportAnalysisBridge::selectCurrentComponent(
             .toInt(-1) != componentId) {
       continue;
     }
-    if (m_selectedDecisionIndex != index) {
+    const bool selectionChanged = m_selectedDecisionIndex != index;
+    const bool regionChanged = m_selectedRegionOverride != regionOverride;
+    const bool semanticRegionChanged = m_selectedSemanticRegion != selectedSemanticRegion;
+    m_selectedRegionOverride = regionOverride;
+    m_selectedSemanticRegion = selectedSemanticRegion;
+    if (selectionChanged || regionChanged || semanticRegionChanged) {
       m_selectedDecisionIndex = index;
       emit decisionSelectionChanged();
     }
@@ -358,7 +514,12 @@ bool SupportAnalysisBridge::selectCurrentComponent(
 }
 
 void SupportAnalysisBridge::clearDecisionSelection() {
-  if (m_selectedDecisionIndex < 0) {
+  const bool hadRegionOverride =
+      m_selectedRegionOverride.value(QStringLiteral("valid")).toBool();
+  const bool hadSemanticRegion = !m_selectedSemanticRegion.isEmpty();
+  m_selectedRegionOverride = {};
+  m_selectedSemanticRegion = {};
+  if (m_selectedDecisionIndex < 0 && !hadRegionOverride && !hadSemanticRegion) {
     return;
   }
   m_selectedDecisionIndex = -1;
@@ -517,6 +678,8 @@ bool SupportAnalysisBridge::openBundle(const QString& localPath) {
   m_layerCount = manifest.value(QStringLiteral("layer_count")).toInt();
   m_currentLayer = std::clamp(m_currentLayer, 1, std::max(1, m_layerCount));
   m_selectedDecisionIndex = -1;
+  m_selectedRegionOverride = {};
+  m_selectedSemanticRegion = {};
   if (!loadCurrentLayerData()) {
     return false;
   }
@@ -548,6 +711,8 @@ void SupportAnalysisBridge::setCurrentLayer(int oneBasedLayer) {
   }
   m_currentLayer = normalized;
   m_selectedDecisionIndex = -1;
+  m_selectedRegionOverride = {};
+  m_selectedSemanticRegion = {};
   if (!loadCurrentLayerData()) {
     return;
   }
@@ -595,6 +760,8 @@ void SupportAnalysisBridge::resetBundle() {
   m_layerCount = 0;
   m_currentLayer = 1;
   m_selectedDecisionIndex = -1;
+  m_selectedRegionOverride = {};
+  m_selectedSemanticRegion = {};
   emit bundleChanged();
   emit currentLayerChanged();
   emit decisionSelectionChanged();

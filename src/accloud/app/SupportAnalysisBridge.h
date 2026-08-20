@@ -46,6 +46,9 @@ class SupportAnalysisBridge final : public QObject {
   Q_PROPERTY(int selectedDecisionIndex READ selectedDecisionIndex NOTIFY decisionSelectionChanged)
   Q_PROPERTY(qint64 selectedNodeId READ selectedNodeId NOTIFY decisionSelectionChanged)
   Q_PROPERTY(QString selectedSemantic READ selectedSemantic NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(QString selectedRegionId READ selectedRegionId NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(QString selectedLineageId READ selectedLineageId NOTIFY decisionSelectionChanged)
+  Q_PROPERTY(QString selectedRegionSemantic READ selectedRegionSemantic NOTIFY decisionSelectionChanged)
   Q_PROPERTY(QVariantMap selectedRegion READ selectedRegion NOTIFY decisionSelectionChanged)
 
 public:
@@ -83,6 +86,9 @@ public:
   [[nodiscard]] int selectedDecisionIndex() const noexcept;
   [[nodiscard]] qint64 selectedNodeId() const noexcept;
   [[nodiscard]] QString selectedSemantic() const;
+  [[nodiscard]] QString selectedRegionId() const;
+  [[nodiscard]] QString selectedLineageId() const;
+  [[nodiscard]] QString selectedRegionSemantic() const;
   [[nodiscard]] QVariantMap selectedRegion() const;
 
   Q_INVOKABLE void analyze(const QString& localPath);
@@ -146,6 +152,8 @@ private:
   int m_layerCount = 0;
   int m_currentLayer = 1;
   int m_selectedDecisionIndex = -1;
+  QVariantMap m_selectedRegionOverride;
+  QJsonObject m_selectedSemanticRegion;
   QJsonObject m_manifest;
   QJsonObject m_analysis;
   QJsonObject m_currentLayerData;

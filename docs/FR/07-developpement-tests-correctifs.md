@@ -82,6 +82,7 @@ Inventaire des tests CTest enregistrés par `accloud/CMakeLists.txt` :
 - `accloud_render_pipeline`
 - `accloud_security_redaction`
 - `accloud_smoke`
+- `accloud_support_analysis_bridge`
 - `accloud_support_analysis_diagnostics`
 - `accloud_support_analyzer`
 - `accloud_support_compute_vulkan`
@@ -105,6 +106,17 @@ ctest --preset dev-debug -R '^accloud_dev_raw_traffic_log$' --output-on-failure
 ```
 
 Le test vérifie la création de `log_brut.txt`, la capture HTTP/MQTT et la redaction obligatoire des credentials et URLs signées.
+
+Le bridge d’analyse des supports, réservé au debug, possède son propre test de régression car `SupportAnalysisBridge` n’est compilé que lorsque `ACCLOUD_DEBUG=ON` et que le viewer expérimental est activé :
+
+```bash
+cmake --preset dev-debug
+cmake --build --preset dev-debug --clean-first
+ctest --preset dev-debug -R '^accloud_support_analysis_bridge$' --output-on-failure
+```
+
+Le test vérifie qu’une décision de diagnostic mixte support/pièce est exposée comme `mixed`, que des régions sémantiques distinctes d’une même composante raster exposent des `region_id`/`lineage_id` distincts dans le JSON sélectionné, qu’un clic sur une région cyan de support ne surligne que cette région au lieu de toute la composante raster, et qu’un clic sur la région pièce résout sa propre identité sémantique.
+
 
 Garde documentation et archive :
 

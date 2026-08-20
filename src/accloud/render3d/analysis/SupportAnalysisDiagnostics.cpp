@@ -398,6 +398,38 @@ struct DiagnosticComponent {
   std::vector<SemanticRun> runs;
 };
 
+struct DiagnosticSemanticRawRun {
+  std::uint32_t y = 0u;
+  std::uint32_t first = 0u;
+  std::uint32_t last = 0u;
+  std::size_t componentId = 0u;
+  MaterialSemantic semantic = MaterialSemantic::Model;
+  std::size_t label = 0u;
+};
+
+struct DiagnosticRegionParent {
+  std::string regionId;
+  std::string lineageId;
+  std::size_t overlapPixels = 0u;
+  double currentCoverageRatio = 0.0;
+  double parentCoverageRatio = 0.0;
+};
+
+struct DiagnosticSemanticRegion {
+  std::size_t selectionId = 0u;
+  std::size_t componentId = 0u;
+  std::size_t nodeId = std::numeric_limits<std::size_t>::max();
+  MaterialSemantic semantic = MaterialSemantic::Model;
+  std::size_t areaPixels = 0u;
+  Bounds bounds;
+  std::vector<SemanticRun> runs;
+  std::string regionId;
+  std::string lineageId;
+  std::string derivedFromLineageId;
+  std::vector<std::string> mergedFromLineageIds;
+  std::vector<DiagnosticRegionParent> parents;
+};
+
 std::vector<DiagnosticComponent> describeDiagnosticComponents(
     const BinaryMask& mask) {
   std::vector<DiagnosticRawRun> runs;
@@ -447,6 +479,322 @@ std::vector<DiagnosticComponent> describeDiagnosticComponents(
   return components;
 }
 
+std::vector<DiagnosticSemanticRegion> describeDiagnosticSemanticRegions(
+    const BinaryMask& mask,
+    const std::vector<DiagnosticComponent>& components,
+    const std::vector<SemanticRun>& semanticRuns,
+    std::size_t oneBasedLayer,
+    const std::vector<const SupportDecisionTrace*>& decisions) {
+  std::vector<std::vector<const SemanticRun*>> semanticsByRow(mask.height());
+  for (const auto& run : semanticRuns) {
+    if (run.y < semanticsByRow.size()) {
+      semanticsByRow[run.y].push_back(&run);
+    }
+  }
+
+  struct ComponentRun {
+    std::uint32_t y = 0u;
+    std::uint32_t first = 0u;
+    std::uint32_t last = 0u;
+    std::size_t componentId = 0u;
+  };
+  std::vector<ComponentRun> componentRuns;
+  for (const auto& component : components) {
+    for (const auto& run : component.runs) {
+      componentRuns.push_back(ComponentRun{
+          run.y, run.firstX, run.lastX, component.localId});
+    }
+  }
+  std::sort(componentRuns.begin(), componentRuns.end(), [](const auto& left, const auto& right) {
+    if (left.y != right.y) {
+      return left.y < right.y;
+    }
+    if (left.first != right.first) {
+      return left.first < right.first;
+    }
+    return left.last < right.last;
+  });
+
+  std::vector<DiagnosticSemanticRawRun> classifiedRuns;
+  classifiedRuns.reserve(componentRuns.size() + semanticRuns.size());
+  for (const auto& componentRun : componentRuns) {
+    auto cursor = componentRun.first;
+    const auto& rowSemantics = semanticsByRow[componentRun.y];
+    for (const auto* semanticRun : rowSemantics) {
+      if (semanticRun == nullptr || semanticRun->lastX <= cursor) {
+        continue;
+      }
+      if (semanticRun->firstX >= componentRun.last) {
+        break;
+      }
+      if (cursor < semanticRun->firstX) {
+        classifiedRuns.push_back(DiagnosticSemanticRawRun{
+            componentRun.y,
+            cursor,
+            std::min(componentRun.last, semanticRun->firstX),
+            componentRun.componentId,
+            MaterialSemantic::Model,
+            0u});
+      }
+      const auto semanticFirst = std::max(cursor, semanticRun->firstX);
+      const auto semanticLast = std::min(componentRun.last, semanticRun->lastX);
+      if (semanticFirst < semanticLast) {
+        classifiedRuns.push_back(DiagnosticSemanticRawRun{
+            componentRun.y,
+            semanticFirst,
+            semanticLast,
+            componentRun.componentId,
+            semanticRun->semantic,
+            0u});
+        cursor = semanticLast;
+      }
+      if (cursor >= componentRun.last) {
+        break;
+      }
+    }
+    if (cursor < componentRun.last) {
+      classifiedRuns.push_back(DiagnosticSemanticRawRun{
+          componentRun.y,
+          cursor,
+          componentRun.last,
+          componentRun.componentId,
+          MaterialSemantic::Model,
+          0u});
+    }
+  }
+
+  DiagnosticDisjointSet sets;
+  std::vector<std::size_t> previousRow;
+  std::vector<std::size_t> currentRow;
+  std::uint32_t currentY = std::numeric_limits<std::uint32_t>::max();
+  for (std::size_t index = 0u; index < classifiedRuns.size(); ++index) {
+    auto& run = classifiedRuns[index];
+    if (run.y != currentY) {
+      if (currentY != std::numeric_limits<std::uint32_t>::max()) {
+        previousRow = std::move(currentRow);
+        currentRow.clear();
+      }
+      if (currentY == std::numeric_limits<std::uint32_t>::max()
+          || run.y != currentY + 1u) {
+        previousRow.clear();
+      }
+      currentY = run.y;
+    }
+    run.label = sets.add();
+    currentRow.push_back(index);
+    for (const auto previousIndex : previousRow) {
+      const auto& previous = classifiedRuns[previousIndex];
+      if (previous.last <= run.first || previous.first >= run.last) {
+        continue;
+      }
+      if (previous.componentId == run.componentId
+          && previous.semantic == run.semantic) {
+        sets.unite(run.label, previous.label);
+      }
+    }
+  }
+
+  std::unordered_map<std::size_t, std::size_t> nodeByComponent;
+  for (const auto* decision : decisions) {
+    if (decision != nullptr
+        && decision->nodeId != std::numeric_limits<std::size_t>::max()) {
+      nodeByComponent[decision->componentId] = decision->nodeId;
+    }
+  }
+
+  std::vector<DiagnosticSemanticRegion> regions;
+  std::unordered_map<std::size_t, std::size_t> regionByRoot;
+  for (auto& run : classifiedRuns) {
+    const auto root = sets.find(run.label);
+    auto iterator = regionByRoot.find(root);
+    if (iterator == regionByRoot.end()) {
+      const auto regionIndex = regions.size();
+      iterator = regionByRoot.emplace(root, regionIndex).first;
+      DiagnosticSemanticRegion region;
+      region.selectionId = regionIndex + 1u;
+      region.componentId = run.componentId;
+      region.semantic = run.semantic;
+      const auto node = nodeByComponent.find(run.componentId);
+      if (node != nodeByComponent.end()) {
+        region.nodeId = node->second;
+      }
+      regions.push_back(std::move(region));
+    }
+    auto& region = regions[iterator->second];
+    const auto length = static_cast<std::size_t>(run.last - run.first);
+    region.areaPixels += length;
+    region.bounds.minX = std::min(region.bounds.minX, run.first);
+    region.bounds.minY = std::min(region.bounds.minY, run.y);
+    region.bounds.maxX = std::max(region.bounds.maxX, run.last);
+    region.bounds.maxY = std::max(region.bounds.maxY, run.y + 1u);
+    region.runs.push_back(SemanticRun{
+        run.y, run.first, run.last, run.semantic});
+  }
+
+  std::map<std::pair<std::size_t, MaterialSemantic>, std::size_t> sequenceByOwner;
+  for (auto& region : regions) {
+    auto& sequence = sequenceByOwner[{region.componentId, region.semantic}];
+    ++sequence;
+    const char semanticPrefix = region.semantic == MaterialSemantic::Support
+                                    ? 'S'
+                                    : region.semantic == MaterialSemantic::Raft
+                                          ? 'R'
+                                          : 'M';
+    std::ostringstream identifier;
+    identifier << 'L' << std::setw(6) << std::setfill('0') << oneBasedLayer << '-';
+    if (region.nodeId != std::numeric_limits<std::size_t>::max()) {
+      identifier << 'N' << region.nodeId;
+    } else {
+      identifier << 'C' << region.componentId;
+    }
+    identifier << '-' << semanticPrefix << std::setw(3) << std::setfill('0')
+               << sequence;
+    region.regionId = identifier.str();
+  }
+  return regions;
+}
+
+std::size_t regionOverlapPixels(
+    const DiagnosticSemanticRegion& left,
+    const DiagnosticSemanticRegion& right) {
+  if (left.semantic != right.semantic
+      || left.bounds.maxX <= right.bounds.minX
+      || right.bounds.maxX <= left.bounds.minX
+      || left.bounds.maxY <= right.bounds.minY
+      || right.bounds.maxY <= left.bounds.minY) {
+    return 0u;
+  }
+  std::size_t overlap = 0u;
+  std::size_t leftIndex = 0u;
+  std::size_t rightIndex = 0u;
+  while (leftIndex < left.runs.size() && rightIndex < right.runs.size()) {
+    const auto& leftRun = left.runs[leftIndex];
+    const auto& rightRun = right.runs[rightIndex];
+    if (leftRun.y < rightRun.y) {
+      ++leftIndex;
+      continue;
+    }
+    if (rightRun.y < leftRun.y) {
+      ++rightIndex;
+      continue;
+    }
+    const auto first = std::max(leftRun.firstX, rightRun.firstX);
+    const auto last = std::min(leftRun.lastX, rightRun.lastX);
+    if (first < last) {
+      overlap += static_cast<std::size_t>(last - first);
+    }
+    if (leftRun.lastX < rightRun.lastX) {
+      ++leftIndex;
+    } else if (rightRun.lastX < leftRun.lastX) {
+      ++rightIndex;
+    } else {
+      ++leftIndex;
+      ++rightIndex;
+    }
+  }
+  return overlap;
+}
+
+std::string newDiagnosticLineageId(
+    MaterialSemantic semantic,
+    std::array<std::size_t, 3>& counters) {
+  const auto index = semantic == MaterialSemantic::Model
+                         ? 0u
+                         : semantic == MaterialSemantic::Support ? 1u : 2u;
+  const char prefix = semantic == MaterialSemantic::Support
+                          ? 'S'
+                          : semantic == MaterialSemantic::Raft ? 'R' : 'M';
+  std::ostringstream identifier;
+  identifier << prefix << std::setw(6) << std::setfill('0') << ++counters[index];
+  return identifier.str();
+}
+
+void assignDiagnosticLineages(
+    std::vector<DiagnosticSemanticRegion>& current,
+    const std::vector<DiagnosticSemanticRegion>& previous,
+    std::array<std::size_t, 3>& lineageCounters) {
+  struct BestParent {
+    std::size_t previousIndex = std::numeric_limits<std::size_t>::max();
+    std::size_t overlapPixels = 0u;
+  };
+  std::vector<BestParent> bestParents(current.size());
+  for (std::size_t currentIndex = 0u; currentIndex < current.size(); ++currentIndex) {
+    auto& region = current[currentIndex];
+    for (std::size_t previousIndex = 0u; previousIndex < previous.size(); ++previousIndex) {
+      const auto overlap = regionOverlapPixels(region, previous[previousIndex]);
+      if (overlap == 0u) {
+        continue;
+      }
+      const auto& parent = previous[previousIndex];
+      region.parents.push_back(DiagnosticRegionParent{
+          parent.regionId,
+          parent.lineageId,
+          overlap,
+          region.areaPixels == 0u
+              ? 0.0
+              : static_cast<double>(overlap) / region.areaPixels,
+          parent.areaPixels == 0u
+              ? 0.0
+              : static_cast<double>(overlap) / parent.areaPixels});
+      if (overlap > bestParents[currentIndex].overlapPixels) {
+        bestParents[currentIndex] = BestParent{previousIndex, overlap};
+      }
+    }
+    std::sort(region.parents.begin(), region.parents.end(), [](const auto& left, const auto& right) {
+      if (left.overlapPixels != right.overlapPixels) {
+        return left.overlapPixels > right.overlapPixels;
+      }
+      return left.regionId < right.regionId;
+    });
+  }
+
+  std::unordered_map<std::size_t, std::vector<std::size_t>> childrenByParent;
+  for (std::size_t currentIndex = 0u; currentIndex < current.size(); ++currentIndex) {
+    if (bestParents[currentIndex].previousIndex
+        != std::numeric_limits<std::size_t>::max()) {
+      childrenByParent[bestParents[currentIndex].previousIndex].push_back(currentIndex);
+    }
+  }
+
+  std::vector<bool> inheritsParent(current.size(), false);
+  for (auto& [previousIndex, children] : childrenByParent) {
+    const auto winner = *std::max_element(
+        children.begin(), children.end(), [&](std::size_t left, std::size_t right) {
+          if (bestParents[left].overlapPixels != bestParents[right].overlapPixels) {
+            return bestParents[left].overlapPixels < bestParents[right].overlapPixels;
+          }
+          return current[left].regionId > current[right].regionId;
+        });
+    inheritsParent[winner] = true;
+    (void)previousIndex;
+  }
+
+  for (std::size_t currentIndex = 0u; currentIndex < current.size(); ++currentIndex) {
+    auto& region = current[currentIndex];
+    const auto bestParentIndex = bestParents[currentIndex].previousIndex;
+    if (bestParentIndex == std::numeric_limits<std::size_t>::max()) {
+      region.lineageId = newDiagnosticLineageId(region.semantic, lineageCounters);
+      continue;
+    }
+    const auto& bestParent = previous[bestParentIndex];
+    if (inheritsParent[currentIndex]) {
+      region.lineageId = bestParent.lineageId;
+    } else {
+      region.lineageId = newDiagnosticLineageId(region.semantic, lineageCounters);
+      region.derivedFromLineageId = bestParent.lineageId;
+    }
+    for (const auto& relation : region.parents) {
+      if (!relation.lineageId.empty() && relation.lineageId != region.lineageId
+          && relation.lineageId != region.derivedFromLineageId
+          && std::find(region.mergedFromLineageIds.begin(),
+                       region.mergedFromLineageIds.end(), relation.lineageId)
+                 == region.mergedFromLineageIds.end()) {
+        region.mergedFromLineageIds.push_back(relation.lineageId);
+      }
+    }
+  }
+}
+
 std::array<std::uint8_t, 3> pickColor(std::size_t componentId) {
   const auto value = static_cast<std::uint32_t>(componentId + 1u);
   return {
@@ -460,6 +808,8 @@ struct LayerDiagnosticMetadata {
   Bounds sourceBounds;
   std::uint32_t width = 0u;
   std::uint32_t height = 0u;
+  std::uint32_t downsample = 1u;
+  std::vector<DiagnosticSemanticRegion> semanticRegions;
 };
 
 bool writeLayerDiagnostics(
@@ -473,6 +823,7 @@ bool writeLayerDiagnostics(
     const std::filesystem::path& semanticPath,
     const std::filesystem::path& nodesPath,
     const std::filesystem::path& pickPath,
+    const std::filesystem::path& regionPickPath,
     LayerDiagnosticMetadata& metadata,
     std::string& error) {
   auto material = source.loadMask(layer, error);
@@ -499,13 +850,18 @@ bool writeLayerDiagnostics(
       1u, (bounds.maxX - bounds.minX + downsample - 1u) / downsample);
   const auto outputHeight = std::max(
       1u, (bounds.maxY - bounds.minY + downsample - 1u) / downsample);
-  metadata = LayerDiagnosticMetadata{bounds, outputWidth, outputHeight};
+  metadata.sourceBounds = bounds;
+  metadata.width = outputWidth;
+  metadata.height = outputHeight;
+  metadata.downsample = downsample;
 
   std::vector<std::uint8_t> rawPixels(
       static_cast<std::size_t>(outputWidth) * outputHeight * 3u, 10u);
   std::vector<std::uint8_t> semanticPixels = rawPixels;
   std::vector<std::uint8_t> nodePixels = rawPixels;
   std::vector<std::uint8_t> pickPixels(
+      static_cast<std::size_t>(outputWidth) * outputHeight * 3u, 0u);
+  std::vector<std::uint8_t> regionPickPixels(
       static_cast<std::size_t>(outputWidth) * outputHeight * 3u, 0u);
 
   constexpr std::array<std::uint8_t, 3> rawColor = {205u, 210u, 216u};
@@ -536,6 +892,8 @@ bool writeLayerDiagnostics(
   };
 
   const auto components = describeDiagnosticComponents(*material);
+  metadata.semanticRegions = describeDiagnosticSemanticRegions(
+      *material, components, semanticRuns, layer + 1u, decisions);
   for (const auto& component : components) {
     if (component.localId >= 0x00ffffffu) {
       error = "too many components for diagnostic pick map";
@@ -557,6 +915,25 @@ bool writeLayerDiagnostics(
     paintBlock(semanticPixels, run.y, run.firstX, run.lastX, color);
     paintBlock(nodePixels, run.y, run.firstX, run.lastX, color);
   }
+
+  const auto paintRegionSelection = [&](MaterialSemantic semantic) {
+    for (const auto& region : metadata.semanticRegions) {
+      if (region.semantic != semantic || region.selectionId == 0u
+          || region.selectionId > 0x00ffffffu) {
+        continue;
+      }
+      const auto encoded = pickColor(region.selectionId - 1u);
+      for (const auto& run : region.runs) {
+        paintBlock(regionPickPixels, run.y, run.firstX, run.lastX, encoded);
+      }
+    }
+  };
+  // Match semantic-result visibility at diagnostic resolution: model is the
+  // base material, then support/raft overlays win when a downsampled block
+  // contains multiple native semantics.
+  paintRegionSelection(MaterialSemantic::Model);
+  paintRegionSelection(MaterialSemantic::Support);
+  paintRegionSelection(MaterialSemantic::Raft);
 
   std::vector<std::pair<const SupportDecisionTrace*, std::array<std::uint8_t, 3>>>
       labelledDecisions;
@@ -681,10 +1058,26 @@ bool writeLayerDiagnostics(
          && writeRgbPng(semanticPath, outputWidth, outputHeight,
                         semanticPixels, error)
          && writeRgbPng(nodesPath, outputWidth, outputHeight, nodePixels, error)
-         && writeRgbPng(pickPath, outputWidth, outputHeight, pickPixels, error);
+         && writeRgbPng(pickPath, outputWidth, outputHeight, pickPixels, error)
+         && writeRgbPng(regionPickPath, outputWidth, outputHeight,
+                        regionPickPixels, error);
 }
 
 nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
+  const char* supportResolution = "none";
+  if (decision.monotonicModelLockedPixels != 0u) {
+    supportResolution = decision.finalSupportPixels != 0u
+        ? "partially_model_locked"
+        : "model_locked";
+  } else if (decision.absorbedSupportPixels != 0u) {
+    supportResolution = decision.finalSupportPixels != 0u
+        ? "partially_absorbed_by_model"
+        : "absorbed_by_model";
+  } else if (decision.reverseSupportCorePixels != 0u
+             && (decision.reverseModelEvidencePixels != 0u
+                 || decision.forwardModelCorePixels != 0u)) {
+    supportResolution = "support_preserved";
+  }
   return {
       {"layer", decision.layer + 1u},
       {"component_id", decision.componentId},
@@ -715,7 +1108,15 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
         {"removed_pixels_after_alignment", decision.removedPixelsAfterAlignment},
         {"model_lineage_pixels", decision.modelLineageOverlapPixels},
         {"reverse_model_evidence_pixels", decision.reverseModelEvidencePixels},
+        {"forward_model_core_pixels", decision.forwardModelCorePixels},
         {"reverse_support_core_pixels", decision.reverseSupportCorePixels},
+        {"direct_absorbed_support_pixels",
+         decision.directAbsorbedSupportPixels},
+        {"overhang_absorbed_support_pixels",
+         decision.overhangAbsorbedSupportPixels},
+        {"absorbed_support_pixels", decision.absorbedSupportPixels},
+        {"monotonic_model_locked_pixels",
+         decision.monotonicModelLockedPixels},
         {"final_support_pixels", decision.finalSupportPixels},
         {"final_model_pixels", decision.finalModelPixels}}},
       {"geometric_comparison",
@@ -762,10 +1163,81 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
         {"rooted_in_raft", decision.rootedInRaft},
         {"rooted_in_model", decision.rootedInModel},
         {"accepted", decision.accepted},
-        {"mixed_semantic_projection", decision.mixedSemanticProjection}}},
+        {"mixed_semantic_projection", decision.mixedSemanticProjection},
+        {"support_resolution", supportResolution}}},
       {"choice", semanticName(decision.decision)},
       {"reason_code", supportDecisionReasonCode(decision.reason)},
       {"why", supportDecisionReasonText(decision.reason)},
+  };
+}
+
+nlohmann::json semanticRegionJson(
+    const DiagnosticSemanticRegion& region,
+    const LayerDiagnosticMetadata& metadata,
+    std::size_t oneBasedLayer) {
+  const auto convertX = [&](std::uint32_t sourceX) {
+    if (sourceX <= metadata.sourceBounds.minX || metadata.width == 0u) {
+      return 0u;
+    }
+    return std::min<std::uint32_t>(
+        metadata.width,
+        (sourceX - metadata.sourceBounds.minX + metadata.downsample - 1u)
+            / metadata.downsample);
+  };
+  const auto convertY = [&](std::uint32_t sourceY) {
+    if (sourceY <= metadata.sourceBounds.minY || metadata.height == 0u) {
+      return 0u;
+    }
+    return std::min<std::uint32_t>(
+        metadata.height,
+        (sourceY - metadata.sourceBounds.minY + metadata.downsample - 1u)
+            / metadata.downsample);
+  };
+
+  nlohmann::json parents = nlohmann::json::array();
+  for (const auto& parent : region.parents) {
+    parents.push_back({
+        {"region_id", parent.regionId},
+        {"lineage_id", parent.lineageId},
+        {"overlap_pixels", parent.overlapPixels},
+        {"current_coverage_ratio", parent.currentCoverageRatio},
+        {"parent_coverage_ratio", parent.parentCoverageRatio},
+    });
+  }
+  nlohmann::json mergedFrom = nlohmann::json::array();
+  for (const auto& lineage : region.mergedFromLineageIds) {
+    mergedFrom.push_back(lineage);
+  }
+  return {
+      {"layer", oneBasedLayer},
+      {"region_id", region.regionId},
+      {"lineage_id", region.lineageId},
+      {"derived_from_lineage_id",
+       region.derivedFromLineageId.empty()
+           ? nlohmann::json(nullptr)
+           : nlohmann::json(region.derivedFromLineageId)},
+      {"merged_from_lineage_ids", std::move(mergedFrom)},
+      {"semantic", semanticName(region.semantic)},
+      {"component_id", region.componentId},
+      {"node_id",
+       region.nodeId == std::numeric_limits<std::size_t>::max()
+           ? nlohmann::json(nullptr)
+           : nlohmann::json(region.nodeId)},
+      {"selection_id", region.selectionId},
+      {"area_pixels", region.areaPixels},
+      {"bounds_pixels",
+       {{"min_x", region.bounds.minX},
+        {"min_y", region.bounds.minY},
+        {"max_x", region.bounds.maxX},
+        {"max_y", region.bounds.maxY}}},
+      {"diagnostic_bounds_pixels",
+       {{"min_x", convertX(region.bounds.minX)},
+        {"min_y", convertY(region.bounds.minY)},
+        {"max_x", std::max(convertX(region.bounds.maxX),
+                            convertX(region.bounds.minX) + 1u)},
+        {"max_y", std::max(convertY(region.bounds.maxY),
+                            convertY(region.bounds.minY) + 1u)}}},
+      {"parents", std::move(parents)},
   };
 }
 
@@ -1108,6 +1580,7 @@ bool SupportAnalysisBundleWriter::write(
       {"options", analysis["options"]},
       {"analysis_json", "analysis.json"},
       {"decisions_json", "decisions.json"},
+      {"regions_json", "regions.json"},
   };
 
   if (!writeJsonFile(outputDirectory / "analysis.json", analysis, error)
@@ -1123,6 +1596,7 @@ bool SupportAnalysisBundleWriter::write(
   manifest["summary_json"] = "summary.json";
   manifest["analysis_json"] = "analysis.json";
   manifest["decisions_json"] = "decisions.json";
+  manifest["regions_json"] = "regions.json";
   manifest["image_downsample"] = options.downsample;
   manifest["diagnostic_layout"] = {
       {"orientation", "vertical"},
@@ -1130,12 +1604,21 @@ bool SupportAnalysisBundleWriter::write(
       {"interactive_panels", {"semantic_result", "decision_nodes"}},
       {"panels", {"raw_mask", "semantic_result", "decision_nodes"}},
       {"pick_map_encoding", "component_id_plus_one_rgb24"},
+      {"region_pick_map_encoding", "semantic_region_selection_id_rgb24"},
       {"node_id_labels", true},
       {"node_id_label_policy",
        "model_contact_mixed_and_nonstandard_support"},
   };
   manifest["layer_count"] = source.layerCount();
   manifest["images"] = nlohmann::json::array();
+
+  nlohmann::json regionsDocument;
+  regionsDocument["schema"] = "accloud.support-regions.v1";
+  regionsDocument["input"] = metadata.inputFileName;
+  regionsDocument["lineage_method"] = "adjacent_exact_overlap";
+  regionsDocument["regions"] = nlohmann::json::array();
+  std::vector<DiagnosticSemanticRegion> previousRegions;
+  std::array<std::size_t, 3> lineageCounters = {0u, 0u, 0u};
 
   for (std::size_t layer = 0; layer < source.layerCount(); ++layer) {
     if (callbacks.isCancelled && callbacks.isCancelled()) {
@@ -1146,6 +1629,7 @@ bool SupportAnalysisBundleWriter::write(
     const auto semanticFileName = layerImageFileName(layer + 1u, "semantic");
     const auto nodesFileName = layerImageFileName(layer + 1u, "nodes");
     const auto pickFileName = layerImageFileName(layer + 1u, "pick");
+    const auto regionPickFileName = layerImageFileName(layer + 1u, "regions");
     const auto jsonFileName = layerJsonFileName(layer + 1u);
     LayerDiagnosticMetadata diagnosticMetadata;
     if (options.writeImages
@@ -1156,9 +1640,12 @@ bool SupportAnalysisBundleWriter::write(
             imagesDirectory / semanticFileName,
             imagesDirectory / nodesFileName,
             imagesDirectory / pickFileName,
+            imagesDirectory / regionPickFileName,
             diagnosticMetadata, error)) {
       return false;
     }
+    assignDiagnosticLineages(
+        diagnosticMetadata.semanticRegions, previousRegions, lineageCounters);
 
     nlohmann::json layerJson = {
         {"schema", "accloud.support-analysis-layer.v1"},
@@ -1168,6 +1655,7 @@ bool SupportAnalysisBundleWriter::write(
         {"support_components", result.layers[layer].supportComponentIds.size()},
         {"projected_support_runs", result.layers[layer].projectedSupportRuns.size()},
         {"decisions", nlohmann::json::array()},
+        {"semantic_regions", nlohmann::json::array()},
         {"diagnostic",
          {{"orientation", "vertical"},
           {"separate_images", true},
@@ -1178,7 +1666,9 @@ bool SupportAnalysisBundleWriter::write(
              options.writeImages ? "images/" + semanticFileName : ""},
             {"decision_nodes",
              options.writeImages ? "images/" + nodesFileName : ""},
-            {"pick_map", options.writeImages ? "images/" + pickFileName : ""}}},
+            {"pick_map", options.writeImages ? "images/" + pickFileName : ""},
+            {"region_pick_map",
+             options.writeImages ? "images/" + regionPickFileName : ""}}},
           {"source_bounds_pixels",
            {{"min_x", diagnosticMetadata.sourceBounds.minX},
             {"min_y", diagnosticMetadata.sourceBounds.minY},
@@ -1188,6 +1678,7 @@ bool SupportAnalysisBundleWriter::write(
            {{"width", diagnosticMetadata.width},
             {"height", diagnosticMetadata.height}}},
           {"pick_map_encoding", "component_id_plus_one_rgb24"},
+          {"region_pick_map_encoding", "semantic_region_selection_id_rgb24"},
           {"node_id_labels", nlohmann::json::array()}}},
     };
     for (const auto* decision : decisionsByLayer[layer]) {
@@ -1199,6 +1690,11 @@ bool SupportAnalysisBundleWriter::write(
           layerJson["diagnostic"]["node_id_labels"].push_back(decision->nodeId);
         }
       }
+    }
+    for (const auto& region : diagnosticMetadata.semanticRegions) {
+      auto serialized = semanticRegionJson(region, diagnosticMetadata, layer + 1u);
+      layerJson["semantic_regions"].push_back(serialized);
+      regionsDocument["regions"].push_back(std::move(serialized));
     }
     if (!writeJsonFile(layersDirectory / jsonFileName, layerJson, error)) {
       return false;
@@ -1212,15 +1708,20 @@ bool SupportAnalysisBundleWriter::write(
          options.writeImages ? "images/" + semanticFileName : ""},
         {"nodes_path", options.writeImages ? "images/" + nodesFileName : ""},
         {"pick_path", options.writeImages ? "images/" + pickFileName : ""},
+        {"region_pick_path",
+         options.writeImages ? "images/" + regionPickFileName : ""},
         {"layer_json", "layers/" + jsonFileName},
         {"decision_count", decisionsByLayer[layer].size()},
+        {"semantic_region_count", diagnosticMetadata.semanticRegions.size()},
     });
+    previousRegions = diagnosticMetadata.semanticRegions;
     if (callbacks.progress) {
       callbacks.progress(layer + 1u, source.layerCount());
     }
   }
 
-  return writeJsonFile(outputDirectory / "manifest.json", manifest, error);
+  return writeJsonFile(outputDirectory / "regions.json", regionsDocument, error)
+         && writeJsonFile(outputDirectory / "manifest.json", manifest, error);
 }
 
 } // namespace accloud::render3d

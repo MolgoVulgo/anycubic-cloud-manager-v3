@@ -967,6 +967,241 @@ std::vector<accloud::photons::BinaryMask> makePersistentMixedSemanticScene() {
   return layers;
 }
 
+std::vector<accloud::photons::BinaryMask> makeTaperedSupportEstablishedModelMergeScene() {
+  constexpr std::uint32_t width = 96;
+  constexpr std::uint32_t height = 56;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 16; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 50, 93, 55);
+  fillRect(layers[1], 3, 50, 93, 55);
+
+  // Establish model matter independently on the left through a conventional
+  // tapered contact before the support under test ever reaches it.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 12, 49, 1);
+  }
+  addSquare(layers[5], 12, 48, 0);
+  for (int layer = 6; layer < 16; ++layer) {
+    fillRect(layers[layer], 4, 8, 24, 49);
+  }
+
+  // Independent raft-rooted support with a persistent terminal taper.
+  for (int layer = 2; layer <= 5; ++layer) {
+    addSquare(layers[layer], 74, 47, 4);
+  }
+  for (int layer = 6; layer <= 7; ++layer) {
+    addSquare(layers[layer], 74, 47, 3);
+  }
+  for (int layer = 8; layer <= 9; ++layer) {
+    addSquare(layers[layer], 74, 47, 2);
+  }
+
+  // The already-established model approaches independently, then joins the
+  // tapered support. On the first merged layer the global component becomes
+  // very large while 20/25 pixels (80%) of the terminal support footprint are
+  // still present. This must be reconciled as model + inherited support, not
+  // as an all-model component merely because contact confirmation succeeds.
+  fillRect(layers[8], 24, 20, 60, 24);
+  fillRect(layers[9], 24, 20, 60, 24);
+  for (int layer = 10; layer <= 12; ++layer) {
+    fillRect(layers[layer], 24, 20, 76, 50);
+  }
+
+  // Once the model retracts from the former support footprint, no support
+  // provenance should remain there.
+  for (int layer = 13; layer < 16; ++layer) {
+    fillRect(layers[layer], 24, 20, 60, 40);
+  }
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeAbsorbedSupportEstablishedModelScene() {
+  constexpr std::uint32_t width = 96;
+  constexpr std::uint32_t height = 56;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 16; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 50, 93, 55);
+  fillRect(layers[1], 3, 50, 93, 55);
+
+  // Establish an independent model lineage on the left first.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 12, 49, 1);
+  }
+  addSquare(layers[5], 12, 48, 0);
+  for (int layer = 6; layer < 16; ++layer) {
+    fillRect(layers[layer], 4, 8, 24, 49);
+  }
+
+  // A separate raft-rooted support tapers normally up to the last free layer.
+  for (int layer = 2; layer <= 5; ++layer) {
+    addSquare(layers[layer], 74, 47, 4);
+  }
+  for (int layer = 6; layer <= 7; ++layer) {
+    addSquare(layers[layer], 74, 47, 3);
+  }
+  for (int layer = 8; layer <= 9; ++layer) {
+    addSquare(layers[layer], 74, 47, 2);
+  }
+
+  // From layer 10 upward, independently established model matter occupies the
+  // complete former support-tip footprint and continues above it. The raw mask
+  // alone therefore still contains those pixels, but pass 2 has persistent
+  // model provenance on them. They must be absorbed by model semantics instead
+  // of surviving as a frozen support island inside the part.
+  fillRect(layers[8], 24, 20, 60, 24);
+  fillRect(layers[9], 24, 20, 60, 24);
+  for (int layer = 10; layer < 16; ++layer) {
+    fillRect(layers[layer], 24, 20, 80, 52);
+  }
+  return layers;
+}
+
+
+std::vector<accloud::photons::BinaryMask> makeLocalModelOverhangScene() {
+  constexpr std::uint32_t width = 96;
+  constexpr std::uint32_t height = 56;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 16; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 50, 93, 55);
+  fillRect(layers[1], 3, 50, 93, 55);
+
+  // Establish model matter independently on the left through a conventional
+  // tapered contact before the support under test ever reaches it.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 12, 49, 1);
+  }
+  addSquare(layers[5], 12, 48, 0);
+  for (int layer = 6; layer < 16; ++layer) {
+    fillRect(layers[layer], 4, 8, 24, 49);
+  }
+
+  // Independent raft-rooted support with a persistent terminal taper.
+  for (int layer = 2; layer <= 5; ++layer) {
+    addSquare(layers[layer], 74, 47, 4);
+  }
+  for (int layer = 6; layer <= 7; ++layer) {
+    addSquare(layers[layer], 74, 47, 3);
+  }
+  for (int layer = 8; layer <= 9; ++layer) {
+    addSquare(layers[layer], 74, 47, 2);
+  }
+
+  fillRect(layers[8], 24, 20, 60, 24);
+  fillRect(layers[9], 24, 20, 60, 24);
+
+  // Same established-model merge as the existing regression, except the
+  // model's outer contour advances by two raw pixels per native layer. The
+  // support core remains geometrically present inside the merged component.
+  // Pass 2 therefore sees genuine newly appeared raw model matter on the
+  // advancing local contour; its bounded local envelope must claim the nearby
+  // support fringe on layer 10 without converting the complete support core.
+  fillRect(layers[10], 24, 20, 76, 50);
+  fillRect(layers[11], 24, 20, 74, 50);
+  fillRect(layers[12], 24, 20, 72, 50);
+
+  for (int layer = 13; layer < 16; ++layer) {
+    fillRect(layers[layer], 24, 20, 60, 40);
+  }
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeForwardModelCoreMergeScene() {
+  constexpr std::uint32_t width = 64;
+  constexpr std::uint32_t height = 42;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 16; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 36, 61, 41);
+  fillRect(layers[1], 3, 36, 61, 41);
+
+  // Establish model matter through a conventional tapered contact, but stop
+  // the independent model column before the later support merge. The short arm
+  // on layers 8-9 is therefore a stable forward model core with no path to the
+  // global top of the print.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 36, 1);
+  }
+  addSquare(layers[5], 10, 35, 0);
+  for (int layer = 6; layer <= 9; ++layer) {
+    fillRect(layers[layer], 4, 8, 16, 35);
+  }
+  fillRect(layers[8], 16, 24, 29, 28);
+  fillRect(layers[9], 16, 24, 29, 28);
+
+  // A separate raft-rooted support exists before the merge and remains valid
+  // afterwards.
+  for (int layer = 2; layer <= 14; ++layer) {
+    fillRect(layers[layer], 34, 24, 38, 37);
+  }
+
+  // From layer 10 onward the former model arm and the support are one raw
+  // component. Pass 1 still has a stable model lineage on the arm, but pass 2
+  // has no descending model path from above. The arm must not fall back to
+  // support merely because the first merged component is support-rooted.
+  for (int layer = 10; layer <= 14; ++layer) {
+    fillRect(layers[layer], 20, 24, 38, 28);
+  }
+
+  // Unrelated final-layer matter keeps pass 2 rooted at the true top without
+  // providing reverse-model evidence to the merged component.
+  fillRect(layers[15], 48, 4, 58, 12);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeSupportSweepsAcrossModelScene() {
+  constexpr std::uint32_t width = 72;
+  constexpr std::uint32_t height = 46;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 16; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 40, 69, 45);
+  fillRect(layers[1], 3, 40, 69, 45);
+
+  // Establish model matter on the left through a conventional support contact.
+  for (int layer = 2; layer <= 4; ++layer) {
+    addSquare(layers[layer], 10, 40, 1);
+  }
+  addSquare(layers[5], 10, 39, 0);
+  for (int layer = 6; layer < 16; ++layer) {
+    fillRect(layers[layer], 4, 8, 18, 39);
+  }
+
+  // A raft-rooted support remains independent on the right until the model
+  // grows a stable arm into it.
+  for (int layer = 2; layer <= 9; ++layer) {
+    fillRect(layers[layer], 38, 22, 42, 41);
+  }
+  fillRect(layers[8], 18, 24, 34, 28);
+  fillRect(layers[9], 18, 24, 34, 28);
+
+  // First mixed layer: x=31 is established model while the support core is
+  // still on x=38..42.
+  fillRect(layers[10], 18, 24, 42, 28);
+  fillRect(layers[10], 38, 22, 42, 41);
+
+  // The model arm ends as an independent shape, but the raft-rooted support
+  // continues through part of the exact footprint that was already model on
+  // the preceding native layer. The raw matter is continuous there; support
+  // provenance must not make those pixels revert from model to support.
+  for (int layer = 11; layer < 16; ++layer) {
+    fillRect(layers[layer], 34, 22, 38, 41);
+  }
+  return layers;
+}
+
 std::vector<accloud::photons::BinaryMask> makeMovingMixedSemanticScene() {
   constexpr std::uint32_t width = 84;
   constexpr std::uint32_t height = 52;
@@ -1337,6 +1572,161 @@ int main() {
       persistentMixed.summary.projectedSupportRunCount > 0u,
       "mixed components must use partial support runs instead of a whole-component decision");
 
+  auto taperedEstablishedMergeLayers = makeTaperedSupportEstablishedModelMergeScene();
+  VectorSource taperedEstablishedMergeSource(taperedEstablishedMergeLayers);
+  auto taperedEstablishedMergeOptions = testOptions();
+  taperedEstablishedMergeOptions.captureDecisionTrace = true;
+  const auto taperedEstablishedMerge = analyzer.analyze(
+      taperedEstablishedMergeSource, taperedEstablishedMergeOptions);
+  ok &= require(taperedEstablishedMerge.ok,
+                "tapered support / established-model merge analysis must succeed");
+  for (std::size_t layer = 10u; layer <= 12u; ++layer) {
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, taperedEstablishedMergeLayers[layer],
+            taperedEstablishedMerge.layers[layer],
+            74u, 47u, accloud::render3d::MaterialSemantic::Support),
+        "a tapered raft-rooted support core must survive contact confirmation when it merges into independently established model matter");
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, taperedEstablishedMergeLayers[layer],
+            taperedEstablishedMerge.layers[layer],
+            30u, 22u, accloud::render3d::MaterialSemantic::Model),
+        "independently established model matter must remain model in the same merged component");
+    ok &= require(
+        !taperedEstablishedMerge.layers[layer].projectedSupportRuns.empty(),
+        "an established-model merge must retain an explicit partial support projection while inherited support pixels survive");
+  }
+  ok &= require(
+      !layerHasSupport(taperedEstablishedMerge.layers[13]),
+      "support provenance must disappear once no inherited support footprint survives geometrically");
+  const auto taperedEstablishedMergeDecision = std::find_if(
+      taperedEstablishedMerge.decisions.begin(),
+      taperedEstablishedMerge.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u && decision.contactConfirmed;
+      });
+  ok &= require(
+      taperedEstablishedMergeDecision != taperedEstablishedMerge.decisions.end(),
+      "the regression fixture must actually exercise confirmed contact on the first established-model merge layer");
+  auto absorbedSupportLayers = makeAbsorbedSupportEstablishedModelScene();
+  VectorSource absorbedSupportSource(absorbedSupportLayers);
+  auto absorbedSupportOptions = testOptions();
+  absorbedSupportOptions.captureDecisionTrace = true;
+  const auto absorbedSupport = analyzer.analyze(
+      absorbedSupportSource, absorbedSupportOptions);
+  ok &= require(absorbedSupport.ok,
+                "absorbed support / established-model analysis must succeed");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, absorbedSupportLayers[9], absorbedSupport.layers[9],
+          74u, 47u, accloud::render3d::MaterialSemantic::Support),
+      "the terminal footprint must still be support on its last free native layer");
+  for (std::size_t layer = 10u; layer < 15u; ++layer) {
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, absorbedSupportLayers[layer], absorbedSupport.layers[layer],
+            74u, 47u, accloud::render3d::MaterialSemantic::Model),
+        "reverse model provenance must absorb a support footprint that is fully occupied by persistent model matter");
+  }
+  const auto absorbedSupportDecision = std::find_if(
+      absorbedSupport.decisions.begin(), absorbedSupport.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u
+               && decision.reverseSupportCorePixels != 0u;
+      });
+  ok &= require(
+      absorbedSupportDecision != absorbedSupport.decisions.end()
+          && absorbedSupportDecision->finalSupportPixels
+                 < absorbedSupportDecision->reverseSupportCorePixels,
+      "the absorbed-contact regression must exercise pixel-level conflict between forward support and reverse model evidence");
+
+
+  auto localOverhangLayers = makeLocalModelOverhangScene();
+  VectorSource localOverhangSource(localOverhangLayers);
+  auto localOverhangOptions = testOptions();
+  localOverhangOptions.captureDecisionTrace = true;
+  const auto localOverhang = analyzer.analyze(
+      localOverhangSource, localOverhangOptions);
+  ok &= require(localOverhang.ok,
+                "local model-overhang analysis must succeed");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, localOverhangLayers[9], localOverhang.layers[9],
+          74u, 47u, accloud::render3d::MaterialSemantic::Support),
+      "the advancing model front must not retroactively consume the last free support layer");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, localOverhangLayers[10], localOverhang.layers[10],
+          75u, 47u, accloud::render3d::MaterialSemantic::Model),
+      "an observed local model front must extend reverse-model ownership beyond exact upper-layer overlap across support pixels reached by the bounded overhang projection");
+  const auto localOverhangDecision = std::find_if(
+      localOverhang.decisions.begin(), localOverhang.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u
+               && decision.overhangAbsorbedSupportPixels != 0u;
+      });
+  ok &= require(
+      localOverhangDecision != localOverhang.decisions.end()
+          && localOverhangDecision->finalSupportPixels != 0u,
+      "local overhang projection must be recorded and remain partial when a contracting support is reached by a genuinely advancing model front");
+
+  auto forwardModelCoreLayers = makeForwardModelCoreMergeScene();
+  VectorSource forwardModelCoreSource(forwardModelCoreLayers);
+  auto forwardModelCoreOptions = testOptions();
+  forwardModelCoreOptions.captureDecisionTrace = true;
+  const auto forwardModelCore = analyzer.analyze(
+      forwardModelCoreSource, forwardModelCoreOptions);
+  ok &= require(forwardModelCore.ok,
+                "forward model-core merge analysis must succeed");
+  for (std::size_t layer = 10u; layer <= 14u; ++layer) {
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, forwardModelCoreLayers[layer], forwardModelCore.layers[layer],
+            24u, 26u, accloud::render3d::MaterialSemantic::Model),
+        "a model core confirmed on preceding native layers must not fall back to support when it first merges with a raft-rooted support component");
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, forwardModelCoreLayers[layer], forwardModelCore.layers[layer],
+            36u, 32u, accloud::render3d::MaterialSemantic::Support),
+        "preserving a confirmed forward model core must not consume the independent raft-rooted support core in the same merged component");
+  }
+  const auto forwardModelCoreDecision = std::find_if(
+      forwardModelCore.decisions.begin(), forwardModelCore.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u && decision.modelLineageContinued;
+      });
+  ok &= require(
+      forwardModelCoreDecision != forwardModelCore.decisions.end(),
+      "the model-core merge fixture must exercise forward model-lineage continuity on the first merged layer");
+  ok &= require(
+      forwardModelCoreDecision != forwardModelCore.decisions.end()
+          && forwardModelCoreDecision->forwardModelCorePixels != 0u
+          && forwardModelCoreDecision->reverseModelEvidencePixels == 0u
+          && forwardModelCoreDecision->finalSupportPixels != 0u
+          && forwardModelCoreDecision->finalModelPixels != 0u,
+      "the first merged layer must preserve a local forward model core without inventing reverse-model evidence or consuming the support core");
+
+  auto monotonicModelLayers = makeSupportSweepsAcrossModelScene();
+  VectorSource monotonicModelSource(monotonicModelLayers);
+  auto monotonicModelOptions = testOptions();
+  monotonicModelOptions.captureDecisionTrace = true;
+  const auto monotonicModel = analyzer.analyze(
+      monotonicModelSource, monotonicModelOptions);
+  ok &= require(monotonicModel.ok,
+                "support-to-model monotonic lineage analysis must succeed");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, monotonicModelLayers[10], monotonicModel.layers[10],
+          36u, 26u, accloud::render3d::MaterialSemantic::Model),
+      "the fixture must establish model ownership before the raft-rooted support sweeps across it");
+  for (std::size_t layer = 11u; layer < monotonicModelLayers.size(); ++layer) {
+    ok &= require(
+        pixelHasSemantic(
+            analyzer, monotonicModelLayers[layer], monotonicModel.layers[layer],
+            36u, 26u, accloud::render3d::MaterialSemantic::Model),
+        "a continuous model footprint must never revert to support on the same lineage");
+  }
   auto movingMixedLayers = makeMovingMixedSemanticScene();
   VectorSource movingMixedSource(movingMixedLayers);
   auto movingMixedOptions = testOptions();
@@ -1566,6 +1956,16 @@ int main() {
                              && node.terminalTaper;
                     }),
                 "a support starting on the model must begin independently and taper at contact");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, modelRootedLayers[8], modelRooted.layers[8],
+          19u, 17u, accloud::render3d::MaterialSemantic::Support),
+      "a validated small branch born from established model must remain a new support lineage instead of inheriting model lock");
+  ok &= require(
+      pixelHasSemantic(
+          analyzer, modelRootedLayers[8], modelRooted.layers[8],
+          10u, 16u, accloud::render3d::MaterialSemantic::Model),
+      "allowing a model-rooted support spawn must not turn its established model parent back into support");
 
   auto untaperedModelRootLayers = makeUntaperedModelRootScene();
   VectorSource untaperedModelRootSource(untaperedModelRootLayers);
@@ -1702,6 +2102,24 @@ int main() {
                     && hybridComputeResult.summary.vulkanSemanticLayerBatchCallCount == 0u
                     && hybridComputeResult.summary.vulkanSemanticLayerBatchJobCount == 0u,
                 "Auto/hybrid compute must preserve CPU support semantics and must never reactivate the retired P6.4 layer-wide semantic batch");
+
+  auto monotonicCpuOptions = monotonicModelOptions;
+  monotonicCpuOptions.computePreference =
+      accloud::render3d::compute::SupportComputePreference::Cpu;
+  auto monotonicHybridOptions = monotonicModelOptions;
+  monotonicHybridOptions.computePreference =
+      accloud::render3d::compute::SupportComputePreference::Auto;
+  monotonicHybridOptions.vulkanMinimumComponentAreaPixels = 1u;
+  VectorSource monotonicCpuSource(monotonicModelLayers);
+  VectorSource monotonicHybridSource(monotonicModelLayers);
+  const auto monotonicCpu = analyzer.analyze(
+      monotonicCpuSource, monotonicCpuOptions);
+  const auto monotonicHybrid = analyzer.analyze(
+      monotonicHybridSource, monotonicHybridOptions);
+  ok &= require(
+      monotonicCpu.ok && monotonicHybrid.ok
+          && sameSemanticClassification(monotonicCpu, monotonicHybrid),
+      "CPU and Auto/hybrid must preserve the same monotonic MODEL-to-SUPPORT prohibition on continuous material");
 
   TrackingSource concurrentTrackingSource(branchedLayers, true);
   const auto concurrentTracking = analyzer.analyze(

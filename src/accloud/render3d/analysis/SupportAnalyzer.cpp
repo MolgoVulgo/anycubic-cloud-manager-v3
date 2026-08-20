@@ -1622,6 +1622,48 @@ public:
     }
   }
 
+  void assignDifference(
+      const SparseRunMask& left,
+      const SparseRunMask& right) {
+    clear();
+    for (const auto y : left.touchedRows_) {
+      if (y >= rows_.size()) {
+        continue;
+      }
+      const auto& source = left.rows_[y];
+      const auto& removed = right.rows_[y];
+      auto& output = rows_[y];
+      std::size_t removedIndex = 0u;
+      for (const auto& interval : source) {
+        auto cursor = interval.first;
+        while (removedIndex < removed.size()
+               && removed[removedIndex].second <= cursor) {
+          ++removedIndex;
+        }
+        auto scan = removedIndex;
+        while (scan < removed.size()
+               && removed[scan].first < interval.second) {
+          if (removed[scan].first > cursor) {
+            output.emplace_back(
+                cursor, std::min(removed[scan].first, interval.second));
+          }
+          cursor = std::max(cursor, removed[scan].second);
+          if (cursor >= interval.second) {
+            break;
+          }
+          ++scan;
+        }
+        if (cursor < interval.second) {
+          output.emplace_back(cursor, interval.second);
+        }
+      }
+      if (!output.empty()) {
+        touchedRows_.push_back(y);
+        rebuildBitRow(y);
+      }
+    }
+  }
+
   [[nodiscard]] std::size_t countSet(
       const std::vector<SemanticRun>& runs) const {
     std::size_t result = 0u;
@@ -1912,6 +1954,11 @@ struct NodeState {
   std::size_t runCount = 0;
   bool accepted = false;
   bool classifiedAsModel = false;
+  // The connected component already overlaps independently established model
+  // matter while still carrying pass-1 support provenance. Contact confirmation
+  // may classify the component as model globally, but it must not erase that
+  // inherited support core; pass 2 reconciles the two provenances by runs.
+  bool mergedWithEstablishedModel = false;
   bool modelContact = false;
   bool supportContact = false;
   std::size_t pendingContactTip = std::numeric_limits<std::size_t>::max();
@@ -1934,6 +1981,11 @@ struct NodeState {
   // may still be accepted. In a conflict, only this inherited core is protected
   // so model matter cannot be swallowed by a merged support component.
   std::vector<SemanticRun> supportEvidenceRuns;
+  // Stable forward model core selected inside a mixed support-rooted component.
+  // It is retained only for final per-layer reconciliation when the descending
+  // pass cannot reach the first merged component; it is never injected into
+  // reverse-model lineage propagation.
+  std::vector<SemanticRun> forwardModelEvidenceRuns;
   std::vector<SemanticRun> projectedSupportRuns;
 };
 
@@ -2469,10 +2521,23 @@ bool hasTerminalTaper(
 // reaches the same region; it is not a standalone semantic classifier.
 bool supportEvidenceStopsBefore(
     std::size_t lowerNode,
-    std::size_t upperArea,
+    std::size_t upperNode,
     const std::vector<NodeState>& states,
     const SupportAnalysisOptions& options) {
-  if (lowerNode >= states.size() || states[lowerNode].component->area == 0u) {
+  if (lowerNode >= states.size() || upperNode >= states.size()
+      || states[lowerNode].component->area == 0u) {
+    return false;
+  }
+
+  const auto& upperState = states[upperNode];
+  if (upperState.mergedWithEstablishedModel
+      && upperState.supportEvidenceActive
+      && !upperState.supportEvidenceRuns.empty()) {
+    // A large connected-component rebound is not a terminal-support proof when
+    // that area comes from model matter that was already established
+    // independently. The inherited support runs are the relevant geometry in
+    // this mixed component and remain protected until that footprint actually
+    // disappears on a later native layer.
     return false;
   }
   const auto structuralParent = states[lowerNode].parent;
@@ -2493,7 +2558,7 @@ bool supportEvidenceStopsBefore(
   if (!recentReduction) {
     return false;
   }
-  const double reboundRatio = static_cast<double>(upperArea)
+  const double reboundRatio = static_cast<double>(upperState.component->area)
       / static_cast<double>(states[lowerNode].component->area);
   const double minimumRebound = options.terminalTaperStepRatio > 0.0
       ? 1.0 / options.terminalTaperStepRatio
@@ -2663,8 +2728,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     ModelLineageMotion modelLineage;
     bool modelSeed = false;
     std::vector<SemanticRun> modelRuns;
+    std::vector<SemanticRun> directModelRuns;
     std::vector<SemanticRun> finalSupportRuns;
     std::size_t supportCorePixels = 0u;
+    std::size_t forwardModelCorePixels = 0u;
+    std::size_t directAbsorbedSupportPixels = 0u;
+    std::size_t overhangAbsorbedSupportPixels = 0u;
+    std::size_t absorbedSupportPixels = 0u;
     std::size_t modelPixels = 0u;
   };
   struct ForwardLineagePreparation {
@@ -2684,14 +2754,15 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   struct ReverseWorkerScratch {
     ReverseWorkerScratch(std::uint32_t height, bool enableBitsets)
         : supportCore(height, enableBitsets),
-          componentModel(height, enableBitsets),
           inheritedModel(height, enableBitsets) {}
     SparseRunMask supportCore;
-    SparseRunMask componentModel;
     SparseRunMask inheritedModel;
     TranslatedOverlapScratch computeOverlap;
     std::vector<SemanticRun> inheritedRuns;
-    std::vector<SemanticRun> inheritedOutsideSupport;
+    std::vector<SemanticRun> directSupportRuns;
+    std::vector<SemanticRun> overhangEnvelopeRuns;
+    std::vector<SemanticRun> overhangGrowthRuns;
+    std::vector<SemanticRun> overhangOnlyRuns;
   };
   struct ForwardLineageWorkerScratch {
     ForwardLineageWorkerScratch(std::uint32_t height, bool enableBitsets)
@@ -3295,6 +3366,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                                : states[parent].branchOrigin;
       state.component = &current.components[index];
       state.runCount = current.components[index].runs.size();
+      state.mergedWithEstablishedModel = preparation.overlapsPreviousModel;
       state.supportEvidenceParents = std::move(preparation.supportEvidenceParents);
       state.supportEvidenceRuns = std::move(preparation.supportEvidenceRuns);
       state.supportEvidenceActive = preparation.supportEvidenceActive;
@@ -3520,20 +3592,32 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             ++result.summary.modelContactEdgeCount;
           }
 
-          currentIsModel[index] = true;
-          const auto removedParentLocal = previousNodeLocalIndex.find(parent);
-          if (removedParentLocal != previousNodeLocalIndex.end()
-              && currentStructuralChildCount[removedParentLocal->second] != 0u) {
-            --currentStructuralChildCount[removedParentLocal->second];
-          }
-          if (!currentCandidateNodes.empty()
-              && currentCandidateNodes.back() == nodeId) {
-            currentCandidateNodes.pop_back();
-          } else {
-            currentCandidateNodes.erase(
-                std::remove(currentCandidateNodes.begin(),
-                            currentCandidateNodes.end(), nodeId),
-                currentCandidateNodes.end());
+          const bool mixedEstablishedModelContact =
+              currentState.mergedWithEstablishedModel
+              && currentState.supportEvidenceActive
+              && !currentState.supportEvidenceRuns.empty();
+          if (!mixedEstablishedModelContact) {
+            // A conventional terminal contact transfers the complete component
+            // to model ownership and ends this support candidate. When the
+            // component already contains independently established model, keep
+            // the candidate alive instead: its conservative support evidence
+            // must continue to later native layers while the model portion is
+            // tracked separately by the semantic-lineage reconciliation.
+            currentIsModel[index] = true;
+            const auto removedParentLocal = previousNodeLocalIndex.find(parent);
+            if (removedParentLocal != previousNodeLocalIndex.end()
+                && currentStructuralChildCount[removedParentLocal->second] != 0u) {
+              --currentStructuralChildCount[removedParentLocal->second];
+            }
+            if (!currentCandidateNodes.empty()
+                && currentCandidateNodes.back() == nodeId) {
+              currentCandidateNodes.pop_back();
+            } else {
+              currentCandidateNodes.erase(
+                  std::remove(currentCandidateNodes.begin(),
+                              currentCandidateNodes.end(), nodeId),
+                  currentCandidateNodes.end());
+            }
           }
           const auto confirmedModelLayer = result.nodes[startNode].layer;
           if (!modelSeen || confirmedModelLayer < result.summary.firstModelLayer) {
@@ -3797,6 +3881,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       propagatedSemanticModel.addRuns(preparation.modelRuns);
       auto& state = states[nodeId];
       state.hasSemanticProjection = true;
+      state.forwardModelEvidenceRuns = preparation.modelRuns;
       if (options.captureDecisionTrace
           && nodeId < nodeDecisionIndices.size()
           && nodeDecisionIndices[nodeId] != invalidDecision) {
@@ -3898,10 +3983,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         || !hasTerminalTaper(state.nodeId, states, options)) {
       continue;
     }
+    // Accept the complete validated path before marking the head explicitly.
+    // acceptPath() stops on an already-accepted node, so setting the head first
+    // would prevent a model-rooted support from ever accepting its narrow root
+    // and intermediate branch nodes.
+    acceptPath(state.nodeId, states);
     state.accepted = true;
     result.nodes[state.nodeId].terminalTaper = true;
     result.nodes[state.nodeId].kind = SupportNodeKind::Head;
-    acceptPath(state.nodeId, states);
   }
 
   // Add diagonal braces only when they terminate on an already validated
@@ -4045,6 +4134,27 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     }
   }
 
+  // A support legitimately born from established model is validated only after
+  // pass 1 has seen its complete narrow-root -> narrow-branch -> terminal-head
+  // history. Promote only those accepted model-rooted paths to explicit
+  // support evidence before pass 2. This creates a new support lineage; it does
+  // not reactivate any raft-rooted support lineage that has already become
+  // model.
+  for (auto& state : states) {
+    if (!state.accepted || state.classifiedAsModel
+        || state.nodeId >= result.nodes.size()
+        || !result.nodes[state.nodeId].rootedInModel
+        || result.nodes[state.nodeId].rootedInRaft) {
+      continue;
+    }
+    state.supportEvidenceActive = true;
+    if (state.supportEvidenceRuns.empty()) {
+      state.supportEvidenceRuns = state.component->runs;
+      canonicalizeSemanticRuns(
+          state.supportEvidenceRuns, MaterialSemantic::Support);
+    }
+  }
+
   // Pass 2: propagate model provenance from the top of the print downward.
   //
   // Pass 1 above intentionally remains biased toward raft-rooted support
@@ -4095,10 +4205,17 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.summary.reverseModelContinuationCount = 0u;
     result.summary.bidirectionalMixedComponentCount = 0u;
 
-    SparseRunMask upperModel(source.height(), options.enableBitsetAcceleration);
-    SparseRunMask upperUpperModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperIndependentModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperUpperIndependentModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperMaterial(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperUpperMaterial(source.height(), options.enableBitsetAcceleration);
     SparseRunMask upperModelEnvelope(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperMaterialGrowth(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperModelGrowth(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperModelGrowthEnvelope(source.height(), options.enableBitsetAcceleration);
     SparseRunMask currentModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask currentIndependentModel(source.height(), options.enableBitsetAcceleration);
+    SparseRunMask currentMaterial(source.height(), options.enableBitsetAcceleration);
     std::vector<std::size_t> reverseLayerMaterialRunCount(source.layerCount(), 0u);
     std::vector<std::size_t> reverseLayerWholeSupportRunCount(source.layerCount(), 0u);
     std::vector<ReverseComponentPreparation> reversePreparations;
@@ -4120,7 +4237,19 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         reverseLayerMaterialRunCount[layer] += component.runs.size();
       }
       currentModel.clear();
-      upperModelEnvelope.assignDilated(upperModel, maximumModelLineageShift);
+      currentIndependentModel.clear();
+      currentMaterial.clear();
+      for (const auto& component : current.components) {
+        currentMaterial.addRuns(component.runs);
+      }
+      currentMaterial.normalize();
+      upperModelEnvelope.assignDilated(
+          upperIndependentModel, maximumModelLineageShift);
+      upperMaterialGrowth.assignDifference(upperMaterial, upperUpperMaterial);
+      upperModelGrowth.assignIntersection(
+          upperMaterialGrowth, upperIndependentModel);
+      upperModelGrowthEnvelope.assignDilated(
+          upperModelGrowth, maximumModelLineageShift);
 
       std::size_t layerSupportPixels = 0u;
       std::size_t layerModelPixels = 0u;
@@ -4138,10 +4267,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               [&](const Component& component) {
                 return component.area >= options.vulkanMinimumComponentAreaPixels;
               });
-      if (reverseHasGpuCandidate && !upperModel.empty()) {
+      if (reverseHasGpuCandidate && !upperIndependentModel.empty()) {
         const auto preparationStarted = std::chrono::steady_clock::now();
         if (prepareResidentReferenceBatch(
-                upperModel, source.width(), source.height(),
+                upperIndependentModel, source.width(), source.height(),
                 maximumModelLineageShift, residentReferenceGeneration++,
                 reverseResidentReference)) {
           const auto preparationEnded = std::chrono::steady_clock::now();
@@ -4166,17 +4295,27 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             preparation.modelLineage = ModelLineageMotion{};
             preparation.modelSeed = false;
             preparation.modelRuns.clear();
+            preparation.directModelRuns.clear();
             preparation.finalSupportRuns.clear();
             preparation.supportCorePixels = 0u;
+            preparation.forwardModelCorePixels = 0u;
+            preparation.directAbsorbedSupportPixels = 0u;
+            preparation.overhangAbsorbedSupportPixels = 0u;
+            preparation.absorbedSupportPixels = 0u;
             preparation.modelPixels = 0u;
             auto& scratch = reverseScratch[workerSlot];
             auto& supportCore = scratch.supportCore;
-            auto& componentModel = scratch.componentModel;
             auto& inheritedModel = scratch.inheritedModel;
             auto& inheritedRuns = scratch.inheritedRuns;
-            auto& inheritedOutsideSupport = scratch.inheritedOutsideSupport;
+            auto& directSupportRuns = scratch.directSupportRuns;
+            auto& overhangEnvelopeRuns = scratch.overhangEnvelopeRuns;
+            auto& overhangGrowthRuns = scratch.overhangGrowthRuns;
+            auto& overhangOnlyRuns = scratch.overhangOnlyRuns;
             inheritedRuns.clear();
-            inheritedOutsideSupport.clear();
+            directSupportRuns.clear();
+            overhangEnvelopeRuns.clear();
+            overhangGrowthRuns.clear();
+            overhangOnlyRuns.clear();
 
             const auto nodeIterator = nodeByLayer[layer].find(component.localId);
             const auto reverseInvalidNode = std::numeric_limits<std::size_t>::max();
@@ -4188,16 +4327,30 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 && states[nodeId].supportEvidenceActive
                 && !states[nodeId].supportEvidenceRuns.empty();
             const bool protectSupportEvidence = hasSupportEvidence
-                && !states[nodeId].classifiedAsModel;
+                && (!states[nodeId].classifiedAsModel
+                    || states[nodeId].mergedWithEstablishedModel);
+            const bool validatedModelRootSupport = protectSupportEvidence
+                && nodeId != reverseInvalidNode
+                && states[nodeId].accepted
+                && !states[nodeId].classifiedAsModel
+                && result.nodes[nodeId].rootedInModel
+                && !result.nodes[nodeId].rootedInRaft;
             const bool forwardOwnsWholeSupportComponent = protectSupportEvidence
-                && result.nodes[nodeId].rootedInRaft
-                && !states[nodeId].hasSemanticProjection
-                && states[nodeId].pendingContactTip == reverseInvalidNode;
+                && (validatedModelRootSupport
+                    || (!states[nodeId].mergedWithEstablishedModel
+                        && result.nodes[nodeId].rootedInRaft
+                        && !states[nodeId].hasSemanticProjection
+                        && states[nodeId].pendingContactTip == reverseInvalidNode));
 
             preparation.nodeId = nodeId;
             preparation.hasSupportEvidence = hasSupportEvidence;
             preparation.protectSupportEvidence = protectSupportEvidence;
 
+            // Pass 2 establishes its own model provenance. Pass-1 support is
+            // used only to break otherwise equivalent translation candidates;
+            // it no longer removes pixels from the reverse-model evidence.
+            // The two semantic proofs may therefore overlap and are reconciled
+            // explicitly below.
             supportCore.clear();
             if (protectSupportEvidence) {
               if (forwardOwnsWholeSupportComponent) {
@@ -4211,10 +4364,11 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             const auto upperEnvelopeOverlap =
                 upperModelEnvelope.countSet(component.runs);
             if (!forwardOwnsWholeSupportComponent
-                && !upperModel.empty() && upperEnvelopeOverlap != 0u) {
+                && !upperIndependentModel.empty() && upperEnvelopeOverlap != 0u) {
               modelLineage = bestTranslatedLineageMotion(
-                  component, upperModel,
-                  upperUpperModel.empty() ? nullptr : &upperUpperModel,
+                  component, upperIndependentModel,
+                  upperUpperIndependentModel.empty()
+                      ? nullptr : &upperUpperIndependentModel,
                   maximumModelLineageShift,
                   protectSupportEvidence ? &supportCore : nullptr,
                   computeBackend.get(), &scratch.computeOverlap,
@@ -4234,18 +4388,26 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             const bool modelSeed = topLayerSeed || boundedIndependentModelSeed;
             preparation.modelSeed = modelSeed;
 
-            componentModel.clear();
             supportCore.clear();
             inheritedModel.clear();
             auto& modelRuns = preparation.modelRuns;
+            auto& directModelRuns = preparation.directModelRuns;
             auto& finalSupportRuns = preparation.finalSupportRuns;
             std::size_t supportCorePixels = 0u;
+            std::size_t forwardModelCorePixels = 0u;
+            std::size_t directAbsorbedSupportPixels = 0u;
+            std::size_t overhangAbsorbedSupportPixels = 0u;
+            std::size_t absorbedSupportPixels = 0u;
 
             if (modelSeed) {
               modelRuns = component.runs;
+              directModelRuns = component.runs;
               canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+              canonicalizeSemanticRuns(directModelRuns, MaterialSemantic::Model);
             } else if (modelLineage.continued) {
-              upperModel.appendTranslatedIntersectionRuns(
+              // This is the independent reverse-model footprint on the current
+              // native layer before any support reconciliation is applied.
+              upperIndependentModel.appendTranslatedIntersectionRuns(
                   component.runs,
                   modelLineage.shiftX,
                   modelLineage.shiftY,
@@ -4264,48 +4426,171 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                     continue;
                   }
                   if (!supportEvidenceStopsBefore(
-                          parentNode, component.area, states, options)) {
+                          parentNode, nodeId, states, options)) {
                     continuingSupportParent = true;
                     break;
                   }
                 }
+
                 if (continuingSupportParent) {
                   supportCore.addRuns(supportState.supportEvidenceRuns);
-                }
-                supportCore.normalize();
-                supportCorePixels = supportCore.countSet(component.runs);
+                  supportCore.normalize();
+                  supportCorePixels = supportCore.countSet(component.runs);
 
-                supportCore.appendClearRuns(
-                    inheritedRuns,
-                    MaterialSemantic::Model,
-                    inheritedOutsideSupport);
-                canonicalizeSemanticRuns(
-                    inheritedOutsideSupport, MaterialSemantic::Model);
-                if (!inheritedOutsideSupport.empty()) {
+                  // First resolve the exact reverse-model overlap. This is the
+                  // direct pass-2 claim and remains independent from any local
+                  // overhang extrapolation.
+                  inheritedModel.appendClearRuns(
+                      supportState.supportEvidenceRuns,
+                      MaterialSemantic::Support,
+                      directSupportRuns);
+                  canonicalizeSemanticRuns(
+                      directSupportRuns, MaterialSemantic::Support);
+                  const auto directSurvivingSupportPixels =
+                      semanticRunPixelCount(directSupportRuns);
+                  directAbsorbedSupportPixels =
+                      supportCorePixels > directSurvivingSupportPixels
+                          ? supportCorePixels - directSurvivingSupportPixels
+                          : 0u;
+
+                  supportCore.clear();
+                  supportCore.addRuns(directSupportRuns);
+                  supportCore.normalize();
+                  supportCore.appendClearRuns(
+                      component.runs,
+                      MaterialSemantic::Model,
+                      directModelRuns);
+                  canonicalizeSemanticRuns(
+                      directModelRuns, MaterialSemantic::Model);
+
+                  // A large connected model can have almost zero global
+                  // translation while its local contour advances over a
+                  // support. Detect only fronts that really grew between the
+                  // two upper native layers, dilate that observed front by the
+                  // existing bounded layer-motion allowance, and let it claim
+                  // support pixels that are also inside the corresponding
+                  // upper-model envelope. Stable model boundaries therefore do
+                  // not expand, and unrelated support remains untouched.
+                  bool contractingSupportEvidence = false;
+                  for (const auto parentNode : supportState.supportEvidenceParents) {
+                    if (parentNode >= states.size()
+                        || !states[parentNode].supportEvidenceActive) {
+                      continue;
+                    }
+                    const auto parentSupportPixels = semanticRunPixelCount(
+                        states[parentNode].supportEvidenceRuns);
+                    if (parentSupportPixels > supportCorePixels) {
+                      contractingSupportEvidence = true;
+                      break;
+                    }
+                  }
+                  const bool allowLocalOverhangProjection =
+                      states[nodeId].mergedWithEstablishedModel
+                      && contractingSupportEvidence
+                      && maximumModelLineageShift != 0u
+                      && !upperModelGrowth.empty();
+                  if (allowLocalOverhangProjection) {
+                    upperModelEnvelope.appendTranslatedIntersectionRuns(
+                        directSupportRuns,
+                        modelLineage.shiftX,
+                        modelLineage.shiftY,
+                        MaterialSemantic::Model,
+                        overhangEnvelopeRuns);
+                    canonicalizeSemanticRuns(
+                        overhangEnvelopeRuns, MaterialSemantic::Model);
+                    upperModelGrowthEnvelope.appendTranslatedIntersectionRuns(
+                        overhangEnvelopeRuns,
+                        modelLineage.shiftX,
+                        modelLineage.shiftY,
+                        MaterialSemantic::Model,
+                        overhangGrowthRuns);
+                    canonicalizeSemanticRuns(
+                        overhangGrowthRuns, MaterialSemantic::Model);
+                    inheritedModel.appendClearRuns(
+                        overhangGrowthRuns,
+                        MaterialSemantic::Model,
+                        overhangOnlyRuns);
+                    canonicalizeSemanticRuns(
+                        overhangOnlyRuns, MaterialSemantic::Model);
+                    if (!overhangOnlyRuns.empty()) {
+                      inheritedModel.addRuns(overhangOnlyRuns);
+                      inheritedModel.normalize();
+                    }
+                  }
+
+                  inheritedModel.appendClearRuns(
+                      supportState.supportEvidenceRuns,
+                      MaterialSemantic::Support,
+                      finalSupportRuns);
+                  canonicalizeSemanticRuns(
+                      finalSupportRuns, MaterialSemantic::Support);
+
+                  const auto survivingSupportPixels =
+                      semanticRunPixelCount(finalSupportRuns);
+                  overhangAbsorbedSupportPixels =
+                      directSurvivingSupportPixels > survivingSupportPixels
+                          ? directSurvivingSupportPixels - survivingSupportPixels
+                          : 0u;
+                  absorbedSupportPixels =
+                      directAbsorbedSupportPixels + overhangAbsorbedSupportPixels;
+                } else {
+                  directModelRuns = component.runs;
+                  canonicalizeSemanticRuns(
+                      directModelRuns, MaterialSemantic::Model);
+                }
+
+                supportCore.clear();
+                supportCore.addRuns(finalSupportRuns);
+                supportCore.normalize();
+                if (!finalSupportRuns.empty()) {
                   supportCore.appendClearRuns(
                       component.runs,
                       MaterialSemantic::Model,
                       modelRuns);
-                  canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+                } else {
+                  modelRuns = component.runs;
                 }
+                canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
               } else {
                 modelRuns = component.runs;
+                directModelRuns = component.runs;
                 canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+                canonicalizeSemanticRuns(directModelRuns, MaterialSemantic::Model);
               }
             }
 
-            componentModel.addRuns(modelRuns);
-            componentModel.normalize();
-            const auto modelPixels = semanticRunPixelCount(modelRuns);
-            if (protectSupportEvidence && modelPixels != 0u) {
-              componentModel.appendClearRuns(
-                  states[nodeId].supportEvidenceRuns,
-                  MaterialSemantic::Support,
-                  finalSupportRuns);
+            // A stable model core can be confirmed bottom-up before it first
+            // merges into a raft-rooted support component. If the local part
+            // then has no path to the global top, pass 2 has no reverse model
+            // lineage to contribute on that merged layer. Preserve the exact
+            // stable forward partition instead of reverting the complete raw
+            // component to support. This evidence remains local to the layer:
+            // directModelRuns stays empty, so it cannot bootstrap or extend the
+            // descending model pass.
+            if (!modelSeed && !modelLineage.continued
+                && protectSupportEvidence
+                && nodeId != reverseInvalidNode
+                && states[nodeId].hasSemanticProjection
+                && !states[nodeId].forwardModelEvidenceRuns.empty()) {
+              const auto& forwardModelRuns =
+                  states[nodeId].forwardModelEvidenceRuns;
+              forwardModelCorePixels = semanticRunPixelCount(forwardModelRuns);
+              modelRuns = forwardModelRuns;
+              canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+              supportCorePixels = semanticRunPixelCount(
+                  states[nodeId].supportEvidenceRuns);
+              finalSupportRuns = states[nodeId].projectedSupportRuns;
               canonicalizeSemanticRuns(
                   finalSupportRuns, MaterialSemantic::Support);
+              directModelRuns.clear();
             }
+
+            const auto modelPixels = semanticRunPixelCount(modelRuns);
             preparation.supportCorePixels = supportCorePixels;
+            preparation.forwardModelCorePixels = forwardModelCorePixels;
+            preparation.directAbsorbedSupportPixels = directAbsorbedSupportPixels;
+            preparation.overhangAbsorbedSupportPixels = overhangAbsorbedSupportPixels;
+            preparation.absorbedSupportPixels = absorbedSupportPixels;
             preparation.modelPixels = modelPixels;
           });
       }
@@ -4328,10 +4613,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         const bool modelSeed = preparation.modelSeed;
         const auto modelPixels = preparation.modelPixels;
         const auto supportCorePixels = preparation.supportCorePixels;
+        const auto forwardModelCorePixels = preparation.forwardModelCorePixels;
+        const auto directAbsorbedSupportPixels =
+            preparation.directAbsorbedSupportPixels;
+        const auto overhangAbsorbedSupportPixels =
+            preparation.overhangAbsorbedSupportPixels;
+        const auto absorbedSupportPixels = preparation.absorbedSupportPixels;
         auto& modelRuns = preparation.modelRuns;
+        auto& directModelRuns = preparation.directModelRuns;
         auto& finalSupportRuns = preparation.finalSupportRuns;
 
         currentModel.addRuns(modelRuns);
+        currentIndependentModel.addRuns(directModelRuns);
         layerModelPixels += modelPixels;
 
         if (protectSupportEvidence) {
@@ -4361,8 +4654,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               component.localId);
           if (decisionIterator != decisionByLayer[layer].end()) {
             auto& trace = result.decisions[decisionIterator->second];
-            trace.reverseModelEvidencePixels = modelPixels;
+            trace.reverseModelEvidencePixels =
+                (modelSeed || modelLineage.continued) ? modelPixels : 0u;
+            trace.forwardModelCorePixels = forwardModelCorePixels;
             trace.reverseSupportCorePixels = supportCorePixels;
+            trace.directAbsorbedSupportPixels = directAbsorbedSupportPixels;
+            trace.overhangAbsorbedSupportPixels = overhangAbsorbedSupportPixels;
+            trace.absorbedSupportPixels = absorbedSupportPixels;
             trace.finalSupportPixels = modelPixels == 0u && protectSupportEvidence
                 ? component.area
                 : semanticRunPixelCount(finalSupportRuns);
@@ -4376,7 +4674,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               trace.mixedSemanticProjection = true;
               trace.accepted = true;
               trace.decision = MaterialSemantic::Support;
-              trace.reason = SupportDecisionReason::BidirectionalMixedReconciliation;
+              trace.reason = forwardModelCorePixels != 0u
+                  && trace.reverseModelEvidencePixels == 0u
+                  ? SupportDecisionReason::MixedSemanticProjection
+                  : SupportDecisionReason::BidirectionalMixedReconciliation;
             } else if (trace.finalModelPixels != 0u) {
               trace.accepted = false;
               trace.decision = MaterialSemantic::Model;
@@ -4387,6 +4688,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         }
       }
       currentModel.normalize();
+      currentIndependentModel.normalize();
 
       auto& componentIds = result.layers[layer].supportComponentIds;
       std::sort(componentIds.begin(), componentIds.end());
@@ -4407,8 +4709,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         result.summary.firstModelLayer = layer;
       }
 
-      upperUpperModel.assignFrom(upperModel);
-      upperModel.swap(currentModel);
+      upperUpperIndependentModel.assignFrom(upperIndependentModel);
+      upperIndependentModel.swap(currentIndependentModel);
+      upperUpperMaterial.assignFrom(upperMaterial);
+      upperMaterial.swap(currentMaterial);
       ++reverseCompleted;
       if (callbacks.progress) {
         publishComputeTelemetry();
@@ -4418,23 +4722,241 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             supportProgressTotal);
       }
     }
-    // `SupportsOnly` materialization deliberately treats every exposed run as
-    // support, even when pass 1 did not need to create an explicit graph node
-    // for that run. Recompute the compact run counters from the final phase
-    // boundary so diagnostics and verification describe exactly what
-    // materializeLayerSemantics() will emit.
-    result.summary.freeSupportRunCount = 0u;
-    for (std::size_t layer = result.summary.raftLastLayer + 1u;
-         layer < result.layers.size(); ++layer) {
-      if (result.summary.firstModelLayer == 0u
-          || layer < result.summary.firstModelLayer) {
-        result.summary.freeSupportRunCount += reverseLayerMaterialRunCount[layer];
-      } else {
-        result.summary.freeSupportRunCount += reverseLayerWholeSupportRunCount[layer];
+    // Final lineage monotonicity. Once material has been reconciled as model on
+    // one native layer, an exact continuous footprint on the next native layer
+    // cannot become support again merely because it enters a support-rooted
+    // component. This is deliberately applied after both independent semantic
+    // passes: it does not create model evidence, it only prevents a final
+    // MODEL -> SUPPORT reversal on continuous material.
+    //
+    // A validated support born from established model is a distinct support
+    // lineage. Those nodes are explicitly exempt from inherited model locking:
+    // the model remains model at the connection while the independently
+    // validated small branch is still allowed to exist as support.
+    if (result.summary.firstModelLayer != 0u) {
+      SparseRunMask previousLockedModel(
+          source.height(), options.enableBitsetAcceleration);
+      SparseRunMask currentLockedModel(
+          source.height(), options.enableBitsetAcceleration);
+      SparseRunMask currentSupportMask(
+          source.height(), options.enableBitsetAcceleration);
+      SparseRunMask inheritedLockMask(
+          source.height(), options.enableBitsetAcceleration);
+      std::vector<SemanticRun> inheritedLockedRuns;
+      std::vector<SemanticRun> cleanedProjectedRuns;
+      std::vector<SemanticRun> convertedWholeSupportRuns;
+      std::vector<SemanticRun> currentModelRuns;
+
+      for (std::size_t layer = result.summary.firstModelLayer;
+           layer < result.layers.size(); ++layer) {
+        const auto& description = layerDescriptions[layer];
+        auto& semanticLayer = result.layers[layer];
+        std::unordered_map<std::size_t, const Component*> componentByLocalId;
+        componentByLocalId.reserve(description.components.size());
+        for (const auto& component : description.components) {
+          componentByLocalId.emplace(component.localId, &component);
+        }
+
+        currentSupportMask.clear();
+        for (const auto componentId : semanticLayer.supportComponentIds) {
+          const auto componentIterator = componentByLocalId.find(componentId);
+          if (componentIterator != componentByLocalId.end()) {
+            currentSupportMask.addRuns(componentIterator->second->runs);
+          }
+        }
+        currentSupportMask.addRuns(semanticLayer.projectedSupportRuns);
+        currentSupportMask.normalize();
+
+        inheritedLockMask.clear();
+        std::unordered_map<std::size_t, std::size_t> lockedSupportPixelsByComponent;
+        for (const auto& component : description.components) {
+          const auto nodeIterator = nodeByLayer[layer].find(component.localId);
+          const bool validatedModelRootSupport =
+              nodeIterator != nodeByLayer[layer].end()
+              && nodeIterator->second < states.size()
+              && states[nodeIterator->second].accepted
+              && !states[nodeIterator->second].classifiedAsModel
+              && result.nodes[nodeIterator->second].rootedInModel
+              && !result.nodes[nodeIterator->second].rootedInRaft;
+          if (validatedModelRootSupport || previousLockedModel.empty()) {
+            continue;
+          }
+
+          inheritedLockedRuns.clear();
+          previousLockedModel.appendTranslatedIntersectionRuns(
+              component.runs, 0, 0,
+              MaterialSemantic::Model, inheritedLockedRuns);
+          canonicalizeSemanticRuns(
+              inheritedLockedRuns, MaterialSemantic::Model);
+          if (inheritedLockedRuns.empty()) {
+            continue;
+          }
+
+          const auto lockedSupportPixels =
+              currentSupportMask.countSet(inheritedLockedRuns);
+          if (lockedSupportPixels != 0u) {
+            lockedSupportPixelsByComponent.emplace(
+                component.localId, lockedSupportPixels);
+          }
+          inheritedLockMask.addRuns(inheritedLockedRuns);
+        }
+        inheritedLockMask.normalize();
+
+        if (!inheritedLockMask.empty()) {
+          cleanedProjectedRuns.clear();
+          inheritedLockMask.appendClearRuns(
+              semanticLayer.projectedSupportRuns,
+              MaterialSemantic::Support,
+              cleanedProjectedRuns);
+
+          convertedWholeSupportRuns.clear();
+          std::vector<std::uint32_t> retainedWholeSupportIds;
+          retainedWholeSupportIds.reserve(semanticLayer.supportComponentIds.size());
+          for (const auto componentId : semanticLayer.supportComponentIds) {
+            const auto componentIterator = componentByLocalId.find(componentId);
+            if (componentIterator == componentByLocalId.end()
+                || inheritedLockMask.countSet(componentIterator->second->runs) == 0u) {
+              retainedWholeSupportIds.push_back(componentId);
+              continue;
+            }
+            inheritedLockMask.appendClearRuns(
+                componentIterator->second->runs,
+                MaterialSemantic::Support,
+                convertedWholeSupportRuns);
+          }
+          cleanedProjectedRuns.insert(
+              cleanedProjectedRuns.end(),
+              convertedWholeSupportRuns.begin(),
+              convertedWholeSupportRuns.end());
+          canonicalizeSemanticRuns(
+              cleanedProjectedRuns, MaterialSemantic::Support);
+          semanticLayer.supportComponentIds = std::move(retainedWholeSupportIds);
+          semanticLayer.projectedSupportRuns = std::move(cleanedProjectedRuns);
+
+          if (options.captureDecisionTrace) {
+            for (const auto& [componentId, lockedSupportPixels]
+                 : lockedSupportPixelsByComponent) {
+              const auto decisionIterator = decisionByLayer[layer].find(componentId);
+              if (decisionIterator == decisionByLayer[layer].end()) {
+                continue;
+              }
+              auto& trace = result.decisions[decisionIterator->second];
+              trace.monotonicModelLockedPixels += lockedSupportPixels;
+              trace.finalSupportPixels = trace.finalSupportPixels > lockedSupportPixels
+                  ? trace.finalSupportPixels - lockedSupportPixels
+                  : 0u;
+              trace.finalModelPixels = trace.currentAreaPixels >= trace.finalSupportPixels
+                  ? trace.currentAreaPixels - trace.finalSupportPixels
+                  : trace.finalModelPixels;
+              if (trace.finalSupportPixels == 0u && trace.finalModelPixels != 0u) {
+                trace.accepted = false;
+                trace.decision = MaterialSemantic::Model;
+                trace.mixedSemanticProjection = false;
+                trace.reason = SupportDecisionReason::BidirectionalModelContinuation;
+              } else if (trace.finalSupportPixels != 0u
+                         && trace.finalModelPixels != 0u) {
+                trace.accepted = true;
+                trace.decision = MaterialSemantic::Support;
+                trace.mixedSemanticProjection = true;
+                trace.reason = SupportDecisionReason::BidirectionalMixedReconciliation;
+              }
+            }
+          }
+        }
+
+        // The lock for the next layer is the final model partition of this
+        // native layer after monotonic reconciliation. New model pixels may
+        // enlarge it; missing raw matter naturally removes it. No artificial
+        // dilation is performed here, which keeps model-rooted support spawns
+        // independent once they leave the connection footprint.
+        currentSupportMask.clear();
+        for (const auto componentId : semanticLayer.supportComponentIds) {
+          const auto componentIterator = componentByLocalId.find(componentId);
+          if (componentIterator != componentByLocalId.end()) {
+            currentSupportMask.addRuns(componentIterator->second->runs);
+          }
+        }
+        currentSupportMask.addRuns(semanticLayer.projectedSupportRuns);
+        currentSupportMask.normalize();
+
+        currentLockedModel.clear();
+        for (const auto& component : description.components) {
+          currentModelRuns.clear();
+          currentSupportMask.appendClearRuns(
+              component.runs, MaterialSemantic::Model, currentModelRuns);
+          currentLockedModel.addRuns(currentModelRuns);
+        }
+        currentLockedModel.normalize();
+        previousLockedModel.swap(currentLockedModel);
       }
+
+      // Recompute final support counters after monotonic reconciliation. The
+      // pre-model SupportsOnly prefix remains material-wide by contract.
+      result.summary.freeSupportRunCount = 0u;
+      result.summary.projectedSupportRunCount = 0u;
+      result.summary.supportRunCount = 0u;
+      result.summary.lastSupportLayer = 0u;
+      result.summary.bidirectionalMixedComponentCount = 0u;
+      for (std::size_t layer = result.summary.raftLastLayer + 1u;
+           layer < result.layers.size(); ++layer) {
+        const auto& description = layerDescriptions[layer];
+        auto& semanticLayer = result.layers[layer];
+        std::unordered_map<std::size_t, const Component*> componentByLocalId;
+        componentByLocalId.reserve(description.components.size());
+        for (const auto& component : description.components) {
+          componentByLocalId.emplace(component.localId, &component);
+        }
+        if (layer < result.summary.firstModelLayer) {
+          result.summary.freeSupportRunCount += reverseLayerMaterialRunCount[layer];
+          if (!description.components.empty()) {
+            result.summary.lastSupportLayer = layer;
+          }
+          continue;
+        }
+        for (const auto componentId : semanticLayer.supportComponentIds) {
+          const auto componentIterator = componentByLocalId.find(componentId);
+          if (componentIterator != componentByLocalId.end()) {
+            result.summary.freeSupportRunCount +=
+                componentIterator->second->runs.size();
+          }
+        }
+        canonicalizeSemanticRuns(
+            semanticLayer.projectedSupportRuns, MaterialSemantic::Support);
+        result.summary.projectedSupportRunCount +=
+            semanticLayer.projectedSupportRuns.size();
+        if (!semanticLayer.supportComponentIds.empty()
+            || !semanticLayer.projectedSupportRuns.empty()) {
+          result.summary.lastSupportLayer = layer;
+        }
+
+        if (!semanticLayer.projectedSupportRuns.empty()) {
+          currentSupportMask.clear();
+          currentSupportMask.addRuns(semanticLayer.projectedSupportRuns);
+          currentSupportMask.normalize();
+          for (const auto& component : description.components) {
+            const auto supportPixels = currentSupportMask.countSet(component.runs);
+            if (supportPixels != 0u && supportPixels < component.area) {
+              ++result.summary.bidirectionalMixedComponentCount;
+            }
+          }
+        }
+      }
+      result.summary.supportRunCount = result.summary.freeSupportRunCount
+                                       + result.summary.projectedSupportRunCount;
     }
-    result.summary.supportRunCount = result.summary.freeSupportRunCount
-                                     + result.summary.projectedSupportRunCount;
+
+    // A support-only print has no monotonic model pass to recompute these
+    // counters. Mixed/model prints were already recomputed from the final
+    // post-reconciliation representation above.
+    if (result.summary.firstModelLayer == 0u) {
+      result.summary.freeSupportRunCount = 0u;
+      for (std::size_t layer = result.summary.raftLastLayer + 1u;
+           layer < result.layers.size(); ++layer) {
+        result.summary.freeSupportRunCount += reverseLayerMaterialRunCount[layer];
+      }
+      result.summary.supportRunCount = result.summary.freeSupportRunCount
+                                       + result.summary.projectedSupportRunCount;
+    }
   }
 
   std::sort(result.forcedSampleLayers.begin(), result.forcedSampleLayers.end());

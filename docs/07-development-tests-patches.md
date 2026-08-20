@@ -82,6 +82,7 @@ Registered CTest inventory declared by `accloud/CMakeLists.txt`:
 - `accloud_render_pipeline`
 - `accloud_security_redaction`
 - `accloud_smoke`
+- `accloud_support_analysis_bridge`
 - `accloud_support_analysis_diagnostics`
 - `accloud_support_analyzer`
 - `accloud_support_compute_vulkan`
@@ -105,6 +106,17 @@ ctest --preset dev-debug -R '^accloud_dev_raw_traffic_log$' --output-on-failure
 ```
 
 The test verifies creation of `log_brut.txt`, HTTP/MQTT capture and mandatory credential/signed-URL redaction.
+
+The debug-only support-analysis bridge has its own regression test because `SupportAnalysisBridge` is compiled only when `ACCLOUD_DEBUG=ON` and the experimental viewer is enabled:
+
+```bash
+cmake --preset dev-debug
+cmake --build --preset dev-debug --clean-first
+ctest --preset dev-debug -R '^accloud_support_analysis_bridge$' --output-on-failure
+```
+
+The test verifies that a mixed support/model diagnostic decision is exposed as `mixed`, that distinct semantic regions of the same raster component expose distinct `region_id`/`lineage_id` values in the selected JSON, that clicking a cyan support region highlights only that region rather than the whole raster component, and that clicking the model region resolves its own semantic identity.
+
 
 Documentation and archive guard:
 

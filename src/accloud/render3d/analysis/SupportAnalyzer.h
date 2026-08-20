@@ -231,7 +231,15 @@ struct SupportDecisionTrace {
   std::size_t removedPixelsAfterAlignment = 0;
   std::size_t modelLineageOverlapPixels = 0;
   std::size_t reverseModelEvidencePixels = 0;
+  std::size_t forwardModelCorePixels = 0;
   std::size_t reverseSupportCorePixels = 0;
+  std::size_t directAbsorbedSupportPixels = 0;
+  std::size_t overhangAbsorbedSupportPixels = 0;
+  std::size_t absorbedSupportPixels = 0;
+  // Final reconciliation invariant: model ownership propagated from the
+  // immediately preceding native layer can remove support pixels, but it may
+  // never turn back into support on the same continuous material lineage.
+  std::size_t monotonicModelLockedPixels = 0;
   std::size_t finalSupportPixels = 0;
   std::size_t finalModelPixels = 0;
   double centreDistancePixels = 0.0;

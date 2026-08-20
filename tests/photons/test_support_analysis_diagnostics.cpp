@@ -151,6 +151,7 @@ int main() {
   const auto summary = readJson(output / "summary.json");
   const auto analysis = readJson(output / "analysis.json");
   const auto decisions = readJson(output / "decisions.json");
+  const auto regions = readJson(output / "regions.json");
   if (!require(manifest.at("layer_count") == layers.size(),
                "manifest layer count mismatch")
       || !require(manifest.at("images").size() == layers.size(),
@@ -163,6 +164,12 @@ int main() {
           manifest.at("diagnostic_layout").at("pick_map_encoding")
               == "component_id_plus_one_rgb24",
           "diagnostic pick-map encoding mismatch")
+      || !require(
+          manifest.at("diagnostic_layout").at("region_pick_map_encoding")
+              == "semantic_region_selection_id_rgb24",
+          "semantic-region pick-map encoding mismatch")
+      || !require(manifest.at("regions_json") == "regions.json",
+                  "regions JSON reference is missing")
       || !require(manifest.at("diagnostic_layout").at("node_id_labels") == true,
                   "diagnostic node labels must be enabled")
       || !require(summary.at("layer_count") == layers.size(),
@@ -171,6 +178,10 @@ int main() {
                   "analysis layer count mismatch")
       || !require(!decisions.at("decisions").empty(),
                   "decisions JSON is empty")
+      || !require(regions.at("schema") == "accloud.support-regions.v1"
+                      && regions.at("lineage_method") == "adjacent_exact_overlap"
+                      && !regions.at("regions").empty(),
+                  "semantic region registry is missing or invalid")
       || !require(
           analysis.at("options").at("worker_count") == options.workerCount
               && analysis.at("options").at("compute_preference") == "auto"
@@ -290,14 +301,37 @@ int main() {
           "reverse model-evidence pixel count is missing")
       || !require(
           parentedDecision->at("surface_comparison").contains(
+              "forward_model_core_pixels"),
+          "forward model-core pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
               "reverse_support_core_pixels"),
           "reverse support-core pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "direct_absorbed_support_pixels"),
+          "direct absorbed support pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "overhang_absorbed_support_pixels"),
+          "overhang absorbed support pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "absorbed_support_pixels"),
+          "absorbed support pixel count is missing")
+      || !require(
+          parentedDecision->at("surface_comparison").contains(
+              "monotonic_model_locked_pixels"),
+          "monotonic model-lock pixel count is missing")
       || !require(
           parentedDecision->at("surface_comparison").contains(
               "final_support_pixels")
               && parentedDecision->at("surface_comparison").contains(
                   "final_model_pixels"),
           "final bidirectional semantic pixel counts are missing")
+      || !require(
+          parentedDecision->at("state").contains("support_resolution"),
+          "support reconciliation resolution is missing")
       || !require(
           parentedDecision->at("geometric_comparison").contains(
               "reverse_model_lineage_continued")
@@ -311,11 +345,14 @@ int main() {
 
   bool foundNodeLabel = false;
   bool foundSelectionId = false;
+  bool foundSemanticRegion = false;
+  bool foundRegionLineage = false;
+  bool foundRegionParent = false;
   for (std::size_t layer = 1; layer <= layers.size(); ++layer) {
     std::ostringstream baseName;
     baseName << "layer_" << std::setw(6) << std::setfill('0') << layer;
-    const std::array<std::string, 4> panels = {
-        "raw", "semantic", "nodes", "pick",
+    const std::array<std::string, 5> panels = {
+        "raw", "semantic", "nodes", "pick", "regions",
     };
     std::optional<std::pair<std::uint32_t, std::uint32_t>> expectedDimensions;
     for (const auto& panel : panels) {
@@ -360,6 +397,15 @@ int main() {
             "node diagnostic image reference is missing")
         || !require(layerJson.at("diagnostic").at("images").contains("pick_map"),
                     "diagnostic pick-map reference is missing")
+        || !require(
+            layerJson.at("diagnostic").at("images").contains("region_pick_map"),
+            "semantic-region pick-map reference is missing")
+        || !require(
+            layerJson.at("diagnostic").at("region_pick_map_encoding")
+                == "semantic_region_selection_id_rgb24",
+            "per-layer semantic-region pick-map encoding mismatch")
+        || !require(layerJson.contains("semantic_regions"),
+                    "per-layer semantic regions are missing")
         || !require(layerJson.at("diagnostic").contains("source_bounds_pixels"),
                     "diagnostic source bounds are missing")
         || !require(layerJson.at("diagnostic").contains("image_size_pixels"),
@@ -371,12 +417,33 @@ int main() {
     for (const auto& decision : layerJson.at("decisions")) {
       foundSelectionId = foundSelectionId || decision.contains("selection_id");
     }
+    for (const auto& region : layerJson.at("semantic_regions")) {
+      foundSemanticRegion = true;
+      foundRegionLineage = foundRegionLineage
+                           || (region.contains("region_id")
+                               && region.contains("lineage_id")
+                               && region.contains("semantic")
+                               && region.contains("selection_id")
+                               && region.contains("component_id")
+                               && region.contains("node_id")
+                               && region.contains("bounds_pixels")
+                               && region.contains("diagnostic_bounds_pixels"));
+      foundRegionParent = foundRegionParent
+                          || (region.contains("parents")
+                              && !region.at("parents").empty());
+    }
     foundNodeLabel = foundNodeLabel
                      || !layerJson.at("diagnostic").at("node_id_labels").empty();
   }
   if (!require(foundNodeLabel, "diagnostic node labels were not indexed")
       || !require(foundSelectionId,
-                  "diagnostic decisions do not expose selection IDs")) {
+                  "diagnostic decisions do not expose selection IDs")
+      || !require(foundSemanticRegion,
+                  "diagnostic semantic regions were not generated")
+      || !require(foundRegionLineage,
+                  "diagnostic semantic region identities are incomplete")
+      || !require(foundRegionParent,
+                  "diagnostic semantic region lineage has no parent relation")) {
     return 1;
   }
 

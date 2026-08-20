@@ -871,6 +871,22 @@ if(ACCLOUD_ENABLE_QT)
     add_test(NAME accloud_ui_models COMMAND accloud_ui_model_tests)
     set_tests_properties(accloud_ui_models PROPERTIES LABELS "qt;ui")
 
+    if(ACCLOUD_DEBUG AND ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER AND TARGET Qt6::Gui)
+      add_executable(accloud_support_analysis_bridge_tests
+          ${ACCLOUD_TESTS_ROOT}/ui/test_support_analysis_bridge.cpp
+          ${ACCLOUD_SRC_ROOT}/app/SupportAnalysisBridge.cpp
+          ${ACCLOUD_SRC_ROOT}/app/SupportAnalysisBridge.h
+      )
+      target_include_directories(accloud_support_analysis_bridge_tests PRIVATE
+          ${ACCLOUD_SRC_ROOT})
+      target_link_libraries(accloud_support_analysis_bridge_tests PRIVATE
+          Qt6::Core Qt6::Gui)
+      add_test(NAME accloud_support_analysis_bridge
+               COMMAND accloud_support_analysis_bridge_tests)
+      set_tests_properties(accloud_support_analysis_bridge PROPERTIES
+          LABELS "qt;ui;experimental;viewer")
+    endif()
+
     add_executable(accloud_log_tests
         ${ACCLOUD_TESTS_ROOT}/cloud/test_log_bridge.cpp
         ${ACCLOUD_SRC_ROOT}/app/LogBridge.cpp

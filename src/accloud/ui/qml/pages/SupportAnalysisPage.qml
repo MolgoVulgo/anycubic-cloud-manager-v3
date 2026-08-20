@@ -436,6 +436,13 @@ AppPageFrame {
                                            ? root.analysisBridge.selectedNodeId : -1)
                                       .arg(root.analysisBridge
                                            ? root.analysisBridge.selectedSemantic : "")
+                                      + (root.analysisBridge
+                                         && root.analysisBridge.selectedRegionId.length > 0
+                                         ? " · " + root.analysisBridge.selectedRegionId
+                                           + " (" + root.analysisBridge.selectedRegionSemantic + ")"
+                                           + (root.analysisBridge.selectedLineageId.length > 0
+                                              ? " · " + root.analysisBridge.selectedLineageId : "")
+                                         : "")
                                 color: Theme.fgPrimary
                                 font.bold: true
                             }
