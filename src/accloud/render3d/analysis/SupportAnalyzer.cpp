@@ -1144,18 +1144,6 @@ double equivalentDiameterMillimetres(
   return 2.0 * std::sqrt(area / std::numbers::pi);
 }
 
-std::size_t changedPixelCount(const BinaryMask& left, const BinaryMask& right) {
-  if (left.width() != right.width() || left.height() != right.height()) {
-    return std::numeric_limits<std::size_t>::max();
-  }
-  std::size_t changed = 0u;
-  for (std::size_t index = 0; index < left.words().size(); ++index) {
-    changed += static_cast<std::size_t>(
-        std::popcount(left.words()[index] ^ right.words()[index]));
-  }
-  return changed;
-}
-
 std::size_t overlapPixels(const Component& left, const Component& right) {
   if (left.maxX <= right.minX || right.maxX <= left.minX
       || left.maxY <= right.minY || right.maxY <= left.minY) {
@@ -1967,6 +1955,10 @@ struct NodeState {
   std::vector<std::size_t> pendingContactTips;
   std::size_t contactNode = std::numeric_limits<std::size_t>::max();
   std::size_t branchOrigin = std::numeric_limits<std::size_t>::max();
+  // P4: support geometry is piecewise linear. Roots, split children, explicit
+  // joins and detected direction changes start a new straight-line segment;
+  // later motion prediction must not fit through that boundary.
+  bool startsNewLinearSegment = false;
   std::size_t contactLayer = std::numeric_limits<std::size_t>::max();
   std::size_t contactModelPixelCount = 0;
   double contactModelExpansionRatio = 0.0;
@@ -1996,10 +1988,23 @@ struct SupportMotionComparison {
   double predictedMotionX = 0.0;
   double predictedMotionY = 0.0;
   double motionResidual = 0.0;
+  double segmentAngleDegrees = 0.0;
+  double segmentResidualPixels = 0.0;
   double alignedOverlapRatio = 0.0;
   double alignedIntersectionOverUnion = 0.0;
   bool hasMotionPrediction = false;
+  bool segmentLinear = false;
+  bool segmentDirectionBreak = false;
   bool explainedBySupportMotion = false;
+};
+
+struct SupportSegmentGeometry {
+  std::size_t layerSpan = 0u;
+  double directionXPixelsPerLayer = 0.0;
+  double directionYPixelsPerLayer = 0.0;
+  double angleFromVerticalDegrees = 0.0;
+  double maximumResidualPixels = 0.0;
+  bool linear = false;
 };
 
 struct ModelLineageMotion {
@@ -2205,6 +2210,87 @@ ModelLineageMotion bestTranslatedLineageMotion(
       maximumShiftPixels, competingSupport, overlapEvidence);
 }
 
+SupportSegmentGeometry supportSegmentGeometry(
+    std::size_t nodeId,
+    const std::vector<NodeState>& states,
+    const SupportAnalysisOptions& options) {
+  SupportSegmentGeometry geometry;
+  if (nodeId >= states.size() || options.supportSegmentLookbackLayers == 0u) {
+    return geometry;
+  }
+
+  std::vector<std::size_t> lineage;
+  lineage.reserve(options.supportSegmentLookbackLayers + 1u);
+  std::size_t cursor = nodeId;
+  while (cursor != std::numeric_limits<std::size_t>::max()
+         && cursor < states.size()
+         && lineage.size() <= options.supportSegmentLookbackLayers) {
+    lineage.push_back(cursor);
+    if (states[cursor].startsNewLinearSegment) {
+      break;
+    }
+    cursor = states[cursor].parent;
+  }
+  if (lineage.size() < 2u) {
+    return geometry;
+  }
+  std::reverse(lineage.begin(), lineage.end());
+
+  const auto& lower = states[lineage.front()];
+  const auto& upper = states[lineage.back()];
+  const auto layerSpan = upper.depth > lower.depth
+      ? upper.depth - lower.depth
+      : 0u;
+  if (layerSpan == 0u) {
+    return geometry;
+  }
+
+  const double dxPixels = upper.component->centerX - lower.component->centerX;
+  const double dyPixels = upper.component->centerY - lower.component->centerY;
+  geometry.layerSpan = layerSpan;
+  geometry.directionXPixelsPerLayer = dxPixels / static_cast<double>(layerSpan);
+  geometry.directionYPixelsPerLayer = dyPixels / static_cast<double>(layerSpan);
+
+  const double horizontalMillimetres = std::hypot(
+      dxPixels * options.pitchXMillimetres,
+      dyPixels * options.pitchYMillimetres);
+  const double verticalMillimetres = static_cast<double>(layerSpan)
+                                     * options.pitchZMillimetres;
+  geometry.angleFromVerticalDegrees = std::atan2(
+      horizontalMillimetres, verticalMillimetres)
+      * 180.0 / std::numbers::pi;
+
+  double maximumResidual = 0.0;
+  for (const auto lineageNode : lineage) {
+    const auto& state = states[lineageNode];
+    const auto relativeLayer = state.depth - lower.depth;
+    const double expectedX = lower.component->centerX
+        + geometry.directionXPixelsPerLayer * static_cast<double>(relativeLayer);
+    const double expectedY = lower.component->centerY
+        + geometry.directionYPixelsPerLayer * static_cast<double>(relativeLayer);
+    maximumResidual = std::max(
+        maximumResidual,
+        std::hypot(
+            state.component->centerX - expectedX,
+            state.component->centerY - expectedY));
+  }
+  geometry.maximumResidualPixels = maximumResidual;
+  geometry.linear = maximumResidual <= options.supportSegmentMaximumResidualPixels;
+  return geometry;
+}
+
+bool braceAngleMatches(
+    const SupportSegmentGeometry& geometry,
+    const SupportAnalysisOptions& options) {
+  if (!geometry.linear
+      || geometry.layerSpan < options.braceMinimumSegmentLayerSpan) {
+    return false;
+  }
+  return std::abs(geometry.angleFromVerticalDegrees
+                  - options.braceTargetAngleDegrees)
+         <= options.braceAngleToleranceDegrees;
+}
+
 SupportMotionComparison compareSupportMotion(
     std::size_t parentNode,
     const Component& current,
@@ -2243,11 +2329,14 @@ SupportMotionComparison compareSupportMotion(
         / static_cast<double>(unionArea);
   }
 
-  if (parentState.parent != std::numeric_limits<std::size_t>::max()) {
-    const auto& grandParent = *states[parentState.parent].component;
+  const auto segment = supportSegmentGeometry(parentNode, states, options);
+  comparison.segmentAngleDegrees = segment.angleFromVerticalDegrees;
+  comparison.segmentResidualPixels = segment.maximumResidualPixels;
+  comparison.segmentLinear = segment.linear;
+  if (segment.linear && segment.layerSpan >= 2u) {
     comparison.hasMotionPrediction = true;
-    comparison.predictedMotionX = parent.centerX - grandParent.centerX;
-    comparison.predictedMotionY = parent.centerY - grandParent.centerY;
+    comparison.predictedMotionX = segment.directionXPixelsPerLayer;
+    comparison.predictedMotionY = segment.directionYPixelsPerLayer;
     comparison.motionResidual = std::hypot(
         actualMotionX - comparison.predictedMotionX,
         actualMotionY - comparison.predictedMotionY);
@@ -2257,10 +2346,20 @@ SupportMotionComparison compareSupportMotion(
 
   const bool shapePreserved = comparison.alignedOverlapRatio
                               >= options.minimumSupportShapeOverlapRatio;
-  const bool trajectoryPreserved = !comparison.hasMotionPrediction
-                                   || comparison.motionResidual
-                                          <= options.maximumLayerMotionPixels;
-  comparison.explainedBySupportMotion = shapePreserved && trajectoryPreserved;
+  const bool predictedDirectionBreak = comparison.hasMotionPrediction
+      && comparison.motionResidual > options.supportSegmentMaximumResidualPixels;
+  const bool accumulatedNonLinearHistory = segment.layerSpan >= 2u
+      && !segment.linear;
+  comparison.segmentDirectionBreak = shapePreserved
+      && (predictedDirectionBreak || accumulatedNonLinearHistory);
+  // A real vector change does not make a support curve and does not create
+  // model matter. It ends the previous straight segment and starts another one
+  // at this node. The accumulated-history check also prevents a succession of
+  // individually small vector changes from being retained as one curved
+  // segment once the fitted lineage exceeds the straight-line residual bound.
+  // Shape continuity remains valid support evidence; the new segment builds
+  // its own direction from subsequent native layers.
+  comparison.explainedBySupportMotion = shapePreserved;
   return comparison;
 }
 
@@ -2596,29 +2695,6 @@ std::vector<std::size_t> acceptPath(
   return acceptedNodes;
 }
 
-double branchDriftPixelsPerLayer(
-    std::size_t nodeId,
-    const std::vector<NodeState>& states) {
-  const auto& upper = states[nodeId];
-  std::size_t lowerId = upper.branchOrigin;
-  if (lowerId == std::numeric_limits<std::size_t>::max()) {
-    lowerId = nodeId;
-    std::size_t steps = 0;
-    while (states[lowerId].parent != std::numeric_limits<std::size_t>::max()
-           && steps < 8u) {
-      lowerId = states[lowerId].parent;
-      ++steps;
-    }
-  }
-  const auto& lower = states[lowerId];
-  const auto zLayers = upper.depth > lower.depth ? upper.depth - lower.depth : 0u;
-  if (zLayers == 0) {
-    return 0.0;
-  }
-  return centreDistancePixels(*lower.component, *upper.component)
-         / static_cast<double>(zLayers);
-}
-
 
 } // namespace
 
@@ -2634,19 +2710,27 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   if (!(options.pitchXMillimetres > 0.0)
       || !(options.pitchYMillimetres > 0.0)
       || !(options.pitchZMillimetres > 0.0)
+      || !std::isfinite(options.pitchZMillimetres)
+      || !(options.raftHeightMillimetres > 0.0)
+      || !std::isfinite(options.raftHeightMillimetres)
       || options.minimumTrackLayers == 0
       || options.modelContactConfirmationLayers < 2u
       || options.workerCount < kMinimumSupportAnalysisWorkerCount
       || options.workerCount > kMaximumSupportAnalysisWorkerCount
       || options.preparationMemoryBudgetBytes == 0u
-      || !(options.raftMaximumChangedPixelRatio >= 0.0
-           && options.raftMaximumChangedPixelRatio < 1.0)
       || !(options.maximumLayerMotionPixels >= 0.0)
       || !(options.minimumSupportShapeOverlapRatio > 0.0
            && options.minimumSupportShapeOverlapRatio <= 1.0)
-      || !(options.braceMinimumDriftPixelsPerLayer >= 0.0)
-      || !(options.braceMaximumDriftPixelsPerLayer
-           >= options.braceMinimumDriftPixelsPerLayer)
+      || options.supportSegmentLookbackLayers < 2u
+      || !(options.supportSegmentMaximumResidualPixels >= 0.0)
+      || !std::isfinite(options.supportSegmentMaximumResidualPixels)
+      || !(options.braceTargetAngleDegrees > 0.0
+           && options.braceTargetAngleDegrees < 90.0)
+      || !std::isfinite(options.braceTargetAngleDegrees)
+      || !(options.braceAngleToleranceDegrees >= 0.0
+           && options.braceAngleToleranceDegrees < 90.0)
+      || !std::isfinite(options.braceAngleToleranceDegrees)
+      || options.braceMinimumSegmentLayerSpan == 0u
       || !(options.minimumModelExpansionRatio > 1.0)
       || !(options.abruptModelExpansionRatio > 1.0)
       || !(options.abruptModelExpansionRatio
@@ -2689,9 +2773,16 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   std::vector<LayerDescription> layerDescriptions(source.layerCount());
   const LayerDescription* previousLayer = nullptr;
   std::vector<bool> previousModelComponents;
-  std::optional<BinaryMask> firstRaftMask;
-  std::size_t firstRaftArea = 0u;
-  bool raftEnded = false;
+  double raftLayerRatio = options.raftHeightMillimetres / options.pitchZMillimetres;
+  const double nearestRaftLayerCount = std::round(raftLayerRatio);
+  const double raftLayerTolerance = 1e-9 * std::max(1.0, std::abs(raftLayerRatio));
+  if (std::abs(raftLayerRatio - nearestRaftLayerCount) <= raftLayerTolerance) {
+    raftLayerRatio = nearestRaftLayerCount;
+  }
+  const auto requestedRaftLayerCount = static_cast<std::size_t>(
+      std::ceil(raftLayerRatio));
+  const auto raftLayerCount = std::min(
+      source.layerCount(), std::max<std::size_t>(1u, requestedRaftLayerCount));
   bool modelSeen = false;
   SparseRunMask previousSemanticModel(source.height(), options.enableBitsetAcceleration);
   SparseRunMask previousPreviousStableSemanticModel(source.height(), options.enableBitsetAcceleration);
@@ -2716,6 +2807,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     bool rootedInModel = false;
     bool unparentedRaftSupport = false;
     bool taperedExpansion = false;
+    bool segmentDirectionBreak = false;
     SupportDecisionReason decisionReason = SupportDecisionReason::UnrelatedAfterModel;
     std::vector<std::size_t> supportEvidenceParents;
     std::vector<SemanticRun> supportEvidenceRuns;
@@ -2727,9 +2819,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     bool protectSupportEvidence = false;
     ModelLineageMotion modelLineage;
     bool modelSeed = false;
+    bool topLayerSeed = false;
+    bool localMaximumSeed = false;
+    bool legacyModelLineageContinued = false;
+    bool deferredModelLineageContinued = false;
+    bool preserveSupportAgainstNewReverseEvidence = false;
+    bool crossedHistoricalSupportBarrier = false;
+    std::vector<SemanticRun> legacyModelLineageRuns;
+    std::vector<SemanticRun> deferredModelLineageRuns;
     std::vector<SemanticRun> modelRuns;
     std::vector<SemanticRun> directModelRuns;
     std::vector<SemanticRun> finalSupportRuns;
+    std::size_t reverseModelEvidencePixels = 0u;
     std::size_t supportCorePixels = 0u;
     std::size_t forwardModelCorePixels = 0u;
     std::size_t directAbsorbedSupportPixels = 0u;
@@ -2811,7 +2912,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       0u,
       source.layerCount(),
       false,
-      true,
+      false,
       workScheduler,
       options.preparationMemoryBudgetBytes,
       performanceCounters);
@@ -2825,9 +2926,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
   // P6.5 separates immutable layer geometry from semantic reconciliation. All
   // native layers are decoded/described once before classification, while the
-  // adaptive P6.3 window still bounds resident masks. Only the raft prefix
-  // needs raw masks; once its first differing layer is known retained masks are
-  // dropped immediately.
+  // adaptive P6.3 window bounds masks that are being loaded/described. Raft
+  // ownership is now derived from physical Z height, so no raw mask needs to be
+  // retained for first-layer similarity comparisons.
   for (std::size_t layer = 0u; layer < source.layerCount(); ++layer) {
     if (callbacks.isCancelled && callbacks.isCancelled()) {
       result.cancelled = true;
@@ -2835,64 +2936,48 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       return result;
     }
     auto prepared = forwardPreparer.next();
-    if (!prepared.ok || (!raftEnded && !prepared.mask)) {
+    if (!prepared.ok) {
       result.error = prepared.error.empty()
           ? "support analysis could not load a layer"
           : std::move(prepared.error);
       return result;
     }
-    auto mask = std::move(prepared.mask);
     layerDescriptions[layer] = std::move(prepared.description);
     auto& description = layerDescriptions[layer];
     result.summary.componentCount += description.components.size();
 
-    if (layer == 0u) {
-      if (description.totalArea == 0u) {
-        result.error = "support analysis requires raft matter on the first layer";
-        return result;
-      }
-      firstRaftMask = *mask;
-      firstRaftArea = description.totalArea;
+    if (layer == 0u && description.totalArea == 0u) {
+      result.error = "support analysis requires raft matter on the first layer";
+      return result;
     }
 
-    if (!raftEnded) {
-      const auto maximumChangedPixels = static_cast<std::size_t>(std::ceil(
-          static_cast<double>(firstRaftArea)
-          * options.raftMaximumChangedPixelRatio));
-      const bool sameAsFirstRaft = layer == 0u
-          || (firstRaftMask
-              && changedPixelCount(*mask, *firstRaftMask) <= maximumChangedPixels);
-      if (sameAsFirstRaft) {
-        result.summary.raftLastLayer = layer;
-        result.layers[layer].layer = layer;
-        result.layers[layer].phase = PrintPhase::Raft;
-        for (const auto& component : description.components) {
-          result.summary.raftRunCount += component.runs.size();
-          if (options.captureDecisionTrace) {
-            SupportDecisionTrace trace;
-            trace.layer = layer;
-            trace.componentId = component.localId;
-            trace.currentAreaPixels = component.area;
-            trace.minX = component.minX;
-            trace.minY = component.minY;
-            trace.maxX = component.maxX;
-            trace.maxY = component.maxY;
-            trace.accepted = true;
-            trace.decision = MaterialSemantic::Raft;
-            trace.reason = SupportDecisionReason::RaftPrefix;
-            result.decisions.push_back(trace);
-          }
+    if (layer < raftLayerCount) {
+      result.summary.raftLastLayer = layer;
+      result.layers[layer].layer = layer;
+      result.layers[layer].phase = PrintPhase::Raft;
+      for (const auto& component : description.components) {
+        result.summary.raftRunCount += component.runs.size();
+        if (options.captureDecisionTrace) {
+          SupportDecisionTrace trace;
+          trace.layer = layer;
+          trace.componentId = component.localId;
+          trace.currentAreaPixels = component.area;
+          trace.minX = component.minX;
+          trace.minY = component.minY;
+          trace.maxX = component.maxX;
+          trace.maxY = component.maxY;
+          trace.accepted = true;
+          trace.decision = MaterialSemantic::Raft;
+          trace.reason = SupportDecisionReason::RaftPrefix;
+          result.decisions.push_back(trace);
         }
-        if (callbacks.progress) {
-          publishComputeTelemetry();
-          publishPerformanceTelemetry();
-          callbacks.progress(layer + 1u, supportProgressTotal);
-        }
-        continue;
       }
-      raftEnded = true;
-      forwardPreparer.dropRetainedMasks();
-      firstRaftMask.reset();
+      if (callbacks.progress) {
+        publishComputeTelemetry();
+        publishPerformanceTelemetry();
+        callbacks.progress(layer + 1u, supportProgressTotal);
+      }
+      continue;
     }
     if (callbacks.progress) {
       publishComputeTelemetry();
@@ -2944,6 +3029,85 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.cancelled = true;
     result.error = "support analysis cancelled";
     return result;
+  }
+
+  // P5 derives the reverse-pass roots from the immutable geometric graph, not
+  // from pass-1 semantics. A component is a local Z maximum when no edge from
+  // it reaches any component on the next native layer. The global final layer
+  // is handled separately as the mandatory reverse root. This index is built
+  // once from the same adjacent-layer evidence already consumed by pass 1.
+  std::vector<std::vector<std::uint8_t>> hasUpperContinuationByLayer(
+      source.layerCount());
+  for (std::size_t layer = firstSemanticLayer;
+       layer < source.layerCount(); ++layer) {
+    hasUpperContinuationByLayer[layer].assign(
+        layerDescriptions[layer].components.size(), 0u);
+  }
+  for (std::size_t upperLayer = firstSemanticLayer + 1u;
+       upperLayer < source.layerCount(); ++upperLayer) {
+    auto& lowerContinuation = hasUpperContinuationByLayer[upperLayer - 1u];
+    for (const auto& pair : adjacentEvidence[upperLayer].pairs) {
+      const auto lowerComponent =
+          static_cast<std::size_t>(pair.previousComponent);
+      if (lowerComponent < lowerContinuation.size()) {
+        lowerContinuation[lowerComponent] = 1u;
+      }
+    }
+  }
+
+  // P2 establishes a support-provenance channel that is deliberately
+  // independent from the legacy forward semantic verdict. The complete first
+  // native layer above the physical raft is support by obligation. From there,
+  // provenance follows only the immutable geometric adjacency graph between
+  // consecutive native layers. In particular, section growth, taper/contact
+  // heuristics and provisional model decisions are not allowed to erase it.
+  //
+  // This is evidence, not yet the final support/model boundary: the existing
+  // bidirectional semantic reconciliation remains unchanged in P2. P5/P6 can
+  // therefore consume an auditable bottom-up provenance without making P2
+  // regress the currently validated final classification.
+  std::vector<std::vector<std::uint8_t>> raftSupportProvenanceByLayer(
+      source.layerCount());
+  if (firstSemanticLayer < source.layerCount()) {
+    auto& firstProvenance = raftSupportProvenanceByLayer[firstSemanticLayer];
+    firstProvenance.assign(
+        layerDescriptions[firstSemanticLayer].components.size(), 1u);
+    auto& firstIds =
+        result.layers[firstSemanticLayer].raftSupportProvenanceComponentIds;
+    firstIds.reserve(firstProvenance.size());
+    for (std::size_t index = 0u; index < firstProvenance.size(); ++index) {
+      firstIds.push_back(static_cast<std::uint32_t>(
+          layerDescriptions[firstSemanticLayer].components[index].localId));
+    }
+    result.summary.raftSupportProvenanceComponentCount += firstIds.size();
+
+    for (std::size_t layer = firstSemanticLayer + 1u;
+         layer < source.layerCount(); ++layer) {
+      const auto& previousProvenance = raftSupportProvenanceByLayer[layer - 1u];
+      auto& currentProvenance = raftSupportProvenanceByLayer[layer];
+      currentProvenance.assign(layerDescriptions[layer].components.size(), 0u);
+      auto& provenanceIds =
+          result.layers[layer].raftSupportProvenanceComponentIds;
+      provenanceIds.reserve(currentProvenance.size());
+
+      for (std::size_t index = 0u; index < currentProvenance.size(); ++index) {
+        const auto pairs = adjacentEvidence[layer].forCurrent(index);
+        const bool inheritedFromRaft = std::any_of(
+            pairs.begin(), pairs.end(), [&](const auto& pair) {
+              const auto previousComponent =
+                  static_cast<std::size_t>(pair.previousComponent);
+              return previousComponent < previousProvenance.size()
+                  && previousProvenance[previousComponent] != 0u;
+            });
+        if (!inheritedFromRaft) {
+          continue;
+        }
+        currentProvenance[index] = 1u;
+        provenanceIds.push_back(static_cast<std::uint32_t>(
+            layerDescriptions[layer].components[index].localId));
+      }
+      result.summary.raftSupportProvenanceComponentCount += provenanceIds.size();
+    }
   }
 
   const auto invalidNode = std::numeric_limits<std::size_t>::max();
@@ -3007,6 +3171,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           preparation.rootedInModel = false;
           preparation.unparentedRaftSupport = false;
           preparation.taperedExpansion = false;
+          preparation.segmentDirectionBreak = false;
           preparation.decisionReason = SupportDecisionReason::UnrelatedAfterModel;
           preparation.supportEvidenceParents.clear();
           preparation.supportEvidenceRuns.clear();
@@ -3049,6 +3214,37 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             return left.previousNode < right.previousNode;
           });
 
+          // P4: a 45-degree reinforcement is a secondary support-to-support
+          // relation, never the primary structural parent. When a connected
+          // component receives both an established brace-like lineage and an
+          // established non-brace support lineage, prefer the latter before any
+          // trajectory/contact calculation. A lone 45-degree support remains a
+          // normal inclined support: angle alone never creates a brace.
+          if (matches.size() > 1u) {
+            const auto isEstablishedSupportParent = [&](const Match& match) {
+              return match.previousNode < states.size()
+                     && states[match.previousNode].supportEvidenceActive
+                     && states[match.previousNode].depth >= options.minimumTrackLayers;
+            };
+            const auto isBraceLikeParent = [&](const Match& match) {
+              return isEstablishedSupportParent(match)
+                     && braceAngleMatches(
+                         supportSegmentGeometry(match.previousNode, states, options),
+                         options);
+            };
+            if (isBraceLikeParent(matches.front())) {
+              const auto mainParent = std::find_if(
+                  std::next(matches.begin()), matches.end(),
+                  [&](const Match& match) {
+                    return isEstablishedSupportParent(match)
+                           && !isBraceLikeParent(match);
+                  });
+              if (mainParent != matches.end()) {
+                std::iter_swap(matches.begin(), mainParent);
+              }
+            }
+          }
+
           auto& decisionTrace = preparation.decisionTrace;
           decisionTrace.layer = layer;
           decisionTrace.componentId = component.localId;
@@ -3057,6 +3253,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           decisionTrace.minY = component.minY;
           decisionTrace.maxX = component.maxX;
           decisionTrace.maxY = component.maxY;
+          decisionTrace.raftSupportProvenance =
+              layer < raftSupportProvenanceByLayer.size()
+              && index < raftSupportProvenanceByLayer[layer].size()
+              && raftSupportProvenanceByLayer[layer][index] != 0u;
           if (!matches.empty()) {
             decisionTrace.parentNodeId = matches.front().previousNode;
             decisionTrace.parentAreaPixels =
@@ -3091,6 +3291,22 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             overlapsPreviousModel = overlapsPreviousModel || pair.overlap != 0u;
           }
 
+          // P3: topology is driven by provenance, not by section-coverage
+          // thresholds. Count active raft-support parents for diagnostics and
+          // for the later graph commit, but do not use parent multiplicity to
+          // override the still-existing P2 support/model contact heuristics.
+          // P5/P6 will make the model provenance and contact resolver fully
+          // independent.
+          std::size_t supportTopologyParentCount = 0u;
+          for (const auto& match : matches) {
+            if (match.previousNode < states.size()
+                && states[match.previousNode].supportEvidenceActive) {
+              ++supportTopologyParentCount;
+            }
+          }
+          // Keep the old coverage values only as diagnostics during the staged
+          // migration. They no longer decide whether a support convergence is
+          // allowed or whether the component may remain support.
           std::size_t preservedSupportParentCount = 0u;
           std::size_t preservedSupportPixels = 0u;
           for (const auto& match : matches) {
@@ -3109,9 +3325,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               ? 0.0
               : static_cast<double>(std::min(component.area, preservedSupportPixels))
                     / static_cast<double>(component.area);
-          const bool supportFusionContinuation =
-              preservedSupportParentCount >= 2u
-              && supportFusionCoverage >= options.minimumSupportFusionCoverageRatio;
 
           SupportMotionComparison supportMotion;
           TerminalTaperEvidence parentTaperEvidence;
@@ -3121,6 +3334,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           if (!matches.empty()) {
             const auto& match = matches.front();
             const auto& previousState = states[match.previousNode];
+            supportMotion = compareSupportMotion(
+                match.previousNode, component, states, options);
             if (previousState.component->area != 0u
                 && component.area > previousState.component->area) {
               const double expansion = static_cast<double>(component.area)
@@ -3137,9 +3352,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                   previousState.depth >= options.minimumTrackLayers
                   && validModelRoot
                   && parentTaperEvidence.tapered;
-              if (terminalTaperOnParent && !supportFusionContinuation) {
-                supportMotion = compareSupportMotion(
-                    match.previousNode, component, states, options);
+              if (terminalTaperOnParent) {
                 const bool displacedGrowth = expansion > 1.0
                     && centreDistancePixels(*previousState.component, component)
                            > options.maximumLayerMotionPixels;
@@ -3183,11 +3396,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               unparentedRaftSupport = firstSupportLayer && matches.empty();
               decisionReason = unparentedRaftSupport
                   ? SupportDecisionReason::FirstSupportLayer
-                  : (supportFusionContinuation
-                         ? SupportDecisionReason::SupportFusionContinuation
-                         : (supportMotionContinuation
+                  : (supportMotionContinuation
                                 ? SupportDecisionReason::SupportMotionContinuation
-                                : SupportDecisionReason::SupportContinuation));
+                                : SupportDecisionReason::SupportContinuation);
             } else if (modelExistedBeforeLayer && nearPreviousModel) {
               isSupportCandidate = true;
               rootedInModel = true;
@@ -3214,7 +3425,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           decisionTrace.matchedSupportParentCount = matches.size();
           decisionTrace.preservedSupportParentCount = preservedSupportParentCount;
           decisionTrace.supportFusionCoverageRatio = supportFusionCoverage;
-          decisionTrace.supportFusionContinuation = supportFusionContinuation;
+          decisionTrace.supportFusionContinuation = false;
+          decisionTrace.supportJunctionParentCount = supportTopologyParentCount;
           decisionTrace.terminalTaperDecreaseSteps =
               parentTaperEvidence.meaningfulDecreaseSteps;
           decisionTrace.immediateTerminalTaperOnParent = parentTaperEvidence.immediate;
@@ -3236,6 +3448,11 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           decisionTrace.predictedMotionXPixels = supportMotion.predictedMotionX;
           decisionTrace.predictedMotionYPixels = supportMotion.predictedMotionY;
           decisionTrace.motionResidualPixels = supportMotion.motionResidual;
+          decisionTrace.supportSegmentAngleDegrees = supportMotion.segmentAngleDegrees;
+          decisionTrace.supportSegmentResidualPixels = supportMotion.segmentResidualPixels;
+          decisionTrace.supportSegmentLinear = supportMotion.segmentLinear;
+          decisionTrace.supportSegmentDirectionBreak =
+              supportMotion.segmentDirectionBreak;
           decisionTrace.alignedOverlapRatio = supportMotion.alignedOverlapRatio;
           decisionTrace.alignedIntersectionOverUnion =
               supportMotion.alignedIntersectionOverUnion;
@@ -3250,6 +3467,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           preparation.rootedInModel = rootedInModel;
           preparation.unparentedRaftSupport = unparentedRaftSupport;
           preparation.taperedExpansion = taperedExpansion;
+          preparation.segmentDirectionBreak = supportMotion.segmentDirectionBreak;
           preparation.decisionReason = decisionReason;
 
           if (isModel || !isSupportCandidate) {
@@ -3291,6 +3509,14 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 component.runs, shiftX, shiftY,
                 MaterialSemantic::Support, preparation.supportEvidenceRuns);
           }
+          std::sort(
+              preparation.supportEvidenceParents.begin(),
+              preparation.supportEvidenceParents.end());
+          preparation.supportEvidenceParents.erase(
+              std::unique(
+                  preparation.supportEvidenceParents.begin(),
+                  preparation.supportEvidenceParents.end()),
+              preparation.supportEvidenceParents.end());
           canonicalizeSemanticRuns(
               preparation.supportEvidenceRuns, MaterialSemantic::Support);
           preparation.supportEvidenceActive = supportEvidenceRoot
@@ -3311,8 +3537,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
     std::vector<std::uint32_t> currentStructuralChildCount(
         previousCandidateNodes.size(), 0u);
-    std::vector<double> previousBranchDrift(
-        previousCandidateNodes.size(), std::numeric_limits<double>::quiet_NaN());
     {
       ScopedAtomicMicrosecondTimer commitTimer(
           performanceCounters.forwardCommitMicroseconds);
@@ -3327,6 +3551,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       const bool unparentedRaftSupport = preparation.unparentedRaftSupport;
       const bool nearPreviousModel = preparation.nearPreviousModel;
       const bool taperedExpansion = preparation.taperedExpansion;
+      const bool segmentDirectionBreak = preparation.segmentDirectionBreak;
 
       if (isModel) {
         currentIsModel[index] = true;
@@ -3364,6 +3589,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       state.branchOrigin = parent == std::numeric_limits<std::size_t>::max()
                                ? std::numeric_limits<std::size_t>::max()
                                : states[parent].branchOrigin;
+      state.startsNewLinearSegment =
+          parent == std::numeric_limits<std::size_t>::max()
+          || segmentDirectionBreak;
       state.component = &current.components[index];
       state.runCount = current.components[index].runs.size();
       state.mergedWithEstablishedModel = preparation.overlapsPreviousModel;
@@ -3419,45 +3647,77 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         if (edgeKind == SupportEdgeKind::Split) {
           ++result.summary.splitEdgeCount;
           states[nodeId].branchOrigin = parent;
+          states[nodeId].startsNewLinearSegment = true;
           result.nodes[nodeId].kind = SupportNodeKind::Branch;
         } else {
           ++result.summary.continuationEdgeCount;
         }
 
-        // A current connected component can geometrically touch several prior
-        // branches. Only one parent is retained. A secondary contact is kept
-        // as a brace relation only when one of the two independent paths has
-        // the validated layer-native lateral drift.
-        const double currentDrift = matches.size() > 1u
-            ? branchDriftPixelsPerLayer(nodeId, states)
-            : 0.0;
+        // P4 keeps one primary parent for the straight segment and treats
+        // bracing as a secondary support-to-support relation. The brace test is
+        // expressed in physical XYZ coordinates around the configured target
+        // angle (45 degrees by default), not as a raster drift interval. A
+        // brace-like lineage must already span several native layers and must
+        // terminate on an established non-brace support lineage. It can never
+        // replace that lineage as the primary structural parent.
+        const auto primaryGeometry = supportSegmentGeometry(parent, states, options);
+        const bool primaryBraceLike = braceAngleMatches(primaryGeometry, options);
+        const bool primaryEstablished = states[parent].supportEvidenceActive
+                                        && states[parent].depth
+                                               >= options.minimumTrackLayers;
+        std::size_t structuralJunctionParentCount =
+            std::binary_search(
+                states[nodeId].supportEvidenceParents.begin(),
+                states[nodeId].supportEvidenceParents.end(), parent)
+                ? 1u
+                : 0u;
         for (std::size_t matchIndex = 1; matchIndex < matches.size(); ++matchIndex) {
           const auto other = matches[matchIndex].previousNode;
-          double otherDrift = 0.0;
-          const auto otherLocal = previousNodeLocalIndex.find(other);
-          if (otherLocal != previousNodeLocalIndex.end()) {
-            auto& cachedDrift = previousBranchDrift[otherLocal->second];
-            if (std::isnan(cachedDrift)) {
-              cachedDrift = branchDriftPixelsPerLayer(other, states);
-            }
-            otherDrift = cachedDrift;
-          } else {
-            otherDrift = branchDriftPixelsPerLayer(other, states);
+          const bool provenanceParent = std::binary_search(
+              states[nodeId].supportEvidenceParents.begin(),
+              states[nodeId].supportEvidenceParents.end(), other);
+          if (!provenanceParent || other >= states.size()) {
+            continue;
           }
-          if (currentDrift >= options.braceMinimumDriftPixelsPerLayer
-              && currentDrift <= options.braceMaximumDriftPixelsPerLayer) {
-            states[nodeId].supportContact = true;
-            states[nodeId].contactNode = other;
-            result.edges.push_back(SupportGraphEdge{
-                nodeId, other, SupportEdgeKind::Brace});
-            ++result.summary.braceEdgeCount;
-          } else if (otherDrift >= options.braceMinimumDriftPixelsPerLayer
-                     && otherDrift <= options.braceMaximumDriftPixelsPerLayer) {
+
+          const auto otherGeometry = supportSegmentGeometry(other, states, options);
+          const bool otherBraceLike = braceAngleMatches(otherGeometry, options);
+          const bool braceCreated = primaryEstablished
+              && !primaryBraceLike
+              && states[other].supportEvidenceActive
+              && otherBraceLike;
+          if (braceCreated) {
             states[other].supportContact = true;
             states[other].contactNode = nodeId;
             result.edges.push_back(SupportGraphEdge{
                 other, nodeId, SupportEdgeKind::Brace});
             ++result.summary.braceEdgeCount;
+            if (decisionIndex != invalidDecision) {
+              auto& trace = result.decisions[decisionIndex];
+              trace.braceAngleMatched = true;
+              trace.braceAngleDegrees = otherGeometry.angleFromVerticalDegrees;
+            }
+            continue;
+          }
+
+          result.edges.push_back(SupportGraphEdge{
+              other, nodeId, SupportEdgeKind::Join});
+          ++result.summary.junctionEdgeCount;
+          ++structuralJunctionParentCount;
+          const auto joinParentLocal = previousNodeLocalIndex.find(other);
+          if (joinParentLocal != previousNodeLocalIndex.end()) {
+            previousHasStructuralChild[joinParentLocal->second] = true;
+            ++currentStructuralChildCount[joinParentLocal->second];
+          }
+        }
+        if (structuralJunctionParentCount >= 2u) {
+          states[nodeId].startsNewLinearSegment = true;
+          result.nodes[nodeId].kind = SupportNodeKind::Junction;
+          if (decisionIndex != invalidDecision) {
+            auto& trace = result.decisions[decisionIndex];
+            trace.reason = SupportDecisionReason::SupportJunctionContinuation;
+            trace.supportJunctionContinuation = true;
+            trace.supportJunctionParentCount = structuralJunctionParentCount;
           }
         }
       }
@@ -4019,9 +4279,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       if (dependent.classifiedAsModel || dependent.accepted) {
         continue;
       }
-      const double drift = branchDriftPixelsPerLayer(dependent.nodeId, states);
-      if (drift < options.braceMinimumDriftPixelsPerLayer
-          || drift > options.braceMaximumDriftPixelsPerLayer) {
+      const auto geometry = supportSegmentGeometry(
+          dependent.nodeId, states, options);
+      if (!braceAngleMatches(geometry, options)) {
         continue;
       }
       const auto newlyAccepted = acceptPath(dependent.nodeId, states);
@@ -4037,6 +4297,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
   result.summary.continuationEdgeCount = 0;
   result.summary.splitEdgeCount = 0;
+  result.summary.junctionEdgeCount = 0;
   result.summary.braceEdgeCount = 0;
   result.summary.modelContactEdgeCount = 0;
   for (const auto& edge : result.edges) {
@@ -4053,6 +4314,9 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       break;
     case SupportEdgeKind::Split:
       ++result.summary.splitEdgeCount;
+      break;
+    case SupportEdgeKind::Join:
+      ++result.summary.junctionEdgeCount;
       break;
     case SupportEdgeKind::Brace:
       ++result.summary.braceEdgeCount;
@@ -4163,8 +4427,6 @@ SupportAnalysisResult SupportAnalyzer::analyze(
   // The reverse pass supplies the independent evidence that was missing from
   // the one-way classifier. Only the reconciliation below produces final
   // support/model runs.
-  const std::size_t forwardFirstModelLayer = result.summary.firstModelLayer;
-  const bool forwardModelObserved = forwardFirstModelLayer != 0u;
   // Native-layer hand-off invariant: pass 2 starts on the exact native layer
   // where pass 1 ended. This is deliberately independent from viewer sampling
   // stride/parity; neither pass may skip or offset the shared top boundary.
@@ -4202,11 +4464,27 @@ SupportAnalysisResult SupportAnalyzer::analyze(
     result.summary.projectedSupportRunCount = 0u;
     result.summary.supportRunCount = 0u;
     result.summary.reverseModelSeedCount = 0u;
+    result.summary.reverseModelTopSeedCount = 0u;
+    result.summary.reverseModelLocalMaximumSeedCount = 0u;
     result.summary.reverseModelContinuationCount = 0u;
     result.summary.bidirectionalMixedComponentCount = 0u;
 
     SparseRunMask upperIndependentModel(source.height(), options.enableBitsetAcceleration);
     SparseRunMask upperUpperIndependentModel(source.height(), options.enableBitsetAcceleration);
+    // P5 separates reverse evidence that the pre-P5 path could already carry
+    // from evidence introduced only by topological local maxima or by crossing
+    // a whole-support barrier that the historical reverse pass refused to
+    // traverse. Both are propagated independently; only the newly introduced
+    // channel is prevented from changing an existing support partition until
+    // P6 installs the new contact resolver.
+    SparseRunMask upperLegacyModel(
+        source.height(), options.enableBitsetAcceleration);
+    SparseRunMask upperDeferredModel(
+        source.height(), options.enableBitsetAcceleration);
+    SparseRunMask currentLegacyModel(
+        source.height(), options.enableBitsetAcceleration);
+    SparseRunMask currentDeferredModel(
+        source.height(), options.enableBitsetAcceleration);
     SparseRunMask upperMaterial(source.height(), options.enableBitsetAcceleration);
     SparseRunMask upperUpperMaterial(source.height(), options.enableBitsetAcceleration);
     SparseRunMask upperModelEnvelope(source.height(), options.enableBitsetAcceleration);
@@ -4238,6 +4516,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       }
       currentModel.clear();
       currentIndependentModel.clear();
+      currentLegacyModel.clear();
+      currentDeferredModel.clear();
       currentMaterial.clear();
       for (const auto& component : current.components) {
         currentMaterial.addRuns(component.runs);
@@ -4294,9 +4574,18 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             preparation.protectSupportEvidence = false;
             preparation.modelLineage = ModelLineageMotion{};
             preparation.modelSeed = false;
+            preparation.topLayerSeed = false;
+            preparation.localMaximumSeed = false;
+            preparation.legacyModelLineageContinued = false;
+            preparation.deferredModelLineageContinued = false;
+            preparation.preserveSupportAgainstNewReverseEvidence = false;
+            preparation.crossedHistoricalSupportBarrier = false;
+            preparation.legacyModelLineageRuns.clear();
+            preparation.deferredModelLineageRuns.clear();
             preparation.modelRuns.clear();
             preparation.directModelRuns.clear();
             preparation.finalSupportRuns.clear();
+            preparation.reverseModelEvidencePixels = 0u;
             preparation.supportCorePixels = 0u;
             preparation.forwardModelCorePixels = 0u;
             preparation.directAbsorbedSupportPixels = 0u;
@@ -4363,8 +4652,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             ModelLineageMotion modelLineage;
             const auto upperEnvelopeOverlap =
                 upperModelEnvelope.countSet(component.runs);
-            if (!forwardOwnsWholeSupportComponent
-                && !upperIndependentModel.empty() && upperEnvelopeOverlap != 0u) {
+            if (!upperIndependentModel.empty() && upperEnvelopeOverlap != 0u) {
               modelLineage = bestTranslatedLineageMotion(
                   component, upperIndependentModel,
                   upperUpperIndependentModel.empty()
@@ -4378,16 +4666,61 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             preparation.modelLineage = modelLineage;
 
             const bool topLayerSeed = layer == passTwoFirstLayer;
-            const std::size_t independentModelSeedFloor = forwardModelObserved
-                ? forwardFirstModelLayer
-                : result.summary.raftLastLayer + 1u;
-            const bool boundedIndependentModelSeed = !topLayerSeed
-                && layer >= independentModelSeedFloor
+            const bool hasUpperContinuation =
+                layer < hasUpperContinuationByLayer.size()
+                && index < hasUpperContinuationByLayer[layer].size()
+                && hasUpperContinuationByLayer[layer][index] != 0u;
+            const bool localMaximumSeed = !topLayerSeed
                 && !modelLineage.continued
-                && !hasSupportEvidence;
-            const bool modelSeed = topLayerSeed || boundedIndependentModelSeed;
+                && !hasUpperContinuation;
+            const bool modelSeed = topLayerSeed || localMaximumSeed;
             preparation.modelSeed = modelSeed;
+            preparation.topLayerSeed = topLayerSeed;
+            preparation.localMaximumSeed = localMaximumSeed;
 
+            if (modelLineage.continued) {
+              if (!upperLegacyModel.empty()) {
+                upperLegacyModel.appendTranslatedIntersectionRuns(
+                    component.runs,
+                    modelLineage.shiftX,
+                    modelLineage.shiftY,
+                    MaterialSemantic::Model,
+                    preparation.legacyModelLineageRuns);
+                canonicalizeSemanticRuns(
+                    preparation.legacyModelLineageRuns,
+                    MaterialSemantic::Model);
+              }
+              if (!upperDeferredModel.empty()) {
+                upperDeferredModel.appendTranslatedIntersectionRuns(
+                    component.runs,
+                    modelLineage.shiftX,
+                    modelLineage.shiftY,
+                    MaterialSemantic::Model,
+                    preparation.deferredModelLineageRuns);
+                canonicalizeSemanticRuns(
+                    preparation.deferredModelLineageRuns,
+                    MaterialSemantic::Model);
+              }
+              preparation.legacyModelLineageContinued =
+                  !preparation.legacyModelLineageRuns.empty();
+              preparation.deferredModelLineageContinued =
+                  !preparation.deferredModelLineageRuns.empty();
+            }
+            const bool crossedHistoricalSupportBarrier =
+                modelLineage.continued && forwardOwnsWholeSupportComponent;
+            preparation.crossedHistoricalSupportBarrier =
+                crossedHistoricalSupportBarrier;
+            const bool deferredOnlyReverseEvidence =
+                localMaximumSeed
+                || crossedHistoricalSupportBarrier
+                || (preparation.deferredModelLineageContinued
+                    && !preparation.legacyModelLineageContinued);
+            // P5 must expose and propagate the new independent model proof, but
+            // changing the boundary inside a support-provenance component is
+            // deliberately deferred to P6. Evidence that existed on the old
+            // reverse path still uses the current reconciliation unchanged.
+            preparation.preserveSupportAgainstNewReverseEvidence =
+                protectSupportEvidence && deferredOnlyReverseEvidence;
             supportCore.clear();
             inheritedModel.clear();
             auto& modelRuns = preparation.modelRuns;
@@ -4400,10 +4733,41 @@ SupportAnalysisResult SupportAnalyzer::analyze(
             std::size_t absorbedSupportPixels = 0u;
 
             if (modelSeed) {
-              modelRuns = component.runs;
+              // The global top remains an authoritative whole-model seed. A
+              // lower topological maximum is independent model provenance, but
+              // P5 does not let that new evidence erase an already protected
+              // forward support partition on the seed layer itself. The raw
+              // component still enters directModelRuns so pass 2 can propagate
+              // the independent hypothesis downward; P6 will own the final
+              // contact/conflict boundary.
               directModelRuns = component.runs;
-              canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
               canonicalizeSemanticRuns(directModelRuns, MaterialSemantic::Model);
+              if (!topLayerSeed && protectSupportEvidence) {
+                supportCore.clear();
+                if (forwardOwnsWholeSupportComponent) {
+                  supportCore.addRuns(component.runs);
+                } else {
+                  supportCore.addRuns(states[nodeId].supportEvidenceRuns);
+                }
+                supportCore.normalize();
+                supportCorePixels = supportCore.countSet(component.runs);
+                supportCore.appendClearRuns(
+                    component.runs, MaterialSemantic::Model, modelRuns);
+                canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+                finalSupportRuns.clear();
+                if (forwardOwnsWholeSupportComponent) {
+                  finalSupportRuns = component.runs;
+                  canonicalizeSemanticRuns(
+                      finalSupportRuns, MaterialSemantic::Support);
+                } else {
+                  finalSupportRuns = states[nodeId].supportEvidenceRuns;
+                  canonicalizeSemanticRuns(
+                      finalSupportRuns, MaterialSemantic::Support);
+                }
+              } else {
+                modelRuns = component.runs;
+                canonicalizeSemanticRuns(modelRuns, MaterialSemantic::Model);
+              }
             } else if (modelLineage.continued) {
               // This is the independent reverse-model footprint on the current
               // native layer before any support reconciliation is applied.
@@ -4419,124 +4783,156 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
               if (protectSupportEvidence) {
                 const auto& supportState = states[nodeId];
-                bool continuingSupportParent = supportState.supportEvidenceParents.empty();
-                for (const auto parentNode : supportState.supportEvidenceParents) {
-                  if (parentNode >= states.size()
-                      || !states[parentNode].supportEvidenceActive) {
-                    continue;
-                  }
-                  if (!supportEvidenceStopsBefore(
-                          parentNode, nodeId, states, options)) {
-                    continuingSupportParent = true;
-                    break;
-                  }
-                }
 
-                if (continuingSupportParent) {
-                  supportCore.addRuns(supportState.supportEvidenceRuns);
+                if (preparation.preserveSupportAgainstNewReverseEvidence) {
+                  if (forwardOwnsWholeSupportComponent) {
+                    supportCore.addRuns(component.runs);
+                  } else {
+                    supportCore.addRuns(supportState.supportEvidenceRuns);
+                  }
                   supportCore.normalize();
                   supportCorePixels = supportCore.countSet(component.runs);
-
-                  // First resolve the exact reverse-model overlap. This is the
-                  // direct pass-2 claim and remains independent from any local
-                  // overhang extrapolation.
-                  inheritedModel.appendClearRuns(
-                      supportState.supportEvidenceRuns,
-                      MaterialSemantic::Support,
-                      directSupportRuns);
+                  if (forwardOwnsWholeSupportComponent) {
+                    finalSupportRuns = component.runs;
+                  } else {
+                    finalSupportRuns = supportState.supportEvidenceRuns;
+                  }
                   canonicalizeSemanticRuns(
-                      directSupportRuns, MaterialSemantic::Support);
-                  const auto directSurvivingSupportPixels =
-                      semanticRunPixelCount(directSupportRuns);
-                  directAbsorbedSupportPixels =
-                      supportCorePixels > directSurvivingSupportPixels
-                          ? supportCorePixels - directSurvivingSupportPixels
-                          : 0u;
-
-                  supportCore.clear();
-                  supportCore.addRuns(directSupportRuns);
-                  supportCore.normalize();
+                      finalSupportRuns, MaterialSemantic::Support);
                   supportCore.appendClearRuns(
                       component.runs,
                       MaterialSemantic::Model,
-                      directModelRuns);
+                      modelRuns);
+                  canonicalizeSemanticRuns(
+                      modelRuns, MaterialSemantic::Model);
+                  // Keep the independent reverse footprint for the next layer.
+                  // It is intentionally broader than the provisional final
+                  // model partition when P5 has introduced a new conflict.
+                  directModelRuns = inheritedRuns;
                   canonicalizeSemanticRuns(
                       directModelRuns, MaterialSemantic::Model);
-
-                  // A large connected model can have almost zero global
-                  // translation while its local contour advances over a
-                  // support. Detect only fronts that really grew between the
-                  // two upper native layers, dilate that observed front by the
-                  // existing bounded layer-motion allowance, and let it claim
-                  // support pixels that are also inside the corresponding
-                  // upper-model envelope. Stable model boundaries therefore do
-                  // not expand, and unrelated support remains untouched.
-                  bool contractingSupportEvidence = false;
+                } else {
+                  bool continuingSupportParent =
+                      supportState.supportEvidenceParents.empty();
                   for (const auto parentNode : supportState.supportEvidenceParents) {
                     if (parentNode >= states.size()
                         || !states[parentNode].supportEvidenceActive) {
                       continue;
                     }
-                    const auto parentSupportPixels = semanticRunPixelCount(
-                        states[parentNode].supportEvidenceRuns);
-                    if (parentSupportPixels > supportCorePixels) {
-                      contractingSupportEvidence = true;
+                    if (!supportEvidenceStopsBefore(
+                            parentNode, nodeId, states, options)) {
+                      continuingSupportParent = true;
                       break;
                     }
                   }
-                  const bool allowLocalOverhangProjection =
-                      states[nodeId].mergedWithEstablishedModel
-                      && contractingSupportEvidence
-                      && maximumModelLineageShift != 0u
-                      && !upperModelGrowth.empty();
-                  if (allowLocalOverhangProjection) {
-                    upperModelEnvelope.appendTranslatedIntersectionRuns(
-                        directSupportRuns,
-                        modelLineage.shiftX,
-                        modelLineage.shiftY,
-                        MaterialSemantic::Model,
-                        overhangEnvelopeRuns);
-                    canonicalizeSemanticRuns(
-                        overhangEnvelopeRuns, MaterialSemantic::Model);
-                    upperModelGrowthEnvelope.appendTranslatedIntersectionRuns(
-                        overhangEnvelopeRuns,
-                        modelLineage.shiftX,
-                        modelLineage.shiftY,
-                        MaterialSemantic::Model,
-                        overhangGrowthRuns);
-                    canonicalizeSemanticRuns(
-                        overhangGrowthRuns, MaterialSemantic::Model);
+
+                  if (continuingSupportParent) {
+                    supportCore.addRuns(supportState.supportEvidenceRuns);
+                    supportCore.normalize();
+                    supportCorePixels = supportCore.countSet(component.runs);
+
+                    // First resolve the exact reverse-model overlap. This is the
+                    // direct pass-2 claim and remains independent from any local
+                    // overhang extrapolation.
                     inheritedModel.appendClearRuns(
-                        overhangGrowthRuns,
-                        MaterialSemantic::Model,
-                        overhangOnlyRuns);
+                        supportState.supportEvidenceRuns,
+                        MaterialSemantic::Support,
+                        directSupportRuns);
                     canonicalizeSemanticRuns(
-                        overhangOnlyRuns, MaterialSemantic::Model);
-                    if (!overhangOnlyRuns.empty()) {
-                      inheritedModel.addRuns(overhangOnlyRuns);
-                      inheritedModel.normalize();
+                        directSupportRuns, MaterialSemantic::Support);
+                    const auto directSurvivingSupportPixels =
+                        semanticRunPixelCount(directSupportRuns);
+                    directAbsorbedSupportPixels =
+                        supportCorePixels > directSurvivingSupportPixels
+                            ? supportCorePixels - directSurvivingSupportPixels
+                            : 0u;
+
+                    supportCore.clear();
+                    supportCore.addRuns(directSupportRuns);
+                    supportCore.normalize();
+                    supportCore.appendClearRuns(
+                        component.runs,
+                        MaterialSemantic::Model,
+                        directModelRuns);
+                    canonicalizeSemanticRuns(
+                        directModelRuns, MaterialSemantic::Model);
+
+                    // A large connected model can have almost zero global
+                    // translation while its local contour advances over a
+                    // support. Detect only fronts that really grew between the
+                    // two upper native layers, dilate that observed front by the
+                    // existing bounded layer-motion allowance, and let it claim
+                    // support pixels that are also inside the corresponding
+                    // upper-model envelope. Stable model boundaries therefore do
+                    // not expand, and unrelated support remains untouched.
+                    bool contractingSupportEvidence = false;
+                    for (const auto parentNode : supportState.supportEvidenceParents) {
+                      if (parentNode >= states.size()
+                          || !states[parentNode].supportEvidenceActive) {
+                        continue;
+                      }
+                      const auto parentSupportPixels = semanticRunPixelCount(
+                          states[parentNode].supportEvidenceRuns);
+                      if (parentSupportPixels > supportCorePixels) {
+                        contractingSupportEvidence = true;
+                        break;
+                      }
                     }
+                    const bool allowLocalOverhangProjection =
+                        states[nodeId].mergedWithEstablishedModel
+                        && contractingSupportEvidence
+                        && maximumModelLineageShift != 0u
+                        && !upperModelGrowth.empty();
+                    if (allowLocalOverhangProjection) {
+                      upperModelEnvelope.appendTranslatedIntersectionRuns(
+                          directSupportRuns,
+                          modelLineage.shiftX,
+                          modelLineage.shiftY,
+                          MaterialSemantic::Model,
+                          overhangEnvelopeRuns);
+                      canonicalizeSemanticRuns(
+                          overhangEnvelopeRuns, MaterialSemantic::Model);
+                      upperModelGrowthEnvelope.appendTranslatedIntersectionRuns(
+                          overhangEnvelopeRuns,
+                          modelLineage.shiftX,
+                          modelLineage.shiftY,
+                          MaterialSemantic::Model,
+                          overhangGrowthRuns);
+                      canonicalizeSemanticRuns(
+                          overhangGrowthRuns, MaterialSemantic::Model);
+                      inheritedModel.appendClearRuns(
+                          overhangGrowthRuns,
+                          MaterialSemantic::Model,
+                          overhangOnlyRuns);
+                      canonicalizeSemanticRuns(
+                          overhangOnlyRuns, MaterialSemantic::Model);
+                      if (!overhangOnlyRuns.empty()) {
+                        inheritedModel.addRuns(overhangOnlyRuns);
+                        inheritedModel.normalize();
+                      }
+                    }
+
+                    inheritedModel.appendClearRuns(
+                        supportState.supportEvidenceRuns,
+                        MaterialSemantic::Support,
+                        finalSupportRuns);
+                    canonicalizeSemanticRuns(
+                        finalSupportRuns, MaterialSemantic::Support);
+
+                    const auto survivingSupportPixels =
+                        semanticRunPixelCount(finalSupportRuns);
+                    overhangAbsorbedSupportPixels =
+                        directSurvivingSupportPixels > survivingSupportPixels
+                            ? directSurvivingSupportPixels - survivingSupportPixels
+                            : 0u;
+                    absorbedSupportPixels =
+                        directAbsorbedSupportPixels + overhangAbsorbedSupportPixels;
+                  } else {
+                    directModelRuns = component.runs;
+                    canonicalizeSemanticRuns(
+                        directModelRuns, MaterialSemantic::Model);
                   }
 
-                  inheritedModel.appendClearRuns(
-                      supportState.supportEvidenceRuns,
-                      MaterialSemantic::Support,
-                      finalSupportRuns);
-                  canonicalizeSemanticRuns(
-                      finalSupportRuns, MaterialSemantic::Support);
-
-                  const auto survivingSupportPixels =
-                      semanticRunPixelCount(finalSupportRuns);
-                  overhangAbsorbedSupportPixels =
-                      directSurvivingSupportPixels > survivingSupportPixels
-                          ? directSurvivingSupportPixels - survivingSupportPixels
-                          : 0u;
-                  absorbedSupportPixels =
-                      directAbsorbedSupportPixels + overhangAbsorbedSupportPixels;
-                } else {
-                  directModelRuns = component.runs;
-                  canonicalizeSemanticRuns(
-                      directModelRuns, MaterialSemantic::Model);
                 }
 
                 supportCore.clear();
@@ -4585,7 +4981,13 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               directModelRuns.clear();
             }
 
+            const auto reverseModelEvidencePixels = modelSeed
+                ? component.area
+                : (modelLineage.continued
+                       ? semanticRunPixelCount(inheritedRuns)
+                       : 0u);
             const auto modelPixels = semanticRunPixelCount(modelRuns);
+            preparation.reverseModelEvidencePixels = reverseModelEvidencePixels;
             preparation.supportCorePixels = supportCorePixels;
             preparation.forwardModelCorePixels = forwardModelCorePixels;
             preparation.directAbsorbedSupportPixels = directAbsorbedSupportPixels;
@@ -4611,6 +5013,10 @@ SupportAnalysisResult SupportAnalyzer::analyze(
         const bool protectSupportEvidence = preparation.protectSupportEvidence;
         const auto& modelLineage = preparation.modelLineage;
         const bool modelSeed = preparation.modelSeed;
+        const bool topLayerSeed = preparation.topLayerSeed;
+        const bool localMaximumSeed = preparation.localMaximumSeed;
+        const auto reverseModelEvidencePixels =
+            preparation.reverseModelEvidencePixels;
         const auto modelPixels = preparation.modelPixels;
         const auto supportCorePixels = preparation.supportCorePixels;
         const auto forwardModelCorePixels = preparation.forwardModelCorePixels;
@@ -4625,6 +5031,20 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
         currentModel.addRuns(modelRuns);
         currentIndependentModel.addRuns(directModelRuns);
+        if (topLayerSeed) {
+          currentLegacyModel.addRuns(component.runs);
+        } else if (modelLineage.continued
+                   && !preparation.crossedHistoricalSupportBarrier) {
+          currentLegacyModel.addRuns(preparation.legacyModelLineageRuns);
+        }
+        if (localMaximumSeed) {
+          currentDeferredModel.addRuns(component.runs);
+        } else if (modelLineage.continued) {
+          currentDeferredModel.addRuns(preparation.deferredModelLineageRuns);
+          if (preparation.crossedHistoricalSupportBarrier) {
+            currentDeferredModel.addRuns(directModelRuns);
+          }
+        }
         layerModelPixels += modelPixels;
 
         if (protectSupportEvidence) {
@@ -4643,9 +5063,16 @@ SupportAnalysisResult SupportAnalyzer::analyze(
           }
         }
 
-        if (modelSeed && modelPixels != 0u) {
+        if (modelSeed && reverseModelEvidencePixels != 0u) {
           ++result.summary.reverseModelSeedCount;
-        } else if (modelLineage.continued && modelPixels != 0u) {
+          if (topLayerSeed) {
+            ++result.summary.reverseModelTopSeedCount;
+          }
+          if (localMaximumSeed) {
+            ++result.summary.reverseModelLocalMaximumSeedCount;
+          }
+        } else if (modelLineage.continued
+                   && reverseModelEvidencePixels != 0u) {
           ++result.summary.reverseModelContinuationCount;
         }
 
@@ -4654,8 +5081,7 @@ SupportAnalysisResult SupportAnalyzer::analyze(
               component.localId);
           if (decisionIterator != decisionByLayer[layer].end()) {
             auto& trace = result.decisions[decisionIterator->second];
-            trace.reverseModelEvidencePixels =
-                (modelSeed || modelLineage.continued) ? modelPixels : 0u;
+            trace.reverseModelEvidencePixels = reverseModelEvidencePixels;
             trace.forwardModelCorePixels = forwardModelCorePixels;
             trace.reverseSupportCorePixels = supportCorePixels;
             trace.directAbsorbedSupportPixels = directAbsorbedSupportPixels;
@@ -4669,7 +5095,12 @@ SupportAnalysisResult SupportAnalyzer::analyze(
                 : modelPixels;
             trace.reverseModelLineageContinued = modelLineage.continued;
             trace.reverseModelSeed = modelSeed;
-            trace.bidirectionalConflict = modelPixels != 0u && protectSupportEvidence;
+            trace.reverseModelTopSeed = topLayerSeed;
+            trace.reverseModelLocalMaximumSeed = localMaximumSeed;
+            trace.reverseModelConflictDeferred =
+                preparation.preserveSupportAgainstNewReverseEvidence;
+            trace.bidirectionalConflict =
+                reverseModelEvidencePixels != 0u && protectSupportEvidence;
             if (trace.finalSupportPixels != 0u && trace.finalModelPixels != 0u) {
               trace.mixedSemanticProjection = true;
               trace.accepted = true;
@@ -4689,6 +5120,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
       }
       currentModel.normalize();
       currentIndependentModel.normalize();
+      currentLegacyModel.normalize();
+      currentDeferredModel.normalize();
 
       auto& componentIds = result.layers[layer].supportComponentIds;
       std::sort(componentIds.begin(), componentIds.end());
@@ -4711,6 +5144,8 @@ SupportAnalysisResult SupportAnalyzer::analyze(
 
       upperUpperIndependentModel.assignFrom(upperIndependentModel);
       upperIndependentModel.swap(currentIndependentModel);
+      upperLegacyModel.swap(currentLegacyModel);
+      upperDeferredModel.swap(currentDeferredModel);
       upperUpperMaterial.assignFrom(upperMaterial);
       upperMaterial.swap(currentMaterial);
       ++reverseCompleted;

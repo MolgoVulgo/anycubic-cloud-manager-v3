@@ -32,6 +32,7 @@ enum class SupportNodeKind : std::uint8_t {
   RaftRoot,
   Pillar,
   Branch,
+  Junction,
   Brace,
   Head,
   Rejected,
@@ -40,6 +41,7 @@ enum class SupportNodeKind : std::uint8_t {
 enum class SupportEdgeKind : std::uint8_t {
   Continuation,
   Split,
+  Join,
   Brace,
   ModelContact,
 };
@@ -49,7 +51,7 @@ enum class SupportDecisionReason : std::uint8_t {
   FirstSupportLayer,
   SupportContinuation,
   SupportMotionContinuation,
-  SupportFusionContinuation,
+  SupportJunctionContinuation,
   SupportBornBeforeModel,
   ModelRootCandidate,
   ModelDominantMerge,
@@ -77,6 +79,14 @@ struct LayerSemanticIndex {
   PrintPhase phase = PrintPhase::ModelMostly;
   std::vector<std::uint32_t> supportComponentIds;
   std::vector<SemanticRun> projectedSupportRuns;
+  // P2 keeps the bottom-up support hypothesis separate from the final semantic
+  // verdict. Every component on the first native layer after the raft is a
+  // mandatory support-provenance root; later components inherit that provenance
+  // only through the immutable adjacent-layer geometric graph. Surface growth,
+  // taper/contact heuristics and provisional model classification cannot erase
+  // this evidence. Later phases use it when reconciling the independent model
+  // provenance descending from the top of the print.
+  std::vector<std::uint32_t> raftSupportProvenanceComponentIds;
 };
 
 struct SupportGraphNode {
@@ -137,10 +147,14 @@ struct SupportAnalysisOptions {
       compute::SupportComputePreference::Auto;
   std::size_t vulkanMinimumComponentAreaPixels = 32768u;
 
-  double raftMaximumChangedPixelRatio = 0.001;
-  // Support topology is evaluated in the native resin domain: raster pixels
-  // across consecutive layer indexes. The PWSZ layer height is metadata for Z
-  // placement and must not change semantic classification for identical masks.
+  // Physical raft height used to determine the mandatory raft prefix. The
+  // raster shape may evolve inside that prefix (plate, grid, wall/cup, etc.);
+  // raft semantics therefore depend on Z layer height rather than mask
+  // similarity with the first layer. Callers may override the 0.5 mm default
+  // when slicer metadata or a known profile provides a more precise value.
+  double raftHeightMillimetres = 0.5;
+  // Support topology outside the raft is evaluated in the native resin domain:
+  // raster pixels across consecutive layer indexes.
   double maximumLayerMotionPixels = 4.0;
   // After compensating the current centre translation, this fraction of the
   // smaller section must still overlap for the change to remain explainable as
@@ -152,14 +166,24 @@ struct SupportAnalysisOptions {
   // followed by a stable smaller pillar is not a support tip.
   std::size_t minimumTerminalTaperSteps = 2;
   double terminalTaperStepRatio = 0.98;
-  // Several previous support sections may temporarily merge into one raster
-  // component. They are considered a support fusion only when they preserve
-  // most of their own section and collectively explain a material part of the
-  // current component.
+  // Legacy P2 diagnostics retained until the old surface-growth heuristics are
+  // removed. P3 no longer uses these coverage thresholds to decide whether
+  // several support lineages may converge: support topology is derived from
+  // the independent raft-support provenance graph instead.
   double minimumSupportParentCoverageRatio = 0.90;
   double minimumSupportFusionCoverageRatio = 0.40;
-  double braceMinimumDriftPixelsPerLayer = 0.5;
-  double braceMaximumDriftPixelsPerLayer = 4.0;
+  // P4 models support motion as piecewise-linear segments. A continuation may
+  // change direction only by starting a new segment; it is never interpreted
+  // as a continuously curving support. The residual is measured in native XY
+  // pixels against the recent primary-lineage segment.
+  std::size_t supportSegmentLookbackLayers = 8u;
+  double supportSegmentMaximumResidualPixels = 1.5;
+  // Bracing is a physical support-to-support reinforcement. Resin slicers
+  // commonly generate these bars around 45 degrees; use the physical XYZ
+  // pitches instead of a raster drift range so anisotropic masks remain valid.
+  double braceTargetAngleDegrees = 45.0;
+  double braceAngleToleranceDegrees = 12.0;
+  std::size_t braceMinimumSegmentLayerSpan = 2u;
   double minimumModelExpansionRatio = 1.2;
   double abruptModelExpansionRatio = 4.0;
   double terminalTaperRatio = 0.72;
@@ -223,6 +247,7 @@ struct SupportDecisionTrace {
   std::size_t overlapPixels = 0;
   std::size_t matchedSupportParentCount = 0;
   std::size_t preservedSupportParentCount = 0;
+  std::size_t supportJunctionParentCount = 0;
   std::size_t terminalTaperDecreaseSteps = 0;
   std::vector<std::size_t> matchedSupportParentNodeIds;
   std::vector<std::size_t> matchedSupportParentOverlapPixels;
@@ -249,6 +274,9 @@ struct SupportDecisionTrace {
   double predictedMotionXPixels = 0.0;
   double predictedMotionYPixels = 0.0;
   double motionResidualPixels = 0.0;
+  double supportSegmentAngleDegrees = 0.0;
+  double supportSegmentResidualPixels = 0.0;
+  double braceAngleDegrees = 0.0;
   double alignedOverlapRatio = 0.0;
   double alignedIntersectionOverUnion = 0.0;
   double modelLineageShiftXPixels = 0.0;
@@ -266,13 +294,33 @@ struct SupportDecisionTrace {
   bool immediateTerminalTaperOnParent = false;
   bool terminalTaperReboundOnParent = false;
   bool supportFusionContinuation = false;
+  // P3 topology flag. Multiple raft-support provenance parents are structural
+  // support evidence; after brace discrimination they form an explicit join
+  // instead of being collapsed into a single-parent "fusion" heuristic.
+  bool supportJunctionContinuation = false;
   bool supportMotionContinuation = false;
+  bool supportSegmentLinear = false;
+  bool supportSegmentDirectionBreak = false;
+  bool braceAngleMatched = false;
   bool modelLineageContinued = false;
   bool reverseModelLineageContinued = false;
   bool reverseModelSeed = false;
+  // P5: reverse model roots are purely topological. The global top layer is
+  // the mandatory hand-off root; lower local maxima are components with no
+  // geometric continuation to the next native layer, independently from the
+  // forward support/model verdict.
+  bool reverseModelTopSeed = false;
+  bool reverseModelLocalMaximumSeed = false;
+  // P5 can propagate new independent reverse evidence through a protected
+  // support partition while deferring the semantic conflict itself to P6.
+  bool reverseModelConflictDeferred = false;
   bool bidirectionalConflict = false;
   bool contactCandidate = false;
   bool contactConfirmed = false;
+  // Independent P2 provenance channel. Unlike rootedInRaft (legacy graph-node
+  // ancestry), this flag survives provisional Support->Model decisions and is
+  // therefore suitable for auditing the mandatory bottom-up support hypothesis.
+  bool raftSupportProvenance = false;
   bool rootedInRaft = false;
   bool rootedInModel = false;
   bool accepted = false;
@@ -303,12 +351,18 @@ struct SupportAnalysisSummary {
   std::size_t raftRunCount = 0;
   std::size_t continuationEdgeCount = 0;
   std::size_t splitEdgeCount = 0;
+  std::size_t junctionEdgeCount = 0;
   std::size_t braceEdgeCount = 0;
   std::size_t modelContactEdgeCount = 0;
   std::size_t forcedSemanticSampleCount = 0;
   std::size_t reverseModelSeedCount = 0;
+  std::size_t reverseModelTopSeedCount = 0;
+  std::size_t reverseModelLocalMaximumSeedCount = 0;
   std::size_t reverseModelContinuationCount = 0;
   std::size_t bidirectionalMixedComponentCount = 0;
+  // Number of component/layer observations reached by the mandatory support
+  // provenance that starts on the first native layer above the raft.
+  std::size_t raftSupportProvenanceComponentCount = 0;
   bool vulkanComputeCompiled = false;
   bool vulkanComputeActive = false;
   std::string vulkanDeviceName;

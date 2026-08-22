@@ -119,6 +119,7 @@ int main() {
   options.pitchXMillimetres = 0.05;
   options.pitchYMillimetres = 0.05;
   options.pitchZMillimetres = 0.05;
+  options.raftHeightMillimetres = 0.10;
 
   accloud::render3d::SupportAnalyzer analyzer;
   const auto result = analyzer.analyze(source, options);
@@ -186,8 +187,20 @@ int main() {
           analysis.at("options").at("worker_count") == options.workerCount
               && analysis.at("options").at("compute_preference") == "auto"
               && analysis.at("options").at("bitset_acceleration") == true
+              && analysis.at("options").at("raft_height_mm")
+                     == options.raftHeightMillimetres
               && analysis.at("options").contains("preparation_memory_budget_bytes")
-              && analysis.at("options").contains("vulkan_minimum_component_area_pixels"),
+              && analysis.at("options").contains("vulkan_minimum_component_area_pixels")
+              && analysis.at("options").at("support_segment_lookback_layers")
+                     == options.supportSegmentLookbackLayers
+              && analysis.at("options").at("support_segment_maximum_residual_pixels")
+                     == options.supportSegmentMaximumResidualPixels
+              && analysis.at("options").at("brace_target_angle_degrees")
+                     == options.braceTargetAngleDegrees
+              && analysis.at("options").at("brace_angle_tolerance_degrees")
+                     == options.braceAngleToleranceDegrees
+              && analysis.at("options").at("brace_minimum_segment_layer_span")
+                     == options.braceMinimumSegmentLayerSpan,
           "analysis bundle compute/runtime options mismatch")
       || !require(
           summary.at("options").at("worker_count") == options.workerCount
@@ -195,8 +208,16 @@ int main() {
           "summary bundle compute/runtime options mismatch")
       || !require(
           analysis.at("summary").contains("reverse_model_seeds")
+              && analysis.at("summary").contains("reverse_model_top_seeds")
+              && analysis.at("summary").contains(
+                     "reverse_model_local_maximum_seeds")
               && analysis.at("summary").contains("reverse_model_continuations")
+              && analysis.at("summary").contains("joins")
               && analysis.at("summary").contains("bidirectional_mixed_components")
+              && analysis.at("summary").contains(
+                     "raft_support_provenance_components")
+              && analysis.at("summary").at(
+                     "raft_support_provenance_components") > 0
               && analysis.at("summary").contains("vulkan_run_source_jobs")
               && analysis.at("summary").contains("vulkan_resident_reference_uploads")
               && analysis.at("summary").contains("vulkan_resident_reference_reuses")
@@ -227,6 +248,12 @@ int main() {
   const auto& firstDecision = decisions.at("decisions").front();
   if (!require(firstDecision.contains("surface_comparison"),
                "surface comparison is missing")
+      || !require(
+          firstDecision.at("state").contains("raft_support_provenance"),
+          "raft support provenance state is missing from decision diagnostics")
+      || !require(
+          analysis.at("layers").at(2).at("raft_support_provenance_components") > 0,
+          "the first post-raft layer must expose mandatory support provenance")
       || !require(firstDecision.contains("choice"), "decision choice is missing")
       || !require(firstDecision.contains("reason_code"), "reason code is missing")
       || !require(firstDecision.contains("why"), "human reason is missing")) {
@@ -265,6 +292,22 @@ int main() {
           "support motion decision flag is missing")
       || !require(
           parentedDecision->at("geometric_comparison").contains(
+              "support_segment_angle_degrees")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "support_segment_residual_pixels")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "support_segment_linear")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "support_segment_direction_break"),
+          "piecewise-linear support diagnostics are missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "brace_angle_degrees")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "brace_angle_matched"),
+          "physical brace-angle diagnostics are missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
               "material_distance_pixels"),
           "material-to-material distance is missing")
       || !require(
@@ -274,7 +317,15 @@ int main() {
       || !require(
           parentedDecision->at("geometric_comparison").contains(
               "support_fusion_continuation"),
-          "support fusion decision flag is missing")
+          "legacy support fusion diagnostic flag is missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "support_junction_continuation"),
+          "support junction decision flag is missing")
+      || !require(
+          parentedDecision->at("geometric_comparison").contains(
+              "support_junction_parent_count"),
+          "support junction parent count is missing")
       || !require(
           parentedDecision->at("surface_comparison").contains(
               "terminal_taper_decrease_steps"),
@@ -337,6 +388,12 @@ int main() {
               "reverse_model_lineage_continued")
               && parentedDecision->at("geometric_comparison").contains(
                   "reverse_model_seed")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "reverse_model_top_seed")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "reverse_model_local_maximum_seed")
+              && parentedDecision->at("geometric_comparison").contains(
+                  "reverse_model_conflict_deferred")
               && parentedDecision->at("geometric_comparison").contains(
                   "bidirectional_conflict"),
           "reverse-pass reconciliation flags are missing")) {

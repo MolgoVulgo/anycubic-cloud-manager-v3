@@ -138,6 +138,11 @@ bool layerHasSupport(const accloud::render3d::LayerSemanticIndex& layer) {
          || !layer.projectedSupportRuns.empty();
 }
 
+bool layerHasRaftSupportProvenance(
+    const accloud::render3d::LayerSemanticIndex& layer) {
+  return !layer.raftSupportProvenanceComponentIds.empty();
+}
+
 bool pixelHasSemantic(
     const accloud::render3d::SupportAnalyzer& analyzer,
     const accloud::photons::BinaryMask& mask,
@@ -172,22 +177,55 @@ std::size_t countNodeKind(
       [&](const auto& node) { return node.kind == kind; }));
 }
 
-bool hasSingleStructuralParent(
+bool structuralMergesAreExplicit(
     const accloud::render3d::SupportAnalysisResult& result) {
   std::vector<std::size_t> incoming(result.nodes.size(), 0u);
+  std::vector<std::size_t> incomingJoins(result.nodes.size(), 0u);
   for (const auto& edge : result.edges) {
     if (edge.kind != accloud::render3d::SupportEdgeKind::Continuation
-        && edge.kind != accloud::render3d::SupportEdgeKind::Split) {
+        && edge.kind != accloud::render3d::SupportEdgeKind::Split
+        && edge.kind != accloud::render3d::SupportEdgeKind::Join) {
       continue;
     }
     if (edge.upperNode >= incoming.size()) {
       return false;
     }
-    if (++incoming[edge.upperNode] > 1u) {
+    ++incoming[edge.upperNode];
+    incomingJoins[edge.upperNode] +=
+        edge.kind == accloud::render3d::SupportEdgeKind::Join ? 1u : 0u;
+  }
+  for (std::size_t nodeId = 0; nodeId < result.nodes.size(); ++nodeId) {
+    if (incoming[nodeId] > 1u && incomingJoins[nodeId] == 0u) {
+      return false;
+    }
+    if (result.nodes[nodeId].kind == accloud::render3d::SupportNodeKind::Junction
+        && (incoming[nodeId] < 2u || incomingJoins[nodeId] == 0u)) {
       return false;
     }
   }
   return true;
+}
+
+std::size_t countIncomingStructuralEdges(
+    const accloud::render3d::SupportAnalysisResult& result,
+    std::size_t nodeId) {
+  return static_cast<std::size_t>(std::count_if(
+      result.edges.begin(), result.edges.end(), [&](const auto& edge) {
+        return edge.upperNode == nodeId
+               && (edge.kind == accloud::render3d::SupportEdgeKind::Continuation
+                   || edge.kind == accloud::render3d::SupportEdgeKind::Split
+                   || edge.kind == accloud::render3d::SupportEdgeKind::Join);
+      }));
+}
+
+std::size_t countIncomingJoinEdges(
+    const accloud::render3d::SupportAnalysisResult& result,
+    std::size_t nodeId) {
+  return static_cast<std::size_t>(std::count_if(
+      result.edges.begin(), result.edges.end(), [&](const auto& edge) {
+        return edge.upperNode == nodeId
+               && edge.kind == accloud::render3d::SupportEdgeKind::Join;
+      }));
 }
 
 bool compactIndexIsCanonical(
@@ -201,6 +239,13 @@ bool compactIndexIsCanonical(
                    layer.supportComponentIds.begin(),
                    layer.supportComponentIds.end())
                    == layer.supportComponentIds.end();
+        const bool provenanceIdsCanonical = std::is_sorted(
+            layer.raftSupportProvenanceComponentIds.begin(),
+            layer.raftSupportProvenanceComponentIds.end())
+            && std::adjacent_find(
+                   layer.raftSupportProvenanceComponentIds.begin(),
+                   layer.raftSupportProvenanceComponentIds.end())
+                   == layer.raftSupportProvenanceComponentIds.end();
         const bool projectedCanonical = std::is_sorted(
             layer.projectedSupportRuns.begin(),
             layer.projectedSupportRuns.end(),
@@ -220,7 +265,8 @@ bool compactIndexIsCanonical(
                      return left.y == right.y && right.firstX <= left.lastX;
                    })
                    == layer.projectedSupportRuns.end();
-        return componentIdsCanonical && projectedCanonical;
+        return componentIdsCanonical && provenanceIdsCanonical
+               && projectedCanonical;
       });
 }
 
@@ -282,11 +328,17 @@ bool sameSemanticClassification(
       || a.terminalSupportStopCount != b.terminalSupportStopCount
       || a.continuationEdgeCount != b.continuationEdgeCount
       || a.splitEdgeCount != b.splitEdgeCount
+      || a.junctionEdgeCount != b.junctionEdgeCount
       || a.braceEdgeCount != b.braceEdgeCount
       || a.modelContactEdgeCount != b.modelContactEdgeCount
       || a.reverseModelSeedCount != b.reverseModelSeedCount
+      || a.reverseModelTopSeedCount != b.reverseModelTopSeedCount
+      || a.reverseModelLocalMaximumSeedCount
+             != b.reverseModelLocalMaximumSeedCount
       || a.reverseModelContinuationCount != b.reverseModelContinuationCount
       || a.bidirectionalMixedComponentCount != b.bidirectionalMixedComponentCount
+      || a.raftSupportProvenanceComponentCount
+             != b.raftSupportProvenanceComponentCount
       || left.layers.size() != right.layers.size()
       || left.nodes.size() != right.nodes.size()
       || left.edges.size() != right.edges.size()
@@ -299,6 +351,8 @@ bool sameSemanticClassification(
     if (leftLayer.layer != rightLayer.layer
         || leftLayer.phase != rightLayer.phase
         || leftLayer.supportComponentIds != rightLayer.supportComponentIds
+        || leftLayer.raftSupportProvenanceComponentIds
+               != rightLayer.raftSupportProvenanceComponentIds
         || leftLayer.projectedSupportRuns.size()
                != rightLayer.projectedSupportRuns.size()) {
       return false;
@@ -347,11 +401,14 @@ accloud::render3d::SupportAnalysisOptions testOptions() {
   options.minimumTrackLayers = 3;
   options.taperLookbackLayers = 6;
   options.modelContactConfirmationLayers = 2;
-  options.raftMaximumChangedPixelRatio = 0.001;
+  options.raftHeightMillimetres = 0.2;
   options.maximumLayerMotionPixels = 2.2;
   options.minimumSupportShapeOverlapRatio = 0.85;
-  options.braceMinimumDriftPixelsPerLayer = 0.55;
-  options.braceMaximumDriftPixelsPerLayer = 1.65;
+  options.supportSegmentLookbackLayers = 8u;
+  options.supportSegmentMaximumResidualPixels = 1.5;
+  options.braceTargetAngleDegrees = 45.0;
+  options.braceAngleToleranceDegrees = 8.0;
+  options.braceMinimumSegmentLayerSpan = 2u;
   options.minimumModelExpansionRatio = 1.2;
   options.abruptModelExpansionRatio = 4.0;
   options.terminalTaperRatio = 0.72;
@@ -399,6 +456,88 @@ std::vector<accloud::photons::BinaryMask> makeBranchedSupportScene() {
   fillRect(layers[10], 8, 8, 39, 21);
   fillRect(layers[11], 7, 7, 40, 21);
   fillRect(layers[12], 6, 6, 41, 21);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makePhysicalBraceScene() {
+  constexpr std::uint32_t width = 48;
+  constexpr std::uint32_t height = 34;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 12; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 28, 45, 33);
+  fillRect(layers[1], 3, 28, 45, 33);
+
+  // Two established vertical supports. Keep the target pillar far enough
+  // away that the adjacency tolerance cannot create an early synthetic join.
+  for (int layer = 2; layer <= 9; ++layer) {
+    addSquare(layers[layer], 10, 27, 0);
+    addSquare(layers[layer], 24, 27, 0);
+  }
+
+  // A separate branch leaves the left support and advances exactly one native
+  // X pixel per native Z layer. With equal X/Z pitches this is a 45-degree bar.
+  // It remains separate until layer 10, where the raster itself joins the bar
+  // to the right pillar. The right pillar is then the overlapping primary
+  // parent and the 45-degree lineage must stay a secondary Brace edge.
+  for (int layer = 3; layer <= 9; ++layer) {
+    addSquare(layers[layer], 12 + static_cast<std::uint32_t>(layer - 3), 27, 0);
+  }
+  addSquare(layers[10], 10, 27, 0);
+  fillRect(layers[10], 19, 27, 25, 28); // brace + right pillar become one component
+  addSquare(layers[11], 10, 27, 0);
+  addSquare(layers[11], 24, 27, 0);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makePiecewiseLinearSupportScene() {
+  constexpr std::uint32_t width = 40;
+  constexpr std::uint32_t height = 30;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 10; ++index) {
+    layers.emplace_back(width, height);
+  }
+  fillRect(layers[0], 3, 25, 37, 29);
+  fillRect(layers[1], 3, 25, 37, 29);
+
+  // First straight segment: +1 X pixel per layer.
+  addSquare(layers[2], 10, 24, 0);
+  addSquare(layers[3], 11, 24, 0);
+  addSquare(layers[4], 12, 24, 0);
+  addSquare(layers[5], 13, 24, 0);
+
+  // Direction changes abruptly but remains inside the native adjacency window.
+  // This must terminate the first segment; subsequent layers form a new
+  // straight segment instead of being fitted as a continuous curve.
+  addSquare(layers[6], 11, 24, 0);
+  addSquare(layers[7], 10, 24, 0);
+  addSquare(layers[8], 9, 24, 0);
+  addSquare(layers[9], 8, 24, 0);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeAccumulatedBendSupportScene() {
+  constexpr std::uint32_t width = 48;
+  constexpr std::uint32_t height = 30;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 14; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 25, 45, 29);
+  fillRect(layers[1], 3, 25, 45, 29);
+
+  // Each local change remains within the adjacency window, but the complete
+  // history gradually departs from one straight line. P4 must eventually cut
+  // the lineage and restart a straight segment instead of retaining a curve.
+  const std::uint32_t xs[] = {10u, 11u, 12u, 13u, 14u, 16u, 18u, 20u, 22u, 24u};
+  for (std::size_t i = 0; i < std::size(xs); ++i) {
+    addSquare(layers[2u + i], xs[i], 23, 0);
+  }
+  fillRect(layers[12], 34, 4, 42, 10);
+  fillRect(layers[13], 34, 4, 42, 10);
   return layers;
 }
 
@@ -505,20 +644,21 @@ std::vector<accloud::photons::BinaryMask> makeTranslatedTaperContinuationScene()
   fillRect(layers[0], 2, 26, 78, 31);
   fillRect(layers[1], 2, 26, 78, 31);
 
-  // A raft-rooted support narrows persistently, then continues diagonally while
-  // its raster section grows gradually. The centre moves farther than the old
-  // absolute four-pixel heuristic, but centre-aligned shapes remain the same
-  // support profile. This is a generic moving-support continuity case.
+  // A raft-rooted support narrows persistently, then changes once from a
+  // near-vertical segment to a straight inclined segment while its raster
+  // section grows gradually. Width parity causes only a +/-0.5 pixel centre
+  // quantization around the same +3 X / -1 Y direction. The support therefore
+  // remains piecewise-linear rather than being accepted as a curved lineage.
   fillRect(layers[2], 20, 24, 40, 25); // 20 pixels.
   fillRect(layers[3], 21, 23, 39, 24); // 18 pixels.
   fillRect(layers[4], 22, 22, 38, 23); // 16 pixels.
   fillRect(layers[5], 23, 21, 37, 22); // 14 pixels.
-  fillRect(layers[6], 27, 20, 39, 21); // 12-pixel local minimum.
-  fillRect(layers[7], 30, 19, 43, 20); // 13 pixels, translated continuation.
-  fillRect(layers[8], 34, 18, 48, 19); // 14 pixels.
-  fillRect(layers[9], 39, 17, 54, 18); // 15 pixels.
-  fillRect(layers[10], 45, 16, 61, 17); // 16 pixels: cumulative > 1.2.
-  fillRect(layers[11], 52, 15, 69, 16); // 17 pixels.
+  fillRect(layers[6], 27, 20, 39, 21); // 12 pixels; direction break.
+  fillRect(layers[7], 29, 19, 42, 20); // 13 pixels.
+  fillRect(layers[8], 32, 18, 46, 19); // 14 pixels.
+  fillRect(layers[9], 34, 17, 49, 18); // 15 pixels.
+  fillRect(layers[10], 37, 16, 53, 17); // 16 pixels.
+  fillRect(layers[11], 39, 15, 56, 16); // 17 pixels.
   fillRect(layers[12], 3, 3, 10, 9);
   fillRect(layers[13], 3, 3, 10, 9);
   return layers;
@@ -604,7 +744,7 @@ std::vector<accloud::photons::BinaryMask> makeStaleTaperPlateauScene() {
   return layers;
 }
 
-std::vector<accloud::photons::BinaryMask> makeSupportFusionScene() {
+std::vector<accloud::photons::BinaryMask> makeSupportJunctionScene() {
   constexpr std::uint32_t width = 56;
   constexpr std::uint32_t height = 36;
   std::vector<accloud::photons::BinaryMask> layers;
@@ -614,14 +754,16 @@ std::vector<accloud::photons::BinaryMask> makeSupportFusionScene() {
   fillRect(layers[0], 3, 30, 53, 35);
   fillRect(layers[1], 3, 30, 53, 35);
   for (int layer = 2; layer <= 6; ++layer) {
-    addSquare(layers[layer], 21, 27 - static_cast<std::uint32_t>(layer - 2), 1);
-    addSquare(layers[layer], 29, 27 - static_cast<std::uint32_t>(layer - 2), 1);
+    addSquare(layers[layer], 20, 27 - static_cast<std::uint32_t>(layer - 2), 2);
+    addSquare(layers[layer], 31, 27 - static_cast<std::uint32_t>(layer - 2), 2);
   }
-  // Both previous support sections are fully preserved and linked by a new
-  // bridge. The merged component is a support fusion, not model matter.
-  fillRect(layers[7], 20, 21, 31, 25);
-  fillRect(layers[8], 20, 20, 31, 24);
-  fillRect(layers[9], 20, 19, 31, 23);
+  // Two independent support heads enlarge until they become one connected
+  // structural junction. This is still support topology; the size of the
+  // merged head must not be interpreted as model evidence.
+  fillRect(layers[7], 18, 21, 27, 26);
+  fillRect(layers[7], 26, 21, 34, 26);
+  fillRect(layers[8], 22, 20, 31, 25);
+  fillRect(layers[9], 23, 19, 30, 24);
   return layers;
 }
 
@@ -759,9 +901,11 @@ std::vector<accloud::photons::BinaryMask> makeRaftVariantScene(
   for (int layer = 0; layer < 3; ++layer) {
     addRaftVariant(layers[layer], variant);
   }
-  // Real PWSZ raft masks can differ by a few antialias pixels while remaining
-  // the repeated raft prefix. One isolated changed pixel must not end it.
+  // Raft geometry may evolve inside its physical height. Deliberately alter
+  // the second and third native layers enough that first-layer similarity
+  // cannot be used as the semantic boundary.
   layers[1].set(1, 1, true);
+  fillRect(layers[2], 2, 34, 7, 47);
 
   for (int layer = 3; layer <= 6; ++layer) {
     addSquare(layers[layer], 40, 39, 2);
@@ -771,6 +915,68 @@ std::vector<accloud::photons::BinaryMask> makeRaftVariantScene(
   fillRect(layers[9], 39, 35, 41, 37);
   addSquare(layers[10], 40, 35, 1);
   addSquare(layers[11], 40, 34, 2);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeMandatoryRaftSupportProvenanceScene() {
+  constexpr std::uint32_t width = 128;
+  constexpr std::uint32_t height = 72;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 6; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 2, 62, 126, 71);
+  fillRect(layers[1], 2, 62, 126, 71);
+
+  // Every disconnected component on the first native layer above the raft is
+  // a mandatory support-provenance root, regardless of its size.
+  addSquare(layers[2], 22, 56, 2);
+  addSquare(layers[2], 68, 56, 8);
+
+  // Both continuations inherit raft provenance. A third island appears later
+  // without any geometric path to the raft and must not inherit that evidence.
+  addSquare(layers[3], 23, 54, 6);
+  addSquare(layers[3], 69, 54, 9);
+  addSquare(layers[3], 108, 40, 2);
+
+  addSquare(layers[4], 24, 52, 8);
+  addSquare(layers[4], 70, 52, 10);
+  addSquare(layers[4], 108, 37, 2);
+
+  addSquare(layers[5], 25, 50, 8);
+  addSquare(layers[5], 71, 50, 10);
+  addSquare(layers[5], 108, 34, 2);
+  return layers;
+}
+
+std::vector<accloud::photons::BinaryMask> makeEarlyDetachedLocalMaximumScene() {
+  constexpr std::uint32_t width = 72;
+  constexpr std::uint32_t height = 52;
+  std::vector<accloud::photons::BinaryMask> layers;
+  for (int index = 0; index < 12; ++index) {
+    layers.emplace_back(width, height);
+  }
+
+  fillRect(layers[0], 3, 46, 69, 51);
+  fillRect(layers[1], 3, 46, 69, 51);
+
+  // Main raft-rooted support; its later contact establishes the conventional
+  // part well above the detached early island below.
+  for (int layer = 2; layer <= 5; ++layer) {
+    addSquare(layers[layer], 48, 44, 2);
+  }
+  addSquare(layers[6], 48, 42, 1);
+  addSquare(layers[7], 48, 40, 0);
+  for (int layer = 8; layer < 12; ++layer) {
+    fillRect(layers[layer], 36, 12, 62, 41);
+  }
+
+  // This matter appears only on layers 3-4, has no path to the first post-raft
+  // support roots and ends before the main model is established. P5 must still
+  // open a reverse-model root on its topological Z maximum at layer 4.
+  addSquare(layers[3], 10, 24, 1);
+  addSquare(layers[4], 10, 23, 1);
   return layers;
 }
 
@@ -1378,12 +1584,10 @@ int main() {
                 "a raft-rooted support tree with tapered heads must be accepted");
   ok &= require(branched.summary.splitEdgeCount > 0,
                 "one support pillar must be allowed to split into several branches");
-  ok &= require(branched.summary.braceEdgeCount > 0,
-                "a diagonal support reinforcement must be represented as a brace edge");
   ok &= require(countNodeKind(branched, accloud::render3d::SupportNodeKind::Head) >= 2,
                 "each terminal narrowing before the part must expose support heads");
-  ok &= require(hasSingleStructuralParent(branched),
-                "support branches may split but must never structurally merge");
+  ok &= require(structuralMergesAreExplicit(branched),
+                "every structural merge must be represented explicitly by join topology");
   ok &= require(std::all_of(
                     branched.nodes.begin(), branched.nodes.end(),
                     [](const auto& node) {
@@ -1442,22 +1646,84 @@ int main() {
   for (const auto variant : {RaftVariant::Plate, RaftVariant::Grid, RaftVariant::Pads}) {
     auto raftLayers = makeRaftVariantScene(variant);
     VectorSource raftSource(raftLayers);
-    const auto raftResult = analyzer.analyze(raftSource, testOptions());
+    auto raftOptions = testOptions();
+    raftOptions.raftHeightMillimetres = 0.3;
+    const auto raftResult = analyzer.analyze(raftSource, raftOptions);
     ok &= require(raftResult.ok,
                   "plate, grid and pad raft variants must all analyze successfully");
     ok &= require(raftResult.summary.raftLastLayer == 2u
                       && raftResult.summary.firstModelLayer == 9u,
-                  "the repeated prefix must remain raft and its next layer must start supports");
+                  "the configured physical raft height must own the first three native layers despite XY shape changes");
   }
+
+  auto provenanceLayers = makeMandatoryRaftSupportProvenanceScene();
+  VectorSource provenanceSource(provenanceLayers);
+  auto provenanceOptions = testOptions();
+  provenanceOptions.captureDecisionTrace = true;
+  const auto provenance = analyzer.analyze(provenanceSource, provenanceOptions);
+  ok &= require(provenance.ok,
+                "mandatory raft-support provenance analysis must succeed");
+  ok &= require(
+      provenance.layers[2].raftSupportProvenanceComponentIds.size() == 2u,
+      "every component on the first native layer above the raft must seed support provenance");
+  ok &= require(
+      provenance.layers[3].raftSupportProvenanceComponentIds.size() == 2u
+          && provenance.layers[4].raftSupportProvenanceComponentIds.size() == 2u,
+      "raft support provenance must follow geometric continuity across large section changes without spreading to a detached island");
+  const auto detachedProvenanceDecision = std::find_if(
+      provenance.decisions.begin(), provenance.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 3u && decision.minX > 100u;
+      });
+  ok &= require(
+      detachedProvenanceDecision != provenance.decisions.end()
+          && !detachedProvenanceDecision->raftSupportProvenance,
+      "matter born later without a geometric path to the raft must not inherit raft support provenance");
+
+  auto earlyLocalMaximumLayers = makeEarlyDetachedLocalMaximumScene();
+  VectorSource earlyLocalMaximumSource(earlyLocalMaximumLayers);
+  auto earlyLocalMaximumOptions = testOptions();
+  earlyLocalMaximumOptions.captureDecisionTrace = true;
+  const auto earlyLocalMaximum = analyzer.analyze(
+      earlyLocalMaximumSource, earlyLocalMaximumOptions);
+  ok &= require(earlyLocalMaximum.ok,
+                "early detached local-maximum analysis must succeed");
+  const auto earlyLocalMaximumDecision = std::find_if(
+      earlyLocalMaximum.decisions.begin(), earlyLocalMaximum.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 4u && decision.minX < 20u;
+      });
+  ok &= require(
+      earlyLocalMaximumDecision != earlyLocalMaximum.decisions.end()
+          && !earlyLocalMaximumDecision->raftSupportProvenance
+          && earlyLocalMaximumDecision->reverseModelSeed
+          && earlyLocalMaximumDecision->reverseModelLocalMaximumSeed
+          && !earlyLocalMaximumDecision->reverseModelTopSeed
+          && earlyLocalMaximumDecision->reverseModelEvidencePixels != 0u,
+      "a detached local Z maximum must seed reverse-model provenance independently of the forward model floor and raft-support provenance");
 
   auto heavyLayers = makeHeavySupportScene();
   VectorSource heavySource(heavyLayers);
-  const auto heavy = analyzer.analyze(heavySource, testOptions());
+  auto heavyOptions = testOptions();
+  heavyOptions.captureDecisionTrace = true;
+  const auto heavy = analyzer.analyze(heavySource, heavyOptions);
   ok &= require(heavy.ok, "heavy support analysis must succeed");
   ok &= require(heavy.summary.firstModelLayer == 10u
                     && layerHasSupport(heavy.layers[2])
                     && !layerHasSupport(heavy.layers[10]),
                 "a wide heavy support must remain support until its terminal tip reaches the model");
+  ok &= require(
+      layerHasRaftSupportProvenance(heavy.layers[10])
+          && layerHasRaftSupportProvenance(heavy.layers[11]),
+      "a provisional model/contact verdict must not erase the raft-rooted support provenance that geometrically reaches the same component");
+  const auto heavyContactDecision = std::find_if(
+      heavy.decisions.begin(), heavy.decisions.end(), [](const auto& decision) {
+        return decision.layer == 10u;
+      });
+  ok &= require(
+      heavyContactDecision != heavy.decisions.end()
+          && heavyContactDecision->raftSupportProvenance,
+      "decision diagnostics must retain raft support provenance across the legacy contact boundary");
   ok &= require(std::any_of(
                     heavy.nodes.begin(), heavy.nodes.end(),
                     [](const auto& node) {
@@ -1534,11 +1800,13 @@ int main() {
             && !freeSupportDecision->contactCandidate
             && !freeSupportDecision->contactConfirmed
             && !freeSupportDecision->modelLineageContinued
-            && freeSupportDecision->reverseModelEvidencePixels == 0u
+            && freeSupportDecision->reverseModelLineageContinued
+            && freeSupportDecision->reverseModelEvidencePixels != 0u
+            && freeSupportDecision->reverseModelConflictDeferred
             && freeSupportDecision->finalModelPixels == 0u
             && freeSupportDecision->finalSupportPixels
                    == freeSupportDecision->currentAreaPixels,
-        "pass 2 must preserve whole-support ownership until pass 1 establishes model/contact provenance");
+        "P5 reverse provenance may cross a whole-support barrier, but the new conflict must stay deferred without consuming the protected support partition");
   }
   const auto topLayerReverseSeed = std::find_if(
       freeSupportNearModel.decisions.begin(), freeSupportNearModel.decisions.end(),
@@ -1699,13 +1967,36 @@ int main() {
   ok &= require(
       forwardModelCoreDecision != forwardModelCore.decisions.end(),
       "the model-core merge fixture must exercise forward model-lineage continuity on the first merged layer");
+  const auto localMaximumSeedDecision = std::find_if(
+      forwardModelCore.decisions.begin(), forwardModelCore.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 14u
+               && decision.reverseModelSeed
+               && decision.reverseModelLocalMaximumSeed;
+      });
+  ok &= require(
+      localMaximumSeedDecision != forwardModelCore.decisions.end()
+          && !localMaximumSeedDecision->reverseModelTopSeed
+          && localMaximumSeedDecision->reverseModelEvidencePixels != 0u
+          && localMaximumSeedDecision->finalSupportPixels != 0u
+          && localMaximumSeedDecision->finalModelPixels != 0u,
+      "a lower local Z maximum must seed independent reverse-model provenance even when pass 1 also carries raft-support evidence");
   ok &= require(
       forwardModelCoreDecision != forwardModelCore.decisions.end()
-          && forwardModelCoreDecision->forwardModelCorePixels != 0u
-          && forwardModelCoreDecision->reverseModelEvidencePixels == 0u
+          && forwardModelCoreDecision->reverseModelLineageContinued
+          && forwardModelCoreDecision->reverseModelEvidencePixels != 0u
+          && forwardModelCoreDecision->reverseModelConflictDeferred
+          && forwardModelCoreDecision->forwardModelCorePixels == 0u
           && forwardModelCoreDecision->finalSupportPixels != 0u
           && forwardModelCoreDecision->finalModelPixels != 0u,
-      "the first merged layer must preserve a local forward model core without inventing reverse-model evidence or consuming the support core");
+      "the local-maximum reverse lineage must reach the first merged layer without consuming its independently preserved support core");
+  ok &= require(
+      forwardModelCore.summary.reverseModelTopSeedCount > 0u
+          && forwardModelCore.summary.reverseModelLocalMaximumSeedCount > 0u
+          && forwardModelCore.summary.reverseModelSeedCount
+                 == forwardModelCore.summary.reverseModelTopSeedCount
+                        + forwardModelCore.summary.reverseModelLocalMaximumSeedCount,
+      "reverse-model seed diagnostics must distinguish mandatory top roots from lower topological local maxima");
 
   auto monotonicModelLayers = makeSupportSweepsAcrossModelScene();
   VectorSource monotonicModelSource(monotonicModelLayers);
@@ -1768,10 +2059,13 @@ int main() {
 
   auto pitchLowOptions = testOptions();
   pitchLowOptions.pitchZMillimetres = 0.01;
+  pitchLowOptions.raftHeightMillimetres = 0.02;
   auto pitchNominalOptions = testOptions();
   pitchNominalOptions.pitchZMillimetres = 0.05;
+  pitchNominalOptions.raftHeightMillimetres = 0.10;
   auto pitchHighOptions = testOptions();
   pitchHighOptions.pitchZMillimetres = 0.5;
+  pitchHighOptions.raftHeightMillimetres = 1.0;
   VectorSource pitchLowSource(branchedLayers);
   VectorSource pitchNominalSource(branchedLayers);
   VectorSource pitchHighSource(branchedLayers);
@@ -1781,7 +2075,24 @@ int main() {
   const auto pitchHigh = analyzer.analyze(pitchHighSource, pitchHighOptions);
   ok &= require(sameSemanticClassification(pitchLow, pitchNominal)
                     && sameSemanticClassification(pitchNominal, pitchHigh),
-                "PWSZ layer height may change Z placement but not layer-native support semantics");
+                "equivalent physical raft configurations must preserve the same layer-native support semantics");
+
+  auto fixedRaftFineOptions = testOptions();
+  fixedRaftFineOptions.pitchZMillimetres = 0.05;
+  fixedRaftFineOptions.raftHeightMillimetres = 0.2;
+  auto fixedRaftCoarseOptions = testOptions();
+  fixedRaftCoarseOptions.pitchZMillimetres = 0.1;
+  fixedRaftCoarseOptions.raftHeightMillimetres = 0.2;
+  VectorSource fixedRaftFineSource(branchedLayers);
+  VectorSource fixedRaftCoarseSource(branchedLayers);
+  const auto fixedRaftFine = analyzer.analyze(
+      fixedRaftFineSource, fixedRaftFineOptions);
+  const auto fixedRaftCoarse = analyzer.analyze(
+      fixedRaftCoarseSource, fixedRaftCoarseOptions);
+  ok &= require(fixedRaftFine.ok && fixedRaftCoarse.ok
+                    && fixedRaftFine.summary.raftLastLayer == 3u
+                    && fixedRaftCoarse.summary.raftLastLayer == 1u,
+                "a fixed physical raft height must resolve to the native layer count through pitch Z");
 
   auto untaperedLayers = makeUntaperedContactScene();
   VectorSource untaperedSource(untaperedLayers);
@@ -1842,23 +2153,32 @@ int main() {
                     && translatedContinuation.summary.lastSupportLayer == 11u
                     && translatedContinuation.summary.modelContactEdgeCount == 0u,
                 "a translated support profile must not become model after cumulative growth");
-  const auto translatedDecision = std::find_if(
+  const auto translatedDirectionBreak = std::find_if(
       translatedContinuation.decisions.begin(),
       translatedContinuation.decisions.end(),
       [](const auto& decision) {
-        return decision.layer == 7u && decision.componentId == 0u;
+        return decision.layer == 6u && decision.componentId == 0u;
       });
-  ok &= require(translatedDecision != translatedContinuation.decisions.end()
-                    && translatedDecision->decision
+  const auto translatedStraightSegment = std::find_if(
+      translatedContinuation.decisions.begin(),
+      translatedContinuation.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u && decision.componentId == 0u;
+      });
+  ok &= require(translatedDirectionBreak != translatedContinuation.decisions.end()
+                    && translatedDirectionBreak->decision
                            == accloud::render3d::MaterialSemantic::Support
-                    && translatedDecision->reason
-                           == accloud::render3d::SupportDecisionReason::SupportMotionContinuation
-                    && translatedDecision->terminalTaperOnParent
-                    && translatedDecision->supportMotionContinuation
-                    && translatedDecision->alignedOverlapRatio >= 0.85
-                    && translatedDecision->motionResidualPixels
-                           <= translatedContinuationOptions.maximumLayerMotionPixels,
-                "translated support motion must preserve support semantics and expose its diagnostic reason");
+                    && translatedDirectionBreak->supportSegmentDirectionBreak
+                    && translatedDirectionBreak->alignedOverlapRatio >= 0.85,
+                "an inclined support must remain support when a real vector change starts a new straight segment");
+  ok &= require(translatedStraightSegment != translatedContinuation.decisions.end()
+                    && translatedStraightSegment->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && translatedStraightSegment->supportSegmentLinear
+                    && !translatedStraightSegment->supportSegmentDirectionBreak
+                    && translatedStraightSegment->supportSegmentResidualPixels
+                           <= translatedContinuationOptions.supportSegmentMaximumResidualPixels,
+                "translated support motion after the direction break must follow a straight segment");
 
   auto staleTaperLayers = makeStaleTaperPlateauScene();
   VectorSource staleTaperSource(staleTaperLayers);
@@ -1880,24 +2200,140 @@ int main() {
                     && staleExpansion->terminalTaperDecreaseSteps == 1u,
                 "the stale single-step reduction must remain an ordinary support continuation");
 
-  auto fusionLayers = makeSupportFusionScene();
-  VectorSource fusionSource(fusionLayers);
-  auto fusionOptions = testOptions();
-  fusionOptions.captureDecisionTrace = true;
-  const auto fusion = analyzer.analyze(fusionSource, fusionOptions);
-  ok &= require(fusion.ok, "support fusion analysis must succeed");
-  const auto fusionDecision = std::find_if(
-      fusion.decisions.begin(), fusion.decisions.end(),
-      [](const auto& decision) { return decision.layer == 7u; });
-  ok &= require(fusionDecision != fusion.decisions.end()
-                    && fusionDecision->decision
+  auto piecewiseLayers = makePiecewiseLinearSupportScene();
+  VectorSource piecewiseSource(piecewiseLayers);
+  auto piecewiseOptions = testOptions();
+  piecewiseOptions.captureDecisionTrace = true;
+  piecewiseOptions.supportSegmentMaximumResidualPixels = 0.5;
+  const auto piecewise = analyzer.analyze(piecewiseSource, piecewiseOptions);
+  ok &= require(piecewise.ok, "piecewise-linear support analysis must succeed");
+  const auto directionBreak = std::find_if(
+      piecewise.decisions.begin(), piecewise.decisions.end(),
+      [](const auto& decision) { return decision.layer == 6u; });
+  const auto restartedSegment = std::find_if(
+      piecewise.decisions.begin(), piecewise.decisions.end(),
+      [](const auto& decision) { return decision.layer == 9u; });
+  ok &= require(directionBreak != piecewise.decisions.end()
+                    && directionBreak->decision
                            == accloud::render3d::MaterialSemantic::Support
-                    && fusionDecision->reason
-                           == accloud::render3d::SupportDecisionReason::SupportFusionContinuation
-                    && fusionDecision->supportFusionContinuation
-                    && fusionDecision->preservedSupportParentCount >= 2u
-                    && fusionDecision->supportFusionCoverageRatio >= 0.4,
-                "a component explained by several preserved support parents must remain support");
+                    && directionBreak->supportSegmentDirectionBreak,
+                "a real support direction change must terminate the previous straight segment");
+  ok &= require(restartedSegment != piecewise.decisions.end()
+                    && restartedSegment->supportSegmentLinear
+                    && !restartedSegment->supportSegmentDirectionBreak
+                    && restartedSegment->supportSegmentResidualPixels
+                           <= piecewiseOptions.supportSegmentMaximumResidualPixels,
+                "motion after a direction break must be fitted as a new straight segment, not a curve");
+
+  auto accumulatedBendLayers = makeAccumulatedBendSupportScene();
+  VectorSource accumulatedBendSource(accumulatedBendLayers);
+  auto accumulatedBendOptions = testOptions();
+  accumulatedBendOptions.captureDecisionTrace = true;
+  accumulatedBendOptions.supportSegmentMaximumResidualPixels = 1.0;
+  const auto accumulatedBend = analyzer.analyze(
+      accumulatedBendSource, accumulatedBendOptions);
+  ok &= require(accumulatedBend.ok,
+                "accumulated direction-change support analysis must succeed");
+  const auto accumulatedBreak = std::find_if(
+      accumulatedBend.decisions.begin(), accumulatedBend.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 9u && decision.componentId == 0u;
+      });
+  const auto accumulatedRestart = std::find_if(
+      accumulatedBend.decisions.begin(), accumulatedBend.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 11u && decision.componentId == 0u;
+      });
+  ok &= require(accumulatedBreak != accumulatedBend.decisions.end()
+                    && accumulatedBreak->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && accumulatedBreak->supportSegmentDirectionBreak
+                    && accumulatedBreak->supportSegmentResidualPixels
+                           > accumulatedBendOptions.supportSegmentMaximumResidualPixels,
+                "a gradually bending history must be cut once it no longer fits one straight segment");
+  ok &= require(accumulatedRestart != accumulatedBend.decisions.end()
+                    && accumulatedRestart->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && accumulatedRestart->supportSegmentLinear
+                    && !accumulatedRestart->supportSegmentDirectionBreak,
+                "support motion after an accumulated bend must restart as a straight segment");
+
+  auto braceLayers = makePhysicalBraceScene();
+  VectorSource braceSource(braceLayers);
+  auto braceOptions = testOptions();
+  braceOptions.captureDecisionTrace = true;
+  braceOptions.supportSegmentMaximumResidualPixels = 0.25;
+  const auto physicalBrace = analyzer.analyze(braceSource, braceOptions);
+  ok &= require(physicalBrace.ok, "physical-angle brace analysis must succeed");
+  const auto braceDecision = std::find_if(
+      physicalBrace.decisions.begin(), physicalBrace.decisions.end(),
+      [](const auto& decision) {
+        return decision.layer == 10u && decision.braceAngleMatched;
+      });
+  ok &= require(physicalBrace.summary.braceEdgeCount > 0u
+                    && braceDecision != physicalBrace.decisions.end()
+                    && braceDecision->braceAngleMatched
+                    && std::abs(braceDecision->braceAngleDegrees - 45.0) <= 1.0,
+                "a straight support-to-support reinforcement near 45 degrees must become a brace edge");
+  if (braceDecision != physicalBrace.decisions.end()) {
+    const auto primaryBraceEdge = std::find_if(
+        physicalBrace.edges.begin(), physicalBrace.edges.end(),
+        [&](const auto& edge) {
+          return edge.upperNode == braceDecision->nodeId
+                 && edge.kind == accloud::render3d::SupportEdgeKind::Brace
+                 && edge.lowerNode == braceDecision->parentNodeId;
+        });
+    ok &= require(primaryBraceEdge == physicalBrace.edges.end(),
+                  "a brace lineage must never replace the primary structural parent");
+  }
+
+  VectorSource anisotropicBraceSource(braceLayers);
+  auto anisotropicBraceOptions = braceOptions;
+  anisotropicBraceOptions.pitchXMillimetres = 0.05;
+  anisotropicBraceOptions.pitchZMillimetres = 0.1;
+  const auto anisotropicBrace = analyzer.analyze(
+      anisotropicBraceSource, anisotropicBraceOptions);
+  ok &= require(anisotropicBrace.ok,
+                "anisotropic physical-angle brace analysis must succeed");
+  ok &= require(anisotropicBrace.summary.braceEdgeCount == 0u
+                    && anisotropicBrace.summary.junctionEdgeCount > 0u,
+                "brace classification must use physical XYZ angle rather than identical raster drift");
+
+  auto junctionLayers = makeSupportJunctionScene();
+  VectorSource junctionSource(junctionLayers);
+  auto junctionOptions = testOptions();
+  junctionOptions.captureDecisionTrace = true;
+  // Keep the old fusion coverage gate deliberately impossible for this
+  // fixture: topology must remain valid without it. The converging parents are
+  // not 45-degree brace lineages and therefore remain structural joins.
+  junctionOptions.braceAngleToleranceDegrees = 4.0;
+  junctionOptions.minimumSupportFusionCoverageRatio = 0.99;
+  const auto junction = analyzer.analyze(junctionSource, junctionOptions);
+  ok &= require(junction.ok, "support junction analysis must succeed");
+  const auto junctionDecision = std::find_if(
+      junction.decisions.begin(), junction.decisions.end(),
+      [](const auto& decision) { return decision.layer == 7u; });
+  const auto junctionNode = std::find_if(
+      junction.nodes.begin(), junction.nodes.end(),
+      [](const auto& node) {
+        return node.layer == 7u
+               && node.kind == accloud::render3d::SupportNodeKind::Junction;
+      });
+  ok &= require(junctionDecision != junction.decisions.end()
+                    && junctionDecision->decision
+                           == accloud::render3d::MaterialSemantic::Support
+                    && junctionDecision->reason
+                           == accloud::render3d::SupportDecisionReason::SupportJunctionContinuation
+                    && junctionDecision->supportJunctionContinuation
+                    && junctionDecision->supportJunctionParentCount >= 2u
+                    && !junctionDecision->supportFusionContinuation,
+                "multiple support-provenance parents must remain support without the legacy fusion gate");
+  ok &= require(junctionNode != junction.nodes.end()
+                    && junction.summary.junctionEdgeCount > 0u
+                    && countIncomingStructuralEdges(junction, junctionNode->id) >= 2u
+                    && countIncomingJoinEdges(junction, junctionNode->id) >= 1u
+                    && structuralMergesAreExplicit(junction),
+                "support convergence must expose an explicit junction with multiple structural parents");
 
   auto holeLayers = makeBoundingBoxHoleScene();
   VectorSource holeSource(holeLayers);
@@ -2231,6 +2667,7 @@ int main() {
   ok &= require(first.summary.acceptedNodeCount == second.summary.acceptedNodeCount
                     && first.summary.supportRunCount == second.summary.supportRunCount
                     && first.summary.braceEdgeCount == second.summary.braceEdgeCount
+                    && first.summary.junctionEdgeCount == second.summary.junctionEdgeCount
                     && first.summary.projectedContactPixelCount
                            == second.summary.projectedContactPixelCount
                     && first.summary.rejectedGrowthPixelCount

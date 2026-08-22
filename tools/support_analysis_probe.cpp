@@ -455,6 +455,7 @@ int main(int argc, char** argv) {
       {"maximum_model_expansion_ratio", result.summary.maximumModelExpansionRatio},
       {"continuations", result.summary.continuationEdgeCount},
       {"splits", result.summary.splitEdgeCount},
+      {"joins", result.summary.junctionEdgeCount},
       {"braces", result.summary.braceEdgeCount},
       {"model_contacts", result.summary.modelContactEdgeCount},
       {"forced_semantic_samples", result.summary.forcedSemanticSampleCount},

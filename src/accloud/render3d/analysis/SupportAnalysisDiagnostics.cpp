@@ -51,6 +51,7 @@ const char* nodeKindName(SupportNodeKind kind) {
   case SupportNodeKind::RaftRoot: return "raft_root";
   case SupportNodeKind::Pillar: return "pillar";
   case SupportNodeKind::Branch: return "branch";
+  case SupportNodeKind::Junction: return "junction";
   case SupportNodeKind::Brace: return "brace";
   case SupportNodeKind::Head: return "head";
   case SupportNodeKind::Rejected: return "rejected";
@@ -62,6 +63,7 @@ const char* edgeKindName(SupportEdgeKind kind) {
   switch (kind) {
   case SupportEdgeKind::Continuation: return "continuation";
   case SupportEdgeKind::Split: return "split";
+  case SupportEdgeKind::Join: return "join";
   case SupportEdgeKind::Brace: return "brace";
   case SupportEdgeKind::ModelContact: return "model_contact";
   }
@@ -312,7 +314,7 @@ bool shouldLabelNode(const SupportDecisionTrace& decision) noexcept {
     return true;
   }
   return decision.reason == SupportDecisionReason::SupportMotionContinuation
-         || decision.reason == SupportDecisionReason::SupportFusionContinuation;
+         || decision.reason == SupportDecisionReason::SupportJunctionContinuation;
 }
 
 class DiagnosticDisjointSet {
@@ -1131,6 +1133,8 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
          decision.matchedSupportParentCount},
         {"preserved_support_parent_count",
          decision.preservedSupportParentCount},
+        {"support_junction_parent_count",
+         decision.supportJunctionParentCount},
         {"matched_support_parent_node_ids",
          decision.matchedSupportParentNodeIds},
         {"matched_support_parent_overlap_pixels",
@@ -1139,15 +1143,30 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
          {{"x", decision.predictedMotionXPixels},
           {"y", decision.predictedMotionYPixels}}},
         {"motion_residual_pixels", decision.motionResidualPixels},
+        {"support_segment_angle_degrees",
+         decision.supportSegmentAngleDegrees},
+        {"support_segment_residual_pixels",
+         decision.supportSegmentResidualPixels},
+        {"brace_angle_degrees", decision.braceAngleDegrees},
         {"model_lineage_shift_pixels",
          {{"x", decision.modelLineageShiftXPixels},
           {"y", decision.modelLineageShiftYPixels}}},
         {"support_motion_continuation", decision.supportMotionContinuation},
+        {"support_segment_linear", decision.supportSegmentLinear},
+        {"support_segment_direction_break",
+         decision.supportSegmentDirectionBreak},
+        {"brace_angle_matched", decision.braceAngleMatched},
         {"support_fusion_continuation", decision.supportFusionContinuation},
+        {"support_junction_continuation", decision.supportJunctionContinuation},
         {"model_lineage_continued", decision.modelLineageContinued},
         {"reverse_model_lineage_continued",
          decision.reverseModelLineageContinued},
         {"reverse_model_seed", decision.reverseModelSeed},
+        {"reverse_model_top_seed", decision.reverseModelTopSeed},
+        {"reverse_model_local_maximum_seed",
+         decision.reverseModelLocalMaximumSeed},
+        {"reverse_model_conflict_deferred",
+         decision.reverseModelConflictDeferred},
         {"bidirectional_conflict", decision.bidirectionalConflict},
         {"overlaps_previous_model", decision.overlapsPreviousModel},
         {"near_previous_model", decision.nearPreviousModel},
@@ -1160,6 +1179,7 @@ nlohmann::json decisionJson(const SupportDecisionTrace& decision) {
        {{"contact_candidate", decision.contactCandidate},
         {"contact_confirmed", decision.contactConfirmed},
         {"pending_contact_length", decision.pendingContactLength},
+        {"raft_support_provenance", decision.raftSupportProvenance},
         {"rooted_in_raft", decision.rootedInRaft},
         {"rooted_in_model", decision.rootedInModel},
         {"accepted", decision.accepted},
@@ -1265,12 +1285,18 @@ nlohmann::json summaryJson(const SupportAnalysisSummary& summary) {
       {"maximum_model_expansion_ratio", summary.maximumModelExpansionRatio},
       {"continuations", summary.continuationEdgeCount},
       {"splits", summary.splitEdgeCount},
+      {"joins", summary.junctionEdgeCount},
       {"braces", summary.braceEdgeCount},
       {"model_contacts", summary.modelContactEdgeCount},
       {"forced_semantic_samples", summary.forcedSemanticSampleCount},
       {"reverse_model_seeds", summary.reverseModelSeedCount},
+      {"reverse_model_top_seeds", summary.reverseModelTopSeedCount},
+      {"reverse_model_local_maximum_seeds",
+       summary.reverseModelLocalMaximumSeedCount},
       {"reverse_model_continuations", summary.reverseModelContinuationCount},
       {"bidirectional_mixed_components", summary.bidirectionalMixedComponentCount},
+      {"raft_support_provenance_components",
+       summary.raftSupportProvenanceComponentCount},
       {"vulkan_compute_compiled", summary.vulkanComputeCompiled},
       {"vulkan_compute_active", summary.vulkanComputeActive},
       {"vulkan_device", summary.vulkanDeviceName},
@@ -1361,8 +1387,8 @@ const char* supportDecisionReasonCode(SupportDecisionReason reason) noexcept {
   case SupportDecisionReason::SupportContinuation: return "support_continuation";
   case SupportDecisionReason::SupportMotionContinuation:
     return "support_motion_continuation";
-  case SupportDecisionReason::SupportFusionContinuation:
-    return "support_fusion_continuation";
+  case SupportDecisionReason::SupportJunctionContinuation:
+    return "support_junction_continuation";
   case SupportDecisionReason::SupportBornBeforeModel: return "support_born_before_model";
   case SupportDecisionReason::ModelRootCandidate: return "model_root_candidate";
   case SupportDecisionReason::ModelDominantMerge: return "model_dominant_merge";
@@ -1396,8 +1422,8 @@ const char* supportDecisionReasonText(SupportDecisionReason reason) noexcept {
     return "A previous support parent was found and semantic continuity was preserved.";
   case SupportDecisionReason::SupportMotionContinuation:
     return "The translated section keeps the support shape and predicted trajectory, so local growth remains support matter.";
-  case SupportDecisionReason::SupportFusionContinuation:
-    return "Several previous support sections are preserved in the current component, so the local enlargement remains a support fusion.";
+  case SupportDecisionReason::SupportJunctionContinuation:
+    return "Several independent support-provenance parents converge into this component; the convergence is an explicit support junction, not model evidence.";
   case SupportDecisionReason::SupportBornBeforeModel:
     return "No model exists yet; the disconnected component remains part of the support network.";
   case SupportDecisionReason::ModelRootCandidate:
@@ -1502,6 +1528,7 @@ bool SupportAnalysisBundleWriter::write(
       {"vulkan_minimum_component_area_pixels",
        analysisOptions.vulkanMinimumComponentAreaPixels},
       {"minimum_track_layers", analysisOptions.minimumTrackLayers},
+      {"raft_height_mm", analysisOptions.raftHeightMillimetres},
       {"taper_lookback_layers", analysisOptions.taperLookbackLayers},
       {"model_contact_confirmation_layers",
        analysisOptions.modelContactConfirmationLayers},
@@ -1514,6 +1541,16 @@ bool SupportAnalysisBundleWriter::write(
        analysisOptions.minimumSupportParentCoverageRatio},
       {"minimum_support_fusion_coverage_ratio",
        analysisOptions.minimumSupportFusionCoverageRatio},
+      {"support_segment_lookback_layers",
+       analysisOptions.supportSegmentLookbackLayers},
+      {"support_segment_maximum_residual_pixels",
+       analysisOptions.supportSegmentMaximumResidualPixels},
+      {"brace_target_angle_degrees",
+       analysisOptions.braceTargetAngleDegrees},
+      {"brace_angle_tolerance_degrees",
+       analysisOptions.braceAngleToleranceDegrees},
+      {"brace_minimum_segment_layer_span",
+       analysisOptions.braceMinimumSegmentLayerSpan},
       {"minimum_model_expansion_ratio",
        analysisOptions.minimumModelExpansionRatio},
       {"abrupt_model_expansion_ratio",
@@ -1531,6 +1568,8 @@ bool SupportAnalysisBundleWriter::write(
         {"layer", layer.layer + 1u},
         {"phase", phaseName(layer.phase)},
         {"support_components", layer.supportComponentIds.size()},
+        {"raft_support_provenance_components",
+         layer.raftSupportProvenanceComponentIds.size()},
         {"projected_support_runs", layer.projectedSupportRuns.size()},
         {"decision_count", decisionsByLayer[layer.layer].size()},
     });
@@ -1653,6 +1692,8 @@ bool SupportAnalysisBundleWriter::write(
         {"phase", phaseName(result.layers[layer].phase)},
         {"image", options.writeImages ? "images/" + nodesFileName : ""},
         {"support_components", result.layers[layer].supportComponentIds.size()},
+        {"raft_support_provenance_components",
+         result.layers[layer].raftSupportProvenanceComponentIds.size()},
         {"projected_support_runs", result.layers[layer].projectedSupportRuns.size()},
         {"decisions", nlohmann::json::array()},
         {"semantic_regions", nlohmann::json::array()},

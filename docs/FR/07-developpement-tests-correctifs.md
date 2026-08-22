@@ -174,6 +174,15 @@ cmake --build --preset experimental-viewer-qt --clean-first
 ctest --preset experimental-viewer-qt --output-on-failure
 ```
 
+
+Pour les phases de l’analyse des supports déjà validées côté core mais nécessitant les contrôles locaux du viewer, le helper suivant exécute les validations OpenGL/Vulkan obligatoires puis le gate Qt complet `experimental-viewer-qt` :
+
+```bash
+./tools/run_support_user_validation.sh
+```
+
+Le script configure puis reconstruit `experimental-viewer-qt`, exige la présence de `accloud_render3d_shader_compile` et `accloud_support_compute_vulkan`, exécute ces deux contrôles sans accepter `Skipped`, puis lance le gate CTest complet du preset. Il s’arrête immédiatement sur le premier échec et affiche la sortie utile de la commande fautive. Un test graphique absent ou `Skipped` est signalé comme validation incomplète au lieu d’être présenté comme un succès.
+
 Ce preset hérite de `local-full`, exige les dépendances Qt natives, conserve `Qt6::OpenGL`, lie le viewer à `accloud_cli` et exécute également les tests QML. `accloud-build-deps.zip` ne doit pas être imposé sur le poste local lorsque `nlohmann_json` est déjà installé.
 L’inventaire Qt/OpenGL du viewer inclut également `accloud_render3d_shader_compile` ; ce test exige la création d’un contexte OpenGL 3.3 Core avant la compilation des shaders. Un échec de création de ce contexte est un échec d’environnement et ne constitue pas une validation réussie des shaders.
 
