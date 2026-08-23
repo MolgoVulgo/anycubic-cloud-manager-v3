@@ -104,11 +104,37 @@ Experimental viewer isolation:
 cmake --preset experimental-viewer-core
 cmake --build --preset experimental-viewer-core --clean-first
 ctest --preset experimental-viewer-core \
-  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold)$' \
+  -R '^(accloud_experimental_viewer_architecture|accloud_experimental_viewer_scaffold|accloud_pw0_decode|accloud_pwsz_reader|accloud_layer_stack_mesher|accloud_render_pipeline|accloud_viewer_controls|accloud_cut_surface_transactions|accloud_render3d_worker_benchmark_selftest)$' \
   --output-on-failure
 ```
 
-Normal presets explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The opt-in preset compiles the separate format/job/cache/render scaffold in `accloud_experimental_viewer` and its smoke test without linking it to `accloud_cli` or exposing viewer controls in production QML. The architecture guard also rejects any source marked `Scaffold placeholder` from `accloud_infra`.
+The `default` preset enables the viewer, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The `experimental-viewer-core` preset validates the PWSZ reader, decoder, mesher, bounded upload queue, range render plan, camera controls and transactional supersession of rapid cut-surface requests without Qt. The architecture guard verifies that Qt/OpenGL sources remain behind the build option, that the per-file PWSZ action is visible, and that production remains disabled.
+Mandatory local Qt/OpenGL validation for any desktop viewer change:
+
+```bash
+cmake --preset experimental-viewer-qt
+cmake --build --preset experimental-viewer-qt --clean-first
+ctest --preset experimental-viewer-qt --output-on-failure
+```
+
+This preset inherits `local-full`, requires native Qt dependencies, keeps `Qt6::OpenGL`, links the viewer to `accloud_cli` and also runs QML tests. `accloud-build-deps.zip` must not be imposed on the local workstation when `nlohmann_json` is already installed.
+
+Manual worker benchmark on one unchanged PWSZ file:
+
+```bash
+./build/experimental-viewer-core/accloud_render3d_worker_benchmark \
+  --input /path/to/Beetle-2.pwsz \
+  --workers 4,8,16 \
+  --repeats 1 \
+  --layer-stride 2 \
+  --chunk-layers 8,16,32 \
+  --output-prefix /tmp/beetle-workers
+```
+
+The benchmark opens the same file once and executes the full Cartesian matrix of requested chunk sizes and worker counts. For a given chunk size, all worker runs must produce the same compact signature: chunks, surface quads, triangles, compact bytes, and legacy-equivalent bytes. Chunk counts are not compared across different chunk sizes. It measures PWSZ decoding and CPU meshing; GPU upload and rendering are intentionally excluded. `/tmp/beetle-workers.csv` and `/tmp/beetle-workers.jsonl` report `surface_quads`, `compact_bytes`, `legacy_equivalent_bytes`, `compression_ratio`, chunk size, total duration, and first-chunk latency. The expected main-path ratio is exactly `15.0`: eight compact bytes replace 120 historical vertex/index bytes per rectangle. Using `--repeats 2` or `3` improves statistical stability, reverses the complete matrix order on even repeats, and multiplies the runtime accordingly. The PWSZ remains outside the repository and this real benchmark is not a blocking CTest test. `accloud_render3d_worker_benchmark_selftest` validates the matrix, geometry stability, and compact ratio with a short synthetic source.
+
+After a compact GPU-path change, the local Qt validation must include a runtime check with `Beetle-2.pwsz` in **Full detail** (`layer_step = 1`). Generation must reach 100%, the application must remain alive and interactive, and `render3d.jsonl` must contain `gpu.compact_chunk_uploaded` events with `compression_ratio = 15`, without `gpu.budget_exceeded`, `gpu.compact_upload_failed`, or `SIGABRT`. `resident_bytes` must remain less than or equal to `budget_bytes`. This real runtime check complements the synthetic tests and must not be replaced by the CPU-only benchmark.
+
 
 Do not invent commands that CMake does not declare. Live broker tests require a controlled environment and are never implied by a local unit test. The default CTest run reports `accloud_mqtt_live_broker` as **Skipped** unless live execution is explicitly enabled.
 
@@ -135,7 +161,7 @@ Once explicitly enabled, missing or invalid session/TLS material and broker fail
 
 ## Producing a patch
 
-The complete production and delivery rules are supplied by the GPT Web session. They are intentionally not stored in this repository. Do not create, copy or search for `regles-generales-production-correctifs.md` locally. A web-only working copy under `patch/` is ignored by local Git/archive flows and is not part of the local documentation guard.
+The complete production and delivery rules are supplied separately by the GPT Web session in `regles-generales-production.md`. This normative file is intentionally not stored, copied or recreated in the repository and must never be included in `acm.zip` or a patch archive.
 
 ```text
 analyse

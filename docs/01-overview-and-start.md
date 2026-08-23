@@ -12,7 +12,7 @@ Anycubic Cloud Manager V3 provides one desktop interface for Anycubic cloud file
 | Cloud files and printers | ACTIVE / PARTIAL | Core operations work; compatibility remains cloud and model dependent. |
 | MQTT realtime | ACTIVE | Live state is received through the observed Anycubic broker contract. |
 | Remote print | ACTIVE / PARTIAL | HTTP starts the request; MQTT later reports the actual result. |
-| Photon/PWMB viewer | EXPERIMENTAL | Parsing components exist, but the complete viewer workflow is not closed. |
+| Photon/PWMB viewer | EXPERIMENTAL | The PWSZ development path is functional end to end; other formats and production readiness remain partial. |
 
 ## Normal workflow
 

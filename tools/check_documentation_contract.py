@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -69,6 +70,7 @@ def check_repository_control_files(root: Path, errors: list[str]) -> None:
     forbidden = (
         root / "codex-patch-mode-acm.md",
         root / "regles-generales-production-correctifs.md",
+        root / "regles-generales-production.md",
     )
     for path in forbidden:
         if path.exists():
@@ -264,6 +266,125 @@ def check_experimental_viewer_contract(root: Path, errors: list[str]) -> None:
         require_tokens(root / relative, tokens, errors)
 
 
+
+def check_documented_build_and_test_inventory(root: Path, errors: list[str]) -> None:
+    presets_path = root / "accloud/CMakePresets.json"
+    try:
+        presets = json.loads(read_text(presets_path))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"cannot read configure presets for documentation inventory: {exc}")
+        return
+
+    preset_names = {
+        preset.get("name")
+        for preset in presets.get("configurePresets", [])
+        if isinstance(preset, dict) and isinstance(preset.get("name"), str)
+    }
+    for relative in (
+        "accloud/README.md",
+        "docs/02-architecture-runtime.md",
+        "docs/FR/02-architecture-runtime.md",
+    ):
+        text = read_text(root / relative)
+        missing = sorted(name for name in preset_names if f"`{name}`" not in text)
+        if missing:
+            errors.append(f"{relative} does not document configure presets: {missing}")
+
+    cmake = read_text(root / "accloud/CMakeLists.txt")
+    viewer_group = re.search(
+        r'set_tests_properties\(\s*accloud_experimental_viewer_scaffold(?P<tests>.*?)\s*PROPERTIES LABELS "core;experimental;viewer"\)',
+        cmake,
+        flags=re.DOTALL,
+    )
+    if viewer_group is None:
+        errors.append("cannot derive the experimental viewer core test inventory from CMake")
+        return
+    viewer_tests = {"accloud_experimental_viewer_scaffold"}
+    viewer_tests.update(
+        re.findall(r"\baccloud_[a-z0-9_]+\b", viewer_group.group("tests"))
+    )
+    for relative in (
+        "docs/07-development-tests-patches.md",
+        "docs/appendices/photon-viewer-formats.md",
+        "docs/FR/07-developpement-tests-correctifs.md",
+        "docs/FR/annexes/viewer-photon-formats.md",
+    ):
+        text = read_text(root / relative)
+        missing = sorted(name for name in viewer_tests if name not in text)
+        if missing:
+            errors.append(f"{relative} omits CMake viewer tests: {missing}")
+
+
+def check_documentation_freshness_contract(root: Path, errors: list[str]) -> None:
+    english_dev = read_text(root / "docs/07-development-tests-patches.md")
+    french_dev = read_text(root / "docs/FR/07-developpement-tests-correctifs.md")
+    for relative, text in (
+        ("docs/07-development-tests-patches.md", english_dev),
+        ("docs/FR/07-developpement-tests-correctifs.md", french_dev),
+    ):
+        if "regles-generales-production.md" not in text:
+            errors.append(f"{relative} does not name the external normative governance file")
+        if "regles-generales-production-correctifs.md" in text:
+            errors.append(f"{relative} still names the obsolete governance file")
+
+    for relative in (
+        "docs/appendices/archive-policy.md",
+        "docs/FR/annexes/politique-archive.md",
+    ):
+        text = read_text(root / relative)
+        if "make-a.sh" in text:
+            errors.append(f"{relative} still documents the removed archive script")
+        for token in ("tests", "acm.zip", "regles-generales-production.md", "accloud-build-deps.zip"):
+            if token not in text:
+                errors.append(f"{relative} is missing archive-policy token {token!r}")
+
+    mqtt_owner = "src/accloud/app/mqtt/MqttBridgeSession.cpp"
+    for relative in (
+        "docs/appendices/mqtt-topics.md",
+        "docs/FR/annexes/topics-mqtt.md",
+    ):
+        if mqtt_owner not in read_text(root / relative):
+            errors.append(f"{relative} does not document the runtime subscription owner")
+    if not (root / mqtt_owner).is_file():
+        errors.append(f"documented MQTT subscription owner does not exist: {mqtt_owner}")
+
+    stale_viewer_phrases = (
+        "experimental 3D viewer foundation",
+        "base expérimentale de viewer 3D",
+        "complete viewer workflow is not closed",
+        "workflow complet n'est pas finalisé",
+    )
+    for relative in (
+        "readme.md",
+        "readme-FR.md",
+        "docs/01-overview-and-start.md",
+        "docs/FR/01-presentation-demarrage.md",
+    ):
+        text = read_text(root / relative)
+        for phrase in stale_viewer_phrases:
+            if phrase in text:
+                errors.append(f"{relative} retains stale viewer status: {phrase!r}")
+
+    ui_tests = (
+        "accloud_local_cache_architecture",
+        "accloud_cloud_core_regressions",
+        "accloud_cloud_bridge_architecture",
+        "accloud_security_redaction",
+        "accloud_mqtt_flow",
+        "accloud_ui_qml",
+        "accloud_ui_models",
+    )
+    for relative in (
+        "docs/appendices/ui-performance.md",
+        "docs/FR/annexes/performance-ui.md",
+    ):
+        text = read_text(root / relative)
+        missing = [name for name in ui_tests if name not in text]
+        if missing:
+            errors.append(f"{relative} has an incomplete UI validation command: {missing}")
+        if "accloud_cache|" in text:
+            errors.append(f"{relative} still contains the obsolete accloud_cache regex")
+
 def check_i18n_contract(root: Path, errors: list[str]) -> None:
     expected = {root / "i18n/accloud_en.ts", root / "i18n/accloud_fr.ts"}
     actual = set(root.rglob("*.ts"))
@@ -344,6 +465,8 @@ def main() -> int:
     check_local_cache_architecture_contract(root, errors)
     check_mqtt_bridge_architecture_contract(root, errors)
     check_experimental_viewer_contract(root, errors)
+    check_documented_build_and_test_inventory(root, errors)
+    check_documentation_freshness_contract(root, errors)
     check_i18n_contract(root, errors)
     check_public_reference_data(root, errors)
     check_qml_runtime(root, errors)

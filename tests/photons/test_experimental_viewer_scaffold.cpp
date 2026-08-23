@@ -27,8 +27,7 @@ int main() {
     return 1;
   }
 
-  // The renderer is deliberately only a compile-time scaffold. Do not invoke
-  // its undeclared runtime operations from the production application.
+  // The renderer is an opt-in CPU scene planner. Production presets keep it disabled.
   accloud::render3d::Renderer renderer;
   (void)renderer;
 

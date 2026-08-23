@@ -32,6 +32,7 @@ Rectangle {
 
     property int actionDetailsWidth: 78
     property int actionDownloadWidth: 104
+    property int actionViewerWidth: 48
     property int actionPrintWidth: 82
     property int actionMenuWidth: 36
 
@@ -41,11 +42,15 @@ Rectangle {
     property string sizeText: "-"
     property string fileTypeText: "-"
     property string dateText: "-"
+    property bool viewerEnabled: false
+    property bool viewerBusy: false
+    readonly property bool viewerSupported: String(fileName || "").toLowerCase().endsWith(".pwsz")
 
     signal selectRequested(string fileId)
     signal selectionToggled(string fileId, string fileName, bool checked)
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
+    signal viewerRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
     signal deleteRequested(string fileId, string fileName)
 
@@ -236,6 +241,23 @@ Rectangle {
                     compact: true
                     width: root.actionDownloadWidth
                     onClicked: root.downloadRequested(root.fileId, root.fileName)
+                }
+
+
+                AppButton {
+                    objectName: "fileRowViewerButton"
+                    text: qsTr("3D")
+                    variant: "secondary"
+                    compact: true
+                    width: root.actionViewerWidth
+                    visible: root.viewerSupported
+                    enabled: root.viewerEnabled && !root.viewerBusy && root.fileId.length > 0
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 350
+                    ToolTip.text: root.viewerEnabled
+                                  ? qsTr("Open the layer-based 3D view")
+                                  : qsTr("The 3D viewer is disabled in this build.")
+                    onClicked: root.viewerRequested(root.fileId, root.fileName)
                 }
 
                 AppButton {

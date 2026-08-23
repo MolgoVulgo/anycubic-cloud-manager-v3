@@ -12,6 +12,7 @@ Dialog {
     property bool showCloseButton: true
     property bool showHeaderDivider: true
     property bool showFooterDivider: true
+    property bool fullScreen: false
     property int framePadding: Theme.paddingDialog
     property var requestCloseCallback: null
     property string dialogSize: "medium" // "small" | "medium" | "large" | "workspace"
@@ -57,10 +58,14 @@ Dialog {
                      : Popup.NoAutoClose
     padding: 0
 
-    width: Math.min(maximumWidth, Math.max(minimumWidth, overlayWidth * widthRatio))
-    height: Math.min(overlayHeight * 0.9,
-                     Math.min(maximumHeight,
-                              Math.max(minimumHeight, contentLayout.implicitHeight)))
+    width: fullScreen
+           ? overlayWidth
+           : Math.min(maximumWidth, Math.max(minimumWidth, overlayWidth * widthRatio))
+    height: fullScreen
+            ? overlayHeight
+            : Math.min(overlayHeight * 0.9,
+                       Math.min(maximumHeight,
+                                Math.max(minimumHeight, contentLayout.implicitHeight)))
 
     Overlay.modal: Rectangle {
         color: Theme.overlayScrim
@@ -68,7 +73,7 @@ Dialog {
     }
 
     background: Rectangle {
-        radius: Theme.radiusDialog
+        radius: root.fullScreen ? 0 : Theme.radiusDialog
         color: Theme.bgDialog
         border.width: Theme.borderWidth
         border.color: Theme.borderDefault

@@ -68,8 +68,10 @@ MQTT and logs are streams. They must be throttled, bounded and visibility-aware:
 ## Validation commands
 
 ```bash
-ctest --preset default --output-on-failure
-ctest --preset default -R 'accloud_cache|accloud_cloud|accloud_security|accloud_mqtt_flow' --output-on-failure
+ctest --preset local-full --output-on-failure
+ctest --preset local-full \
+  -R '^(accloud_local_cache_architecture|accloud_cloud_core_regressions|accloud_cloud_bridge_architecture|accloud_security_redaction|accloud_mqtt_flow|accloud_ui_qml|accloud_ui_models)$' \
+  --output-on-failure
 ```
 
 ## Done definition

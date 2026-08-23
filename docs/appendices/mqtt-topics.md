@@ -104,4 +104,4 @@ Unknown messages remain non-fatal. They may be recorded as redacted observations
 
 - builder: `src/accloud/infra/mqtt/routing/MqttTopicBuilder.cpp`;
 - router: `src/accloud/infra/mqtt/routing/MqttMessageRouter.cpp`;
-- runtime subscription owner: `src/accloud/app/MqttBridge.cpp`.
+- runtime subscription owner: `src/accloud/app/mqtt/MqttBridgeSession.cpp` (`MqttBridge.cpp` remains the QML-facing facade).

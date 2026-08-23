@@ -12,6 +12,11 @@ Item {
     Layout.fillWidth: true
     Layout.fillHeight: true
     property bool embeddedInTabsContainer: false
+    property bool viewerEnabled: false
+    property int render3dWorkerCount: 4
+    property string render3dPalettePreset: "technical_cyan"
+    property color render3dPartColor: "#55B7C6"
+    property color render3dBackgroundColor: "#171A1F"
     readonly property bool buildDebugEnabled: (typeof accloudBuildDebugEnabled !== "undefined")
                                              && accloudBuildDebugEnabled === true
     property alias filesModel: cloudFilesModel
@@ -41,6 +46,15 @@ Item {
     property string batchDeleteSummarySeverity: "success"
     property bool batchDeleteSummaryPending: false
     property bool batchDeleteAwaitingCloudRefresh: false
+    property string downloadPurpose: ""
+    property string pendingDownloadFileId: ""
+    property string pendingDownloadFileName: ""
+    property string pendingViewerSavePath: ""
+    property bool viewerDialogRequested: false
+    property string pendingViewerOpenPath: ""
+    property string pendingViewerOpenName: ""
+    property string pendingViewerOpenFileId: ""
+    readonly property bool viewerBusy: downloadPurpose === "viewer" || (viewerDialogLoader.item && viewerDialogLoader.item.visible)
     readonly property int visibleFilesCount: cloudFilesModel.visibleCount
     readonly property int pageTotal: cloudFilesModel.totalPages
     readonly property string uploadLastFolderSettingsKey: "ui.cloudFiles.upload.lastFolderPath"
@@ -76,6 +90,20 @@ Item {
 
     onStatusMsgChanged: root.emitStatusToShell()
     onStatusSevChanged: root.emitStatusToShell()
+    function updateViewerDialogSettings() {
+        var dialog = viewerDialogLoader.item
+        if (!dialog)
+            return
+        dialog.workerCount = root.render3dWorkerCount
+        dialog.palettePreset = root.render3dPalettePreset
+        dialog.partColor = root.render3dPartColor
+        dialog.viewportColor = root.render3dBackgroundColor
+    }
+
+    onRender3dWorkerCountChanged: root.updateViewerDialogSettings()
+    onRender3dPalettePresetChanged: root.updateViewerDialogSettings()
+    onRender3dPartColorChanged: root.updateViewerDialogSettings()
+    onRender3dBackgroundColorChanged: root.updateViewerDialogSettings()
 
     // Table column widths
     property int colSelectWidth: 30
@@ -83,12 +111,13 @@ Item {
     property int colTypeWidth: 72
     property int colSizeWidth: 86
     property int colDateWidth: 92
-    property int colActionsWidth: 326
+    property int colActionsWidth: 380
     readonly property int tableRowHorizontalMargin: 12
     readonly property int tableScrollbarReserve: 12
     readonly property int tableColumnSpacing: 8
     readonly property int actionDetailsWidth: 78
     readonly property int actionDownloadWidth: 104
+    readonly property int actionViewerWidth: 48
     readonly property int actionPrintWidth: 82
     readonly property int actionMenuWidth: 36
     readonly property int tableFixedColumnsWidth: colSelectWidth + colThumbWidth + colTypeWidth + colSizeWidth + colDateWidth + colActionsWidth + tableColumnSpacing * 6
@@ -587,31 +616,112 @@ Item {
         fileDetailsDialog.open()
     }
 
-    function requestDownload(fileId, fileName) {
+    function clearDownloadIntent() {
+        root.downloadPurpose = ""
+        root.pendingDownloadFileId = ""
+        root.pendingDownloadFileName = ""
+        root.pendingViewerSavePath = ""
+    }
+
+    function requestDownloadUrl(purpose, fileId, fileName) {
         if (!hasCloudBridge() || typeof cloudBridge.getDownloadUrl !== "function") {
             root.statusMsg = qsTr("Download unavailable without backend.")
             root.statusSev = "warn"
             return
         }
-
-        saveDialog.suggestedFileName = String(fileName || qsTr("file"))
-        saveDialog.defaultSuffix = String(fileExtension(fileName))
-        if (typeof cloudBridge.getDownloadUrlAsync === "function") {
-            root.statusMsg = qsTr("Preparing download...")
-            root.statusSev = "info"
-            cloudBridge.getDownloadUrlAsync(String(fileId))
+        if (root.downloadPurpose.length > 0 || downloadOverlay.visible) {
+            root.statusMsg = qsTr("Another file download is already in progress.")
+            root.statusSev = "warn"
             return
         }
 
-        var r = cloudBridge.getDownloadUrl(String(fileId))
-        applyDownloadUrlResult(String(fileId), r)
+        root.downloadPurpose = String(purpose || "save")
+        root.pendingDownloadFileId = String(fileId || "")
+        root.pendingDownloadFileName = String(fileName || qsTr("file"))
+
+        if (typeof cloudBridge.getDownloadUrlAsync === "function") {
+            root.statusMsg = root.downloadPurpose === "viewer"
+                    ? qsTr("Preparing 3D view...")
+                    : qsTr("Preparing download...")
+            root.statusSev = "info"
+            cloudBridge.getDownloadUrlAsync(root.pendingDownloadFileId)
+            return
+        }
+
+        var r = cloudBridge.getDownloadUrl(root.pendingDownloadFileId)
+        root.applyDownloadUrlResult(root.pendingDownloadFileId, r)
+    }
+
+    function requestDownload(fileId, fileName) {
+        saveDialog.suggestedFileName = String(fileName || qsTr("file"))
+        saveDialog.defaultSuffix = String(fileExtension(fileName))
+        root.requestDownloadUrl("save", fileId, fileName)
+    }
+
+    function viewerTemporaryPath(fileId) {
+        var safeId = String(fileId || "file").replace(/[^A-Za-z0-9_.-]/g, "_")
+        if (safeId.length === 0)
+            safeId = "file"
+        var tempRoot = root.localPathFromInput(StandardPaths.writableLocation(StandardPaths.TempLocation))
+        return tempRoot + "/accloud-viewer-" + safeId + ".pwsz"
+    }
+
+    function requestViewer(fileId, fileName) {
+        if (!root.viewerEnabled) {
+            root.statusMsg = qsTr("The 3D viewer is disabled in this build.")
+            root.statusSev = "warn"
+            return
+        }
+        if (root.fileExtension(fileName) !== "pwsz") {
+            root.statusMsg = qsTr("The 3D viewer currently supports PWSZ files only.")
+            root.statusSev = "warn"
+            return
+        }
+        root.viewerDialogRequested = true
+        root.pendingViewerSavePath = root.viewerTemporaryPath(fileId)
+        root.requestDownloadUrl("viewer", fileId, fileName)
+    }
+
+    function openViewerDialog(localPath, fileName, fileId) {
+        root.viewerDialogRequested = true
+        root.pendingViewerOpenPath = String(localPath || "")
+        root.pendingViewerOpenName = String(fileName || "")
+        root.pendingViewerOpenFileId = String(fileId || "")
+        var dialog = viewerDialogLoader.item
+        if (dialog === null || dialog === undefined || typeof dialog.openFile !== "function")
+            return
+        root.updateViewerDialogSettings()
+        dialog.openFile(root.pendingViewerOpenPath,
+                        root.pendingViewerOpenName,
+                        root.pendingViewerOpenFileId)
+        root.pendingViewerOpenPath = ""
+        root.pendingViewerOpenName = ""
+        root.pendingViewerOpenFileId = ""
     }
 
     function applyDownloadUrlResult(fileId, r) {
+        if (String(fileId || "") !== root.pendingDownloadFileId)
+            return
         if (r.ok !== true) {
             root.statusMsg = qsTr("Cannot get download URL: %1")
                     .arg(backendStatusDetail(r.message, qsTr("Download URL unavailable.")))
             root.statusSev = "error"
+            root.clearDownloadIntent()
+            return
+        }
+
+        if (root.downloadPurpose === "viewer") {
+            if (!hasCloudBridge() || typeof cloudBridge.startDownload !== "function") {
+                root.statusMsg = qsTr("3D view download is unavailable without backend.")
+                root.statusSev = "warn"
+                root.clearDownloadIntent()
+                return
+            }
+            downloadOverlay.visible = true
+            downloadOverlay.progress = 0
+            downloadOverlay.received = 0
+            downloadOverlay.total = 0
+            cloudBridge.startDownload(String(r.url || ""), root.pendingViewerSavePath)
             return
         }
 
@@ -1044,7 +1154,16 @@ Item {
 
         function onDownloadFinished(ok, message, savedPath) {
             downloadOverlay.visible = false
-            if (ok) {
+            var purpose = root.downloadPurpose
+            var viewerFileId = root.pendingDownloadFileId
+            var viewerName = root.pendingDownloadFileName
+            if (ok && purpose === "viewer") {
+                root.openViewerDialog(String(savedPath || root.pendingViewerSavePath),
+                                      viewerName,
+                                      viewerFileId)
+                root.statusMsg = qsTr("3D view ready: %1").arg(viewerName)
+                root.statusSev = "success"
+            } else if (ok) {
                 root.statusMsg = qsTr("Downloaded: %1").arg(String(savedPath || ""))
                 root.statusSev = "success"
             } else {
@@ -1052,6 +1171,7 @@ Item {
                         .arg(root.backendStatusDetail(message, qsTr("Download failed.")))
                 root.statusSev = "error"
             }
+            root.clearDownloadIntent()
         }
 
         function onDownloadUrlReady(fileId, result) {
@@ -1603,12 +1723,14 @@ Item {
             if (!hasCloudBridge() || typeof cloudBridge.startDownload !== "function") {
                 root.statusMsg = qsTr("Download unavailable without backend.")
                 root.statusSev = "warn"
+                root.clearDownloadIntent()
                 return
             }
             var dest = root.localPathFromInput(file)
             if (dest.length <= 0) {
                 root.statusMsg = qsTr("Invalid download destination.")
                 root.statusSev = "error"
+                root.clearDownloadIntent()
                 return
             }
             downloadOverlay.visible = true
@@ -1616,6 +1738,30 @@ Item {
             downloadOverlay.received = 0
             downloadOverlay.total = 0
             cloudBridge.startDownload(pendingUrl, dest)
+        }
+        onCancelled: root.clearDownloadIntent()
+    }
+
+    Loader {
+        id: viewerDialogLoader
+        objectName: "viewerDialogLoader"
+        active: root.viewerEnabled && root.viewerDialogRequested
+        source: "VolumeViewerDialog.qml"
+        onLoaded: {
+            root.updateViewerDialogSettings()
+            if (root.pendingViewerOpenPath.length > 0)
+                root.openViewerDialog(root.pendingViewerOpenPath,
+                                      root.pendingViewerOpenName,
+                                      root.pendingViewerOpenFileId)
+        }
+    }
+
+    Connections {
+        target: viewerDialogLoader.item
+        ignoreUnknownSignals: true
+
+        function onPrintRequested(fileId, fileName) {
+            root.requestPrint(fileId, fileName)
         }
     }
 
@@ -1707,7 +1853,9 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Downloading file...")
+                    text: root.downloadPurpose === "viewer"
+                          ? qsTr("Downloading file for 3D view...")
+                          : qsTr("Downloading file...")
                     color: Theme.fgPrimary
                     font.pixelSize: Theme.fontSectionPx
                     font.bold: true
@@ -1742,8 +1890,10 @@ Item {
                         onClicked: {
                             if (hasCloudBridge() && typeof cloudBridge.cancelDownload === "function")
                                 cloudBridge.cancelDownload()
-                            else
+                            else {
                                 downloadOverlay.visible = false
+                                root.clearDownloadIntent()
+                            }
                         }
                     }
                 }
@@ -1830,8 +1980,11 @@ Item {
             colActionsWidth: root.colActionsWidth
             actionDetailsWidth: root.actionDetailsWidth
             actionDownloadWidth: root.actionDownloadWidth
+            actionViewerWidth: root.actionViewerWidth
             actionPrintWidth: root.actionPrintWidth
             actionMenuWidth: root.actionMenuWidth
+            viewerEnabled: root.viewerEnabled
+            viewerBusy: root.viewerBusy
             currentPage: root.currentPage
             totalPages: root.pageTotal
             visibleCount: root.visibleFilesCount
@@ -1842,6 +1995,7 @@ Item {
             }
             onDetailsRequested: function(fileId) { root.openFileDetails(fileId) }
             onDownloadRequested: function(fileId, fileName) { root.requestDownload(fileId, fileName) }
+            onViewerRequested: function(fileId, fileName) { root.requestViewer(fileId, fileName) }
             onPrintRequested: function(fileId, fileName) { root.requestPrint(fileId, fileName) }
             onDeleteRequested: function(fileId, fileName) { root.requestDelete(fileId, fileName) }
             onPageSizeSelected: function(value) {
