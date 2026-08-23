@@ -4,18 +4,25 @@
 
 ## Presets
 
+| Preset | Purpose |
+| --- | --- |
+| `default` | Debug desktop build, Qt enabled, viewer enabled, debug tooling disabled. |
+| `dev-debug` | Debug desktop build with debug resources and bridges. |
+| `prod` | Release desktop build; debug tooling and experimental viewer excluded. |
+| `protected-core` | Offline portable core gate without Qt/QML/live services. |
+| `local-full` | Strict complete local Qt/QML/SQL/MQTT non-live gate. |
+| `experimental-viewer-core` | Isolated non-Qt PWSZ, meshing and viewer-core gate. |
+| `experimental-viewer-qt` | Strict Qt/OpenGL desktop viewer gate. |
+
+Normal desktop build:
+
 ```bash
 cmake --preset default
 cmake --build --preset default
 ctest --preset default --output-on-failure
-
-cmake --preset dev-debug
-cmake --preset prod
 ```
 
-- `default`: Debug, Qt enabled, debug tooling disabled;
-- `dev-debug`: Debug, debug resources and bridges enabled;
-- `prod`: Release, debug tooling excluded.
+The authoritative preset definitions are in `CMakePresets.json`; the documentation guard checks that every configure preset remains listed here and in the architecture guide.
 
 ## Active paths
 

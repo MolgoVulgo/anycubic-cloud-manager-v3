@@ -40,6 +40,15 @@ Streams throttlés, bornés et dépendants de visibilité. Ne pas repeindre de g
 7. Modèles C++ ou deltas incrémentaux. **Implémenté pour les sélections imprimantes :** imprimantes compatibles et fichiers cloud/locaux utilisent désormais des modèles C++ à identité stable avec deltas de lignes.
 8. Documentation des conventions async.
 
+## Commandes de validation
+
+```bash
+ctest --preset local-full --output-on-failure
+ctest --preset local-full \
+  -R '^(accloud_local_cache_architecture|accloud_cloud_core_regressions|accloud_cloud_bridge_architecture|accloud_security_redaction|accloud_mqtt_flow|accloud_ui_qml|accloud_ui_models)$' \
+  --output-on-failure
+```
+
 ## Définition de terminé
 
 Fenêtre interactive < 1 s, onglets sans gel, cache affiché vite, refresh async, onglets cachés sans travail lourd, aucun appel QML production bloquant réseau/SQLite/log scan/gros buffer.

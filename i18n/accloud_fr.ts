@@ -42,258 +42,258 @@
         </message>
     </context>
     <context>
-    <name>CloudFileDetailsDialog</name>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="39"/>
-        <source>Ready</source>
-        <translation>Prêt</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="41"/>
-        <source>Processing</source>
-        <translation>Traitement en cours</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="43"/>
-        <source>Error</source>
-        <translation>Erreur</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="44"/>
-        <source>Unknown</source>
-        <translation>Inconnu</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="53"/>
-        <source>%1 • %2 • Uploaded on %3 • %4</source>
-        <translation>%1 • %2 • Téléversé le %3 • %4</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186"/>
-        <source>Preview unavailable</source>
-        <translation>Aperçu indisponible</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="199"/>
-        <source>File summary</source>
-        <translation>Résumé du fichier</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="203"/>
-        <source>File name</source>
-        <translation>Nom du fichier</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="207"/>
-        <source>Status</source>
-        <translation>État</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="211"/>
-        <source>Type / size</source>
-        <translation>Type / taille</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="212"/>
-        <source>%1 • %2</source>
-        <translation>%1 • %2</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="219"/>
-        <source>Uploaded</source>
-        <translation>Téléversé</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233"/>
-        <source>Print summary</source>
-        <translation>Résumé d&#x27;impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="237"/>
-        <source>Machine</source>
-        <translation>Machine</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="241"/>
-        <source>Material</source>
-        <translation>Matériau</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="245"/>
-        <source>Print time</source>
-        <translation>Temps d&#x27;impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="249"/>
-        <source>Layers</source>
-        <translation>Couches</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="285"/>
-        <source>Information</source>
-        <translation>Informations</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="289"/>
-        <source>Print Settings</source>
-        <translation>Paramètres d&#x27;impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="293"/>
-        <source>Technical Details</source>
-        <translation>Détails techniques</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="326"/>
-        <source>Cloud Metadata</source>
-        <translation>Métadonnées cloud</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="322"/>
-        <source>File</source>
-        <translation>Fichier</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="330"/>
-        <source>Type</source>
-        <translation>Type</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="336"/>
-        <source>Size</source>
-        <translation>Taille</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="348"/>
-        <source>Compatibility</source>
-        <translation>Compatibilité</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="364"/>
-        <source>Printers</source>
-        <translation>Imprimantes</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="391"/>
-        <source>Layer profile</source>
-        <translation>Profil des couches</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="395"/>
-        <source>Layer thickness</source>
-        <translation>Épaisseur de couche</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="403"/>
-        <source>Bottom layers</source>
-        <translation>Couches de base</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="407"/>
-        <source>Dimensions</source>
-        <translation>Dimensions</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="413"/>
-        <source>Exposure and material</source>
-        <translation>Exposition et matériau</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="417"/>
-        <source>Exposure time</source>
-        <translation>Temps d&#x27;exposition</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="421"/>
-        <source>Off time</source>
-        <translation>Temps d&#x27;extinction</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="425"/>
-        <source>Resin usage</source>
-        <translation>Consommation de résine</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="457"/>
-        <source>Cloud identity</source>
-        <translation>Identité cloud</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="461"/>
-        <source>File ID</source>
-        <translation>ID du fichier</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="465"/>
-        <source>G-code ID</source>
-        <translation>ID G-code</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="469"/>
-        <source>Status code</source>
-        <translation>Code d&#x27;état</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="473"/>
-        <source>Region</source>
-        <translation>Région</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="479"/>
-        <source>Cloud object</source>
-        <translation>Objet cloud</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="483"/>
-        <source>Created</source>
-        <translation>Créé</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="489"/>
-        <source>Updated</source>
-        <translation>Mis à jour</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="495"/>
-        <source>Bucket</source>
-        <translation>Bac</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="499"/>
-        <source>Path</source>
-        <translation>Chemin</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="503"/>
-        <source>Slice MD5</source>
-        <translation>MD5 du tranchage</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="517"/>
-        <source>Delete</source>
-        <translation>Supprimer</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="527"/>
-        <source>Download</source>
-        <translation>Télécharger</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="534"/>
-        <source>Print</source>
-        <translation>Imprimer</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="539"/>
-        <source>Remote print via Printers workflow</source>
-        <translation>Impression à distance via le flux Imprimantes</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="545"/>
-        <source>Close</source>
-        <translation>Fermer</translation>
-    </message>
-</context>
+        <name>CloudFileDetailsDialog</name>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="39" />
+            <source>Ready</source>
+            <translation>Prêt</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="41" />
+            <source>Processing</source>
+            <translation>Traitement en cours</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="43" />
+            <source>Error</source>
+            <translation>Erreur</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="44" />
+            <source>Unknown</source>
+            <translation>Inconnu</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="53" />
+            <source>%1 • %2 • Uploaded on %3 • %4</source>
+            <translation>%1 • %2 • Téléversé le %3 • %4</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="186" />
+            <source>Preview unavailable</source>
+            <translation>Aperçu indisponible</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="199" />
+            <source>File summary</source>
+            <translation>Résumé du fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="203" />
+            <source>File name</source>
+            <translation>Nom du fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="207" />
+            <source>Status</source>
+            <translation>État</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="211" />
+            <source>Type / size</source>
+            <translation>Type / taille</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="212" />
+            <source>%1 • %2</source>
+            <translation>%1 • %2</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="219" />
+            <source>Uploaded</source>
+            <translation>Téléversé</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="233" />
+            <source>Print summary</source>
+            <translation>Résumé d'impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="237" />
+            <source>Machine</source>
+            <translation>Machine</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="241" />
+            <source>Material</source>
+            <translation>Matériau</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="245" />
+            <source>Print time</source>
+            <translation>Temps d'impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="249" />
+            <source>Layers</source>
+            <translation>Couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="285" />
+            <source>Information</source>
+            <translation>Informations</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="289" />
+            <source>Print Settings</source>
+            <translation>Paramètres d'impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="293" />
+            <source>Technical Details</source>
+            <translation>Détails techniques</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="326" />
+            <source>Cloud Metadata</source>
+            <translation>Métadonnées cloud</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="322" />
+            <source>File</source>
+            <translation>Fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="330" />
+            <source>Type</source>
+            <translation>Type</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="336" />
+            <source>Size</source>
+            <translation>Taille</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="348" />
+            <source>Compatibility</source>
+            <translation>Compatibilité</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="364" />
+            <source>Printers</source>
+            <translation>Imprimantes</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="391" />
+            <source>Layer profile</source>
+            <translation>Profil des couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="395" />
+            <source>Layer thickness</source>
+            <translation>Épaisseur de couche</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="403" />
+            <source>Bottom layers</source>
+            <translation>Couches de base</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="407" />
+            <source>Dimensions</source>
+            <translation>Dimensions</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="413" />
+            <source>Exposure and material</source>
+            <translation>Exposition et matériau</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="417" />
+            <source>Exposure time</source>
+            <translation>Temps d'exposition</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="421" />
+            <source>Off time</source>
+            <translation>Temps d'extinction</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="425" />
+            <source>Resin usage</source>
+            <translation>Consommation de résine</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="457" />
+            <source>Cloud identity</source>
+            <translation>Identité cloud</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="461" />
+            <source>File ID</source>
+            <translation>ID du fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="465" />
+            <source>G-code ID</source>
+            <translation>ID G-code</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="469" />
+            <source>Status code</source>
+            <translation>Code d'état</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="473" />
+            <source>Region</source>
+            <translation>Région</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="479" />
+            <source>Cloud object</source>
+            <translation>Objet cloud</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="483" />
+            <source>Created</source>
+            <translation>Créé</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="489" />
+            <source>Updated</source>
+            <translation>Mis à jour</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="495" />
+            <source>Bucket</source>
+            <translation>Bac</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="499" />
+            <source>Path</source>
+            <translation>Chemin</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="503" />
+            <source>Slice MD5</source>
+            <translation>MD5 du tranchage</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="517" />
+            <source>Delete</source>
+            <translation>Supprimer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="527" />
+            <source>Download</source>
+            <translation>Télécharger</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="534" />
+            <source>Print</source>
+            <translation>Imprimer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="539" />
+            <source>Remote print via Printers workflow</source>
+            <translation>Impression à distance via le flux Imprimantes</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFileDetailsDialog.qml" line="545" />
+            <source>Close</source>
+            <translation>Fermer</translation>
+        </message>
+    </context>
     <context>
         <name>CloudFilesPage</name>
         <message>
@@ -845,224 +845,224 @@
             <translation>Imprimantes compatibles : %1</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>PWSZ inspection failed: %1</source>
             <translation>Échec de l’inspection PWSZ : %1</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>Invalid PWSZ archive.</source>
             <translation>Archive PWSZ invalide.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>Missing PWSZ cloud preview</source>
             <translation>Aperçu cloud PWSZ manquant</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>The local file will be modified only after the cloud upload succeeds.</source>
             <translation>Le fichier local sera modifié uniquement après la réussite de l’envoi cloud.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>%1 does not contain preview_images/preview_2.png. ACM will copy preview_1.png to preview_2.png without changing its bytes, upload that version, then replace the local PWSZ atomically after a successful cloud upload.</source>
             <translation>%1 ne contient pas preview_images/preview_2.png. ACM copiera preview_1.png vers preview_2.png sans modifier ses octets, enverra cette version, puis remplacera atomiquement le PWSZ local après la réussite de l’envoi cloud.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>If preparation or upload fails, the original local file remains unchanged.</source>
             <translation>Si la préparation ou l’envoi échoue, le fichier local original reste inchangé.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>Do not ask again for future PWSZ files</source>
             <translation>Ne plus demander pour les prochains fichiers PWSZ</translation>
         </message>
         <message>
-            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
             <source>Modify and upload</source>
             <translation>Modifier et envoyer</translation>
         </message>
         <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Missing PWSZ thumbnails</source>
-        <translation>Miniatures PWSZ manquantes</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Update the affected cloud files</source>
-        <translation>Mettre à jour les fichiers cloud concernés</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.</source>
-        <translation>ACM a détecté %1 fichier(s) PWSZ dont la miniature Anycubic est vide.</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.</source>
-        <translation>Pour les mettre à jour, ACM téléchargera chaque fichier concerné (%1), ajoutera preview_images/preview_2.png en copiant preview_1.png, enverra une nouvelle version cloud normale, validera sa miniature, puis supprimera l’ancienne version cloud.</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.</source>
-        <translation>La nouvelle version est enregistrée directement avec le nom d’affichage original. L’ancienne version n’est supprimée qu’après validation de la nouvelle miniature. Si la suppression échoue, les deux versions sont conservées et la modification est signalée comme partielle.</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Update %1 file(s)</source>
-        <translation>Mettre à jour %1 fichier(s)</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Starting modification</source>
-        <translation>Démarrage de la modification</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Modification in progress</source>
-        <translation>Modification en cours</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>File %1 of %2</source>
-        <translation>Fichier %1 sur %2</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Preparing files</source>
-        <translation>Préparation des fichiers</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Update completed</source>
-        <translation>Mise à jour terminée</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>PWSZ cloud modification summary</source>
-        <translation>Résumé de la modification des PWSZ cloud</translation>
-    </message>
-    <message>
-        <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml"/>
-        <source>Files modified: %1
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Missing PWSZ thumbnails</source>
+            <translation>Miniatures PWSZ manquantes</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Update the affected cloud files</source>
+            <translation>Mettre à jour les fichiers cloud concernés</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>ACM detected %1 PWSZ file(s) whose Anycubic thumbnail is empty.</source>
+            <translation>ACM a détecté %1 fichier(s) PWSZ dont la miniature Anycubic est vide.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>To update them, ACM will download every affected file (%1), add preview_images/preview_2.png by copying preview_1.png, upload a new normal cloud version, validate its thumbnail, then delete the old cloud version.</source>
+            <translation>Pour les mettre à jour, ACM téléchargera chaque fichier concerné (%1), ajoutera preview_images/preview_2.png en copiant preview_1.png, enverra une nouvelle version cloud normale, validera sa miniature, puis supprimera l’ancienne version cloud.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>The new version is registered directly with the original display name. The old version is deleted only after the new thumbnail is valid. If deletion fails, both versions are kept and the modification is reported as partial.</source>
+            <translation>La nouvelle version est enregistrée directement avec le nom d’affichage original. L’ancienne version n’est supprimée qu’après validation de la nouvelle miniature. Si la suppression échoue, les deux versions sont conservées et la modification est signalée comme partielle.</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Update %1 file(s)</source>
+            <translation>Mettre à jour %1 fichier(s)</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Starting modification</source>
+            <translation>Démarrage de la modification</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Modification in progress</source>
+            <translation>Modification en cours</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>File %1 of %2</source>
+            <translation>Fichier %1 sur %2</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Preparing files</source>
+            <translation>Préparation des fichiers</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Update completed</source>
+            <translation>Mise à jour terminée</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>PWSZ cloud modification summary</source>
+            <translation>Résumé de la modification des PWSZ cloud</translation>
+        </message>
+        <message>
+            <location filename="../src/accloud/ui/qml/pages/CloudFilesPage.qml" />
+            <source>Files modified: %1
 Already compliant: %2
 Failures: %3
 Partial modifications: %4</source>
-        <translation>Fichiers modifiés : %1
+            <translation>Fichiers modifiés : %1
 Déjà conformes : %2
 Échecs : %3
 Modifications partielles : %4</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Downloading cloud file</source>
-        <translation>Téléchargement du fichier cloud</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Preparing the PWSZ archive</source>
-        <translation>Préparation de l’archive PWSZ</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Uploading the modified version</source>
-        <translation>Envoi de la version modifiée</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Waiting for cloud processing</source>
-        <translation>Attente du traitement cloud</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Validating the new thumbnail</source>
-        <translation>Validation de la nouvelle miniature</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Deleting the original version</source>
-        <translation>Suppression de la version d’origine</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Failed</source>
-        <translation>Échec</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Partial</source>
-        <translation>Partiel</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Cancelled</source>
-        <translation>Annulé</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Modified</source>
-        <translation>Modifié</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Already compliant</source>
-        <translation>Déjà conforme</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Update cancelled</source>
-        <translation>Mise à jour annulée</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Update completed with issues</source>
-        <translation>Mise à jour terminée avec incidents</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Unknown file</source>
-        <translation>Fichier inconnu</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>No additional detail.</source>
-        <translation>Aucun détail supplémentaire.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>original id: %1</source>
-        <translation>id d’origine : %1</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>, new id: %1</source>
-        <translation>, nouvel id : %1</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>%1 — %2 — %3 (%4)</source>
-        <translation>%1 — %2 — %3 (%4)</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Cloud inventory incomplete; the PWSZ batch update proposal was skipped. Retry the refresh.</source>
-        <translation>Inventaire cloud incomplet ; la proposition de mise à jour groupée PWSZ a été ignorée. Relancez le rafraîchissement.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1"/>
-        <source>Files modified: %1
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Downloading cloud file</source>
+            <translation>Téléchargement du fichier cloud</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Preparing the PWSZ archive</source>
+            <translation>Préparation de l’archive PWSZ</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Uploading the modified version</source>
+            <translation>Envoi de la version modifiée</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Waiting for cloud processing</source>
+            <translation>Attente du traitement cloud</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Validating the new thumbnail</source>
+            <translation>Validation de la nouvelle miniature</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Deleting the original version</source>
+            <translation>Suppression de la version d’origine</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Failed</source>
+            <translation>Échec</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Partial</source>
+            <translation>Partiel</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Cancelled</source>
+            <translation>Annulé</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Modified</source>
+            <translation>Modifié</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Already compliant</source>
+            <translation>Déjà conforme</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Update cancelled</source>
+            <translation>Mise à jour annulée</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Update completed with issues</source>
+            <translation>Mise à jour terminée avec incidents</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Unknown file</source>
+            <translation>Fichier inconnu</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>No additional detail.</source>
+            <translation>Aucun détail supplémentaire.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>original id: %1</source>
+            <translation>id d’origine : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>, new id: %1</source>
+            <translation>, nouvel id : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>%1 — %2 — %3 (%4)</source>
+            <translation>%1 — %2 — %3 (%4)</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Cloud inventory incomplete; the PWSZ batch update proposal was skipped. Retry the refresh.</source>
+            <translation>Inventaire cloud incomplet ; la proposition de mise à jour groupée PWSZ a été ignorée. Relancez le rafraîchissement.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1" />
+            <source>Files modified: %1
 Already compliant: %2
 Failures: %3
 Partial modifications: %4
 Cancelled: %5</source>
-        <translation>Fichiers modifiés : %1
+            <translation>Fichiers modifiés : %1
 Déjà conformes : %2
 Échecs : %3
 Modifications partielles : %4
 Annulés : %5</translation>
-    </message>
+        </message>
         <message>
             <source>Delete selected files</source>
             <translation>Supprimer les fichiers sélectionnés</translation>
@@ -1124,7 +1124,42 @@ Annulés : %5</translation>
             <source>Modify and continue</source>
             <translation>Modifier et continuer</translation>
         </message>
-</context>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="614" />
+            <source>Another file download is already in progress.</source>
+            <translation>Un autre téléchargement de fichier est déjà en cours.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="625" />
+            <source>Preparing 3D view...</source>
+            <translation>Préparation de la vue 3D...</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="652" />
+            <source>The 3D viewer is disabled in this build.</source>
+            <translation>Le viewer 3D est désactivé dans ce build.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="657" />
+            <source>The 3D viewer currently supports PWSZ files only.</source>
+            <translation>Le viewer 3D prend actuellement en charge uniquement les fichiers PWSZ.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="691" />
+            <source>3D view download is unavailable without backend.</source>
+            <translation>Le téléchargement pour la vue 3D est indisponible sans backend.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1137" />
+            <source>3D view ready: %1</source>
+            <translation>Vue 3D prête : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesPage.qml" line="1818" />
+            <source>Downloading file for 3D view...</source>
+            <translation>Téléchargement du fichier pour la vue 3D...</translation>
+        </message>
+    </context>
     <context>
         <name>CloudFilesPaginationBar</name>
         <message>
@@ -1231,11 +1266,26 @@ Annulés : %5</translation>
             <source>Delete</source>
             <translation>Supprimer</translation>
         </message>
-            <message>
+        <message>
             <source>Select %1</source>
             <translation>Sélectionner %1</translation>
         </message>
-</context>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="249" />
+            <source>3D</source>
+            <translation>3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="257" />
+            <source>Open the layer-based 3D view</source>
+            <translation>Ouvrir la vue 3D reconstruite par couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/CloudFilesTableRow.qml" line="260" />
+            <source>The 3D viewer is disabled in this build.</source>
+            <translation>Le viewer 3D est désactivé dans ce build.</translation>
+        </message>
+    </context>
     <context>
         <name>CloudFilesToolbar</name>
         <message>
@@ -1258,7 +1308,7 @@ Annulés : %5</translation>
             <source>Type</source>
             <translation>Type</translation>
         </message>
-            <message>
+        <message>
             <source>Deleting %1/%2...</source>
             <translation>Suppression %1/%2...</translation>
         </message>
@@ -1274,7 +1324,7 @@ Annulés : %5</translation>
             <source>Direct print</source>
             <translation>Impression directe</translation>
         </message>
-</context>
+    </context>
     <context>
         <name>CloudLoginPage</name>
         <message>
@@ -1440,6 +1490,16 @@ Annulés : %5</translation>
             <location filename="../ui/qml/components/FileCard.qml" line="138" />
             <source>Open 3D Viewer</source>
             <translation>Ouvrir le visualiseur 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/FileCard.qml" line="149" />
+            <source>Open the layer-based 3D view</source>
+            <translation>Ouvrir la vue 3D reconstruite par couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/FileCard.qml" line="150" />
+            <source>The 3D viewer is disabled in this build.</source>
+            <translation>Le viewer 3D est désactivé dans ce build.</translation>
         </message>
     </context>
     <context>
@@ -2036,41 +2096,40 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <translation>Recompilez avec ACCLOUD_DEBUG=ON pour activer le visualiseur de logs runtime.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <location filename="../ui/qml/MainWindow.qml" line="1" />
             <source>Complete PWSZ previews before upload</source>
             <translation>Compléter les aperçus PWSZ avant l’envoi</translation>
         </message>
         <message>
-            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <location filename="../ui/qml/MainWindow.qml" line="1" />
             <source>Automatic PWSZ preview completion enabled.</source>
             <translation>Complétion automatique des aperçus PWSZ activée.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <location filename="../ui/qml/MainWindow.qml" line="1" />
             <source>Automatic PWSZ preview completion disabled.</source>
             <translation>Complétion automatique des aperçus PWSZ désactivée.</translation>
         </message>
         <message>
-            <location filename="../ui/qml/MainWindow.qml" line="1"/>
+            <location filename="../ui/qml/MainWindow.qml" line="1" />
             <source>Confirm before modifying PWSZ files</source>
             <translation>Confirmer avant de modifier les fichiers PWSZ</translation>
         </message>
-    
-    <message>
-        <location filename="../ui/qml/MainWindow.qml" line="396"/>
-        <source>Show technical file details</source>
-        <translation>Afficher les détails techniques des fichiers</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/MainWindow.qml" line="402"/>
-        <source>Technical file details enabled.</source>
-        <translation>Détails techniques des fichiers activés.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/MainWindow.qml" line="403"/>
-        <source>Technical file details hidden.</source>
-        <translation>Détails techniques des fichiers masqués.</translation>
-    </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="396" />
+            <source>Show technical file details</source>
+            <translation>Afficher les détails techniques des fichiers</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="402" />
+            <source>Technical file details enabled.</source>
+            <translation>Détails techniques des fichiers activés.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="403" />
+            <source>Technical file details hidden.</source>
+            <translation>Détails techniques des fichiers masqués.</translation>
+        </message>
         <message>
             <source>Delete printer-local copy when a direct print fails</source>
             <translation>Supprimer la copie locale de l’imprimante si une impression directe échoue</translation>
@@ -2086,6 +2145,106 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         <message>
             <source>Direct print entrypoint is unavailable.</source>
             <translation>Le point d’entrée de l’impression directe est indisponible.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>3D Viewer</source>
+            <translation>Visionneuse 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>3D generation workers: %1</source>
+            <translation>Workers de génération 3D : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>3D generation settings</source>
+            <translation>Paramètres de génération 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Configure the number of parallel mesh workers.</source>
+            <translation>Configure le nombre de workers parallèles du maillage.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Parallel workers</source>
+            <translation>Workers parallèles</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Default: 4. Higher values use more CPU and memory during 3D generation.</source>
+            <translation>Par défaut : 4. Les valeurs plus élevées utilisent davantage de CPU et de mémoire pendant la génération 3D.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>3D generation workers updated: %1</source>
+            <translation>Nombre de workers de génération 3D mis à jour : %1</translation>
+        </message>
+            <message>
+            <location filename="../ui/qml/MainWindow.qml" line="189" />
+            <source>Technical cyan</source>
+            <translation>Cyan technique</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="195" />
+            <source>Industrial amber</source>
+            <translation>Ambre industriel</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="201" />
+            <source>Mineral ivory</source>
+            <translation>Ivoire minéral</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="207" />
+            <source>Night coral</source>
+            <translation>Corail nocturne</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="213" />
+            <source>Light graphite</source>
+            <translation>Graphite clair</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="503" />
+            <source>3D colors: %1</source>
+            <translation>Couleurs 3D : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="768" />
+            <source>3D color settings</source>
+            <translation>Paramètres des couleurs 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="769" />
+            <source>Choose a color pair for the printed part and the viewport background.</source>
+            <translation>Choisissez un couple de couleurs pour la pièce imprimée et le fond de la vue.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="791" />
+            <source>Color preset</source>
+            <translation>Préréglage de couleurs</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="840" />
+            <source>Part: %1</source>
+            <translation>Pièce : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="849" />
+            <source>Background: %1</source>
+            <translation>Fond : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="857" />
+            <source>The colors are applied immediately without rebuilding the 3D mesh.</source>
+            <translation>Les couleurs sont appliquées immédiatement sans reconstruire le maillage 3D.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" line="877" />
+            <source>3D colors updated: %1</source>
+            <translation>Couleurs 3D mises à jour : %1</translation>
         </message>
 </context>
     <context>
@@ -3398,97 +3557,97 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
         </message>
     </context>
     <context>
-    <name>PrinterRemotePrintConfigDialog</name>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Remote Print Config</source>
-        <translation>Configuration de l’impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Review task, printer and options before start</source>
-        <translation>Vérifiez le fichier, l’imprimante et les options avant le démarrage.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Checking printer compatibility...</source>
-        <translation>Vérification de la compatibilité de l’imprimante...</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>No printer available for remote print.</source>
-        <translation>Aucune imprimante disponible pour l’impression à distance.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Print Task</source>
-        <translation>Fichier à imprimer</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Print time</source>
-        <translation>Durée d’impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Resin usage</source>
-        <translation>Consommation de résine</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Select Printer</source>
-        <translation>Imprimante</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Compatible target printer</source>
-        <translation>Imprimante compatible proposée automatiquement</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Options</source>
-        <translation>Options</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Fast options before start</source>
-        <translation>Options appliquées au lancement de l’impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Delete file after print</source>
-        <translation>Supprimer le fichier après impression</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Lift compensation</source>
-        <translation>Compensation de levage</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Auto resin check</source>
-        <translation>Vérification automatique de la résine</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Start blocked: %1</source>
-        <translation>Démarrage bloqué : %1</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Start blocked by compatibility checks.</source>
-        <translation>Démarrage bloqué par les contrôles de compatibilité.</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Close</source>
-        <translation>Fermer</translation>
-    </message>
-    <message>
-        <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml"/>
-        <source>Start Printing</source>
-        <translation>Démarrer l’impression</translation>
-    </message>
+        <name>PrinterRemotePrintConfigDialog</name>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Remote Print Config</source>
+            <translation>Configuration de l’impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Review task, printer and options before start</source>
+            <translation>Vérifiez le fichier, l’imprimante et les options avant le démarrage.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Checking printer compatibility...</source>
+            <translation>Vérification de la compatibilité de l’imprimante...</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>No printer available for remote print.</source>
+            <translation>Aucune imprimante disponible pour l’impression à distance.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Print Task</source>
+            <translation>Fichier à imprimer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Print time</source>
+            <translation>Durée d’impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Resin usage</source>
+            <translation>Consommation de résine</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Select Printer</source>
+            <translation>Imprimante</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Compatible target printer</source>
+            <translation>Imprimante compatible proposée automatiquement</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Options</source>
+            <translation>Options</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Fast options before start</source>
+            <translation>Options appliquées au lancement de l’impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Delete file after print</source>
+            <translation>Supprimer le fichier après impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Lift compensation</source>
+            <translation>Compensation de levage</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Auto resin check</source>
+            <translation>Vérification automatique de la résine</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Start blocked: %1</source>
+            <translation>Démarrage bloqué : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Start blocked by compatibility checks.</source>
+            <translation>Démarrage bloqué par les contrôles de compatibilité.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Close</source>
+            <translation>Fermer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/PrinterRemotePrintConfigDialog.qml" />
+            <source>Start Printing</source>
+            <translation>Démarrer l’impression</translation>
+        </message>
         <message>
             <source>Direct Print</source>
             <translation>Impression directe</translation>
@@ -3513,7 +3672,7 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <source>Upload and print</source>
             <translation>Téléverser et imprimer</translation>
         </message>
-</context>
+    </context>
     <context>
         <name>PrinterSelectCloudFileDialog</name>
         <message>
@@ -3986,25 +4145,242 @@ Connexion cloud : </translation>
     </context>
     <context>
         <name>DownloadFileDialog</name>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="26" /><source>%1 files (*.%2)</source><translation>Fichiers %1 (*.%2)</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="29" /><source>All files (*)</source><translation>Tous les fichiers (*)</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="42" /><source>Save As</source><translation>Enregistrer sous</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="43" /><source>Choose the destination folder and file name.</source><translation>Choisissez le dossier de destination et le nom du fichier.</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="263" /><source>Home</source><translation>Dossier personnel</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="271" /><source>Downloads</source><translation>Téléchargements</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="283" /><source>Up</source><translation>Parent</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="318" /><source>Folders</source><translation>Dossiers</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="382" /><source>Files</source><translation>Fichiers</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="441" /><source>File name</source><translation>Nom du fichier</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="468" /><source>Destination: %1</source><translation>Destination : %1</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="469" /><source>Enter a file name.</source><translation>Saisissez un nom de fichier.</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="480" /><source>Cancel</source><translation>Annuler</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="487" /><source>Save</source><translation>Enregistrer</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="520" /><source>Replace existing file?</source><translation>Remplacer le fichier existant ?</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="521" /><source>A file with this name already exists in the selected folder.</source><translation>Un fichier portant ce nom existe déjà dans le dossier sélectionné.</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="531" /><source>Replace %1?</source><translation>Remplacer %1 ?</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="540" /><source>The existing file will be overwritten.</source><translation>Le fichier existant sera écrasé.</translation></message>
-        <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="555" /><source>Replace</source><translation>Remplacer</translation></message>
-            <message><location filename="../ui/qml/components/DownloadFileDialog.qml" line="357" /><source>Content</source><translation>Contenu</translation></message>
-</context>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="26" />
+            <source>%1 files (*.%2)</source>
+            <translation>Fichiers %1 (*.%2)</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="29" />
+            <source>All files (*)</source>
+            <translation>Tous les fichiers (*)</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="42" />
+            <source>Save As</source>
+            <translation>Enregistrer sous</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="43" />
+            <source>Choose the destination folder and file name.</source>
+            <translation>Choisissez le dossier de destination et le nom du fichier.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="263" />
+            <source>Home</source>
+            <translation>Dossier personnel</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="271" />
+            <source>Downloads</source>
+            <translation>Téléchargements</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="283" />
+            <source>Up</source>
+            <translation>Parent</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="318" />
+            <source>Folders</source>
+            <translation>Dossiers</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="382" />
+            <source>Files</source>
+            <translation>Fichiers</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="441" />
+            <source>File name</source>
+            <translation>Nom du fichier</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="468" />
+            <source>Destination: %1</source>
+            <translation>Destination : %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="469" />
+            <source>Enter a file name.</source>
+            <translation>Saisissez un nom de fichier.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="480" />
+            <source>Cancel</source>
+            <translation>Annuler</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="487" />
+            <source>Save</source>
+            <translation>Enregistrer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="520" />
+            <source>Replace existing file?</source>
+            <translation>Remplacer le fichier existant ?</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="521" />
+            <source>A file with this name already exists in the selected folder.</source>
+            <translation>Un fichier portant ce nom existe déjà dans le dossier sélectionné.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="531" />
+            <source>Replace %1?</source>
+            <translation>Remplacer %1 ?</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="540" />
+            <source>The existing file will be overwritten.</source>
+            <translation>Le fichier existant sera écrasé.</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="555" />
+            <source>Replace</source>
+            <translation>Remplacer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/components/DownloadFileDialog.qml" line="357" />
+            <source>Content</source>
+            <translation>Contenu</translation>
+        </message>
+    </context>
+    <context>
+        <name>VolumeViewerPage</name>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>3D layer viewer</source>
+            <translation>Visionneuse 3D par couches</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Reconstruct and inspect the printed volume from PWSZ layer images</source>
+            <translation>Reconstruire et inspecter le volume imprimé à partir des images de couches PWSZ</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Absolute path or file:/// URL to a .pwsz file</source>
+            <translation>Chemin absolu ou URL file:/// vers un fichier .pwsz</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Loading…</source>
+            <translation>Chargement…</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Load PWSZ</source>
+            <translation>Charger le PWSZ</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>No PWSZ loaded</source>
+            <translation>Aucun PWSZ chargé</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" />
+            <source>Left drag: orbit · Right/Shift drag: pan · Wheel: zoom</source>
+            <translation>Glisser gauche : orbite · Glisser droit/Maj : déplacement · Molette : zoom</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="19" />
+            <source>3D view — %1</source>
+            <translation>Vue 3D — %1</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerPage.qml" line="149" />
+            <source>%1 · %2 layers</source>
+            <translation>%1 · %2 couches</translation>
+        </message>
+    </context>
+    <context>
+        <name>QmlGlItem</name>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Select a PWSZ file first.</source>
+            <translation>Sélectionnez d’abord un fichier PWSZ.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The PWSZ archive contains no layers.</source>
+            <translation>L’archive PWSZ ne contient aucune couche.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The 3D model contains a chunk that is too large for OpenGL.</source>
+            <translation>Le modèle 3D contient un chunk trop volumineux pour OpenGL.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>The complete 3D model exceeds the safe GPU memory budget. No partial model was kept.</source>
+            <translation>Le modèle 3D complet dépasse le budget mémoire GPU sécurisé. Aucun modèle partiel n’a été conservé.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to allocate memory for the complete 3D model.</source>
+            <translation>Impossible d’allouer la mémoire du modèle 3D complet.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to build the visible-layer section surfaces.</source>
+            <translation>Impossible de construire les surfaces de section de la plage de couches visible.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>Unable to initialize the 3D renderer.</source>
+            <translation>Impossible d’initialiser le moteur de rendu 3D.</translation>
+        </message>
+        <message>
+            <location filename="../render3d/qtquick/QmlGlItem.cpp" />
+            <source>OpenGL rejected the complete 3D model before rendering.</source>
+            <translation>OpenGL a rejeté le modèle 3D complet avant son rendu.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ViewerBuildModal</name>
+        <message>
+            <location filename="../ui/qml/components/ViewerBuildModal.qml" />
+            <source>Creating 3D view…</source>
+            <translation>Création de la vue 3D…</translation>
+        </message>
+    </context>
+    <context>
+        <name>VolumeViewerDialog</name>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="14" />
+            <source>3D view</source>
+            <translation>Vue 3D</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="16" />
+            <source>Layer-based reconstruction of the selected cloud file</source>
+            <translation>Reconstruction par couches du fichier cloud sélectionné</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="52" />
+            <source>Reset view</source>
+            <translation>Réinitialiser la vue</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" />
+            <source>Print</source>
+            <translation>Imprimer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="22" />
+            <source>Close</source>
+            <translation>Fermer</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
+            <source>Full screen</source>
+            <translation>Plein écran</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/pages/VolumeViewerDialog.qml" line="48" />
+            <source>Exit full screen</source>
+            <translation>Quitter le plein écran</translation>
+        </message>
+    </context>
 </TS>

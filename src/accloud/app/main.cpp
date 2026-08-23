@@ -19,6 +19,9 @@
 #include "SessionImportBridge.h"
 #include "UiSettingsBridge.h"
 #include "infra/mqtt/core/OpenSslCompat.h"
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+#include "render3d/qtquick/QmlGlItem.h"
+#endif
 #if defined(ACCLOUD_DEBUG)
 #include "LogBridge.h"
 #include "UiClickTracer.h"
@@ -30,6 +33,10 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+#include <QQuickWindow>
+#include <QSGRendererInterface>
+#endif
 #include <QDir>
 #include <QStandardPaths>
 #include <QUrl>
@@ -174,6 +181,9 @@ int main(int argc, char** argv) {
     }
 
     QGuiApplication app(argc, argv);
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+#endif
     qInstallMessageHandler(qtMessageHandler);
     QLockFile singleInstanceLock(singleInstanceLockPath());
     if (!singleInstanceLock.tryLock(100)) {
@@ -278,6 +288,10 @@ ApplicationWindow {
     qmlRegisterType<accloud::PrintersModel>("Accloud.Models", 1, 0, "PrintersModel");
     qmlRegisterType<accloud::PrinterFilesModel>("Accloud.Models", 1, 0, "PrinterFilesModel");
     qmlRegisterType<accloud::RecentJobsModel>("Accloud.Models", 1, 0, "RecentJobsModel");
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+    qmlRegisterType<accloud::render3d::QmlGlItem>(
+        "Accloud.Render3D", 1, 0, "VolumeViewer");
+#endif
     accloud::SessionImportBridge sessionImportBridge;
     accloud::CloudBridge cloudBridge;
     accloud::CloudFilesWorkflowBridge cloudFilesWorkflowBridge;
@@ -378,6 +392,11 @@ ApplicationWindow {
                                              kBuildDebugEnabled);
     engine.rootContext()->setContextProperty("accloudProdUi",
                                              !kBuildDebugEnabled);
+#if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
+    engine.rootContext()->setContextProperty("accloudExperimentalViewerEnabled", true);
+#else
+    engine.rootContext()->setContextProperty("accloudExperimentalViewerEnabled", false);
+#endif
     engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
     engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);
     engine.rootContext()->setContextProperty("cloudFilesWorkflowBridge", &cloudFilesWorkflowBridge);

@@ -27,10 +27,13 @@ Statut : `IMPLEMENTE` pour les décisions, `PARTIEL` pour les chantiers.
 | D-016 | Les URLs sont réduites à une représentation sûre avant journalisation des miniatures. | Query, fragment et userinfo peuvent exposer un accès signé ou des credentials. |
 | D-017 | Le fallback TLS MQTT local est explicite et résout `<racine-du-depot>/resources/mqtt/tls`. | Le fallback silencieux masquait les erreurs de configuration et l’ancien chemin `accloud/resources/...` ne correspondait pas à l’arborescence réelle. |
 | D-018 | Les données publiques de référence sont exclusivement synthétiques et contrôlées mécaniquement. | Les historiques MQTT bruts exposent des identifiants opérationnels persistants et n’ont pas leur place dans l’archive distribuable. |
+| D-019 | Le décodage PWSZ `pw0Img` utilise un RLE mixte un/deux octets et détecte l’antialiasing dans les rasters. | Les fichiers binaires valides ne contiennent que 0/15 ; les niveaux 1..14 restent optionnels. |
+| D-020 | Le mesh viewer est généré depuis les transitions matière/vide entre couches empilées et découpé en chunks de couches. | Cela conserve surfaces externes/internes, supports et trous tout en permettant une plage Z dynamique. |
+| D-021 | Le premier backend desktop utilise `QQuickFramebufferObject`, Qt OpenGL et un clipping Z exact dans le shader. | Il repose sur des API Qt 6 publiques, respecte la frontière `render3d/gl`, est activé dans les presets desktop de développement et reste désactivé en production. |
 
 ## Points ouverts
 
-Cloud : fermer contrat sync par scope, async partout côté UI. MQTT : étendre couverture modèles et discovery redacted. UI : cacher/wirer dialogs draft, finir lazy loading. i18n : migration complète chaînes visibles. Viewer : fermer decode->mask->render et goldens. Ops : debug bundle redacted.
+Cloud : fermer contrat sync par scope, async partout côté UI. MQTT : étendre couverture modèles et discovery redacted. UI : cacher/wirer dialogs draft, finir lazy loading. i18n : migration complète chaînes visibles. Viewer : valider localement le chemin Qt/OpenGL par fichier, puis ajouter éviction GPU, LOD/simplification et bouchons de coupe dynamiques. Ops : debug bundle redacted.
 
 ## Règle future
 

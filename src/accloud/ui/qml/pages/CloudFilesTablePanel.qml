@@ -30,17 +30,21 @@ Rectangle {
     property int colActionsWidth: 0
     property int actionDetailsWidth: 92
     property int actionDownloadWidth: 112
+    property int actionViewerWidth: 48
     property int actionPrintWidth: 96
     property int actionMenuWidth: 42
     property int currentPage: 0
     property int totalPages: 1
     property int visibleCount: 0
     property int pageSize: 10
+    property bool viewerEnabled: false
+    property bool viewerBusy: false
 
     signal selectedFileChanged(string fileId)
     signal fileSelectionToggled(string fileId, string fileName, bool checked)
     signal detailsRequested(string fileId)
     signal downloadRequested(string fileId, string fileName)
+    signal viewerRequested(string fileId, string fileName)
     signal printRequested(string fileId, string fileName)
     signal deleteRequested(string fileId, string fileName)
     signal pageSizeSelected(int value)
@@ -121,6 +125,7 @@ Rectangle {
                 colActionsWidth: root.colActionsWidth
                 actionDetailsWidth: root.actionDetailsWidth
                 actionDownloadWidth: root.actionDownloadWidth
+                actionViewerWidth: root.actionViewerWidth
                 actionPrintWidth: root.actionPrintWidth
                 actionMenuWidth: root.actionMenuWidth
                 fileId: String(model.fileId || "")
@@ -129,12 +134,15 @@ Rectangle {
                 sizeText: String(model.sizeText || "-")
                 fileTypeText: String(model.fileTypeText || "-")
                 dateText: String(model.dateText || "-")
+                viewerEnabled: root.viewerEnabled
+                viewerBusy: root.viewerBusy
                 onSelectRequested: function(fileId) { root.selectedFileChanged(fileId) }
                 onSelectionToggled: function(fileId, fileName, checked) {
                     root.fileSelectionToggled(fileId, fileName, checked)
                 }
                 onDetailsRequested: function(fileId) { root.detailsRequested(fileId) }
                 onDownloadRequested: function(fileId, fileName) { root.downloadRequested(fileId, fileName) }
+                onViewerRequested: function(fileId, fileName) { root.viewerRequested(fileId, fileName) }
                 onPrintRequested: function(fileId, fileName) { root.printRequested(fileId, fileName) }
                 onDeleteRequested: function(fileId, fileName) { root.deleteRequested(fileId, fileName) }
             }

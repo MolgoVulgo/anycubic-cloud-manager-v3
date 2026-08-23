@@ -2,188 +2,157 @@
 
 Statut documentaire : `PARTIEL`
 
----
+> Cette source technique complète l’annexe active `docs/FR/annexes/viewer-photon-formats.md`. En cas d’écart, l’annexe active et le code testé prévalent.
 
-## 1. Objet
+## 1. Position réelle
 
-Ce document regroupe :
-- la structure application photons ;
-- les notes sur les formats Anycubic ;
-- l’état viewer réel vs cible ;
-- les éléments épars présents dans la doc UI.
+Le viewer reste expérimental pour la production, mais il est activé dans les presets desktop de développement. Deux gates séparent le cœur portable du runtime desktop :
 
-Il fixe une lecture nette :
-- ce qui existe déjà ;
-- ce qui n’est qu’architecture cible ;
-- ce qui doit attendre sans polluer le client cloud.
+```text
+experimental-viewer-core
+-> PWSZ, PW0, masque, mesh, chunks, range, caméra, upload queue
+-> sans Qt
 
----
+experimental-viewer-qt
+-> hérite de local-full
+-> Qt Quick + Qt OpenGL
+-> item VolumeViewer et dialogue QML conditionnel ouvert depuis chaque ligne PWSZ
+```
 
-## 2. Position réelle du viewer
+Le QML de la page et du dialogue est empaqueté dans `resources.qrc`. Le bouton 3D reste visible sur les lignes PWSZ. Lorsque `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`, il est désactivé, le dialogue n’est pas chargé et aucun type `Accloud.Render3D` n’est enregistré.
 
-Le viewer n’est pas encore un sous-produit engagé.
+## 2. Lecture et décodage
 
-### 2.1 Existant réel
-On trouve surtout :
-- placeholders QML ;
-- squelette `render3d` ;
-- premières structures de domaine photons ;
-- drivers/formats amorcés ;
-- documentation de cible assez détaillée.
+Le lecteur PWSZ supporte ZIP mono-disque Store/Deflate, refuse ZIP64, chiffrement, chemins dangereux et doublons, puis lit :
 
-### 2.2 Ce qui n’existe pas encore comme produit
-- pipeline viewer fermé ;
-- décodage complet validé ;
-- rendu 3D exploitable ;
-- navigation couches/preview aboutie ;
-- UX viewer stabilisée.
+```text
+anycubic_photon_resins.pwsp
+layers_controller.conf
+layer_images/layer_<index>.pw0Img
+```
 
-### 2.3 Conclusion
-Le viewer doit être considéré comme un **chantier structuré mais non commencé au sens produit**.
+Le RLE `pw0Img` est mixte : deux octets pour 0/15, un octet pour 1..14. L’antialiasing est facultatif et détecté depuis les rasters. La vérité matière reste tout pixel non noir. Les valeurs intermédiaires peuvent être conservées pour analyse, mais le masque géométrique principal est bit-packed.
 
----
+## 3. Maillage par empilement
 
-## 3. Lecture consolidée des formats
+Le mesh est produit à partir des transitions matière/vide XY et Z. Cette méthode conserve :
 
-### 3.1 Rôle des docs formats
-Les docs formats servent à :
-- cartographier les familles Anycubic ;
-- poser les hypothèses de lecture ;
-- croiser avec des analyses externes ;
-- guider la conception des drivers.
+- surfaces extérieures ;
+- parois de cavités ;
+- trous traversants ;
+- supports et pointes ;
+- radeau ;
+- composants indépendants.
 
-### 3.2 Règle d’interprétation
-La documentation format est de type `SPEC` tant qu’elle n’est pas démontrée par :
-- un driver réel ;
-- un parsing testé ;
-- un résultat exploitable par le viewer ou d’autres flux.
+Les couches sont traitées séquentiellement avec leurs voisines. Les faces coplanaires sont fusionnées en rectangles/runs et les murs identiques sont prolongés sur les couches successives d’un chunk.
 
-### 3.3 Familles concernées
-Le projet vise plusieurs extensions/formats :
-- PWMB
-- PWS
-- PHZ
-- PHOTONS
-- PWSZ
-- variantes voisines selon les captures et contraintes Anycubic
+`LayerStackMesher` expose désormais des callbacks :
 
-### 3.4 Position retenue
-La documentation format ne doit pas sur-vendre la maturité du moteur. Elle doit rester une base d’architecture et de reverse/documentation, pas une promesse runtime non tenue.
+```text
+consumeChunk(MeshChunk&&)
+progress(completed, total)
+isCancelled()
+```
 
----
+Le mode callback évite de conserver une seconde copie de tous les chunks dans le résultat.
 
-## 4. Architecture cible photons
+`MeshBuildOptions::layerStride` contrôle l’échantillonnage Z. Le viewer fixe cette valeur à `2` : couches `0, 2, 4, ...` plus la dernière couche exacte. Chaque masque échantillonné est extrudé jusqu’au prochain échantillon, ce qui conserve la hauteur Z totale et les bornes de plage. Aucun sélecteur ni mode détaillé n’est exposé. Cet échantillonnage est une approximation visuelle : un détail présent uniquement sur une couche ignorée peut disparaître.
 
-### 4.1 Domaine
-Le domaine photons doit porter :
-- document ;
-- méta ;
-- capacités ;
-- couches ;
-- index ;
-- contrat de driver.
+## 4. Upload et rendu
 
-### 4.2 Infra photons
-L’infra doit porter :
-- lecteurs ;
-- drivers ;
-- décodeurs preview ;
-- décodeurs data ;
-- adaptation propre par famille de format.
+Le chemin desktop utilise :
 
-### 4.3 Render3D
-Le rendu doit rester un sous-système spécialisé, clairement séparé :
-- upload ;
-- structures GPU/GL ;
-- item Qt Quick ;
-- file d’upload ;
-- meshless/volumique si cette piste est confirmée.
+```text
+std::jthread coordinateur
+-> pool de 1 à 16 workers de chunks (4 par défaut)
+-> PwszArchiveReader concurrent
+-> LayerStackMesher
+-> UploadQueue bornée
+-> thread de rendu QQuickFramebufferObject
+-> QOpenGLBuffer vertex/index par chunk
+-> shader lumière + clipping Z
+```
 
-### 4.4 UI viewer
-L’UI viewer ne doit arriver qu’après :
-- contrats format assez solides ;
-- lecture document fermée ;
-- minimum de preview/rendu stable ;
-- modèle de navigation clair.
+Le nombre de workers est lu depuis `render3d.workerCount`, borné de 1 à 16 et fixé à 4 par défaut. Les chunks sont distribués dynamiquement ; chaque tâche relit au maximum les masques voisins nécessaires à ses frontières. La file accepte au maximum 8 chunks et 256 Mio en attente par défaut. Le worker applique une back-pressure légère lorsque la file est pleine et s’arrête sur demande lors d’un rechargement ou de la destruction de l’item.
 
----
+Le backend OpenGL est activé dans `default`, `dev-debug`, `local-full` et `experimental-viewer-qt`. `QQuickWindow::setGraphicsApi(OpenGL)` n’est pas appelé dans `prod` ni `protected-core`.
 
-## 5. Écart réel vs cible
+## 5. Plage dynamique
 
-### 5.1 Ce qui est avancé dans la doc
-- structure des couches ;
-- nomenclature des formats ;
-- vision d’architecture ;
-- séparation domaine / infra / rendu / UI.
+La plage utilisateur reste inclusive et base 1. Le renderer la convertit en plans Z exacts :
 
-### 5.2 Ce qui est faible dans le code réel
-- implémentations nombreuses encore en stub ;
-- rendu 3D non substantiel ;
-- panes viewer placeholder ;
-- pas de boucle produit viewer réellement fermée.
+```text
+firstLayer = 415
+lastLayer  = 1021
+pitchZ     = 0,05
 
-### 5.3 Décision documentaire
-Le corpus unifié considère donc que :
-- la partie photons est une **trajectoire d’architecture** ;
-- la partie viewer est un **périmètre futur** ;
-- la base active du projet reste le cloud client.
+minimumZ = (415 - 1) * 0,05 = 20,70 mm
+maximumZ = 1021 * 0,05      = 51,05 mm
+```
 
----
+Les chunks non intersectés ne sont pas dessinés. Les triangles des chunks frontières sont clipés dans le fragment shader, ce qui garantit une plage exacte sans remeshing à chaque mouvement du `RangeSlider`.
 
-## 6. Règle de priorité projet
+Le mode UI actuel est une coupe ouverte. Les bouchons dynamiques pour une coupe fermée restent un incrément distinct.
 
-Tant que les couches suivantes ne sont pas stabilisées :
-- core web ;
-- sync ;
-- UI Cloud ;
-- MQTT ;
-- i18n ;
+## 6. Navigation Qt Quick
 
-le viewer ne doit pas reprendre la priorité au détriment du cœur déjà vivant.
+`VolumeViewerPage.qml` fournit :
 
----
+- champ de chemin local PWSZ ;
+- chargement asynchrone et progression ;
+- affichage machine, couches, chunks et triangles ;
+- orbite par glisser gauche ;
+- pan par glisser droit/milieu ou Maj ;
+- zoom molette ;
+- reset/cadrage ;
+- rendu unique « 1 couche sur 2 » ;
+- `RangeSlider` à deux poignées ;
+- SpinBox début/fin et valeurs Z calculées.
 
-## 7. Plan d’entrée recommandé pour le viewer
+Le thread GUI ne décode aucune couche et ne construit aucun mesh.
 
-### 7.1 Étape 1 — lecture document unifiée
-Définir un contrat minimal commun :
-- ouverture de fichier ;
-- détection format ;
-- méta ;
-- preview 2D ;
-- navigation couches minimale.
+## 7. Journal de diagnostic 3D
 
-### 7.2 Étape 2 — un format de référence
-Choisir un format pilote, idéalement celui déjà le plus documenté et le plus proche d’un usage réel, puis fermer le flux complet dessus.
+Les phases archive, décodage/maillage, back-pressure de la file et upload GPU produisent des événements structurés avec `source=render3d`. Le logger crée le sink dédié `render3d.jsonl` dans le répertoire de logs ACM. Les événements incluent notamment :
 
-### 7.3 Étape 3 — contrat UI minimal
-Créer un viewer minimal utile :
-- ouverture ;
-- infos de base ;
-- preview ;
-- navigation simple.
+```text
+archive.open_started / archive.open_completed / archive.open_failed
+mesher.build_started / build_progress / chunk_ready / build_completed
+gpu.shader_ready / chunk_uploaded / buffer_allocation_failed
+```
 
-### 7.4 Étape 4 — extension multi-formats
-Étendre seulement après validation du pipeline de référence.
+Les chemins temporaires complets et les URL signées ne sont pas journalisés.
 
----
+## 8. Limites
 
-## 8. Ce que ce document verrouille
+- backend OpenGL seulement ;
+- pas d’éviction des buffers déjà uploadés ;
+- pas de LOD/simplification ;
+- pas de bouchons de coupe dynamiques ;
+- pas de séparation sémantique modèle/support ;
+- risque de volume de triangles élevé sur supports complexes ;
+- le rendu peut ignorer un détail limité à une seule couche source ; aucun mode détaillé n’est exposé.
 
-- le viewer n’est pas à traiter comme déjà implémenté ;
-- les docs format gardent une valeur forte mais de type `SPEC` ;
-- le code placeholder ne vaut pas avancée produit ;
-- la structure photons est pertinente, mais elle ne doit pas diluer la priorité cloud active.
+## 9. Tests
 
----
+Gate agent hors Qt :
 
-## 9. Résultat cible
+```text
+accloud_experimental_viewer_architecture
+accloud_experimental_viewer_scaffold
+accloud_pw0_decode
+accloud_pwsz_reader
+accloud_layer_stack_mesher
+accloud_render_pipeline
+accloud_viewer_controls
+```
 
-Le jour où ce sous-ensemble sera mature, il devra se lire ainsi :
-- détection format fiable ;
-- driver clair par famille ;
-- preview réellement utile ;
-- viewer minimal complet ;
-- séparation nette entre lecture, rendu et UI.
+Gate local obligatoire :
 
-Pour l’instant, ce document sert surtout à empêcher une mauvaise lecture de maturité.
+```bash
+cmake --preset experimental-viewer-qt
+cmake --build --preset experimental-viewer-qt --clean-first
+ctest --preset experimental-viewer-qt --output-on-failure
+```
+
+Les fichiers PWSZ utilisateurs restent hors patch et hors fixtures distribuées.
