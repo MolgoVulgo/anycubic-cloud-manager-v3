@@ -2,11 +2,11 @@
 
 > Status: EXPERIMENTAL / PARTIAL. This appendix does not declare a production-ready viewer.
 
-Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, compact GPU representation and dynamic closed Z sections, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in development presets, and `SPEC` for production integration and LOD.
+Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, compact GPU representation and dynamic closed Z sections, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in desktop presets including production, and `SPEC` for LOD/eviction hardening.
 
 ## Product position
 
-The viewer remains isolated from `accloud_infra`. The `default` preset enables it, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
+The viewer remains isolated from `accloud_infra`. The `default` and `prod` presets enable it, and `dev-debug` plus `local-full` inherit the development setting. `protected-core` explicitly keeps `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
 
 Two dedicated validation presets also exist:
 
@@ -225,4 +225,4 @@ Real PWSZ samples may be used as local validation inputs, but they are not distr
 
 ## Decision
 
-The viewer now has an end-to-end development path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. Production remains disabled. Production readiness still requires local validation on large PWSZ files and possible LOD/eviction work.
+The viewer now has an end-to-end path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. The production preset enables this same experimental path. Production readiness remains partial and still requires local validation on large PWSZ files and possible LOD/eviction work.

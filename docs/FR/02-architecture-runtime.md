@@ -21,7 +21,7 @@ cloud / MQTT / cache / logs / formats
 | `src/accloud/app/` | bootstrap, bridges Qt, modèles UI et coordination des use cases |
 | `src/accloud/domain/` | vocabulaire métier et contrats stables |
 | `src/accloud/infra/` | cloud HTTP, MQTT, stockage, cache, logs et formats |
-| `src/accloud/render3d/` | viewer PWSZ de développement fonctionnel et expérimental, exclu du runtime de production |
+| `src/accloud/render3d/` | viewer PWSZ fonctionnel et expérimental, activé dans les runtimes desktop y compris production |
 | `src/accloud/ui/qml/` | shell visuel, pages, dialogues et contrôles |
 | `tests/` | tests de régression C++ et QML |
 
@@ -56,7 +56,7 @@ Le bootstrap desktop expose à QML `SessionImportBridge`, `CloudBridge`, `CloudF
 
 ## Ressources QML
 
-Les ressources production sont déclarées dans `src/accloud/app/resources.qrc`. Les pages debug sont séparées dans `resources_debug.qrc` et compilées uniquement dans les builds correspondants. `VolumeViewerPage.qml` et `VolumeViewerDialog.qml` sont empaquetées dans le bundle normal. Les presets desktop de développement enregistrent `Accloud.Render3D` et exposent une action 3D sur chaque ligne PWSZ. La production conserve `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF` ; l’action PWSZ reste visible mais désactivée afin que la capacité ne soit pas masquée silencieusement.
+Les ressources production sont déclarées dans `src/accloud/app/resources.qrc`. Les pages debug sont séparées dans `resources_debug.qrc` et compilées uniquement dans les builds correspondants. `VolumeViewerPage.qml` et `VolumeViewerDialog.qml` sont empaquetées dans le bundle normal. Les presets desktop enregistrent `Accloud.Render3D` et exposent une action 3D sur chaque ligne PWSZ. La production utilise désormais `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=ON` : l’action PWSZ est donc active dans le runtime Release ; `protected-core` reste sans viewer.
 
 Une correction QML n'est valide que si le fichier est inclus dans les ressources du preset ciblé.
 
@@ -66,7 +66,7 @@ Une correction QML n'est valide que si le fichier est inclus dans les ressources
 | --- | --- | --- |
 | `default` | Debug + Qt | développement desktop normal ; viewer activé |
 | `dev-debug` | Debug + Qt | développement desktop avec ressources et bridges debug |
-| `prod` | Release + Qt | runtime production ; debug et viewer désactivés |
+| `prod` | Release + Qt | runtime production ; debug désactivé, viewer activé |
 | `protected-core` | Debug, sans Qt | gate core portable hors ligne |
 | `local-full` | Debug + Qt strict | gate local complet Qt/QML/SQL/MQTT non-live |
 | `experimental-viewer-core` | Debug, sans Qt | gate isolé PWSZ/mesh/cœur viewer |
@@ -90,8 +90,8 @@ Les opérations longues doivent être asynchrones du point de vue du thread grap
 
 ## Frontière expérimentale
 
-Le parsing Photon/PWMB, les jobs/cache viewer et `render3d` restent hors de `accloud_infra`. Les presets desktop de développement les lient à `accloud_cli` via la cible isolée `accloud_experimental_viewer`; les presets `prod` et `protected-core` les excluent.
+Le parsing Photon/PWMB, les jobs/cache viewer et `render3d` restent hors de `accloud_infra`. Les presets desktop les lient à `accloud_cli` via la cible isolée `accloud_experimental_viewer`, y compris `prod` ; `protected-core` continue de les exclure.
 
-`ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER` reste à `OFF` par défaut pour une configuration CMake directe. Le preset `default` l’active explicitement ; `dev-debug` et `local-full` héritent de cette valeur, tandis que `prod` et `protected-core` le désactivent explicitement. La cible objet reste nommée `accloud_experimental_viewer`. `experimental-viewer-core` construit le cœur PWSZ/mesh indépendant de Qt et `experimental-viewer-qt` reste le preset explicite de validation Qt/OpenGL. Les builds desktop activés lient le cœur à `accloud_cli`, enregistrent `Accloud.Render3D/VolumeViewer`, forcent le scene graph Qt Quick sur OpenGL et affichent un bouton 3D sur chaque ligne PWSZ. Cette action télécharge temporairement le fichier puis ouvre un dialogue de visualisation. Le chemin desktop lit et maille le PWSZ hors du thread GUI, alimente une `UploadQueue` bornée, transfère les chunks vers des buffers OpenGL et clippe le mesh sur la plage inclusive exacte choisie dans QML. Les chunks de maillage sont traités par quatre workers par défaut. Le paramètre utilisateur persistant `render3d.workerCount` accepte les valeurs de 1 à 16 ; les lectures de masques PWSZ sont concurrentes car chaque entrée d’archive est rouverte indépendamment, tandis que les sources qui ne déclarent pas supporter les lectures concurrentes sont sérialisées par le mesher. L’aperçu par défaut échantillonne une couche source sur deux tout en conservant les bornes première/dernière exactes et l’étendue Z d’origine ; l’UI permet de reconstruire avec toutes les couches. Les diagnostics structurés de génération utilisent la source `render3d` et le fichier dédié `render3d.jsonl`, avec le nombre de workers demandé/effectif et les statistiques de chaque worker. La production reste exclue dans l’attente des gates de performance et de robustesse.
+`ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER` reste à `OFF` par défaut pour une configuration CMake directe. Les presets `default` et `prod` l’activent explicitement ; `dev-debug` et `local-full` héritent du réglage de développement, tandis que `protected-core` le désactive explicitement. La cible objet reste nommée `accloud_experimental_viewer`. `experimental-viewer-core` construit le cœur PWSZ/mesh indépendant de Qt et `experimental-viewer-qt` reste le preset explicite de validation Qt/OpenGL. Les builds desktop activés lient le cœur à `accloud_cli`, enregistrent `Accloud.Render3D/VolumeViewer`, forcent le scene graph Qt Quick sur OpenGL et affichent un bouton 3D sur chaque ligne PWSZ. Cette action télécharge temporairement le fichier puis ouvre un dialogue de visualisation. Le chemin desktop lit et maille le PWSZ hors du thread GUI, alimente une `UploadQueue` bornée, transfère les chunks vers des buffers OpenGL et clippe le mesh sur la plage inclusive exacte choisie dans QML. Les chunks de maillage sont traités par quatre workers par défaut. Le paramètre utilisateur persistant `render3d.workerCount` accepte les valeurs de 1 à 16 ; les lectures de masques PWSZ sont concurrentes car chaque entrée d’archive est rouverte indépendamment, tandis que les sources qui ne déclarent pas supporter les lectures concurrentes sont sérialisées par le mesher. L’aperçu par défaut échantillonne une couche source sur deux tout en conservant les bornes première/dernière exactes et l’étendue Z d’origine ; l’UI permet de reconstruire avec toutes les couches. Les diagnostics structurés de génération utilisent la source `render3d` et le fichier dédié `render3d.jsonl`, avec le nombre de workers demandé/effectif et les statistiques de chaque worker. La production utilise désormais ce même chemin expérimental ; sa maturité production reste partielle dans l’attente des gates de performance et de robustesse.
 
 Voir [l'annexe viewer](annexes/viewer-photon-formats.md). Le code expérimental du viewer ne doit pas devenir une dépendance implicite des correctifs cloud, MQTT ou UI de production.

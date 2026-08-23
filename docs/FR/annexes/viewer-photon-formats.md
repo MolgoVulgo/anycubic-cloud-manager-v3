@@ -2,11 +2,11 @@
 
 > Statut : EXPÉRIMENTAL / PARTIEL. Cette annexe ne déclare pas un viewer prêt pour la production.
 
-Statut : `IMPLEMENTE` pour le cœur isolé PWSZ decode/mesh, la représentation GPU compacte et les sections Z fermées dynamiques, `PARTIEL` pour le viewer desktop Qt Quick/OpenGL activé dans les presets de développement et `SPEC` pour l’intégration production et le LOD.
+Statut : `IMPLEMENTE` pour le cœur isolé PWSZ decode/mesh, la représentation GPU compacte et les sections Z fermées dynamiques, `PARTIEL` pour le viewer desktop Qt Quick/OpenGL activé dans les presets desktop y compris production et `SPEC` pour le durcissement LOD/éviction.
 
 ## Position produit
 
-Le viewer reste isolé de `accloud_infra`. Le preset `default` l’active ; `dev-debug` et `local-full` héritent de cette valeur. `prod` et `protected-core` conservent explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
+Le viewer reste isolé de `accloud_infra`. Les presets `default` et `prod` l’activent ; `dev-debug` et `local-full` héritent du réglage de développement. `protected-core` conserve explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
 
 Deux presets de validation dédiés existent également :
 
@@ -243,4 +243,4 @@ Les PWSZ réels peuvent servir d’entrées locales, mais ne deviennent pas des 
 
 ## Décision
 
-Le viewer possède désormais un chemin de développement de bout en bout depuis chaque ligne de fichier PWSZ vers un mesh 3D navigable et filtrable par plage, avec surfaces GPU compactes et budget d'allocation contrôlé. La production reste désactivée. Sa préparation exige encore la validation locale sur de grands PWSZ et le LOD/éviction éventuels.
+Le viewer possède désormais un chemin de bout en bout depuis chaque ligne de fichier PWSZ vers un mesh 3D navigable et filtrable par plage, avec surfaces GPU compactes et budget d'allocation contrôlé. Le preset production active ce même chemin expérimental. Sa maturité production reste partielle et exige encore la validation locale sur de grands PWSZ ainsi que le LOD/éviction éventuels.

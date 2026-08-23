@@ -108,7 +108,7 @@ ctest --preset experimental-viewer-core \
   --output-on-failure
 ```
 
-The `default` preset enables the viewer, and `dev-debug` plus `local-full` inherit that setting. `prod` and `protected-core` explicitly keep `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The `experimental-viewer-core` preset validates the PWSZ reader, decoder, mesher, bounded upload queue, range render plan, camera controls and transactional supersession of rapid cut-surface requests without Qt. The architecture guard verifies that Qt/OpenGL sources remain behind the build option, that the per-file PWSZ action is visible, and that production remains disabled.
+The `default` and `prod` presets enable the viewer, and `dev-debug` plus `local-full` inherit the development setting. `protected-core` explicitly keeps `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`. The `experimental-viewer-core` preset validates the PWSZ reader, decoder, mesher, bounded upload queue, range render plan, camera controls and transactional supersession of rapid cut-surface requests without Qt. The architecture guard verifies that Qt/OpenGL sources remain behind the build option, that the per-file PWSZ action is visible, that production enables it, and that `protected-core` stays isolated.
 Mandatory local Qt/OpenGL validation for any desktop viewer change:
 
 ```bash
