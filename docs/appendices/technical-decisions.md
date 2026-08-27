@@ -29,7 +29,7 @@ Status: `IMPLEMENTED` for recorded decisions, `PARTIAL` for open work.
 | D-018 | Public reference data is synthetic-only and mechanically guarded. | Raw MQTT histories expose persistent operational identifiers and do not belong in the distributable archive. |
 | D-019 | PWSZ `pw0Img` decoding uses mixed one/two-byte RLE and detects antialiasing from raster data. | Valid binary files contain only levels 0/15, while intermediate levels 1..14 are optional. |
 | D-020 | Viewer mesh is generated from material/void transitions between stacked layers and split into layer chunks. | This preserves exterior/interior surfaces, supports and holes while enabling dynamic Z-range selection. |
-| D-021 | The first desktop viewer backend uses `QQuickFramebufferObject` with Qt OpenGL and exact shader Z clipping. | It uses public Qt 6 APIs, matches the existing `render3d/gl` boundary, is enabled in development desktop presets and remains disabled in production. |
+| D-021 | The first desktop viewer backend uses `QQuickFramebufferObject` with Qt OpenGL and exact shader Z clipping. | It uses public Qt 6 APIs, matches the existing `render3d/gl` boundary, and is enabled by desktop presets including production while remaining build-gated and experimental. |
 
 ## Open items
 

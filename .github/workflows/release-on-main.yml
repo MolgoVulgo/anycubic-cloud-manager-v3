@@ -48,7 +48,22 @@ jobs:
             exit 0
           fi
 
+          notes_file="$(mktemp)"
+          cleanup() {
+            rm -f "${notes_file}"
+          }
+          trap cleanup EXIT
+
+          if [[ -f CHANGELOG.md ]]; then
+            awk -v tag="${TAG_NAME}" '
+              $0 ~ "^## \\[" tag "\\]" { capture=1 }
+              capture && /^## \[/ && $0 !~ "^## \\[" tag "\\]" { exit }
+              capture { print }
+            ' CHANGELOG.md > "${notes_file}"
+          fi
+
           gh release create "${TAG_NAME}" \
             --title "${TAG_NAME}" \
+            --notes-file "${notes_file}" \
             --generate-notes \
             --verify-tag

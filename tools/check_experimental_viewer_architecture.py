@@ -191,12 +191,16 @@ def main() -> int:
     )
     if value != "ON":
         errors.append("preset default must explicitly enable the per-file 3D viewer")
-    for name in ("prod", "protected-core"):
-        value = configure.get(name, {}).get("cacheVariables", {}).get(
-            "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER"
-        )
-        if value != "OFF":
-            errors.append(f"preset {name} must explicitly disable the experimental viewer")
+    value = configure.get("prod", {}).get("cacheVariables", {}).get(
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER"
+    )
+    if value != "ON":
+        errors.append("preset prod must explicitly enable the per-file 3D viewer")
+    value = configure.get("protected-core", {}).get("cacheVariables", {}).get(
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER"
+    )
+    if value != "OFF":
+        errors.append("preset protected-core must explicitly disable the experimental viewer")
     value = configure.get("experimental-viewer-core", {}).get("cacheVariables", {}).get(
         "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER"
     )
@@ -716,7 +720,7 @@ def main() -> int:
 
     print(
         "Experimental viewer architecture passed: default desktop exposes the "
-        "per-file PWSZ action, production remains disabled, and "
+        "per-file PWSZ action in desktop builds including production, and "
         f"{len(experimental_sources)} core sources plus {len(experimental_qt_sources)} Qt sources stay isolated behind the build option."
     )
     return 0

@@ -38,7 +38,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "ACCLOUD_ENABLE_QT": "ON",
         "ACCLOUD_DEBUG": "OFF",
-        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "OFF"
+        "ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER": "ON"
       }
     },
     {

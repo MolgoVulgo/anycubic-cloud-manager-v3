@@ -8,7 +8,7 @@
 | --- | --- |
 | `default` | Debug desktop build, Qt enabled, viewer enabled, debug tooling disabled. |
 | `dev-debug` | Debug desktop build with debug resources and bridges. |
-| `prod` | Release desktop build; debug tooling and experimental viewer excluded. |
+| `prod` | Release desktop build; debug tooling excluded, experimental viewer enabled. |
 | `protected-core` | Offline portable core gate without Qt/QML/live services. |
 | `local-full` | Strict complete local Qt/QML/SQL/MQTT non-live gate. |
 | `experimental-viewer-core` | Isolated non-Qt PWSZ, meshing and viewer-core gate. |

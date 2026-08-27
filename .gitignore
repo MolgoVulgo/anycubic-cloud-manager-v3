@@ -33,3 +33,4 @@ accloud/ui.zip
 **/__pycache__/**
 pwsz/
 benchmarks/
+packaging/

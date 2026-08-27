@@ -12,7 +12,7 @@ option(ACCLOUD_ENABLE_QML_TESTS "Enable Qt Quick Test UI tests" ON)
 option(ACCLOUD_ENABLE_LIVE_TESTS "Enable tests requiring controlled external services" ON)
 option(ACCLOUD_DEBUG "Enable global debug features (UI tools + debug payloads + debug traces)" OFF)
 option(ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER
-       "Build the isolated Photon/PWMB viewer core (not linked to the production runtime)"
+       "Build the isolated Photon/PWMB viewer core and enable it in opted-in desktop runtimes"
        OFF)
 
 if(ACCLOUD_ENABLE_QT)

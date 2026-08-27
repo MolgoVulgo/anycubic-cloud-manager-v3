@@ -4,8 +4,10 @@
   <name>accloud</name>
   <summary>Anycubic Photon and Cloud management toolkit</summary>
   <metadata_license>FSFAP</metadata_license>
-  <project_license>Proprietary</project_license>
+  <project_license>MIT</project_license>
+  <url type="homepage">https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/releases/latest</url>
+  <launchable type="desktop-id">accloud.desktop</launchable>
   <description>
-    <p>Initial KDE/Linux application scaffold based on architecture documentation.</p>
+    <p>Desktop client for Anycubic cloud file management, printer monitoring and MQTT-based resin print tracking.</p>
   </description>
 </component>
