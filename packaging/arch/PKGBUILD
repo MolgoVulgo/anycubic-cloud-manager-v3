@@ -1,6 +1,7 @@
 pkgname=anycubic-cloud-manager-v3
-pkgver=0.85-1
-pkgrel=1
+pkgver=0.85
+pkgrel=2
+_tag="v0.85-1"
 pkgdesc="Anycubic Cloud Manager V3 (Qt6/QML)"
 arch=('x86_64')
 url="https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/releases/latest"
@@ -21,14 +22,14 @@ makedepends=(
   'gcc'
 )
 source=(
-  "${pkgname}-${pkgver}.zip::https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/tags/v${pkgver}.zip"
+  "${pkgname}-${_tag}.zip::https://github.com/MolgoVulgo/anycubic-cloud-manager-v3/archive/refs/tags/${_tag}.zip"
 )
 sha256sums=(
   'SKIP'
 )
 
 build() {
-  local _repo_dir="${srcdir}/${pkgname}-${pkgver}"
+  local _repo_dir="${srcdir}/${pkgname}-${pkgver}-1"
   local _srcdir="${_repo_dir}/accloud"
   cd "${_srcdir}"
   cmake --preset prod
@@ -36,7 +37,7 @@ build() {
 }
 
 package() {
-  local _repo_dir="${srcdir}/${pkgname}-${pkgver}"
+  local _repo_dir="${srcdir}/${pkgname}-${pkgver}-1"
   local _srcdir="${_repo_dir}/accloud"
   cd "${_repo_dir}"
 
