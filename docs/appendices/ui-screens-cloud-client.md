@@ -64,4 +64,4 @@ HAR import dialog. It must display security reminders, target session path, impo
 
 ## Draft views
 
-Upload and direct-print payload dialogs must remain marked as draft or hidden from normal production paths until their backend workflows are complete. The PWSZ 3D viewer is a normal desktop file action when its build flag is enabled, including in the production preset, but remains explicitly experimental.
+Upload and direct-print payload dialogs must remain marked as draft or hidden from normal production paths until their backend workflows are complete. The PWSZ 3D viewer is a standard desktop file action, including in the production preset. Semantic support colouring is not included in this branch and remains experimental elsewhere.

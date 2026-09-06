@@ -21,9 +21,9 @@ ApplicationWindow {
                                      && accloudBuildDebugEnabled === true
     property bool prodUi: (typeof accloudProdUi !== "undefined")
                           && accloudProdUi === true
-    property bool experimentalViewerEnabled:
-        (typeof accloudExperimentalViewerEnabled !== "undefined")
-        && accloudExperimentalViewerEnabled === true
+    property bool viewer3dEnabled:
+        (typeof accloudViewer3dEnabled === "undefined")
+        || accloudViewer3dEnabled === true
     property bool debugUi: buildDebugEnabled
                                && Qt.application.arguments
                                && Qt.application.arguments.indexOf("--debug-ui") !== -1
@@ -32,7 +32,6 @@ ApplicationWindow {
     property string persistedThemeName: "WarmLight"
     property string persistedAccentName: "Teal"
     property string persistedLanguageCode: "system"
-    property string persistedMqttAuthMode: "slicer"
     property bool pwszPreviewCompletionEnabled: true
     property bool pwszPreviewConfirmationEnabled: true
     property bool cloudFileAdvancedDetailsEnabled: false
@@ -161,19 +160,6 @@ ApplicationWindow {
             return
         root.persistedLanguageCode = String(appI18nBridge.languageCode || "system")
     }
-
-    function normalizeMqttAuthMode(value) {
-        return "slicer"
-    }
-
-    function loadMqttAuthModeFromSettings() {
-        root.persistedMqttAuthMode = "slicer"
-    }
-
-    function persistMqttAuthMode(modeValue) {
-        root.persistedMqttAuthMode = "slicer"
-    }
-
 
     function normalizeRender3dWorkerCount(value) {
         var parsed = Number(value)
@@ -385,7 +371,6 @@ ApplicationWindow {
     Component.onCompleted: {
         root.loadThemeFromSettings()
         root.loadLanguageFromSettings()
-        root.loadMqttAuthModeFromSettings()
         root.loadPwszUploadSettings()
         root.loadRender3dSettings()
         root.loadDirectPrintSettings()
@@ -438,6 +423,123 @@ ApplicationWindow {
         objectName: "mainMenuBar"
 
         Menu {
+            objectName: "menuParametre"
+            title: qsTr("Settings")
+
+            Menu {
+                objectName: "menuSettingsInterface"
+                title: qsTr("Interface")
+
+                MenuItem {
+                    objectName: "menuSettingsTheme"
+                    text: qsTr("Theme")
+                    onTriggered: {
+                        root.statusText = qsTr("Opening theme settings panel.")
+                        themeDialog.open()
+                    }
+                }
+
+                MenuItem {
+                    objectName: "menuSettingsLanguage"
+                    text: qsTr("Language")
+                    onTriggered: {
+                        root.statusText = qsTr("Opening language settings panel.")
+                        languageDialog.open()
+                    }
+                }
+
+                MenuSeparator {}
+
+                MenuItem {
+                    objectName: "menuSettingsCloudFileAdvancedDetails"
+                    text: qsTr("Show technical file details")
+                    checkable: true
+                    checked: root.cloudFileAdvancedDetailsEnabled
+                    onTriggered: {
+                        root.persistCloudFileDetailsSetting(checked)
+                        root.statusText = checked
+                                ? qsTr("Technical file details enabled.")
+                                : qsTr("Technical file details hidden.")
+                    }
+                }
+            }
+
+            Menu {
+                objectName: "menuSettingsPrinting"
+                title: qsTr("Printing")
+
+                MenuItem {
+                    objectName: "menuSettingsDirectDeleteLocalOnFailure"
+                    text: qsTr("Delete printer-local copy when a direct print fails")
+                    checkable: true
+                    checked: root.directDeleteLocalOnFailureEnabled
+                    onTriggered: {
+                        root.persistDirectPrintFailureCleanup(checked)
+                        root.statusText = checked
+                                ? qsTr("Failed direct prints will remove the printer-local copy when cleanup was requested.")
+                                : qsTr("Failed direct prints will keep the printer-local copy.")
+                    }
+                }
+            }
+
+            Menu {
+                objectName: "menuSettingsFilesUpload"
+                title: qsTr("Files / Upload")
+
+                MenuItem {
+                    objectName: "menuSettingsPwszPreviewCompletion"
+                    text: qsTr("Complete PWSZ previews before upload")
+                    checkable: true
+                    checked: root.pwszPreviewCompletionEnabled
+                    onTriggered: {
+                        root.pwszPreviewCompletionEnabled = checked
+                        root.persistPwszUploadSetting("cloud.upload.completePwszPreview2", checked)
+                        root.statusText = checked
+                                ? qsTr("Automatic PWSZ preview completion enabled.")
+                                : qsTr("Automatic PWSZ preview completion disabled.")
+                    }
+                }
+
+                MenuItem {
+                    objectName: "menuSettingsPwszPreviewConfirmation"
+                    text: qsTr("Confirm before modifying PWSZ files")
+                    checkable: true
+                    checked: root.pwszPreviewConfirmationEnabled
+                    onTriggered: {
+                        root.pwszPreviewConfirmationEnabled = checked
+                        root.persistPwszUploadSetting("cloud.upload.confirmPwszPreview2", checked)
+                    }
+                }
+            }
+
+            Menu {
+                objectName: "menuSettingsViewer3d"
+                title: qsTr("3D Viewer")
+
+                MenuItem {
+                    objectName: "menuSettingsRender3dWorkers"
+                    text: qsTr("3D generation workers: %1").arg(root.render3dWorkerCount)
+                    enabled: root.viewer3dEnabled
+                    onTriggered: {
+                        render3dWorkersSpin.value = root.render3dWorkerCount
+                        render3dWorkersDialog.open()
+                    }
+                }
+
+                MenuItem {
+                    objectName: "menuSettingsRender3dPalette"
+                    text: qsTr("3D colors: %1").arg(
+                              root.render3dPaletteFor(root.render3dPalettePreset).label)
+                    enabled: root.viewer3dEnabled
+                    onTriggered: {
+                        render3dPaletteDialog.prepare()
+                        render3dPaletteDialog.open()
+                    }
+                }
+            }
+        }
+
+        Menu {
             objectName: "menuSession"
             title: qsTr("Session")
 
@@ -449,133 +551,25 @@ ApplicationWindow {
 
             MenuItem {
                 objectName: "menuSessionImportHar"
-                text: qsTr("import HAR")
+                text: qsTr("Import HAR...")
                 onTriggered: sessionDialog.open()
             }
-        }
 
-        Menu {
-            objectName: "menuParametre"
-            title: qsTr("Settings")
+            MenuSeparator {}
 
             MenuItem {
-                objectName: "menuSettingsSession"
-                text: qsTr("Session")
+                objectName: "menuSessionLocation"
+                text: qsTr("Session location...")
                 onTriggered: {
                     sessionPathField.text = root.sessionTargetPath
                     sessionPathDialog.open()
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsTheme"
-                text: qsTr("Theme")
-                onTriggered: {
-                    root.statusText = qsTr("Opening theme settings panel.")
-                    themeDialog.open()
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsMqttAuthMode"
-                text: qsTr("MQTT auth mode: Slicer")
-                onTriggered: {
-                    root.persistMqttAuthMode("slicer")
-                    root.statusText = qsTr("MQTT auth mode is fixed to Slicer.")
-                }
-            }
-
-            MenuSeparator {}
-
-            MenuItem {
-                objectName: "menuSettingsRender3dWorkers"
-                text: qsTr("3D generation workers: %1").arg(root.render3dWorkerCount)
-                visible: root.experimentalViewerEnabled
-                enabled: root.experimentalViewerEnabled
-                onTriggered: {
-                    render3dWorkersSpin.value = root.render3dWorkerCount
-                    render3dWorkersDialog.open()
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsRender3dPalette"
-                text: qsTr("3D colors: %1").arg(
-                          root.render3dPaletteFor(root.render3dPalettePreset).label)
-                visible: root.experimentalViewerEnabled
-                enabled: root.experimentalViewerEnabled
-                onTriggered: {
-                    render3dPaletteDialog.prepare()
-                    render3dPaletteDialog.open()
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsPwszPreviewCompletion"
-                text: qsTr("Complete PWSZ previews before upload")
-                checkable: true
-                checked: root.pwszPreviewCompletionEnabled
-                onTriggered: {
-                    root.pwszPreviewCompletionEnabled = checked
-                    root.persistPwszUploadSetting("cloud.upload.completePwszPreview2", checked)
-                    root.statusText = checked
-                            ? qsTr("Automatic PWSZ preview completion enabled.")
-                            : qsTr("Automatic PWSZ preview completion disabled.")
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsPwszPreviewConfirmation"
-                text: qsTr("Confirm before modifying PWSZ files")
-                checkable: true
-                checked: root.pwszPreviewConfirmationEnabled
-                onTriggered: {
-                    root.pwszPreviewConfirmationEnabled = checked
-                    root.persistPwszUploadSetting("cloud.upload.confirmPwszPreview2", checked)
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsDirectDeleteLocalOnFailure"
-                text: qsTr("Delete printer-local copy when a direct print fails")
-                checkable: true
-                checked: root.directDeleteLocalOnFailureEnabled
-                onTriggered: {
-                    root.persistDirectPrintFailureCleanup(checked)
-                    root.statusText = checked
-                            ? qsTr("Failed direct prints will remove the printer-local copy when cleanup was requested.")
-                            : qsTr("Failed direct prints will keep the printer-local copy.")
-                }
-            }
-
-            MenuSeparator {}
-
-            MenuItem {
-                objectName: "menuSettingsCloudFileAdvancedDetails"
-                text: qsTr("Show technical file details")
-                checkable: true
-                checked: root.cloudFileAdvancedDetailsEnabled
-                onTriggered: {
-                    root.persistCloudFileDetailsSetting(checked)
-                    root.statusText = checked
-                            ? qsTr("Technical file details enabled.")
-                            : qsTr("Technical file details hidden.")
-                }
-            }
-
-            MenuItem {
-                objectName: "menuSettingsLanguage"
-                text: qsTr("Language")
-                onTriggered: {
-                    root.statusText = qsTr("Opening language settings panel.")
-                    languageDialog.open()
                 }
             }
         }
 
         Menu {
             objectName: "menuHelp"
-            title: qsTr("?")
+            title: qsTr("Help")
 
             MenuItem {
                 objectName: "menuHelpAbout"
@@ -1376,7 +1370,7 @@ ApplicationWindow {
                             id: cloudFilesPage
                             objectName: "cloudFilesPage"
                             embeddedInTabsContainer: true
-                            viewerEnabled: root.experimentalViewerEnabled
+                            viewerEnabled: root.viewer3dEnabled
                             render3dWorkerCount: root.render3dWorkerCount
                             render3dPalettePreset: root.render3dPalettePreset
                             render3dPartColor: root.render3dPartColor

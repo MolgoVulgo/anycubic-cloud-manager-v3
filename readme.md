@@ -11,7 +11,7 @@ This is not an official Anycubic application. Cloud endpoints, signatures, MQTT 
 - printer dashboard, compatibility lookup and remote orders;
 - MQTT mTLS connection and realtime printer store;
 - local cache, thumbnails, structured redacted logs and bilingual UI;
-- partial Photon/PWMB parsing and a functional experimental PWSZ 3D viewer enabled in desktop builds, including production; production readiness remains partial.
+- partial Photon/PWMB parsing and a functional standard PWSZ 3D viewer enabled in desktop builds, including production; semantic support colouring remains experimental on a separate branch and is not part of this production snapshot.
 
 ## Build and run
 

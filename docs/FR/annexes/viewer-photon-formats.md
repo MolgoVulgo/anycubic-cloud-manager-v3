@@ -1,12 +1,12 @@
 # Formats Photon/PWMB et viewer — annexe technique
 
-> Statut : EXPÉRIMENTAL / PARTIEL. Cette annexe ne déclare pas un viewer prêt pour la production.
+> Statut : IMPLEMENTÉ pour le viewer 3D PWSZ utilisé par les builds desktop et production. La coloration sémantique des supports ne fait pas partie de cette branche et reste expérimentale ailleurs.
 
-Statut : `IMPLEMENTE` pour le cœur isolé PWSZ decode/mesh, la représentation GPU compacte et les sections Z fermées dynamiques, `PARTIEL` pour le viewer desktop Qt Quick/OpenGL activé dans les presets desktop y compris production et `SPEC` pour le durcissement LOD/éviction.
+Statut : `IMPLEMENTE` pour le cœur isolé PWSZ decode/mesh, la représentation GPU compacte, les sections Z fermées dynamiques et le viewer desktop Qt Quick/OpenGL ; `SPEC` reste réservé au durcissement optionnel LOD/éviction.
 
 ## Position produit
 
-Le viewer reste isolé de `accloud_infra`. Les presets `default` et `prod` l’activent ; `dev-debug` et `local-full` héritent du réglage de développement. `protected-core` conserve explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
+Le viewer reste isolé de `accloud_infra`. Les identifiants historiques de build `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER`, `accloud_experimental_viewer` et `experimental-viewer-*` sont conservés pour compatibilité et n’indiquent plus la maturité produit. Les presets `default` et `prod` l’activent ; `dev-debug` et `local-full` héritent du réglage de développement. `protected-core` conserve explicitement `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
 
 Deux presets de validation dédiés existent également :
 
@@ -211,7 +211,7 @@ Limites connues :
 - le budget de 2 Gio refuse proprement un modèle compact pathologique au lieu de laisser le pilote interrompre le processus ;
 - les modèles exacts peuvent conserver un très grand nombre de surfaces sur des supports denses ;
 - pas de couleur sémantique modèle/support/radeau ;
-- backend desktop OpenGL uniquement à cette étape expérimentale.
+- backend desktop actuellement limité à OpenGL.
 
 ## Validation
 
@@ -243,4 +243,4 @@ Les PWSZ réels peuvent servir d’entrées locales, mais ne deviennent pas des 
 
 ## Décision
 
-Le viewer possède désormais un chemin de bout en bout depuis chaque ligne de fichier PWSZ vers un mesh 3D navigable et filtrable par plage, avec surfaces GPU compactes et budget d'allocation contrôlé. Le preset production active ce même chemin expérimental. Sa maturité production reste partielle et exige encore la validation locale sur de grands PWSZ ainsi que le LOD/éviction éventuels.
+Le viewer possède désormais un chemin de bout en bout depuis chaque ligne de fichier PWSZ vers un mesh 3D navigable et filtrable par plage, avec surfaces GPU compactes et budget d'allocation contrôlé. Le preset production active ce chemin standard du viewer. La validation sur de grands PWSZ et un éventuel LOD/éviction restent des tâches de durcissement de l’implémentation ; la coloration sémantique des supports est volontairement absente de cette branche et reste expérimentale ailleurs.

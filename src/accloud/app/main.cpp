@@ -393,9 +393,9 @@ ApplicationWindow {
     engine.rootContext()->setContextProperty("accloudProdUi",
                                              !kBuildDebugEnabled);
 #if defined(ACCLOUD_EXPERIMENTAL_VIEWER)
-    engine.rootContext()->setContextProperty("accloudExperimentalViewerEnabled", true);
+    engine.rootContext()->setContextProperty("accloudViewer3dEnabled", true);
 #else
-    engine.rootContext()->setContextProperty("accloudExperimentalViewerEnabled", false);
+    engine.rootContext()->setContextProperty("accloudViewer3dEnabled", false);
 #endif
     engine.rootContext()->setContextProperty("sessionImportBridge", &sessionImportBridge);
     engine.rootContext()->setContextProperty("cloudBridge", &cloudBridge);

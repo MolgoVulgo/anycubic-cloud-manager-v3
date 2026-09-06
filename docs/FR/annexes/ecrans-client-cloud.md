@@ -14,4 +14,4 @@ Logs : debug-only, absent ou panneau explicatif en prod.
 
 Session Settings : import HAR, rappel sécurité, cible session, résultat sans tokens bruts.
 
-Draft views : Upload, direct print payload et viewer restent draft ou cachés jusqu’à fermeture backend.
+Vues draft : les payloads Upload et impression directe restent draft ou cachés jusqu’à fermeture backend. Le viewer 3D PWSZ est une fonctionnalité desktop standard, y compris en production ; la coloration sémantique des supports reste hors de cette branche et expérimentale.

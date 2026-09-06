@@ -6,13 +6,44 @@ QML porte l'affichage, la navigation et les interactions utilisateur. Les bridge
 
 ## Vues actives
 
-Le shell courant contient connexion/session cloud, fichiers cloud, imprimantes, état MQTT et paramètres. Les builds debug peuvent ajouter les pages de logs et de diagnostic. Lorsque le viewer expérimental est activé, chaque ligne PWSZ compatible expose une action **3D** qui télécharge le fichier vers un chemin local temporaire puis ouvre une modal dédiée ; aucun cinquième onglet principal n'est ajouté.
+Le shell courant contient connexion/session cloud, fichiers cloud, imprimantes, état MQTT et paramètres. Les builds debug peuvent ajouter les pages de logs et de diagnostic. Le **viewer 3D PWSZ** est une fonctionnalité desktop standard, y compris en production : chaque ligne PWSZ compatible expose une action **3D** qui télécharge le fichier vers un chemin local temporaire puis ouvre une modal dédiée ; aucun cinquième onglet principal n'est ajouté. La coloration sémantique des supports n'est pas présente dans cette branche et reste une fonctionnalité expérimentale hors du build de production.
 
 Le fichier principal chargé par le runtime desktop est :
 
 ```text
 qrc:/qml/MainWindow.qml
 ```
+
+### Menu principal
+
+L'ordre de premier niveau est fixé à **Paramètres**, **Session**, **Aide**. Les réglages sont regroupés au lieu d'être exposés à plat :
+
+```text
+Paramètres
+├─ Interface
+│  ├─ Thème
+│  ├─ Langue
+│  └─ Afficher les détails techniques des fichiers
+├─ Impression
+│  └─ Supprimer la copie locale de l'imprimante si une impression directe échoue
+├─ Fichiers / Upload
+│  ├─ Compléter les aperçus PWSZ avant l'envoi
+│  └─ Confirmer avant de modifier les fichiers PWSZ
+└─ Visionneuse 3D
+   ├─ Workers de génération 3D
+   └─ Couleurs 3D
+
+Session
+├─ Détails
+├─ Importer un HAR…
+└─ Emplacement de session…
+
+Aide
+├─ À propos
+└─ git
+```
+
+Le mode MQTT Slicer n'est pas exposé comme réglage : il constitue un contrat de compatibilité runtime figé, et non une préférence sélectionnable par l'utilisateur.
 
 ## Répartition des responsabilités
 
@@ -36,6 +67,8 @@ Le routage MQTT, la corrélation des ordres et le store temps réel normalisé c
 
 Les listes de sélection des imprimantes sont portées par des modèles C++ au lieu de reconstruire des payloads `ListModel` en QML. Les imprimantes compatibles utilisent `PrintersModel` ; les fichiers cloud à imprimer et les fichiers locaux de l'imprimante utilisent `PrinterFilesModel`. Les identités stables sont mises à jour par `dataChanged`, les ajouts/suppressions de fin utilisent des deltas de lignes, et seul un réordonnancement d'identités déclenche un reset complet. Les métadonnées brutes restent accessibles par `get()` pour la préparation d'impression distante.
 
+La page **Printers** garde une hiérarchie visuelle compacte : bouton de refresh discret, résumé live du parc et onglets limités au nom de l'imprimante. Le header de l'imprimante sélectionnée n'affiche plus d'action **Details** ni de panneau JSON dédié ; il expose uniquement **Local Files** puis l'état de l'imprimante. En mode basique, la carte **Détails de l'appareil** réserve sur la gauche un emplacement visuel agrandi pour la photo de l'imprimante issue du champ `img` renvoyé par `getPrinters`. Si l'image est absente ou ne peut pas être chargée, un placeholder neutre est affiché. Les métriques restent dans une grille à deux colonnes réordonnée en firmware / nombre d'impressions, temps total d'impression / résine totale, puis état du film / dernier fichier imprimé. La carte **Fonctions** est placée sous l'ensemble image + métriques afin d'occuper toute la largeur disponible. Les durées Anycubic telles que `137小时41分` sont normalisées en heures décimales avant affichage.
+
 Le dialogue de confirmation d'impression distante reçoit directement la ligne complète déjà présente dans `CloudFilesModel` lorsque l'action **Imprimer** est déclenchée depuis la liste des fichiers. Le nom, la durée estimée et la consommation de résine sont ainsi disponibles dès l'ouverture, sans attendre une nouvelle synchronisation cloud. Pendant la préparation portée par `PrintWorkflowBridge`, le sélecteur peut afficher l'imprimante préférée issue du modèle principal ; lorsque le résultat sémantique arrive, QML remplace le modèle des imprimantes compatibles depuis ce résultat et resynchronise l'identifiant sélectionné. Le dialogue ne propose pas de changer de fichier : le fichier est fixé par l'action d'origine.
 
 Lorsque ce point d'entrée est utilisé avant l'initialisation de la page Imprimantes, il amorce uniquement la liste des imprimantes nécessaire à la compatibilité et à la sélection. Il ne déclenche ni le rafraîchissement initial des détails imprimante ni celui des jobs récents. Les détails complets et l'historique restent chargés lorsque la page Imprimantes est explicitement activée, ce qui empêche la préparation d'impression de provoquer du trafic de miniatures de projets sans rapport.
@@ -48,9 +81,9 @@ Les tâches récentes restent strictement textuelles : aucune miniature n’est 
 
 La barre d'actions distingue **Ajouter au cloud** et **Impression directe**. L'upload standard s'arrête après l'enregistrement cloud et ne propose aucune option de nettoyage après impression. L'impression directe conserve le fichier local sélectionné comme entrée de l'opération, contrôle la compatibilité par extension, le téléverse puis envoie automatiquement l'ordre lorsque le fichier cloud est prêt. Sa case de nettoyage appartient uniquement à cette opération : après une impression réussie confirmée, ACM supprime d'abord le fichier local exact de l'imprimante, puis le fichier cloud uniquement après confirmation MQTT de `deleteLocal`.
 
-Le menu Paramètres propose **Supprimer la copie locale de l'imprimante si une impression directe échoue**, désactivé par défaut. Sa valeur est figée au lancement de l'opération directe et n'a aucun effet sur les uploads standards, les impressions depuis la liste cloud ou les impressions directes sans nettoyage demandé. Pour une tâche directe réellement passée à l'état actif puis terminée avec le statut 3 ou 4, l'activation autorise uniquement la suppression de la copie locale exacte ; le fichier cloud est toujours conservé en cas d'échec, d'arrêt ou d'annulation.
+Le sous-menu **Paramètres > Impression** propose **Supprimer la copie locale de l'imprimante si une impression directe échoue**, désactivé par défaut. Sa valeur est figée au lancement de l'opération directe et n'a aucun effet sur les uploads standards, les impressions depuis la liste cloud ou les impressions directes sans nettoyage demandé. Pour une tâche directe réellement passée à l'état actif puis terminée avec le statut 3 ou 4, l'activation autorise uniquement la suppression de la copie locale exacte ; le fichier cloud est toujours conservé en cas d'échec, d'arrêt ou d'annulation.
 
-Le menu Paramètres expose aussi **Workers de génération 3D** et **Couleurs 3D** lorsque le viewer est disponible. La valeur persistée `render3d.workerCount` vaut `4` par défaut, est bornée à `1..16` et s'applique à chaque nouveau PWSZ chargé. Une valeur plus élevée augmente la pression CPU et mémoire ; sa modification ne change pas un mesh déjà en cours de génération.
+Le sous-menu **Paramètres > Visionneuse 3D** expose **Workers de génération 3D** et **Couleurs 3D** comme réglages standards du viewer. La valeur persistée `render3d.workerCount` vaut `4` par défaut, est bornée à `1..16` et s'applique à chaque nouveau PWSZ chargé. Une valeur plus élevée augmente la pression CPU et mémoire ; sa modification ne change pas un mesh déjà en cours de génération.
 
 La valeur persistée `render3d.palettePreset` sélectionne l'un des cinq couples pièce/fond : `technical_cyan`, `industrial_amber`, `mineral_ivory`, `night_coral` ou `light_graphite`. Une valeur persistée invalide est normalisée vers `technical_cyan`. L'application d'un préréglage met à jour les deux couleurs ensemble, se propage à un viewer déjà ouvert et ne déclenche qu'un repaint via les propriétés existantes `meshColor` et `backgroundColor` ; le PWSZ n'est pas rechargé et le mesh n'est pas reconstruit. La saisie libre de couleurs n'est pas exposée.
 
@@ -59,7 +92,7 @@ Dans la modal 3D, la plage de couches est présentée sous forme d'un double cur
 La persistance des impressions directes, la réconciliation avec les projets et les transitions d'état de nettoyage sont désormais portées par `PrintWorkflowBridge`, adossé à `PendingDirectPrintStore` et au `DirectPrintLifecycleUseCase` typé. QML se limite à enregistrer une impression directe acceptée et à transmettre au workflow les snapshots de projets rafraîchis ; il ne conserve plus de map de nettoyage direct, ne corrèle plus les projets, ne déclenche plus lui-même la suppression locale imprimante, ne corrèle plus la suppression cloud et n'interprète plus les transitions de nettoyage. `CloudBridge` n'expose plus les méthodes de persistance des impressions directes. La corrélation asynchrone des ordres imprimante utilise un contexte `QVariantMap` structuré (`kind` et champs typés) au lieu d'identifiants concaténés analysés par préfixes ou `split(":")`. Les confirmations MQTT `deleteLocal` sont raccordées directement de `MqttBridge` vers `PrintWorkflowBridge` : le bridge porte la corrélation des `msgId` en attente ainsi que les états de suppression locale/cloud en vol. Les intentions de transport pour les suppressions directe locale/cloud sont raccordées de `PrintWorkflowBridge` vers `CloudBridge` dans le bootstrap desktop ; QML ne reçoit plus que des notifications sémantiques de nettoyage et de libération du suivi. Les impressions standards lancées depuis la liste cloud utilisent la même frontière de workflow pour le nettoyage post-print : QML signale seulement la fin de la tâche imprimante, `PrintWorkflowBridge` demande d'abord la suppression du fichier local de l'imprimante, ne demande la suppression cloud qu'après succès de cet ordre local, puis émet des notifications sémantiques de succès ou d'échec. La map QML restante d'impression distante en attente sert uniquement de placeholder visuel temporaire après acceptation de l'ordre, jusqu'à l'arrivée de la télémétrie projet réelle.
 
 
-La complétion des aperçus PWSZ est contrôlée par deux réglages persistés : la complétion elle-même est activée par défaut, et la confirmation avant remplacement permanent du fichier local est activée par défaut. La modal explique que `preview_1.png` est copié vers `preview_2.png`, que la version préparée est envoyée, puis que le fichier local n’est remplacé qu’après succès cloud. « Ne plus demander » désactive uniquement la confirmation ; les deux réglages restent accessibles depuis le menu Paramètres.
+La complétion des aperçus PWSZ est contrôlée par deux réglages persistés : la complétion elle-même est activée par défaut, et la confirmation avant remplacement permanent du fichier local est activée par défaut. La modal explique que `preview_1.png` est copié vers `preview_2.png`, que la version préparée est envoyée, puis que le fichier local n’est remplacé qu’après succès cloud. « Ne plus demander » désactive uniquement la confirmation ; les deux réglages restent accessibles depuis **Paramètres > Fichiers / Upload**.
 
 ## Sélection multiple des fichiers cloud
 

@@ -18,6 +18,8 @@ CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
     p.model = support::firstString(e, {"model", "model_name", "machine_name", "machineType"});
     p.type = support::firstString(e, {"type", "machine_type_name", "printer_type"});
     p.lastSeen = support::firstString(e, {"last_seen", "lastSeen", "last_online_time", "last_report_time", "last_active_time", "updated_at"});
+    p.img = support::firstString(e, {"img", "image", "image_url", "thumbnail"});
+    p.image = support::firstString(e, {"image", "img", "image_url", "thumbnail"});
     p.reason = support::firstString(e, {"reason", "status_text"});
     p.available = support::firstInt(e, {"available"}, -1);
 
@@ -71,6 +73,10 @@ CloudPrinterInfo parsePrinterEntry(const nlohmann::json& e) {
         p.machineType = p.type;
     if (p.lastSeen.empty())
         p.lastSeen = support::firstString(base, {"last_seen", "lastSeen", "last_online_time", "last_report_time", "last_active_time", "updated_at"});
+    if (p.img.empty())
+        p.img = support::firstString(base, {"img", "image", "image_url", "thumbnail"});
+    if (p.image.empty())
+        p.image = support::firstString(base, {"image", "img", "image_url", "thumbnail"});
     if (p.lastSeen.empty())
         p.lastSeen = support::firstString(deviceMessage, {"last_seen", "lastSeen", "report_time", "update_time", "timestamp"});
     if (deviceStatus < 0)

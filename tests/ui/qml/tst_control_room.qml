@@ -81,7 +81,7 @@ TestCase {
             return root
         }
 
-        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem, root.menuBar]
+        var direct = [root.contentItem, root.background, root.header, root.footer, root.popupItem, root.menuBar, root.subMenu]
         for (var d = 0; d < direct.length; ++d) {
             var directNode = direct[d]
             if (directNode !== null && directNode !== undefined) {
@@ -237,9 +237,52 @@ TestCase {
         window.destroy()
     }
 
-    function test_experimental_viewer_is_a_file_action_not_a_tab() {
+    function test_main_menu_is_grouped_settings_session_help() {
+        var window = createQmlObject("../../../ui/qml/MainWindow.qml")
+        wait(0)
+
+        var menuBar = findObjectByName(window, "mainMenuBar")
+        var settingsMenu = findObjectByName(window, "menuParametre")
+        var sessionMenu = findObjectByName(window, "menuSession")
+        var helpMenu = findObjectByName(window, "menuHelp")
+        verify(menuBar !== null)
+        verify(settingsMenu !== null)
+        verify(sessionMenu !== null)
+        verify(helpMenu !== null)
+        verify(menuBar.contentChildren !== undefined)
+        verify(menuBar.contentChildren.length >= 3)
+        compare(String(menuBar.contentChildren[0].text), "Settings")
+        compare(String(menuBar.contentChildren[1].text), "Session")
+        compare(String(menuBar.contentChildren[2].text), "Help")
+
+        var interfaceMenu = findObjectByName(window, "menuSettingsInterface")
+        var printingMenu = findObjectByName(window, "menuSettingsPrinting")
+        var filesUploadMenu = findObjectByName(window, "menuSettingsFilesUpload")
+        var viewerMenu = findObjectByName(window, "menuSettingsViewer3d")
+        verify(interfaceMenu !== null)
+        verify(printingMenu !== null)
+        verify(filesUploadMenu !== null)
+        verify(viewerMenu !== null)
+        compare(interfaceMenu.title, "Interface")
+        compare(printingMenu.title, "Printing")
+        compare(filesUploadMenu.title, "Files / Upload")
+        compare(viewerMenu.title, "3D Viewer")
+        compare(findObjectByName(window, "menuSettingsRender3dWorkers").enabled, true)
+        compare(findObjectByName(window, "menuSettingsRender3dPalette").enabled, true)
+
+        verify(findObjectByName(window, "menuSessionDetails") !== null)
+        verify(findObjectByName(window, "menuSessionImportHar") !== null)
+        verify(findObjectByName(window, "menuSessionLocation") !== null)
+        verify(findObjectByName(window, "menuSettingsSession") === null)
+        verify(findObjectByName(window, "menuSettingsMqttAuthMode") === null)
+
+        window.close()
+        window.destroy()
+    }
+
+    function test_viewer3d_is_a_file_action_not_a_tab() {
         var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
-            "experimentalViewerEnabled": true
+            "viewer3dEnabled": true
         })
         wait(0)
 
@@ -274,29 +317,25 @@ TestCase {
                                                '}', this, "render3dWorkerSettingsMock")
 
         var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
-            "experimentalViewerEnabled": true
+            "viewer3dEnabled": true
         })
         wait(0)
         compare(window.render3dWorkerCount, 4)
         compare(String(uiSettingsBridge.values["render3d.workerCount"]), "4")
 
         var filesPage = findObjectByName(window, "cloudFilesPage")
-        var settingsMenu = findObjectByName(window, "menuParametre")
+        var viewerMenu = findObjectByName(window, "menuSettingsViewer3d")
         var menuItem = findObjectByName(window, "menuSettingsRender3dWorkers")
         var dialog = findObjectByName(window, "render3dWorkersDialog")
         var spin = findObjectByName(window, "render3dWorkersSpin")
         verify(filesPage !== null)
-        verify(settingsMenu !== null)
+        verify(viewerMenu !== null)
         verify(menuItem !== null)
         verify(dialog !== null)
         verify(spin !== null)
         compare(filesPage.render3dWorkerCount, 4)
-        compare(window.experimentalViewerEnabled, true)
+        compare(window.viewer3dEnabled, true)
         compare(menuItem.enabled, true)
-        settingsMenu.open()
-        tryCompare(settingsMenu, "visible", true, 1000)
-        tryCompare(menuItem, "visible", true, 1000)
-        settingsMenu.close()
         compare(spin.from, 1)
         compare(spin.to, 16)
 
@@ -314,7 +353,7 @@ TestCase {
 
         uiSettingsBridge.values["render3d.workerCount"] = "7"
         var restoredWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
-            "experimentalViewerEnabled": true
+            "viewer3dEnabled": true
         })
         wait(0)
         compare(restoredWindow.render3dWorkerCount, 7)
@@ -336,7 +375,7 @@ TestCase {
                                                '}', this, "render3dPaletteSettingsMock")
 
         var window = createQmlObject("../../../ui/qml/MainWindow.qml", {
-            "experimentalViewerEnabled": true
+            "viewer3dEnabled": true
         })
         wait(0)
 
@@ -346,14 +385,14 @@ TestCase {
         compare(String(uiSettingsBridge.values["render3d.palettePreset"]), "technical_cyan")
 
         var filesPage = findObjectByName(window, "cloudFilesPage")
-        var settingsMenu = findObjectByName(window, "menuParametre")
+        var viewerMenu = findObjectByName(window, "menuSettingsViewer3d")
         var menuItem = findObjectByName(window, "menuSettingsRender3dPalette")
         var dialog = findObjectByName(window, "render3dPaletteDialog")
         var combo = findObjectByName(window, "render3dPaletteCombo")
         var previewPart = findObjectByName(window, "render3dPalettePreviewPart")
         var previewBackground = findObjectByName(window, "render3dPalettePreviewBackground")
         verify(filesPage !== null)
-        verify(settingsMenu !== null)
+        verify(viewerMenu !== null)
         verify(menuItem !== null)
         verify(dialog !== null)
         verify(combo !== null)
@@ -363,10 +402,6 @@ TestCase {
         compare(normalizedColor(filesPage.render3dPartColor), "#55b7c6")
         compare(normalizedColor(filesPage.render3dBackgroundColor), "#171a1f")
 
-        settingsMenu.open()
-        tryCompare(settingsMenu, "visible", true, 1000)
-        tryCompare(menuItem, "visible", true, 1000)
-        settingsMenu.close()
 
         dialog.prepare()
         wait(0)
@@ -397,7 +432,7 @@ TestCase {
 
         uiSettingsBridge.values["render3d.palettePreset"] = "light_graphite"
         var restoredWindow = createQmlObject("../../../ui/qml/MainWindow.qml", {
-            "experimentalViewerEnabled": true
+            "viewer3dEnabled": true
         })
         wait(0)
         compare(restoredWindow.render3dPalettePreset, "light_graphite")
@@ -681,7 +716,8 @@ TestCase {
                 "name": "Anycubic Photon Mono M7 Pro",
                 "model": "Anycubic Photon Mono M7 Pro",
                 "type": "LCD",
-                "state": "READY"
+                "state": "READY",
+                "img": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
             },
             "selectedPrinterDetails": {
                 "firmwareVersion": "v1.2.3",
@@ -708,15 +744,41 @@ TestCase {
 
         var detailsContent = findObjectByName(panel, "deviceDetailsContent")
         var detailsSectionHeader = findObjectByName(panel, "deviceDetailsSectionHeader")
+        var basicOverviewRow = findObjectByName(panel, "printerBasicOverviewRow")
+        var deviceImageCard = findObjectByName(panel, "printerDeviceImageCard")
+        var deviceImage = findObjectByName(panel, "printerDeviceImage")
         var basicDetailsGrid = findObjectByName(panel, "printerBasicDetailsGrid")
-        var functionsCard = findObjectByName(panel, "printerFunctionsCard")
+        var firmwareCard = findObjectByName(panel, "printerFirmwareCard")
+        var printCountCard = findObjectByName(panel, "printerPrintCountCard")
+        var totalPrintTimeCard = findObjectByName(panel, "printerTotalPrintTimeCard")
+        var totalResinCard = findObjectByName(panel, "printerTotalResinCard")
+        var filmStateCard = findObjectByName(panel, "printerFilmStateCard")
+        var lastPrintedFileCard = findObjectByName(panel, "printerLastPrintedFileCard")
+        var functionsCard = findObjectByName(panel, "printerFunctionsCardBasic")
         verify(detailsContent !== null)
         verify(detailsSectionHeader !== null)
+        verify(basicOverviewRow !== null)
+        verify(deviceImageCard !== null)
+        verify(deviceImage !== null)
         verify(basicDetailsGrid !== null)
+        verify(firmwareCard !== null)
+        verify(printCountCard !== null)
+        verify(totalPrintTimeCard !== null)
+        verify(totalResinCard !== null)
+        verify(filmStateCard !== null)
+        verify(lastPrintedFileCard !== null)
         verify(functionsCard !== null)
         compare(Math.round(detailsContent.y), 10)
-        verify(basicDetailsGrid.y <= detailsSectionHeader.y + detailsSectionHeader.height + 10)
-        verify(functionsCard.y <= basicDetailsGrid.y + basicDetailsGrid.height + 10)
+        verify(basicOverviewRow.y <= detailsSectionHeader.y + detailsSectionHeader.height + 10)
+        verify(deviceImageCard.width >= 230)
+        verify(deviceImageCard.height >= 184)
+        compare(String(deviceImage.source).indexOf("data:image/png;base64,") === 0, true)
+        compare(Math.round(firmwareCard.y), Math.round(printCountCard.y))
+        verify(totalPrintTimeCard.y > firmwareCard.y)
+        compare(Math.round(totalPrintTimeCard.y), Math.round(totalResinCard.y))
+        verify(filmStateCard.y > totalPrintTimeCard.y)
+        compare(Math.round(filmStateCard.y), Math.round(lastPrintedFileCard.y))
+        verify(functionsCard.y >= basicOverviewRow.y + basicOverviewRow.height)
 
         panel.destroy()
     }
@@ -735,13 +797,16 @@ TestCase {
         })
         wait(0)
 
-        var functionsCard = findObjectByName(panel, "printerFunctionsCard")
-        verify(functionsCard !== null)
-        compare(functionsCard.visible, true)
-        compare(String(findObjectByName(panel, "printerFunctionFeedingButton").text), "Feeding")
-        compare(String(findObjectByName(panel, "printerFunctionB1Button").text), "B1")
-        compare(String(findObjectByName(panel, "printerFunctionB2Button").text), "B2")
-        compare(String(findObjectByName(panel, "printerFunctionB3Button").text), "B3")
+        var basicFunctionsCard = findObjectByName(panel, "printerFunctionsCardBasic")
+        var printingFunctionsCard = findObjectByName(panel, "printerFunctionsCard")
+        verify(basicFunctionsCard !== null)
+        verify(printingFunctionsCard !== null)
+        compare(basicFunctionsCard.visible, true)
+        compare(printingFunctionsCard.visible, false)
+        compare(String(findObjectByName(panel, "printerFunctionFeedingButtonBasic").text), "Feeding")
+        compare(String(findObjectByName(panel, "printerFunctionB1ButtonBasic").text), "B1")
+        compare(String(findObjectByName(panel, "printerFunctionB2ButtonBasic").text), "B2")
+        compare(String(findObjectByName(panel, "printerFunctionB3ButtonBasic").text), "B3")
 
         var feedingDialog = findObjectByName(panel, "printerFeedingDialog")
         verify(feedingDialog !== null)
@@ -756,7 +821,8 @@ TestCase {
             "available": 1
         }
         wait(0)
-        compare(functionsCard.visible, true)
+        compare(basicFunctionsCard.visible, true)
+        compare(printingFunctionsCard.visible, false)
 
         panel.selectedPrinter = {
             "id": "p1",
@@ -766,7 +832,12 @@ TestCase {
             "available": 1
         }
         wait(0)
-        compare(functionsCard.visible, true)
+        compare(basicFunctionsCard.visible, false)
+        compare(printingFunctionsCard.visible, true)
+        compare(String(findObjectByName(panel, "printerFunctionFeedingButton").text), "Feeding")
+        compare(String(findObjectByName(panel, "printerFunctionB1Button").text), "B1")
+        compare(String(findObjectByName(panel, "printerFunctionB2Button").text), "B2")
+        compare(String(findObjectByName(panel, "printerFunctionB3Button").text), "B3")
 
         panel.selectedPrinter = {
             "id": "p1",
@@ -776,7 +847,8 @@ TestCase {
             "available": 0
         }
         wait(0)
-        compare(functionsCard.visible, true)
+        compare(basicFunctionsCard.visible, true)
+        compare(printingFunctionsCard.visible, false)
 
         panel.destroy()
     }
@@ -1327,6 +1399,7 @@ TestCase {
         compare(String(panel.detailText(fallbackDetails, "firmwareVersion")), "FW-NESTED")
         compare(String(panel.printCountText(fallbackDetails)), "12")
         compare(String(panel.normalizedTotalPrintHoursText(fallbackDetails)), "10.5 h")
+        compare(String(panel.normalizedTotalPrintHoursText({ printTotalTime: "137小时41分" })), "137.68 h")
         compare(String(panel.normalizedTotalResinText(fallbackDetails)), "0.25 L")
         var jobModel = Qt.createQmlObject('import QtQuick 2.15; ListModel {}', panel, "recentJobsTestModel")
         jobModel.append({

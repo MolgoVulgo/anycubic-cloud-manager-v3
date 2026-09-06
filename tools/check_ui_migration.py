@@ -101,6 +101,33 @@ def check_tabs_geometry_v2() -> list[str]:
 
     main_window = QML_ROOT / "MainWindow.qml"
     main_text = read_text(main_window)
+
+    menu_order = (
+        'objectName: "menuParametre"',
+        'objectName: "menuSession"',
+        'objectName: "menuHelp"',
+    )
+    menu_positions = [main_text.find(token) for token in menu_order]
+    if any(position < 0 for position in menu_positions) or menu_positions != sorted(menu_positions):
+        issues.append("MainWindow top menu must remain ordered Settings -> Session -> Help")
+    for required in (
+        'objectName: "menuSettingsInterface"',
+        'objectName: "menuSettingsPrinting"',
+        'objectName: "menuSettingsFilesUpload"',
+        'objectName: "menuSettingsViewer3d"',
+        'objectName: "menuSessionLocation"',
+        "property bool viewer3dEnabled:",
+        "viewerEnabled: root.viewer3dEnabled",
+    ):
+        if required not in main_text:
+            issues.append(f"MainWindow menu/viewer contract missing `{required}`")
+    for forbidden in (
+        'objectName: "menuSettingsSession"',
+        'objectName: "menuSettingsMqttAuthMode"',
+        "experimentalViewerEnabled",
+    ):
+        if forbidden in main_text:
+            issues.append(f"MainWindow obsolete menu/viewer token remains `{forbidden}`")
     for required in (
         "anchors.margins: 0",
         "spacing: 0",

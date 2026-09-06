@@ -1,12 +1,12 @@
 # Photon/PWMB formats and viewer — technical appendix
 
-> Status: EXPERIMENTAL / PARTIAL. This appendix does not declare a production-ready viewer.
+> Status: IMPLEMENTED for the PWSZ 3D viewer used by desktop and production builds. Semantic support colouring is not part of this branch and remains experimental elsewhere.
 
-Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, compact GPU representation and dynamic closed Z sections, `PARTIAL` for the Qt Quick/OpenGL desktop viewer enabled in desktop presets including production, and `SPEC` for LOD/eviction hardening.
+Status: `IMPLEMENTED` for the isolated PWSZ decode/mesh core, compact GPU representation, dynamic closed Z sections and the Qt Quick/OpenGL desktop viewer; `SPEC` remains for optional LOD/eviction hardening.
 
 ## Product position
 
-The viewer remains isolated from `accloud_infra`. The `default` and `prod` presets enable it, and `dev-debug` plus `local-full` inherit the development setting. `protected-core` explicitly keeps `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
+The viewer remains isolated from `accloud_infra`. The historical build identifiers `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER`, `accloud_experimental_viewer` and `experimental-viewer-*` are retained for compatibility and do not indicate product maturity. The `default` and `prod` presets enable it, and `dev-debug` plus `local-full` inherit the development setting. `protected-core` explicitly keeps `ACCLOUD_ENABLE_EXPERIMENTAL_VIEWER=OFF`.
 
 Two dedicated validation presets also exist:
 
@@ -193,7 +193,7 @@ Known limits:
 - the 2 GiB budget rejects a pathological compact model cleanly instead of allowing the driver to abort the process;
 - exact pixel-derived models can still contain many surfaces on dense support structures;
 - no semantic colour separation between model, supports and raft;
-- the desktop backend is OpenGL-only in this experimental phase.
+- the desktop backend is currently OpenGL-only.
 
 ## Validation
 
@@ -225,4 +225,4 @@ Real PWSZ samples may be used as local validation inputs, but they are not distr
 
 ## Decision
 
-The viewer now has an end-to-end path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. The production preset enables this same experimental path. Production readiness remains partial and still requires local validation on large PWSZ files and possible LOD/eviction work.
+The viewer now has an end-to-end path from each PWSZ file row to a navigable, range-filtered 3D mesh with compact GPU surfaces and controlled allocation budgeting. The production preset enables this standard viewer path. Large-file validation and possible LOD/eviction work remain implementation-hardening tasks; semantic support colouring is intentionally absent from this branch and remains experimental elsewhere.

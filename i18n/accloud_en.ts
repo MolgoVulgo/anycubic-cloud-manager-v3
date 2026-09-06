@@ -1556,7 +1556,7 @@ Cancelled: %5</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="247" />
-            <source>import HAR</source>
+            <source>Import HAR...</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -1597,8 +1597,8 @@ Cancelled: %5</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="304" />
-            <source>?</source>
-            <translation type="unfinished" />
+            <source>Help</source>
+            <translation>Help</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="308" />
@@ -2190,6 +2190,26 @@ Qt/QML interface for cloud workflow, runtime logs, and 3D rendering.</source>
             <location filename="../ui/qml/pages/MqttPage.qml" line="314" />
             <source>Reset filter</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Interface</source>
+            <translation>Interface</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Printing</source>
+            <translation>Printing</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Files / Upload</source>
+            <translation>Files / Upload</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Session location...</source>
+            <translation>Session location...</translation>
         </message>
     </context>
     <context>

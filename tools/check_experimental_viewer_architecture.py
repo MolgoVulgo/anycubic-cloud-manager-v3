@@ -413,8 +413,8 @@ def main() -> int:
     viewer_dialog = root / "src/accloud/ui/qml/pages/VolumeViewerDialog.qml"
 
     for token in (
-        "experimentalViewerEnabled",
-        "viewerEnabled: root.experimentalViewerEnabled",
+        "viewer3dEnabled",
+        "viewerEnabled: root.viewer3dEnabled",
         "render3dWorkerCount: 4",
         'render3dWorkerCountSettingsKey: "render3d.workerCount"',
         'objectName: "menuSettingsRender3dWorkers"',
@@ -644,7 +644,7 @@ def main() -> int:
         if expected not in qml_test:
             errors.append(f"QML regression does not assert removal of {object_name}")
     for token in (
-        "test_experimental_viewer_is_a_file_action_not_a_tab",
+        "test_viewer3d_is_a_file_action_not_a_tab",
         "test_cloud_file_row_routes_pwsz_viewer_action",
         "test_render3d_worker_setting_defaults_to_four_and_persists_bounds",
         'uiSettingsBridge.values["render3d.workerCount"]',
@@ -713,13 +713,13 @@ def main() -> int:
             errors.append(f"{relative} does not document the worker benchmark")
 
     if errors:
-        print("Experimental viewer architecture FAILED", file=sys.stderr)
+        print("Viewer architecture FAILED", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
 
     print(
-        "Experimental viewer architecture passed: default desktop exposes the "
+        "Viewer architecture passed: default desktop exposes the "
         "per-file PWSZ action in desktop builds including production, and "
         f"{len(experimental_sources)} core sources plus {len(experimental_qt_sources)} Qt sources stay isolated behind the build option."
     )

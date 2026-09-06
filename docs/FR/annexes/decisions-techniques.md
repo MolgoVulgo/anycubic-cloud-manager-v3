@@ -29,7 +29,7 @@ Statut : `IMPLEMENTE` pour les décisions, `PARTIEL` pour les chantiers.
 | D-018 | Les données publiques de référence sont exclusivement synthétiques et contrôlées mécaniquement. | Les historiques MQTT bruts exposent des identifiants opérationnels persistants et n’ont pas leur place dans l’archive distribuable. |
 | D-019 | Le décodage PWSZ `pw0Img` utilise un RLE mixte un/deux octets et détecte l’antialiasing dans les rasters. | Les fichiers binaires valides ne contiennent que 0/15 ; les niveaux 1..14 restent optionnels. |
 | D-020 | Le mesh viewer est généré depuis les transitions matière/vide entre couches empilées et découpé en chunks de couches. | Cela conserve surfaces externes/internes, supports et trous tout en permettant une plage Z dynamique. |
-| D-021 | Le premier backend desktop utilise `QQuickFramebufferObject`, Qt OpenGL et un clipping Z exact dans le shader. | Il repose sur des API Qt 6 publiques, respecte la frontière `render3d/gl`, est activé dans les presets desktop de développement et reste désactivé en production. |
+| D-021 | Le backend viewer desktop utilise `QQuickFramebufferObject`, Qt OpenGL et un clipping Z exact dans le shader. | Il repose sur des API Qt 6 publiques, respecte la frontière `render3d/gl` et est activé dans les presets desktop y compris production ; le gate de build historique est conservé pour isoler les profils, pas comme indicateur de maturité produit. |
 
 ## Points ouverts
 

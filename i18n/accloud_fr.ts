@@ -1712,8 +1712,8 @@ Annulés : %5</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="247" />
-            <source>import HAR</source>
-            <translation>Importer un HAR</translation>
+            <source>Import HAR...</source>
+            <translation>Importer un HAR…</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="254" />
@@ -1753,8 +1753,8 @@ Annulés : %5</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="304" />
-            <source>?</source>
-            <translation>?</translation>
+            <source>Help</source>
+            <translation>Aide</translation>
         </message>
         <message>
             <location filename="../ui/qml/MainWindow.qml" line="308" />
@@ -2349,6 +2349,26 @@ Interface Qt/QML pour workflow cloud, logs runtime et rendu 3D.</translation>
             <location filename="../ui/qml/pages/MqttPage.qml" line="314" />
             <source>Reset filter</source>
             <translation>Reinitialiser le filtre</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Interface</source>
+            <translation>Interface</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Printing</source>
+            <translation>Impression</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Files / Upload</source>
+            <translation>Fichiers / Upload</translation>
+        </message>
+        <message>
+            <location filename="../ui/qml/MainWindow.qml" />
+            <source>Session location...</source>
+            <translation>Emplacement de session…</translation>
         </message>
     </context>
     <context>

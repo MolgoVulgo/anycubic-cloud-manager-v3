@@ -164,6 +164,8 @@ QVariantMap printerInfoToMap(const cloud::CloudPrinterInfo& p) {
     m.insert("currentLayer",p.currentLayer);
     m.insert("totalLayers", p.totalLayers);
     m.insert("currentFile", QString::fromStdString(p.currentFile));
+    m.insert("img", QString::fromStdString(p.img));
+    m.insert("image", QString::fromStdString(p.image));
     m.insert("mqttActiveTaskId", QString::fromStdString(p.mqttActiveTaskId));
     m.insert("mqttPrintState", QString::fromStdString(p.mqttPrintState));
     m.insert("mqttJobStage", QString::fromStdString(p.mqttJobStage));

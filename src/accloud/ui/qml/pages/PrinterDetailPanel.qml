@@ -21,6 +21,7 @@ Rectangle {
     property int feedingOperationType: 0 // 1=fill, 2=drain
     property bool feedingStopInProgress: false
     readonly property string currentPreviewSource: normalizedImageSource(currentFileImageSource())
+    readonly property string currentPrinterImageSource: normalizedDeviceImageSource(currentPrinterImageCandidate())
 
     property var statusChipTextProvider: null
     property var progressTextProvider: null
@@ -412,7 +413,6 @@ Rectangle {
     function currentFileImageSource() {
         var liveJob = root.selectedLiveJobData || ({})
         var details = root.selectedPrinterDetails || ({})
-        var printer = root.selectedPrinter || ({})
         var historyActive = ({})
         if (root.printerHistoryModel && root.printerHistoryModel.count !== undefined) {
             for (var i = 0; i < root.printerHistoryModel.count; ++i) {
@@ -431,18 +431,27 @@ Rectangle {
             liveJob.image,
             liveJob.preview,
             liveJob.thumbnailUrl,
-            details.img,
-            details.image,
             details.preview,
             details.thumbnailUrl,
-            printer.img,
-            printer.image,
-            printer.preview,
-            printer.thumbnailUrl,
             historyActive.img,
             historyActive.image,
             historyActive.preview,
             historyActive.thumbnailUrl
+        ]
+        for (var i = 0; i < candidates.length; ++i) {
+            if (hasTextValue(candidates[i]))
+                return String(candidates[i]).trim()
+        }
+        return ""
+    }
+
+    function currentPrinterImageCandidate() {
+        var details = root.selectedPrinterDetails || ({})
+        var printer = root.selectedPrinter || ({})
+        var candidates = [
+            printer.img,
+            printer.image,
+            details.deviceImage
         ]
         for (var i = 0; i < candidates.length; ++i) {
             if (hasTextValue(candidates[i]))
@@ -464,6 +473,29 @@ Rectangle {
         return ""
     }
 
+    function normalizedDeviceImageSource(raw) {
+        var value = String(raw === undefined || raw === null ? "" : raw).trim()
+        if (value.length <= 0)
+            return ""
+        var lowered = value.toLowerCase()
+        if (lowered.indexOf("data:image/") === 0)
+            return value
+        if (lowered.indexOf("file://") === 0 || lowered.indexOf("qrc:/") === 0)
+            return value
+        if (lowered.indexOf("https://") === 0 || lowered.indexOf("http://") === 0)
+            return value
+        return ""
+    }
+
+    function printerImageFallbackLabel() {
+        var printer = root.selectedPrinter || ({})
+        if (hasTextValue(printer.model))
+            return String(printer.model).trim()
+        if (hasTextValue(printer.name))
+            return String(printer.name).trim()
+        return ""
+    }
+
 
     function printCountText(details) {
         if (!details)
@@ -480,8 +512,10 @@ Rectangle {
         var raw = String(details.printTotalTime).trim()
         var compact = raw.toLowerCase().replace(/\s+/g, "")
         var match = compact.match(/^(\d+)(?:h|hour|hours)(\d+)(?:m|min|mins|minute|minutes)$/)
+        if (!match)
+            match = compact.match(/^(\d+)小时(?:(\d+)分)?$/)
         if (match) {
-            var totalHours = Number(match[1]) + Number(match[2]) / 60
+            var totalHours = Number(match[1]) + Number(match[2] || 0) / 60
             return qsTr("%1 h").arg(formatDecimal(totalHours, 2))
         }
         var numeric = Number(raw)
@@ -1138,191 +1172,347 @@ Rectangle {
                             }
                         }
 
-                        GridLayout {
-                            objectName: "printerBasicDetailsGrid"
+                        RowLayout {
+                            objectName: "printerBasicOverviewRow"
                             visible: root.printerInfoMode() === "basic"
                             Layout.fillWidth: true
                             Layout.preferredHeight: visible ? implicitHeight : 0
                             Layout.maximumHeight: visible ? implicitHeight : 0
-                            columns: 2
-                            columnSpacing: 8
-                            rowSpacing: 8
+                            spacing: 10
 
                             Rectangle {
-                                Layout.fillWidth: true
+                                objectName: "printerDeviceImageCard"
+                                Layout.preferredWidth: 230
+                                Layout.minimumWidth: 230
+                                Layout.maximumWidth: 230
+                                Layout.preferredHeight: 184
+                                Layout.minimumHeight: 184
+                                Layout.maximumHeight: 184
+                                Layout.alignment: Qt.AlignTop
+                                implicitHeight: 184
                                 radius: Theme.radiusControl
                                 color: Theme.bgSurface
                                 border.width: Theme.borderWidth
                                 border.color: Theme.borderSubtle
-                                implicitHeight: 48
+                                clip: true
 
                                 ColumnLayout {
                                     anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
+                                    anchors.margins: 4
+                                    spacing: 4
 
-                                    Text {
-                                        text: qsTr("Firmware")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                    }
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
 
-                                    Text {
-                                        objectName: "printerFirmwareValue"
-                                        text: root.detailText(root.effectiveBasicDetails(), "firmwareVersion")
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
+                                        Image {
+                                            id: printerDeviceImage
+                                            objectName: "printerDeviceImage"
+                                            anchors.fill: parent
+                                            source: root.currentPrinterImageSource
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                            cache: true
+                                            smooth: true
+                                            visible: root.currentPrinterImageSource.length > 0
+                                                     && status === Image.Ready
+                                        }
+
+                                        Column {
+                                            objectName: "printerDeviceImageFallback"
+                                            anchors.centerIn: parent
+                                            width: parent.width - 16
+                                            spacing: 6
+                                            visible: !printerDeviceImage.visible
+
+                                            Text {
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: root.printerImageFallbackLabel()
+                                                visible: text.length > 0
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                horizontalAlignment: Text.AlignHCenter
+                                                text: qsTr("No preview")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            Rectangle {
+                            ColumnLayout {
+                                id: printerBasicDetailsColumn
                                 Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 8
 
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
+                                GridLayout {
+                                    objectName: "printerBasicDetailsGrid"
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: implicitHeight
+                                    Layout.maximumHeight: implicitHeight
+                                    columns: 2
+                                    columnSpacing: 8
+                                    rowSpacing: 8
 
-                                    Text {
-                                        text: qsTr("Print Count")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
+                                    Rectangle {
+                                        objectName: "printerFirmwareCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Firmware")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerFirmwareValue"
+                                                text: root.detailText(root.effectiveBasicDetails(), "firmwareVersion")
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
                                     }
 
-                                    Text {
-                                        objectName: "printerPrintCountValue"
-                                        text: root.printCountText(root.effectiveBasicDetails())
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
+                                    Rectangle {
+                                        objectName: "printerPrintCountCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Print Count")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerPrintCountValue"
+                                                text: root.printCountText(root.effectiveBasicDetails())
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        objectName: "printerTotalPrintTimeCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Total Print Time")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerTotalPrintTimeValue"
+                                                text: root.normalizedTotalPrintHoursText(root.effectiveBasicDetails())
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        objectName: "printerTotalResinCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Total Resin")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerTotalResinValue"
+                                                text: root.normalizedTotalResinText(root.effectiveBasicDetails())
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        objectName: "printerFilmStateCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Film State")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerFilmStateValue"
+                                                text: root.releaseFilmText(root.effectiveBasicDetails())
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        objectName: "printerLastPrintedFileCard"
+                                        Layout.fillWidth: true
+                                        radius: Theme.radiusControl
+                                        color: Theme.bgSurface
+                                        border.width: Theme.borderWidth
+                                        border.color: Theme.borderSubtle
+                                        implicitHeight: 48
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 8
+                                            spacing: 2
+
+                                            Text {
+                                                text: qsTr("Last Printed File")
+                                                color: Theme.fgSecondary
+                                                font.pixelSize: Theme.fontCaptionPx
+                                            }
+
+                                            Text {
+                                                objectName: "printerLastPrintedFileValue"
+                                                text: root.lastPrintedFileText()
+                                                color: Theme.fgPrimary
+                                                font.pixelSize: Theme.fontBodyPx
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
                                     }
                                 }
+
+
                             }
+                        }
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
+                        Rectangle {
+                            objectName: "printerFunctionsCardBasic"
+                            visible: root.printerInfoMode() === "basic"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? functionsCardContent.implicitHeight + 16 : 0
+                            Layout.maximumHeight: visible ? functionsCardContent.implicitHeight + 16 : 0
+                            radius: Theme.radiusControl
+                            color: Theme.bgSurface
+                            border.width: Theme.borderWidth
+                            border.color: Theme.borderSubtle
 
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
+                            ColumnLayout {
+                                id: functionsCardContent
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
 
-                                    Text {
-                                        text: qsTr("Film State")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
-                                    }
-
-                                    Text {
-                                        objectName: "printerFilmStateValue"
-                                        text: root.releaseFilmText(root.effectiveBasicDetails())
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                    }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Functions")
+                                    color: Theme.fgSecondary
+                                    font.pixelSize: Theme.fontCaptionPx
+                                    font.bold: true
+                                    elide: Text.ElideRight
                                 }
-                            }
 
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 4
+                                    columnSpacing: 8
+                                    rowSpacing: 8
 
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
-
-                                    Text {
-                                        text: qsTr("Total Print Time")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
+                                    AppButton {
+                                        objectName: "printerFunctionFeedingButtonBasic"
+                                        Layout.fillWidth: true
+                                        text: qsTr("Feeding")
+                                        compact: true
+                                        onClicked: feedingDialog.open()
                                     }
 
-                                    Text {
-                                        objectName: "printerTotalPrintTimeValue"
-                                        text: root.normalizedTotalPrintHoursText(root.effectiveBasicDetails())
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
-
-                                    Text {
-                                        text: qsTr("Total Resin")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
+                                    AppButton {
+                                        objectName: "printerFunctionB1ButtonBasic"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B1")
+                                        compact: true
                                     }
 
-                                    Text {
-                                        objectName: "printerTotalResinValue"
-                                        text: root.normalizedTotalResinText(root.effectiveBasicDetails())
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                radius: Theme.radiusControl
-                                color: Theme.bgSurface
-                                border.width: Theme.borderWidth
-                                border.color: Theme.borderSubtle
-                                implicitHeight: 48
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 2
-
-                                    Text {
-                                        text: qsTr("Last Printed File")
-                                        color: Theme.fgSecondary
-                                        font.pixelSize: Theme.fontCaptionPx
+                                    AppButton {
+                                        objectName: "printerFunctionB2ButtonBasic"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B2")
+                                        compact: true
                                     }
 
-                                    Text {
-                                        objectName: "printerLastPrintedFileValue"
-                                        text: root.lastPrintedFileText()
-                                        color: Theme.fgPrimary
-                                        font.pixelSize: Theme.fontBodyPx
-                                        font.bold: true
-                                        elide: Text.ElideRight
+                                    AppButton {
+                                        objectName: "printerFunctionB3ButtonBasic"
+                                        Layout.fillWidth: true
+                                        text: qsTr("B3")
+                                        compact: true
                                     }
                                 }
                             }
@@ -1337,16 +1527,17 @@ Rectangle {
 
                         Rectangle {
                             objectName: "printerFunctionsCard"
+                            visible: root.printerInfoMode() !== "basic"
                             Layout.fillWidth: true
-                            Layout.preferredHeight: functionsCardContent.implicitHeight + 16
-                            Layout.maximumHeight: functionsCardContent.implicitHeight + 16
+                            Layout.preferredHeight: visible ? functionsCardContentStandalone.implicitHeight + 16 : 0
+                            Layout.maximumHeight: visible ? functionsCardContentStandalone.implicitHeight + 16 : 0
                             radius: Theme.radiusControl
                             color: Theme.bgSurface
                             border.width: Theme.borderWidth
                             border.color: Theme.borderSubtle
 
                             ColumnLayout {
-                                id: functionsCardContent
+                                id: functionsCardContentStandalone
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 spacing: 8

@@ -98,7 +98,7 @@ ctest --preset default -R '^accloud_mqtt_bridge_architecture$' --output-on-failu
 
 This guard keeps `MqttBridge` as a bounded Qt facade, requires the session/messages/telemetry implementation units, verifies the shared `ACCLOUD_MQTT_BRIDGE_SOURCES` set and preserves the frozen broker/SLICER ownership in the session unit.
 
-Experimental viewer isolation:
+Viewer isolation (historical build identifiers):
 
 ```bash
 cmake --preset experimental-viewer-core
